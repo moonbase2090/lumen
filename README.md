@@ -28,4 +28,4 @@ Concept and spec stage: no code yet. Early work runs experiments on transport (P
 Please don't open public issues for vulnerabilities. See [SECURITY.md](SECURITY.md).
 
 ## License
-TBD.
+Code is dual-licensed under MIT or Apache-2.0, at your option. The Lumen specification is licensed under CC-BY-4.0.
