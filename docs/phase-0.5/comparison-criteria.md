@@ -8,7 +8,7 @@ Normative terms follow [spec/v0](../../spec/v0/_index.md). The arms are describe
 
 Both arms are built in this repository behind Cargo features `arm-a` and `arm-b`, both off by default. They share the same renderer and the same red-team corpus. Each arm is built from a single commit, and every result records that commit SHA.
 
-**Arm A: sealed-only rich.** Rich blocks render only on a sealed layer. Track 0 output on an unsealed layer renders as escaped text. Multiplexer behaviour follows [multiplexers](../../spec/v0/multiplexers.md#mux.lumen-aware); the multiplexer placement comparison is out of scope for this phase.
+**Arm A: sealed-only rich.** Rich blocks render only on a sealed layer. Track 0 output on an unsealed layer renders as escaped text. Multiplexer behaviour follows [multiplexers](../../spec/v0/multiplexers.md#mux.lumen-aware). Where rich panes are placed is compared separately in section 7.
 
 **Arm B: decoupled.** Track 0 renders on every layer, subject to the Track 0 rules. The sealed upgrade applies on the default model: a layer that meets the [default sealing requirements](../../spec/v0/sealed-layers.md#sealed.requirements) gets sealed authority on top of Track 0. This is the expected default.
 
@@ -127,3 +127,36 @@ A result is a docs PR that adds `docs/phase-0.5/results-<arm>.md` for each arm a
 - the build commit SHA, OS and version, and the harness and corpus revisions;
 - a table with one row per metric in section 2, showing unit, value, threshold, pass or fail, and the path to the raw log;
 - the decision outcome under section 4, and any gate that was off during the measurement.
+
+## 7. Multiplexer placement comparison
+
+This section compares where rich panes are placed in a Lumen-aware multiplexer. It runs on the same evidence harness and the same corpus as sections 2 to 6, and its results are recorded in the same results format.
+
+### 7.1 The two placements
+
+**Option A: sealed containers (default).** The multiplexer parses each pane's Track 0 itself and re-emits it as sealed pane-container frames, with an opaque pane id, a layout generation and a rectangle. Its keys are scoped to the layout and pane-container frame types only, as described in [multiplexers](../../spec/v0/multiplexers.md#mux.pane-containers). Rich panes are on only on platforms where the [multiplexer gate](../../spec/v0/conformance.md#gate.multiplexer) passes.
+
+**Option B: unsealed producer (off by default).** The multiplexer is treated as an ordinary unsealed producer, as the [unsealed multiplexer mode](../../spec/v0/multiplexers.md#mux.unsealed) describes. It gets only the Track 0 rules and the possibly-remote treatment. It draws no per-pane containers, so it has no rich panes.
+
+### 7.2 Metrics
+
+Each metric is a count or percentage over the pane corpus, which covers resize, zoom, layout races, reattach and a fuzzed pane parser. Every run records the build commit SHA and the platform.
+
+- **Cross-pane and hidden-pane drawing.** Unit: count of draws outside a pane's rectangle, and count of draws from a hidden or detached pane. Method: pixel and draw-log check across resize, zoom and layout-race scripts. Threshold: **zero**.
+- **Trust-margin pixels in panes.** Unit: count of changed pixels in the outer trust margin and in each per-pane strip, against a baseline with no pane input. Method: the same pixel diff as section 2.3, over the pane corpus. Threshold: **zero**.
+- **Stale-generation drop.** Unit: percent of frames with a stale layout generation that are dropped. Method: replay of out-of-generation frames. Threshold: **100%**.
+- **Forged frames stay text.** Unit: count of forged sealed-looking frames from a pane that the outer terminal draws as containers. Method: the forgery corpus from the pane. Threshold: **zero** drawn as containers; every forged frame renders as text.
+- **Reattach.** Unit: count of reattaches that reuse prior keys, and percent of replayed content without the "replayed" mark. Method: reattach scripts with key-material logging. Threshold: **zero** reused keys; **100%** of replayed content marked.
+- **Introducer fuzzing of the pane parser.** Unit: count of frames accepted from bytes without valid sealing, and count of frame bytes that reach the VT parser. Method: every introducer variant at every split position, run against the pane parser. Threshold: **zero** in both counts.
+- **Key custody.** Unit: count of keys found in the multiplexer server's memory, environment or socket, and count of keys held by a client not spawned by the terminal. Method: memory and environment scan of the server during a run. Threshold: **zero** in both counts.
+- **Pane reach.** Unit: percent of pane sessions in the matrix that show rich panes as intended. Method: screenshot-diff oracle, as section 2.1. Threshold: **reported only**, not gated.
+
+### 7.3 Decision rule
+
+1. Option A is the placement used. Rich panes are enabled on a platform only when every metric in section 7.2 that is gated has zero failures there, and the multiplexer gate passes there.
+2. On any platform where Option A's gate does not pass, rich panes stay off. Option B is the state where rich panes are off. Its result is "no rich panes", not a rich-pane result.
+3. The placement results do not change the arm decision in section 4.
+
+### 7.4 Preconditions
+
+The Track 0 gates in section 3 and the [alternate-screen rule](../../spec/v0/multiplexers.md#mux.alt-screen), which applies per pane, must pass before any rich pane is measured.
