@@ -1,0 +1,18 @@
+[package]
+name = "lumen-sealed"
+description = "Sealed-layer key derivation and frame header verification"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+hkdf = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+zeroize = "1"
+
+[lints]
+workspace = true
