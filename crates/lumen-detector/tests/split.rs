@@ -31,7 +31,9 @@ fn run(stream: &[u8], chunks: &[usize]) -> Vec<Event> {
     d.finish(&mut raw);
     let mut merged: Vec<Event> = Vec::new();
     for e in raw {
-        if let (Event::Output(new), Some(Event::Output(last))) = (&e, merged.last_mut()) {
+        if let (Event::Output(new), Some(Event::Output(last)))
+        | (Event::Escaped(new), Some(Event::Escaped(last))) = (&e, merged.last_mut())
+        {
             last.extend_from_slice(new);
         } else {
             merged.push(e);
@@ -120,7 +122,8 @@ fn partial_introducer_or_header_at_end_of_stream_is_withheld_or_released() {
             "tail {tail:?}"
         );
     }
-    // A complete introducer is withheld; what follows it is released.
+    // A complete introducer is withheld; the partial header after it is shown
+    // as escaped text.
     let header_short = frame(b"\x1b_", 1, b"xyz");
     for (tail, rest) in [
         (&b"\x1b_"[..], &b""[..]),
@@ -130,14 +133,16 @@ fn partial_introducer_or_header_at_end_of_stream_is_withheld_or_released() {
     ] {
         let mut s = b"ab".to_vec();
         s.extend_from_slice(tail);
-        let mut want = b"ab".to_vec();
-        want.extend_from_slice(rest);
-        assert_eq!(expect_whole(&s), vec![Event::Output(want)], "tail {tail:?}");
+        let mut want = vec![Event::Output(b"ab".to_vec())];
+        if !rest.is_empty() {
+            want.push(Event::Escaped(rest.to_vec()));
+        }
+        assert_eq!(expect_whole(&s), want, "tail {tail:?}");
     }
 }
 
 #[test]
-fn wrong_tag_is_ordinary_output_and_scanning_resumes_inside_it() {
+fn wrong_tag_is_shown_as_escaped_text_and_scanning_resumes_inside_it() {
     let mut s = b"\x1b_".to_vec();
     s.extend_from_slice(b"NOTATAG!");
     s.extend(frame(b"\x1b_", 5, b"ok"));
@@ -145,7 +150,7 @@ fn wrong_tag_is_ordinary_output_and_scanning_resumes_inside_it() {
     assert_eq!(
         got,
         vec![
-            Event::Output(b"NOTATAG!".to_vec()),
+            Event::Escaped(b"NOTATAG!".to_vec()),
             Event::Frame {
                 kind: 5,
                 payload: b"ok".to_vec()
@@ -302,5 +307,121 @@ fn random_streams_in_random_chunks_match_the_unsplit_result() {
             left -= n;
         }
         assert_eq!(run(&s, &cuts), whole, "case {case} cuts {cuts:?}");
+    }
+}
+
+/// A header for an unsealed frame that declares `declared` bytes.
+fn header(kind: u8, declared: u32) -> Vec<u8> {
+    let mut v = b"\x1b_".to_vec();
+    v.extend_from_slice(&TAG);
+    v.push(kind);
+    v.extend_from_slice(&declared.to_be_bytes());
+    v
+}
+
+#[test]
+fn an_unsealed_header_cannot_hide_a_later_frame() {
+    for inner_intro in INTRODUCERS {
+        let inner = frame(inner_intro, 5, b"genuine");
+        let mut s = header(0x80, 500);
+        s.extend_from_slice(b"abc");
+        s.extend_from_slice(&inner);
+        s.extend_from_slice(b"after");
+        let want = vec![
+            Event::Truncated(b"abc".to_vec()),
+            Event::Frame {
+                kind: 5,
+                payload: b"genuine".to_vec(),
+            },
+            Event::Output(b"after".to_vec()),
+        ];
+        // Whole, byte by byte, and every single split position.
+        assert_eq!(run(&s, &[]), want, "whole, introducer {inner_intro:?}");
+        assert_eq!(
+            run(&s, &vec![1; s.len() - 1]),
+            want,
+            "one byte at a time, introducer {inner_intro:?}"
+        );
+        for at in 1..s.len() {
+            assert_eq!(
+                run(&s, &[at]),
+                want,
+                "split {at}, introducer {inner_intro:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_trigger_at_the_start_of_the_payload_leaves_an_empty_truncated_frame() {
+    let mut s = header(0x80, 100);
+    s.extend(frame(b"\x1b_", 5, b"x"));
+    assert_eq!(
+        run(&s, &[]),
+        vec![
+            Event::Truncated(Vec::new()),
+            Event::Frame {
+                kind: 5,
+                payload: b"x".to_vec()
+            }
+        ]
+    );
+}
+
+#[test]
+fn bare_introducer_bytes_inside_an_unsealed_payload_are_payload() {
+    // A 159-byte string has the length bytes 00 9F; a 27-byte string that starts
+    // with `_` has 00 1B 5F; U+27DF is E2 9F 9F. None may end the frame.
+    let mut payloads: Vec<Vec<u8>> = Vec::new();
+    let mut p = vec![0, 0x9f];
+    p.extend(vec![b'a'; 159]);
+    payloads.push(p);
+    let mut p = vec![0, 0x1b, b'_'];
+    p.extend(vec![b'b'; 26]);
+    payloads.push(p);
+    let mut p = vec![0, 3, 0xe2, 0x9f, 0x9f];
+    p.extend_from_slice(b"\xc2\x9f");
+    payloads.push(p);
+    for payload in payloads {
+        let s = frame(b"\x1b_", 0x80, &payload);
+        let want = vec![Event::Frame {
+            kind: 0x80,
+            payload: payload.clone(),
+        }];
+        assert_eq!(run(&s, &[]), want);
+        assert_eq!(run(&s, &vec![1; s.len() - 1]), want);
+        for at in 1..s.len() {
+            assert_eq!(run(&s, &[at]), want, "split {at}");
+        }
+    }
+}
+
+#[test]
+fn a_sealed_range_region_is_not_scanned_for_triggers() {
+    // The length of a sealed-range frame is only used once its header has been
+    // accepted, so its region is not rescanned here.
+    let inner = frame(b"\x1b_", 5, b"in");
+    let mut payload = b"ab".to_vec();
+    payload.extend_from_slice(&inner);
+    let s = frame(b"\x1b_", 3, &payload);
+    assert_eq!(run(&s, &[]), vec![Event::Frame { kind: 3, payload }]);
+}
+
+#[test]
+fn a_raw_9f_that_continues_utf8_inside_a_payload_is_text_not_a_trigger() {
+    // U+27CA is E2 9F 8A; the tag begins with 8A, so `9F` + tag would look like
+    // an introducer and a tag if the continuation byte were not excluded.
+    let mut payload = b"\xe2".to_vec();
+    payload.push(0x9f);
+    payload.extend_from_slice(&TAG[..]);
+    let s = frame(b"\x1b_", 0x80, &payload);
+    let want = vec![Event::Frame {
+        kind: 0x80,
+        payload: payload.clone(),
+    }];
+    assert_eq!(run(&s, &[]), want);
+    assert_eq!(run(&s, &vec![1; s.len() - 1]), want);
+    for at in 1..s.len() {
+        assert_eq!(run(&s, &[at]), want, "split {at}");
     }
 }

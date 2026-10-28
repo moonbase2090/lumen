@@ -64,7 +64,8 @@ fn frame(intro: &[u8], kind: u8, payload: &[u8]) -> Vec<u8> {
 fn wrong_tag_introducer_is_withheld() {
     for intro in INTRODUCERS {
         let mut s = intro.to_vec();
-        s.extend_from_slice(b"NOTATAG!visible");
+        // The 13 bytes after the introducer are the header, shown as escaped text.
+        s.extend_from_slice(b"NOTATAG!.....visible");
         let mut d = Detector::default();
         let mut out = Vec::new();
         d.feed(&s, &mut out);
@@ -186,4 +187,37 @@ fn raw_c1_introducer_after_an_open_utf8_lead_byte_is_text_not_a_frame() {
             .any(|e| matches!(e, Event::Frame { kind: 1, .. })),
         "{out:?}"
     );
+}
+
+#[test]
+fn a_rejected_header_is_escaped_text_once_and_not_also_output() {
+    let mut s = b"\x1b_NOTATAG!.....rest".to_vec();
+    let mut d = Detector::default();
+    let mut out = Vec::new();
+    d.feed(&s, &mut out);
+    d.finish(&mut out);
+    assert_eq!(
+        out,
+        vec![
+            Event::Escaped(b"NOTATAG!.....".to_vec()),
+            Event::Output(b"rest".to_vec())
+        ]
+    );
+    // The same stream in one-byte reads gives the same bytes in each role.
+    let mut d = Detector::default();
+    let mut out = Vec::new();
+    for b in s.drain(..) {
+        d.feed(&[b], &mut out);
+    }
+    d.finish(&mut out);
+    let join = |want_escaped: bool| -> Vec<u8> {
+        out.iter()
+            .flat_map(|e| match (e, want_escaped) {
+                (Event::Escaped(b), true) | (Event::Output(b), false) => b.clone(),
+                _ => Vec::new(),
+            })
+            .collect()
+    };
+    assert_eq!(join(true), b"NOTATAG!.....");
+    assert_eq!(join(false), b"rest");
 }

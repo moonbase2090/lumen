@@ -24,6 +24,15 @@ pub const TAG: [u8; 8] = *b"\x8aLUMEN\x01\xf3";
 /// Largest declared payload accepted by default: the 1 MiB frame size limit.
 pub const DEFAULT_MAX_PAYLOAD: usize = 1 << 20;
 
+/// First type byte of the unsealed range. A frame of an unsealed type has an
+/// unverified length, so its payload is scanned for the start of another frame.
+const UNSEALED_MIN: u8 = 0x80;
+
+/// Bytes kept from the end of the payload read so far: the longest introducer
+/// and the tag less the byte that completes it, and three more to tell whether
+/// a raw `0x9F` continues a UTF-8 sequence.
+const TRIGGER_TAIL: usize = 2 + TAG.len() - 1 + 3;
+
 /// Length of the header after the introducer: tag, type byte, length field.
 const HEADER_LEN: usize = TAG.len() + 1 + 4;
 
@@ -40,13 +49,21 @@ pub enum Event {
         payload: Vec<u8>,
     },
     /// A frame header that was refused (over the length limit, or refused by a
-    /// [`HeaderCheck`]): the introducer and header bytes, for the caller to
-    /// account for. The header failed, so no frame exists. The introducer is
-    /// dropped, never sent to the VT parser. The rest of the bytes follow as
-    /// [`Event::Output`], and the detector resumes at the byte after the
-    /// introducer, so a frame hidden in the rest of the header or the body is
-    /// still found. The declared length is never used to skip input.
+    /// [`HeaderCheck`]). The header failed, so no frame exists. This event only
+    /// reports the refusal, for the caller to count; its bytes (the introducer
+    /// and header) are not to be shown. The header is reported as
+    /// [`Event::Escaped`], the introducer is withheld from the VT parser, and
+    /// the rest follows as [`Event::Output`]. The detector resumes at the byte
+    /// after the introducer, so a frame hidden in the rest of the header or the
+    /// body is still found. The declared length is never used to skip input.
     Rejected(Vec<u8>),
+    /// Bytes of a rejected header, to be shown as escaped text. They are the
+    /// header-length bytes that follow the introducer (fewer if the stream
+    /// ends first), up to the first introducer among them. They do not also appear as
+    /// [`Event::Output`]. The caller charges them to the unauthenticated
+    /// budget. Like `Output`, adjacent `Escaped` events may be split at read
+    /// boundaries and are to be joined.
+    Escaped(Vec<u8>),
     /// The stream ended after a complete header but before the whole payload.
     /// The bytes are the payload received so far. A shorter, partial introducer
     /// or header is released as `Output` instead.
@@ -102,6 +119,23 @@ enum State {
     },
 }
 
+/// Where a trigger was found, as seen from the payload being collected.
+enum Trigger {
+    /// It starts at this index of the payload read so far, and reaches into
+    /// the incoming bytes.
+    InBuffer(usize),
+    /// It starts at this index of the incoming bytes.
+    InData(usize),
+}
+
+/// How to go on after a trigger ended a frame.
+enum Resume {
+    /// Rescan these bytes first.
+    Rescan(Pass),
+    /// Carry on at this index of the input.
+    At(usize),
+}
+
 /// How a pass over some input ended.
 enum Pass {
     /// All input was used.
@@ -122,6 +156,9 @@ pub struct Detector {
     /// Continuation bytes still expected in a UTF-8 sequence in ordinary
     /// output. A raw `0x9F` inside one is text, not an introducer.
     utf8_cont: u8,
+    /// How many more bytes of ordinary input are still part of the rejected
+    /// header just refused, and are reported as [`Event::Escaped`].
+    shown: usize,
     max_payload: usize,
 }
 
@@ -139,6 +176,39 @@ fn introducer_len(bytes: &[u8]) -> Option<usize> {
         [0x9f, ..] => Some(1),
         _ => None,
     }
+}
+
+/// Whether `bytes` start with an introducer followed by the whole tag. Inside an
+/// unsealed payload this is what ends the frame: shorter look-alikes, such as a
+/// length byte equal to `0x9F`, are payload.
+fn is_trigger(bytes: &[u8]) -> bool {
+    introducer_len(bytes).is_some_and(|n| bytes[n..].starts_with(&TAG))
+}
+
+/// Whether a raw `0x9F` that follows `before` continues an incomplete UTF-8
+/// sequence, so it is text and not an introducer.
+fn continues_utf8(before: &[u8]) -> bool {
+    for k in 1..=3.min(before.len()) {
+        let b = before[before.len() - k];
+        if (0x80..=0xbf).contains(&b) {
+            continue;
+        }
+        let need = match b {
+            0xc3..=0xdf => 1,
+            0xe0..=0xef => 2,
+            0xf0..=0xf4 => 3,
+            _ => 0,
+        };
+        return need >= k;
+    }
+    false
+}
+
+/// Where the first trigger starts in `view`. A raw `0x9F` that continues a
+/// UTF-8 sequence is text, as outside a payload.
+fn find_trigger(view: &[u8]) -> Option<usize> {
+    (0..view.len())
+        .find(|&s| is_trigger(&view[s..]) && !(view[s] == 0x9f && continues_utf8(&view[..s])))
 }
 
 /// Whether `bytes` could still become an introducer plus a matching header.
@@ -182,6 +252,7 @@ impl Detector {
             buf: Vec::new(),
             head: Vec::new(),
             utf8_cont: 0,
+            shown: 0,
             max_payload,
         }
     }
@@ -233,6 +304,107 @@ impl Detector {
         }
     }
 
+    /// Scan ordinary bytes from `data[start..]` up to the next possible
+    /// introducer. Bytes that belong to a rejected header go out as
+    /// [`Event::Escaped`], the rest into `plain`. Returns where scanning stopped.
+    fn scan_plain(
+        &mut self,
+        data: &[u8],
+        start: usize,
+        plain: &mut Vec<u8>,
+        out: &mut Vec<Event>,
+    ) -> usize {
+        let mut i = start;
+        while i < data.len() {
+            let b = data[i];
+            if self.utf8_cont > 0 && (0x80..=0xbf).contains(&b) {
+                self.utf8_cont -= 1;
+            } else if matches!(b, 0x1b | 0xc2 | 0x9f) {
+                self.utf8_cont = 0;
+                break;
+            } else {
+                self.utf8_cont = match b {
+                    0xc3..=0xdf => 1,
+                    0xe0..=0xef => 2,
+                    0xf0..=0xf4 => 3,
+                    _ => 0,
+                };
+            }
+            i += 1;
+        }
+        let show = self.shown.min(i - start);
+        if show > 0 {
+            flush(plain, out);
+            let shown = &data[start..start + show];
+            if let Some(Event::Escaped(last)) = out.last_mut() {
+                last.extend_from_slice(shown);
+            } else {
+                out.push(Event::Escaped(shown.to_vec()));
+            }
+            self.shown -= show;
+        }
+        plain.extend_from_slice(&data[start + show..i]);
+        i
+    }
+
+    /// Look for the start of another frame inside an unsealed payload: an
+    /// introducer followed by the whole tag. `incoming` is what would be added
+    /// to the payload; the end of the payload read so far is searched with it,
+    /// so a trigger split over reads is found.
+    fn find_payload_trigger(&self, incoming: &[u8]) -> Option<Trigger> {
+        let tail_start = self.buf.len().saturating_sub(TRIGGER_TAIL);
+        let tail = &self.buf[tail_start..];
+        let mut view = Vec::with_capacity(tail.len() + incoming.len());
+        view.extend_from_slice(tail);
+        view.extend_from_slice(incoming);
+        find_trigger(&view).map(|s| {
+            if s < tail.len() {
+                Trigger::InBuffer(tail_start + s)
+            } else {
+                Trigger::InData(s - tail.len())
+            }
+        })
+    }
+
+    /// If the next `take` bytes of `data[i..]` hold a trigger, end the frame as
+    /// truncated and say how to go on.
+    fn end_at_trigger(
+        &mut self,
+        data: &[u8],
+        i: usize,
+        take: usize,
+        plain: &mut Vec<u8>,
+        out: &mut Vec<Event>,
+    ) -> Option<Resume> {
+        match self.find_payload_trigger(&data[i..i + take])? {
+            Trigger::InBuffer(end) => {
+                // The trigger began in earlier reads: the bytes from `end` on
+                // are rescanned.
+                let rescan = self.buf.split_off(end);
+                self.truncate_at_trigger(plain, out);
+                Some(Resume::Rescan(Pass::Refused {
+                    rescan,
+                    consumed: i,
+                }))
+            }
+            Trigger::InData(k) => {
+                self.buf.extend_from_slice(&data[i..i + k]);
+                self.truncate_at_trigger(plain, out);
+                Some(Resume::At(i + k))
+            }
+        }
+    }
+
+    /// End the frame being collected as truncated, at a trigger. The caller has
+    /// left exactly the payload before the trigger in `buf`.
+    fn truncate_at_trigger(&mut self, plain: &mut Vec<u8>, out: &mut Vec<Event>) {
+        flush(plain, out);
+        out.push(Event::Truncated(std::mem::take(&mut self.buf)));
+        self.head.clear();
+        self.shown = 0;
+        self.state = State::Idle;
+    }
+
     fn run(
         &mut self,
         data: &[u8],
@@ -244,26 +416,10 @@ impl Detector {
         while i < data.len() {
             match self.state {
                 State::Idle => {
-                    let start = i;
-                    while i < data.len() {
-                        let b = data[i];
-                        if self.utf8_cont > 0 && (0x80..=0xbf).contains(&b) {
-                            self.utf8_cont -= 1;
-                        } else if matches!(b, 0x1b | 0xc2 | 0x9f) {
-                            self.utf8_cont = 0;
-                            break;
-                        } else {
-                            self.utf8_cont = match b {
-                                0xc3..=0xdf => 1,
-                                0xe0..=0xef => 2,
-                                0xf0..=0xf4 => 3,
-                                _ => 0,
-                            };
-                        }
-                        i += 1;
-                    }
-                    plain.extend_from_slice(&data[start..i]);
+                    i = self.scan_plain(data, i, plain, out);
                     if i < data.len() {
+                        // A new candidate ends the rejected header's span.
+                        self.shown = 0;
                         self.buf.clear();
                         self.buf.push(data[i]);
                         i += 1;
@@ -300,6 +456,16 @@ impl Detector {
                         remaining
                     };
                     let take = remaining.min(limit).min(data.len() - i);
+                    if need == 0 && kind >= UNSEALED_MIN {
+                        match self.end_at_trigger(data, i, take, plain, out) {
+                            Some(Resume::Rescan(pass)) => return pass,
+                            Some(Resume::At(next)) => {
+                                i = next;
+                                continue;
+                            }
+                            None => {}
+                        }
+                    }
                     self.buf.extend_from_slice(&data[i..i + take]);
                     i += take;
                     let remaining = remaining - take;
@@ -312,6 +478,7 @@ impl Detector {
                             // The introducer is withheld from the VT parser.
                             let mut rescan = self.head.split_off(intro);
                             rescan.append(&mut self.buf);
+                            self.shown = HEADER_LEN;
                             self.head.clear();
                             self.state = State::Idle;
                             return Pass::Refused {
@@ -348,13 +515,19 @@ impl Detector {
     /// output.
     pub fn finish(&mut self, out: &mut Vec<Event>) {
         let buf = std::mem::take(&mut self.buf);
+        self.shown = 0;
         match std::mem::replace(&mut self.state, State::Idle) {
             State::Idle => {}
             State::Candidate => {
                 // Withhold a complete introducer; release the rest.
                 let intro = introducer_len(&buf).unwrap_or(0);
                 if buf.len() > intro {
-                    out.push(Event::Output(buf[intro..].to_vec()));
+                    let rest = buf[intro..].to_vec();
+                    out.push(if intro > 0 {
+                        Event::Escaped(rest)
+                    } else {
+                        Event::Output(rest)
+                    });
                 }
             }
             State::Payload { .. } => out.push(Event::Truncated(buf)),
@@ -382,6 +555,9 @@ impl Detector {
             plain.append(&mut self.buf);
         } else {
             self.buf.clear();
+            // The header failed (wrong tag): show what was read after the
+            // introducer, up to one header, as escaped text.
+            self.shown = HEADER_LEN;
         }
         self.state = State::Idle;
         // `rest` is shorter than the candidate was, so this recursion is bounded.
@@ -414,6 +590,7 @@ impl Detector {
             let header = std::mem::take(&mut self.buf);
             out.push(Event::Rejected(header.clone()));
             self.state = State::Idle;
+            self.shown = HEADER_LEN;
             return Some(header[intro..].to_vec());
         }
         if declared == 0 {

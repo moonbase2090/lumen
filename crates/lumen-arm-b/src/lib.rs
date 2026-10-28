@@ -345,6 +345,12 @@ impl Layer {
         for event in events {
             match event {
                 Event::Output(bytes) => items.push(Item::Output(bytes)),
+                Event::Escaped(bytes) => {
+                    // The header of a rejected candidate: visible text, charged
+                    // to the unauthenticated budget, never output.
+                    self.charge_bytes(bytes.len(), &mut items);
+                    items.push(text(&bytes));
+                }
                 Event::Frame { kind, payload } => {
                     self.gate.stats.frames_seen += 1;
                     self.gate.stats.frames_accepted += 1;
@@ -357,10 +363,11 @@ impl Layer {
                         self.gate.stats.refused_framing += 1;
                     }
                     self.gate.refusal_noted = false;
-                    // A refused candidate is not a frame: the detector has
-                    // already released its bytes as ordinary output. Only the
-                    // budget is charged.
-                    self.charge(bytes.len(), &mut items);
+                    // A refused candidate is not a frame: the detector reports
+                    // its header as escaped text (charged there) and releases
+                    // the rest as ordinary output. Only the frame is counted.
+                    let _ = bytes;
+                    self.charge(0, &mut items);
                     if self.gate.pin_pending {
                         self.gate.pin_pending = false;
                         self.pinned_shown = true;
@@ -434,7 +441,13 @@ impl Layer {
     /// the cause, the notice is pushed. Returns whether the budget is spent.
     fn charge(&mut self, len: usize, items: &mut Vec<Item>) -> bool {
         self.frames = self.frames.saturating_add(1);
-        self.bytes = self.bytes.saturating_add(len).saturating_add(1);
+        self.bytes = self.bytes.saturating_add(1);
+        self.charge_bytes(len, items)
+    }
+
+    /// Count bytes against the budget without counting a frame.
+    fn charge_bytes(&mut self, len: usize, items: &mut Vec<Item>) -> bool {
+        self.bytes = self.bytes.saturating_add(len);
         let over = self.frames > self.config.budget.max_frames
             || self.bytes > self.config.budget.max_bytes;
         if over && !self.degraded {
