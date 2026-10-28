@@ -298,6 +298,7 @@ dependencies = [
 name = "lumen-evidence"
 version = "0.0.0"
 dependencies = [
+ "lumen-arm-a",
  "lumen-arm-b",
  "lumen-harness",
  "serde_json",
