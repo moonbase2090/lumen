@@ -1,7 +1,7 @@
-//! Replays a corpus through the Arm B layer and writes the comparison run log.
+//! Replays a corpus through an arm's layer and writes the comparison run log.
 //!
-//! This crate is test-only: nothing shipped depends on it. It measures what the
-//! Arm B byte pipeline can show on its own. It draws nothing and has no
+//! This crate is test-only: nothing shipped depends on it. It measures what an
+//! arm's byte pipeline can show on its own. It draws nothing and has no
 //! terminal, so the authority-leak count is reported as not measured.
 //!
 //! # Corpus format
@@ -19,12 +19,15 @@
 //!   goes to the background strip.
 //! - `forbid`: optional item kinds that must not appear (for example `sealed`
 //!   for input that never came from a sealed layer). Each occurrence is a
-//!   violation. The kinds are `lumen_arm_b::ITEM_KINDS`; an unknown kind fails
-//!   the load, so a typo cannot pass silently.
+//!   violation. The kinds are the item kinds of either arm
+//!   (`lumen_arm_b::ITEM_KINDS`, `lumen_arm_a::pipeline::ITEM_KINDS`); an
+//!   unknown kind fails the load, so a typo cannot pass silently. A kind the
+//!   chosen arm never reports (`background` for Arm A) simply never appears.
 
 #![forbid(unsafe_code)]
 
-use lumen_arm_b::{Budget, Config, Context, Counters, ITEM_KINDS, Item, Layer, item_summary};
+use lumen_arm_a::pipeline::ITEM_KINDS as ARM_A_KINDS;
+use lumen_arm_b::ITEM_KINDS as ARM_B_KINDS;
 use lumen_harness::{EffectLog, HeaderInfo, Recorder, SinkTable};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -119,9 +122,10 @@ fn case_of(v: &Value) -> Result<Case, String> {
     if forbid.len() != v["forbid"].as_array().map_or(0, Vec::len) {
         return Err(format!("{id}: forbid entries must be strings"));
     }
-    if let Some(bad) = forbid.iter().find(|k| !ITEM_KINDS.contains(&k.as_str())) {
+    let known = |k: &str| ARM_B_KINDS.contains(&k) || ARM_A_KINDS.contains(&k);
+    if let Some(bad) = forbid.iter().find(|k| !known(k)) {
         return Err(format!(
-            "{id}: unknown forbid kind {bad:?}; known kinds are {ITEM_KINDS:?}"
+            "{id}: unknown forbid kind {bad:?}; known kinds are {ARM_B_KINDS:?} and {ARM_A_KINDS:?}"
         ));
     }
     Ok(Case {
@@ -189,8 +193,8 @@ pub struct CaseResult {
     pub id: String,
     /// Items by kind.
     pub kinds: BTreeMap<&'static str, usize>,
-    /// The layer's counters after the stream ended.
-    pub counters: Counters,
+    /// The layer's counters after the stream ended, as the arm prints them.
+    pub counters: String,
     /// How many forbidden items appeared.
     pub violations: usize,
 }
@@ -230,7 +234,7 @@ impl Report {
         for c in &self.cases {
             let _ = writeln!(
                 out,
-                "{} items={:?} violations={} counters={:?}",
+                "{} items={:?} violations={} counters={}",
                 c.id, c.kinds, c.violations, c.counters
             );
         }
@@ -238,11 +242,117 @@ impl Report {
     }
 }
 
-fn run_case<W: Write>(case: &Case, rec: &mut Recorder<W>) -> std::io::Result<CaseResult> {
-    let mut layer = Layer::new(Config {
-        budget: Budget::quarter_of(FULL_FRAMES, FULL_BYTES),
-        background_as_text: false,
-    });
+/// Which arm, and for Arm A which kind of layer, the corpus is replayed through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arm {
+    /// Arm B: Track 0 everywhere plus the sealed upgrade.
+    B,
+    /// Arm A on a layer whose sealing requirements all hold.
+    ASealed,
+    /// Arm A on a layer where a sealing requirement failed, so there are no keys.
+    AUnsealed,
+}
+
+impl Arm {
+    /// The name written into the log header.
+    #[must_use]
+    pub fn features(self) -> &'static str {
+        match self {
+            Arm::B => "arm-b",
+            Arm::ASealed => "arm-a sealed-layer",
+            Arm::AUnsealed => "arm-a unsealed-layer",
+        }
+    }
+}
+
+/// One arm's layer behind the calls the driver needs.
+enum AnyLayer {
+    A(lumen_arm_a::pipeline::Layer),
+    B(lumen_arm_b::Layer),
+}
+
+impl AnyLayer {
+    fn new(arm: Arm) -> Self {
+        match arm {
+            Arm::B => AnyLayer::B(lumen_arm_b::Layer::new(lumen_arm_b::Config {
+                budget: lumen_arm_b::Budget::quarter_of(FULL_FRAMES, FULL_BYTES),
+                background_as_text: false,
+            })),
+            Arm::ASealed | Arm::AUnsealed => {
+                let state = if arm == Arm::ASealed {
+                    lumen_arm_a::LayerState::Sealed
+                } else {
+                    lumen_arm_a::LayerState::Unsealed
+                };
+                AnyLayer::A(lumen_arm_a::pipeline::Layer::new(
+                    lumen_arm_a::pipeline::Config {
+                        budget: lumen_arm_a::pipeline::Budget::quarter_of(FULL_FRAMES, FULL_BYTES),
+                    },
+                    state,
+                ))
+            }
+        }
+    }
+
+    fn open_container(&mut self) {
+        match self {
+            AnyLayer::A(l) => l.open_container(),
+            AnyLayer::B(l) => l.open_container(),
+        }
+    }
+
+    /// Feed one read and return the `(kind, len)` summary of what came out.
+    fn feed(&mut self, bytes: &[u8], read: &Read, case: &Case) -> Vec<(&'static str, usize)> {
+        match self {
+            AnyLayer::A(l) => l
+                .feed(
+                    bytes,
+                    lumen_arm_a::pipeline::Context {
+                        alt_screen: case.alt_screen,
+                        tmux_or_screen: case.tmux_or_screen,
+                        now_ms: read.t_ms,
+                    },
+                )
+                .iter()
+                .map(lumen_arm_a::pipeline::item_summary)
+                .collect(),
+            AnyLayer::B(l) => l
+                .feed(
+                    bytes,
+                    lumen_arm_b::Context {
+                        alt_screen: case.alt_screen,
+                        tmux_or_screen: case.tmux_or_screen,
+                        now_ms: read.t_ms,
+                    },
+                )
+                .iter()
+                .map(lumen_arm_b::item_summary)
+                .collect(),
+        }
+    }
+
+    fn finish(&mut self) -> Vec<(&'static str, usize)> {
+        match self {
+            AnyLayer::A(l) => l
+                .finish()
+                .iter()
+                .map(lumen_arm_a::pipeline::item_summary)
+                .collect(),
+            AnyLayer::B(l) => l.finish().iter().map(lumen_arm_b::item_summary).collect(),
+        }
+    }
+
+    /// The counters in the form both arms print: the same field names.
+    fn counters(&self) -> String {
+        match self {
+            AnyLayer::A(l) => format!("{:?}", l.counters()),
+            AnyLayer::B(l) => format!("{:?}", l.counters()),
+        }
+    }
+}
+
+fn run_case<W: Write>(case: &Case, arm: Arm, rec: &mut Recorder<W>) -> std::io::Result<CaseResult> {
+    let mut layer = AnyLayer::new(arm);
     if case.container {
         layer.open_container();
     }
@@ -250,28 +360,23 @@ fn run_case<W: Write>(case: &Case, rec: &mut Recorder<W>) -> std::io::Result<Cas
     let mut kinds: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut violations = 0;
     let mut last_t = 0;
-    let mut record = |t: u64, bytes_in: usize, items: &[Item], rec: &mut Recorder<W>| {
-        let summary: Vec<_> = items.iter().map(item_summary).collect();
-        for (kind, _) in &summary {
-            *kinds.entry(kind).or_insert(0) += 1;
-            if case.forbid.iter().any(|f| f == kind) {
-                violations += 1;
+    let mut record =
+        |t: u64, bytes_in: usize, summary: &[(&'static str, usize)], rec: &mut Recorder<W>| {
+            for (kind, _) in summary {
+                *kinds.entry(kind).or_insert(0) += 1;
+                if case.forbid.iter().any(|f| f == kind) {
+                    violations += 1;
+                }
             }
-        }
-        rec.read(t, bytes_in, &summary)
-    };
+            rec.read(t, bytes_in, summary)
+        };
     for r in &case.reads {
         last_t = r.t_ms;
-        let ctx = Context {
-            alt_screen: case.alt_screen,
-            tmux_or_screen: case.tmux_or_screen,
-            now_ms: r.t_ms,
-        };
-        let items = layer.feed(&r.bytes, ctx);
-        record(r.t_ms, r.bytes.len(), &items, rec)?;
+        let summary = layer.feed(&r.bytes, r, case);
+        record(r.t_ms, r.bytes.len(), &summary, rec)?;
     }
-    let items = layer.finish();
-    record(last_t, 0, &items, rec)?;
+    let summary = layer.finish();
+    record(last_t, 0, &summary, rec)?;
     Ok(CaseResult {
         id: case.id.clone(),
         kinds,
@@ -290,17 +395,31 @@ pub fn run<W: Write>(
     commit: &str,
     log: W,
 ) -> std::io::Result<(Report, HeaderInfo)> {
+    run_arm(corpus, commit, Arm::B, log)
+}
+
+/// Replay the corpus through `arm`, writing the run log to `log`.
+///
+/// # Errors
+///
+/// Returns the write error, if any.
+pub fn run_arm<W: Write>(
+    corpus: &Corpus,
+    commit: &str,
+    arm: Arm,
+    log: W,
+) -> std::io::Result<(Report, HeaderInfo)> {
     let effects = EffectLog::new(SinkTable::none());
     let header = HeaderInfo {
         commit: commit.to_owned(),
-        features: "arm-b".to_owned(),
+        features: arm.features().to_owned(),
         corpus: corpus.revision.clone(),
         sinks: effects.table_source().to_owned(),
     };
     let mut rec = Recorder::new(log, &header)?;
     let mut cases = Vec::new();
     for case in &corpus.cases {
-        cases.push(run_case(case, &mut rec)?);
+        cases.push(run_case(case, arm, &mut rec)?);
     }
     rec.finish()?;
     Ok((

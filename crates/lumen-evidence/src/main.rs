@@ -1,6 +1,6 @@
-//! `lumen-evidence --corpus DIR --commit SHA --out DIR`
+//! `lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]`
 //!
-//! Replays the corpus through the Arm B layer. Writes `run.jsonl` and
+//! Replays the corpus through one arm's layer (default `b`). Writes `run.jsonl` and
 //! `summary.txt` to the output directory and prints the summary. Exits 1 when
 //! a case produced a forbidden item.
 
@@ -21,8 +21,19 @@ fn main() -> ExitCode {
         arg(&args, "--commit"),
         arg(&args, "--out"),
     ) else {
-        eprintln!("usage: lumen-evidence --corpus DIR --commit SHA --out DIR");
+        eprintln!(
+            "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]"
+        );
         return ExitCode::from(2);
+    };
+    let arm = match arg(&args, "--arm").as_deref() {
+        None | Some("b") => lumen_evidence::Arm::B,
+        Some("a-sealed") => lumen_evidence::Arm::ASealed,
+        Some("a-unsealed") => lumen_evidence::Arm::AUnsealed,
+        Some(other) => {
+            eprintln!("unknown --arm {other:?}; use b, a-sealed or a-unsealed");
+            return ExitCode::from(2);
+        }
     };
     let out = PathBuf::from(out);
     let result = lumen_evidence::load_corpus(&PathBuf::from(corpus))
@@ -33,7 +44,7 @@ fn main() -> ExitCode {
         })
         .and_then(|c| {
             let log = std::fs::File::create(out.join("run.jsonl")).map_err(|e| e.to_string())?;
-            lumen_evidence::run(&c, &commit, std::io::BufWriter::new(log))
+            lumen_evidence::run_arm(&c, &commit, arm, std::io::BufWriter::new(log))
                 .map_err(|e| e.to_string())
         });
     match result {

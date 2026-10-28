@@ -461,6 +461,9 @@ fn text(bytes: &[u8]) -> Item {
     Item::Text(escaped_text(bytes))
 }
 
+/// Every kind name [`item_summary`] can return.
+pub const ITEM_KINDS: [&str; 6] = ["output", "block", "text", "degraded", "sealed", "pinned"];
+
 /// The `(kind, len)` pair the run recorder logs for an item. It carries no
 /// content: `len` is the byte length of an output run or sealed payload, the
 /// character count of text, and the total string length of a block.
