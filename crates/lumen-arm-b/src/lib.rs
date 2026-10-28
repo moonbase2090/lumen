@@ -21,7 +21,7 @@
 #![forbid(unsafe_code)]
 
 use lumen_detector::{Detector, Event, HeaderCheck};
-use lumen_sealed::{HEADER_LEN, Header, Receiver};
+use lumen_sealed::{HEADER_LEN, Header, HeaderError, Receiver};
 use lumen_track0::{Block, escaped_text, parse};
 use std::collections::VecDeque;
 
@@ -101,6 +101,47 @@ pub enum Item {
     Pinned,
 }
 
+/// What a layer has seen, for the comparison harness. It only observes: no
+/// decision reads it. All counts are exact and start at zero.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Counters {
+    /// Frame candidates with a complete header: accepted plus refused.
+    pub frames_seen: u64,
+    /// Frames the detector yielded.
+    pub frames_accepted: u64,
+    /// Candidates refused; the `refused_*` causes below add up to this.
+    pub frames_refused: u64,
+    /// Refused: the sealed header did not verify (tag, padding, layer, origin).
+    pub refused_header_invalid: u64,
+    /// Refused: a replayed or stale sequence number.
+    pub refused_replay: u64,
+    /// Refused: past the header-check cap for the second.
+    pub refused_over_header_cap: u64,
+    /// Refused: past the body-check cap for the second.
+    pub refused_over_body_cap: u64,
+    /// Refused: an authentic header that disagrees with the detector's framing.
+    pub refused_length_mismatch: u64,
+    /// Refused by the detector itself: over the length limit, or too short to
+    /// hold a sealed header.
+    pub refused_framing: u64,
+    /// Authenticated frames whose body failed the AEAD check.
+    pub body_aead_failures: u64,
+    /// Streams that ended inside a frame.
+    pub truncated: u64,
+    /// `Item::Degraded` notices given.
+    pub degraded_notices: u64,
+    /// `Item::Pinned` notices given.
+    pub pinned_notices: u64,
+    /// Sealed frames opened.
+    pub sealed_opened: u64,
+    /// Blocks drawn in the container.
+    pub track0_blocks: u64,
+    /// Blocks sent to the background strip.
+    pub background_blocks: u64,
+    /// Items shown as escaped text.
+    pub text_items: u64,
+}
+
 /// Sealed-frame state that the detector consults before it commits to a
 /// frame: the header receiver, the per-second cap and the pin window.
 #[derive(Debug, Default)]
@@ -119,9 +160,18 @@ struct Gate {
     pin_pending: bool,
     /// Headers that verified, in order, for the frames the detector then yields.
     verified: VecDeque<Header>,
+    stats: Counters,
+    /// The last refusal came from the gate, which has already counted its cause.
+    refusal_noted: bool,
 }
 
 impl Gate {
+    /// Count the cause of a refusal the gate decided.
+    fn refuse(&mut self, cause: fn(&mut Counters) -> &mut u64) {
+        *cause(&mut self.stats) += 1;
+        self.refusal_noted = true;
+    }
+
     fn count_abort(&mut self, now_ms: u64) {
         self.aborts
             .retain(|&t| now_ms.saturating_sub(t) < PIN_WINDOW_MS);
@@ -156,23 +206,35 @@ impl HeaderCheck for Gate {
         if self.header_checks > HEADER_CHECKS_PER_SEC {
             // Over the cap: not verified, so unauthenticated input. It follows
             // the failed-header rule and never counts toward the pin.
+            self.refuse(|s| &mut s.refused_over_header_cap);
             return false;
         }
         if self.body_checks >= BODY_CHECKS_PER_SEC {
             // The body budget for this second is spent. Refusing before the
             // header is verified costs nothing and keeps the sequence number.
+            self.refuse(|s| &mut s.refused_over_body_cap);
             return false;
         }
         let Some(receiver) = self.receiver.as_mut() else {
+            self.refuse(|s| &mut s.refused_header_invalid);
             return false;
         };
-        let Ok(header) = receiver.verify(prefix) else {
-            return false;
+        let header = match receiver.verify(prefix) {
+            Ok(header) => header,
+            Err(HeaderError::Replay) => {
+                self.refuse(|s| &mut s.refused_replay);
+                return false;
+            }
+            Err(_) => {
+                self.refuse(|s| &mut s.refused_header_invalid);
+                return false;
+            }
         };
         // The header is authentic. If the detector's framing disagrees with it,
         // that is an abort of an authenticated frame.
         if header.kind != kind || declared != HEADER_LEN.saturating_add(header.len as usize) {
             self.count_abort(self.now_ms);
+            self.refuse(|s| &mut s.refused_length_mismatch);
             return false;
         }
         self.body_checks += 1;
@@ -220,6 +282,12 @@ impl Layer {
         self.gate.cap_of = Some(cap_of);
     }
 
+    /// What the layer has seen so far. Read it at the end of a run.
+    #[must_use]
+    pub fn counters(&self) -> Counters {
+        self.gate.stats
+    }
+
     /// Whether the layer is pinned to grid mode.
     #[must_use]
     pub fn is_pinned(&self) -> bool {
@@ -235,6 +303,7 @@ impl Layer {
         self.gate.pin_pending = false;
         if self.gate.pinned && !was {
             self.pinned_shown = true;
+            self.gate.stats.pinned_notices += 1;
             vec![Item::Pinned]
         } else {
             Vec::new()
@@ -276,8 +345,18 @@ impl Layer {
         for event in events {
             match event {
                 Event::Output(bytes) => items.push(Item::Output(bytes)),
-                Event::Frame { kind, payload } => self.frame(kind, &payload, ctx, &mut items),
+                Event::Frame { kind, payload } => {
+                    self.gate.stats.frames_seen += 1;
+                    self.gate.stats.frames_accepted += 1;
+                    self.frame(kind, &payload, ctx, &mut items);
+                }
                 Event::Rejected(bytes) => {
+                    self.gate.stats.frames_seen += 1;
+                    self.gate.stats.frames_refused += 1;
+                    if !self.gate.refusal_noted {
+                        self.gate.stats.refused_framing += 1;
+                    }
+                    self.gate.refusal_noted = false;
                     // A refused candidate is not a frame: the detector has
                     // already released its bytes as ordinary output. Only the
                     // budget is charged.
@@ -289,12 +368,30 @@ impl Layer {
                     }
                 }
                 Event::Truncated(bytes) => {
+                    self.gate.stats.truncated += 1;
                     self.charge(bytes.len(), &mut items);
                     items.push(text(&bytes));
                 }
             }
         }
+        self.tally(&items);
         items
+    }
+
+    /// Count the items a read produced.
+    fn tally(&mut self, items: &[Item]) {
+        let s = &mut self.gate.stats;
+        for item in items {
+            match item {
+                Item::Block(_) => s.track0_blocks += 1,
+                Item::Background(_) => s.background_blocks += 1,
+                Item::Text(_) => s.text_items += 1,
+                Item::Degraded => s.degraded_notices += 1,
+                Item::Pinned => s.pinned_notices += 1,
+                Item::Sealed { .. } => s.sealed_opened += 1,
+                Item::Output(_) => {}
+            }
+        }
     }
 
     /// Open the body of a frame whose header verified. A body that does not
@@ -323,6 +420,7 @@ impl Layer {
             return;
         }
         items.push(text(raw));
+        self.gate.stats.body_aead_failures += 1;
         self.gate.count_abort(ctx.now_ms);
         if self.gate.pin_pending {
             self.gate.pin_pending = false;
@@ -384,4 +482,26 @@ impl Layer {
 /// Escaped text for bytes that are not drawn as a block.
 fn text(bytes: &[u8]) -> Item {
     Item::Text(escaped_text(bytes))
+}
+
+/// The `(kind, len)` pair the run recorder logs for an item. It carries no
+/// content: `len` is the byte length of an output run or sealed payload, the
+/// character count of text, and the total string length of a block.
+#[must_use]
+pub fn item_summary(item: &Item) -> (&'static str, usize) {
+    fn block_len(block: &Block) -> usize {
+        match block {
+            Block::Paragraph(text) | Block::Heading { text, .. } => text.len(),
+            Block::Code { lang, text, .. } => lang.len() + text.len(),
+        }
+    }
+    match item {
+        Item::Output(bytes) => ("output", bytes.len()),
+        Item::Block(block) => ("block", block_len(block)),
+        Item::Background(block) => ("background", block_len(block)),
+        Item::Text(text) => ("text", text.chars().count()),
+        Item::Degraded => ("degraded", 0),
+        Item::Sealed { body, .. } => ("sealed", body.len()),
+        Item::Pinned => ("pinned", 0),
+    }
 }
