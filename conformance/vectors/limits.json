@@ -1,0 +1,260 @@
+{
+ "suite": "limits",
+ "spec": "transport.md#transport.limits",
+ "detector_vectors": [
+  {
+   "id": "frame-size-at-limit",
+   "note": "exactly 1 MiB is accepted by the detector",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f38000100000"
+    },
+    {
+     "fill": "61",
+     "count": 1048576
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "fill": "61",
+       "count": 1048576
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "track0_vectors": [
+  {
+   "id": "string-at-cap",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "1000"
+    },
+    {
+     "fill": "61",
+     "count": 4096
+    }
+   ],
+   "expect": {
+    "ok": "paragraph"
+   }
+  },
+  {
+   "id": "string-over-cap",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "1001"
+    },
+    {
+     "fill": "61",
+     "count": 4097
+    }
+   ],
+   "expect": {
+    "error": "string_too_long"
+   }
+  },
+  {
+   "id": "declared-length-over-cap-no-body",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "ffff"
+    }
+   ],
+   "expect": {
+    "error": "string_too_long"
+   }
+  },
+  {
+   "id": "sealed-range-kind",
+   "kind": 127,
+   "payload": [
+    {
+     "hex": "00026869"
+    }
+   ],
+   "expect": {
+    "error": "sealed_kind"
+   }
+  },
+  {
+   "id": "unknown-unsealed-kind",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "00026869"
+    }
+   ],
+   "expect": {
+    "error": "unknown_kind"
+   }
+  },
+  {
+   "id": "trailing-bytes",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "0002686900"
+    }
+   ],
+   "expect": {
+    "error": "malformed"
+   }
+  },
+  {
+   "id": "esc-in-text",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "0003611b62"
+    }
+   ],
+   "expect": {
+    "error": "control"
+   }
+  },
+  {
+   "id": "c1-in-text",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "000461c29b62"
+    }
+   ],
+   "expect": {
+    "error": "control"
+   }
+  },
+  {
+   "id": "bad-heading-level",
+   "kind": 129,
+   "payload": [
+    {
+     "hex": "07000174"
+    }
+   ],
+   "expect": {
+    "error": "bad_level"
+   }
+  }
+ ],
+ "escaped_text_vectors": [
+  {
+   "id": "escaped-cap",
+   "input": [
+    {
+     "fill": "61",
+     "count": 10000
+    }
+   ],
+   "max_body_bytes": 256,
+   "suffix": " [10000 bytes]"
+  },
+  {
+   "id": "escaped-controls-worst-case",
+   "input": [
+    {
+     "fill": "01",
+     "count": 256
+    }
+   ],
+   "max_body_bytes": 256,
+   "suffix": " [256 bytes]"
+  }
+ ],
+ "table": [
+  {
+   "id": "frame-size",
+   "value": "1 MiB",
+   "spec": "transport.md#transport.limits",
+   "status": "vector",
+   "vectors": [
+    "frame-size-at-limit",
+    "over-limit-length"
+   ]
+  },
+  {
+   "id": "string-cap",
+   "value": "4 KiB",
+   "spec": "transport.md#transport.limits; grid.md",
+   "status": "vector",
+   "vectors": [
+    "string-at-cap",
+    "string-over-cap"
+   ]
+  },
+  {
+   "id": "escaped-failed-frame",
+   "value": "256 bytes",
+   "spec": "transport.md#transport.limits",
+   "status": "vector",
+   "vectors": [
+    "escaped-cap",
+    "escaped-controls-worst-case"
+   ]
+  },
+  {
+   "id": "image-frame-size",
+   "value": "16 MiB (images, Track B)",
+   "spec": "transport.md#transport.limits",
+   "status": "pending",
+   "reason": "no Track B decoder yet"
+  },
+  {
+   "id": "nesting-depth",
+   "value": "32",
+   "spec": "transport.md#transport.limits",
+   "status": "pending",
+   "reason": "no nested block parser yet"
+  },
+  {
+   "id": "header-checks",
+   "value": "4096 per second per layer",
+   "spec": "transport.md#transport.limits",
+   "status": "pending",
+   "reason": "needs a clock input in the vector format; covered by Rust unit tests meanwhile"
+  },
+  {
+   "id": "body-checks",
+   "value": "256 per second per layer",
+   "spec": "transport.md#transport.limits",
+   "status": "pending",
+   "reason": "needs a clock input in the vector format; covered by Rust unit tests meanwhile"
+  },
+  {
+   "id": "abort-pin",
+   "value": "more than 3 authenticated aborts in 60 s",
+   "spec": "transport.md",
+   "status": "pending",
+   "reason": "needs a clock and sealed keys in the vector format"
+  },
+  {
+   "id": "frame-min-rate",
+   "value": "16 KiB/s after 2 s",
+   "spec": "transport.md#transport.limits",
+   "status": "pending",
+   "reason": "needs a clock input in the vector format"
+  },
+  {
+   "id": "grid-winsize",
+   "value": "1000 cols x 500 rows",
+   "spec": "grid.md",
+   "status": "pending",
+   "reason": "no grid yet"
+  },
+  {
+   "id": "sigwinch-rate",
+   "value": "20 per second per grid",
+   "spec": "grid.md",
+   "status": "pending",
+   "reason": "no grid yet"
+  }
+ ]
+}

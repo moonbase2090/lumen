@@ -1,0 +1,83 @@
+{
+ "suite": "grid-isolation",
+ "spec": "grid.md",
+ "status": "pending",
+ "reason": "no grid parser exists yet; vectors fix the expected behaviour for when one does",
+ "vectors": [
+  {
+   "id": "c1-raw-dropped",
+   "note": "raw C1 bytes 0x80-0x9F never reach the grid",
+   "input": [
+    {
+     "hex": "619b62"
+    }
+   ],
+   "grid_text": "ab"
+  },
+  {
+   "id": "c1-utf8-dropped",
+   "note": "U+0080-U+009F as UTF-8 are dropped as well",
+   "input": [
+    {
+     "hex": "61c29b62"
+    }
+   ],
+   "grid_text": "ab"
+  },
+  {
+   "id": "apc-dropped",
+   "note": "APC string has no effect",
+   "input": [
+    {
+     "hex": "611b5f7061796c6f61641b5c62"
+    }
+   ],
+   "grid_text": "ab"
+  },
+  {
+   "id": "dcs-dropped",
+   "input": [
+    {
+     "hex": "611b507061796c6f61641b5c62"
+    }
+   ],
+   "grid_text": "ab"
+  },
+  {
+   "id": "pm-dropped",
+   "input": [
+    {
+     "hex": "611b5e7061796c6f61641b5c62"
+    }
+   ],
+   "grid_text": "ab"
+  },
+  {
+   "id": "sos-dropped",
+   "input": [
+    {
+     "hex": "611b587061796c6f61641b5c62"
+    }
+   ],
+   "grid_text": "ab"
+  },
+  {
+   "id": "string-cap-skip",
+   "note": "a string past 4 KiB enters skip until ESC backslash; the tail is never parsed",
+   "input": [
+    {
+     "hex": "611b5f"
+    },
+    {
+     "fill": "41",
+     "count": 4096
+    },
+    {
+     "hex": "1b5b33316d6576696c1b5c62"
+    }
+   ],
+   "grid_text": "ab",
+   "notice": "string truncated"
+  }
+ ]
+}

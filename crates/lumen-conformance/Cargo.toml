@@ -1,0 +1,17 @@
+[package]
+name = "lumen-conformance"
+description = "Runs the language-neutral conformance vectors against the reference implementation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+lumen-detector = { path = "../lumen-detector" }
+lumen-track0 = { path = "../lumen-track0" }
+serde_json = "1"
+
+[lints]
+workspace = true

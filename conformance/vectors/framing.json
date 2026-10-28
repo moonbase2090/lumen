@@ -1,0 +1,318 @@
+{
+ "suite": "framing",
+ "spec": "transport.md#transport.limits, Framing robustness",
+ "vectors": [
+  {
+   "id": "intro-esc",
+   "note": "ESC _ introducer, frame between text",
+   "input": [
+    {
+     "hex": "611b5f8a4c554d454e01f380000000040002686962"
+    }
+   ],
+   "events": [
+    {
+     "output": {
+      "hex": "61"
+     }
+    },
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "00026869"
+      }
+     }
+    },
+    {
+     "output": {
+      "hex": "62"
+     }
+    }
+   ]
+  },
+  {
+   "id": "intro-c1",
+   "note": "8-bit C1 introducer",
+   "input": [
+    {
+     "hex": "619f8a4c554d454e01f380000000040002686962"
+    }
+   ],
+   "events": [
+    {
+     "output": {
+      "hex": "61"
+     }
+    },
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "00026869"
+      }
+     }
+    },
+    {
+     "output": {
+      "hex": "62"
+     }
+    }
+   ]
+  },
+  {
+   "id": "intro-utf8-c1",
+   "note": "UTF-8 form of the C1 introducer",
+   "input": [
+    {
+     "hex": "61c29f8a4c554d454e01f380000000040002686962"
+    }
+   ],
+   "events": [
+    {
+     "output": {
+      "hex": "61"
+     }
+    },
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "00026869"
+      }
+     }
+    },
+    {
+     "output": {
+      "hex": "62"
+     }
+    }
+   ]
+  },
+  {
+   "id": "two-frames",
+   "note": "back to back",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f38000000004000268691b5f8a4c554d454e01f3800000000400026869"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "00026869"
+      }
+     }
+    },
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "00026869"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "empty-payload",
+   "note": "zero-length payload is a frame",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f38000000000"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": ""
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "wrong-tag",
+   "note": "failed header: introducer dropped, bytes after it continue as output",
+   "input": [
+    {
+     "hex": "781b5f4e4f5441544147588000000001797a"
+    }
+   ],
+   "events": [
+    {
+     "output": {
+      "hex": "784e4f5441544147588000000001797a"
+     }
+    }
+   ]
+  },
+  {
+   "id": "frame-after-failed-header",
+   "note": "a real frame right after a failed header is still found",
+   "input": [
+    {
+     "hex": "1b5f42414442414442411b5f8a4c554d454e01f3800000000400026869"
+    }
+   ],
+   "events": [
+    {
+     "output": {
+      "hex": "4241444241444241"
+     }
+    },
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "00026869"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "introducer-before-real-frame",
+   "note": "an introducer whose header fails, directly followed by a real frame: the real frame is found",
+   "input": [
+    {
+     "hex": "1b5f1b5f8a4c554d454e01f3800000000400026869"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "00026869"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "utf8-continuation-9f",
+   "note": "0x9F continuing a UTF-8 sequence (U+27DF) is text, not an introducer",
+   "input": [
+    {
+     "hex": "e29f9f1b5f8a4c554d454e01f3800000000400026869"
+    }
+   ],
+   "events": [
+    {
+     "output": {
+      "hex": "e29f9f"
+     }
+    },
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "00026869"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "partial-introducer-at-end",
+   "note": "an incomplete introducer at end of stream is released as output",
+   "input": [
+    {
+     "hex": "611b"
+    }
+   ],
+   "events": [
+    {
+     "output": {
+      "hex": "611b"
+     }
+    }
+   ]
+  },
+  {
+   "id": "introducer-alone-at-end",
+   "note": "a complete introducer with no header at end of stream is withheld",
+   "input": [
+    {
+     "hex": "611b5f"
+    }
+   ],
+   "events": [
+    {
+     "output": {
+      "hex": "61"
+     }
+    }
+   ]
+  },
+  {
+   "id": "partial-header-at-end",
+   "note": "a partial header at end of stream: introducer dropped, rest released",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d"
+    }
+   ],
+   "events": [
+    {
+     "output": {
+      "hex": "8a4c554d"
+     }
+    }
+   ]
+  },
+  {
+   "id": "truncated-payload",
+   "note": "header complete, payload cut short",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f3800000000a616263"
+    }
+   ],
+   "events": [
+    {
+     "truncated": {
+      "hex": "616263"
+     }
+    }
+   ]
+  },
+  {
+   "id": "over-limit-length",
+   "note": "declared length one past 1 MiB: header refused, never used to skip input",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f38000100001"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3800000000400026869"
+    }
+   ],
+   "events": [
+    {
+     "rejected": {
+      "hex": "1b5f8a4c554d454e01f38000100001"
+     }
+    },
+    {
+     "output": {
+      "hex": "8a4c554d454e01f38000100001"
+     }
+    },
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "00026869"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
