@@ -142,6 +142,19 @@ Steps 2 and 3 restate the phase 0.5 comparison in [spec/v0](../../spec/v0/_index
 - A metric that was not run is reported as "not measured" with the reason. It is not reported as a pass.
 - Security findings are reported privately through the process in the [security policy](../../SECURITY.md). Results that describe a vulnerability are not written into a public result, commit message or PR text beyond what the public spec already says.
 
+### 5.1 Corpus format
+
+The shared red-team and replay corpus is a directory of JSON files, read in name order. Each file is `{"revision": "...", "cases": [...]}`, and every file in the directory must give the same revision. A case has:
+
+- `id` and `category`, both strings. Ids are unique across the corpus.
+- `reads`: the PTY reads in order. Each read is `{"hex": "..."}` or `{"fill": "<hex byte>", "count": n}`, the same segment encoding as `conformance/vectors`, with an optional `t_ms` (default 0).
+- `context`: optional `alt_screen` and `tmux_or_screen` booleans, and `container` (default true).
+- `forbid`: optional item kinds that must not appear. Each entry must be one of the item kinds the layer reports. An unknown kind fails the load with the case id, so a typo cannot pass silently.
+
+Positive expectations (`expect`) are not part of this format yet. The red-team corpus is covered by `forbid`. The reach metric (2.1) will add an `expect` field when it is measured, with its own revision.
+
+The format is defined in `crates/lumen-evidence/src/lib.rs`. A change to it is a change to the corpus revision and needs both arms' agreement.
+
 ## 6. Results format
 
 A result is a docs PR that adds `docs/phase-0.5/results-<arm>.md` for each arm at a stated commit SHA. It contains:
