@@ -34,11 +34,15 @@ pub enum Event {
         /// The payload, exactly as long as the declared length.
         payload: Vec<u8>,
     },
-    /// A frame header whose declared length is over the limit. The bytes are the
-    /// introducer and header only. The frame is aborted and the detector resumes
-    /// after the header, so the bytes that follow arrive as ordinary output.
+    /// A frame header whose declared length is over the limit: the introducer
+    /// and header bytes. The header failed, so no frame exists. The detector
+    /// resumes at the byte after the introducer, so a frame hidden in the rest
+    /// of the header or the body is still found, and the other bytes arrive as
+    /// ordinary output. The declared length is never used to skip input.
     Rejected(Vec<u8>),
-    /// The stream ended inside a frame. The bytes are what had arrived.
+    /// The stream ended after a complete header but before the whole payload.
+    /// The bytes are the payload received so far. A shorter, partial introducer
+    /// or header is released as `Output` instead.
     Truncated(Vec<u8>),
 }
 
@@ -176,16 +180,15 @@ impl Detector {
         }
     }
 
-    /// Signal the end of the stream. A frame in progress is reported as
-    /// truncated, and a partial introducer is released as ordinary output.
+    /// Signal the end of the stream. A frame whose header was read is reported
+    /// as truncated. A partial introducer or header is released as ordinary
+    /// output.
     pub fn finish(&mut self, out: &mut Vec<Event>) {
         let buf = std::mem::take(&mut self.buf);
         match std::mem::replace(&mut self.state, State::Idle) {
             State::Idle => {}
-            State::Candidate if introducer_len(&buf).is_none() => {
-                out.push(Event::Output(buf));
-            }
-            State::Candidate | State::Payload { .. } => out.push(Event::Truncated(buf)),
+            State::Candidate => out.push(Event::Output(buf)),
+            State::Payload { .. } => out.push(Event::Truncated(buf)),
         }
     }
 
@@ -221,8 +224,12 @@ impl Detector {
         flush(plain, out);
         let too_big = usize::try_from(declared).map_or(true, |n| n > self.max_payload);
         if too_big {
-            out.push(Event::Rejected(std::mem::take(&mut self.buf)));
+            let header = std::mem::take(&mut self.buf);
+            out.push(Event::Rejected(header.clone()));
             self.state = State::Idle;
+            // Resume after the introducer. `header` is shorter than the
+            // candidate was, so this recursion is bounded.
+            self.consume(&header[intro..], plain, out);
         } else if declared == 0 {
             self.buf.clear();
             out.push(Event::Frame {

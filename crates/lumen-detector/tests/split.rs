@@ -1,6 +1,6 @@
 //! Detector behaviour across read boundaries.
 
-use lumen_detector::{DEFAULT_MAX_PAYLOAD, Detector, Event, TAG};
+use lumen_detector::{Detector, Event, TAG};
 
 const INTRODUCERS: [&[u8]; 3] = [b"\x1b_", b"\xc2\x9f", b"\x9f"];
 
@@ -106,20 +106,19 @@ fn frame_bytes_never_appear_in_output() {
 }
 
 #[test]
-fn partial_introducer_that_never_completes_is_ordinary_output() {
+fn partial_introducer_or_header_at_end_of_stream_is_ordinary_output() {
     let mut s = b"ab\x1b".to_vec();
     s.extend_from_slice(b"[0m");
     assert_eq!(expect_whole(&s), vec![Event::Output(s.clone())]);
-    for tail in [&b"\x1b_"[..], b"\xc2", b"\x9f"] {
+    let header_short = frame(b"\x1b_", 1, b"xyz");
+    for tail in [&b"\x1b"[..], b"\x1b_", b"\xc2", b"\x9f", &header_short[..6]] {
         let mut s = b"ab".to_vec();
         s.extend_from_slice(tail);
-        // Ends in the middle of an introducer: released as output at the end.
-        let got = expect_whole(&s);
-        if tail == b"\x1b_" || tail == b"\x9f" {
-            assert_eq!(got.last(), Some(&Event::Truncated(tail.to_vec())));
-        } else {
-            assert_eq!(got, vec![Event::Output(s.clone())]);
-        }
+        assert_eq!(
+            expect_whole(&s),
+            vec![Event::Output(s.clone())],
+            "tail {tail:?}"
+        );
     }
 }
 
@@ -155,38 +154,72 @@ fn wrong_tag_is_ordinary_output_and_scanning_resumes_inside_it() {
 }
 
 #[test]
-fn oversize_declared_length_is_rejected_and_detector_resumes() {
+fn oversize_header_is_rejected_and_the_body_is_scanned_not_skipped() {
     let mut d = Detector::new(8);
     let mut s = frame(b"\x1b_", 4, &[0u8; 9]);
     let header_len = 2 + TAG.len() + 1 + 4;
+    // The declared length is 9, which is over the limit of 8.
     s.extend(frame(b"\x1b_", 5, b"fine"));
     let mut out = Vec::new();
     d.feed(&s, &mut out);
     d.finish(&mut out);
     assert_eq!(out[0], Event::Rejected(s[..header_len].to_vec()));
-    // The aborted frame's body arrives as ordinary output, then the next frame.
-    assert_eq!(out[1], Event::Output(vec![0u8; 9]));
+    // The failed header is not a frame, so what follows it is scanned from the
+    // byte after the introducer: the rest of the header and the body are
+    // ordinary output, and the next real frame is still found.
     assert_eq!(
-        out[2],
-        Event::Frame {
+        out.last(),
+        Some(&Event::Frame {
             kind: 5,
             payload: b"fine".to_vec()
-        }
+        })
     );
-    assert_eq!(out.len(), 3);
+    assert!(out.iter().all(|e| !matches!(e, Event::Truncated(_))));
 }
 
 #[test]
-fn declared_length_past_u32_range_on_this_platform_is_rejected() {
+fn frame_hidden_in_a_rejected_header_is_found() {
+    // Outer header: introducer, tag, kind, then a length field that starts with
+    // the introducer of an inner frame whose tag runs on past the field.
+    let inner = frame(b"\x1b_", 8, b"hid");
+    let mut s = b"\x1b_".to_vec();
+    s.extend_from_slice(&TAG);
+    s.push(1);
+    s.extend_from_slice(&inner[..4]);
+    s.extend_from_slice(&inner[4..]);
+    let mut d = Detector::new(8);
+    let mut out = Vec::new();
+    d.feed(&s, &mut out);
+    d.finish(&mut out);
+    assert!(
+        out.contains(&Event::Frame {
+            kind: 8,
+            payload: b"hid".to_vec()
+        }),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn rejected_body_bytes_do_not_skip_following_input() {
+    // A huge declared length must not swallow the rest of the stream.
     let mut s = b"\x1b_".to_vec();
     s.extend_from_slice(&TAG);
     s.push(1);
     s.extend_from_slice(&u32::MAX.to_be_bytes());
+    s.extend_from_slice(b"visible");
     let mut d = Detector::default();
     let mut out = Vec::new();
     d.feed(&s, &mut out);
-    assert_eq!(out, vec![Event::Rejected(s)]);
-    assert!(usize::try_from(u32::MAX).map_or(true, |n| n > DEFAULT_MAX_PAYLOAD));
+    assert!(matches!(out[0], Event::Rejected(_)));
+    let tail: Vec<u8> = out[1..]
+        .iter()
+        .flat_map(|e| match e {
+            Event::Output(b) => b.clone(),
+            _ => Vec::new(),
+        })
+        .collect();
+    assert!(tail.ends_with(b"visible"));
 }
 
 #[test]
@@ -197,4 +230,63 @@ fn stream_ending_inside_a_frame_is_reported_truncated() {
         expect_whole(cut),
         vec![Event::Truncated(cut[2 + TAG.len() + 5..].to_vec())]
     );
+}
+
+/// A small xorshift generator so the test needs no dependency and is repeatable.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    fn below(&mut self, n: usize) -> usize {
+        usize::try_from(self.next() % u64::try_from(n).unwrap_or(1)).unwrap_or(0)
+    }
+}
+
+#[test]
+fn random_streams_in_random_chunks_match_the_unsplit_result() {
+    let pieces: [&[u8]; 8] = [
+        b"plain text ",
+        b"\x1b[31m",
+        b"\x1b",
+        b"\x1b_",
+        b"\xc2",
+        b"\x9f",
+        b"\xc2\x9f",
+        &TAG,
+    ];
+    let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
+    for case in 0..3000 {
+        let mut s = Vec::new();
+        for _ in 0..rng.below(12) {
+            if rng.below(3) == 0 {
+                let intro = INTRODUCERS[rng.below(3)];
+                let len = rng.below(20);
+                let payload: Vec<u8> = (0..len)
+                    .map(|_| u8::try_from(rng.below(256)).unwrap_or(0))
+                    .collect();
+                s.extend(frame(
+                    intro,
+                    u8::try_from(rng.below(256)).unwrap_or(0),
+                    &payload,
+                ));
+            } else {
+                s.extend_from_slice(pieces[rng.below(pieces.len())]);
+            }
+        }
+        let whole = expect_whole(&s);
+        let mut cuts = Vec::new();
+        let mut left = s.len();
+        while left > 0 && rng.below(3) != 0 {
+            let n = 1 + rng.below(left);
+            cuts.push(n);
+            left -= n;
+        }
+        assert_eq!(run(&s, &cuts), whole, "case {case} cuts {cuts:?}");
+    }
 }
