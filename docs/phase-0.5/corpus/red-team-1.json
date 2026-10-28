@@ -1,0 +1,175 @@
+{
+  "revision": "rt-1",
+  "note": "first red-team corpus; no-authority cases only; positive expectations are not in this format",
+  "cases": [
+    {
+      "id": "spoof-sealed-type-forged",
+      "category": "spoof",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f3010000002800000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "forbid": [
+        "sealed",
+        "block"
+      ],
+      "note": "unauthenticated header with a sealed-range type byte and a body of zeros"
+    },
+    {
+      "id": "wrong-tag-then-real-frame",
+      "category": "spoof",
+      "reads": [
+        {
+          "hex": "1b5f424144544147303080000000041b5f8a4c554d454e01f3800000000400026869"
+        }
+      ],
+      "forbid": [
+        "sealed"
+      ],
+      "note": "a refused header is withheld and the real frame after it is still found"
+    },
+    {
+      "id": "introducer-inside-rejected-header",
+      "category": "spoof",
+      "reads": [
+        {
+          "hex": "1b5faa1b5f8a4c554d454e01f3800000000400006869"
+        }
+      ],
+      "forbid": [
+        "sealed"
+      ],
+      "note": "the second introducer is among the 13 header bytes; the rescan from it must find the frame, and the escaped span must end there"
+    },
+    {
+      "id": "over-limit-length-no-swallow",
+      "category": "spoof",
+      "reads": [
+        {
+          "hex": "1b5f424144544147303080001000011b5f8a4c554d454e01f3800000000400026869"
+        }
+      ],
+      "forbid": [
+        "sealed"
+      ],
+      "note": "an over-limit length is refused and never used to skip the real frame behind it"
+    },
+    {
+      "id": "raw-c1-introducer-outside-utf8",
+      "category": "spoof",
+      "reads": [
+        {
+          "hex": "9f8a4c554d454e01f3800000000400026869"
+        }
+      ],
+      "forbid": [
+        "sealed"
+      ],
+      "note": "a raw 0x9f outside a UTF-8 sequence is a C1 introducer"
+    },
+    {
+      "id": "utf8-continuation-not-introducer",
+      "category": "spoof",
+      "reads": [
+        {
+          "hex": "c39f8a4c554d454e01f3800000000400026869"
+        }
+      ],
+      "forbid": [
+        "sealed",
+        "block"
+      ],
+      "note": "0x9f continues a UTF-8 lead byte, so it is text and no frame starts"
+    },
+    {
+      "id": "alt-screen-no-rich",
+      "category": "context",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000400026869"
+        }
+      ],
+      "context": {
+        "alt_screen": true
+      },
+      "forbid": [
+        "block"
+      ]
+    },
+    {
+      "id": "tmux-no-rich",
+      "category": "context",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000400026869"
+        }
+      ],
+      "context": {
+        "tmux_or_screen": true
+      },
+      "forbid": [
+        "block"
+      ]
+    },
+    {
+      "id": "no-container-no-block",
+      "category": "context",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000400026869"
+        }
+      ],
+      "context": {
+        "container": false
+      },
+      "forbid": [
+        "block"
+      ]
+    },
+    {
+      "id": "control-in-text-escaped",
+      "category": "malformed",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f380000000050003611b62"
+        }
+      ],
+      "forbid": [
+        "block"
+      ],
+      "note": "an ESC inside a Track 0 string is refused as malformed"
+    },
+    {
+      "id": "truncated-frame-at-end",
+      "category": "malformed",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f3800000001000026869"
+        }
+      ],
+      "forbid": [
+        "block"
+      ],
+      "note": "the stream ends inside the payload"
+    },
+    {
+      "id": "split-introducer-across-reads",
+      "category": "split",
+      "reads": [
+        {
+          "hex": "1b5f8a4c55",
+          "t_ms": 0
+        },
+        {
+          "hex": "4d454e01f3800000000400026869",
+          "t_ms": 5
+        }
+      ],
+      "forbid": [
+        "sealed"
+      ],
+      "note": "the introducer and header split across reads at t=0 and t=5"
+    }
+  ]
+}
