@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" role="img" aria-label="The Lumen cube"><style>
+.h{transform-box:fill-box;transform-origin:center;animation:lp 3.6s ease-in-out infinite;opacity:.8;transform:scale(1);filter:blur(1.5px)}
+.f{animation:lf 3.6s ease-in-out infinite;filter:brightness(1)}
+@keyframes lp{0%,100%{opacity:.55;transform:scale(.88);filter:blur(0px)}50%{opacity:1;transform:scale(1.12);filter:blur(3px)}}
+@keyframes lf{0%,100%{filter:brightness(.94)}50%{filter:brightness(1.06)}}
+@media (prefers-reduced-motion:reduce){.h,.f{animation:none}}
+</style><defs><radialGradient id="halo"><stop offset="0" stop-color="#FFE7A0" stop-opacity=".95"/><stop offset=".5" stop-color="#FFE7A0" stop-opacity=".4"/><stop offset="1" stop-color="#FFE7A0" stop-opacity="0"/></radialGradient></defs><circle class="h" cx="80" cy="80" r="57.5" fill="url(#halo)"/><g class="f"><polygon points="80.0,57.0 100.7,67.6 80.0,81.8 59.3,67.6" fill="#FFFFFF" stroke="#9AA1AC" stroke-width="2.1" stroke-linejoin="round"/><polygon points="59.3,67.6 80.0,81.8 80.0,103.0 59.3,90.6" fill="#F4F5F7" stroke="#9AA1AC" stroke-width="2.1" stroke-linejoin="round"/><polygon points="100.7,67.6 80.0,81.8 80.0,103.0 100.7,90.6" fill="#E6E8EC" stroke="#9AA1AC" stroke-width="2.1" stroke-linejoin="round"/></g></svg>
