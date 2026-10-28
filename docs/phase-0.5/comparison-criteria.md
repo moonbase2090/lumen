@@ -8,9 +8,9 @@ Normative terms follow [spec/v0](../../spec/v0/_index.md). The arms are describe
 
 Both arms are built in this repository behind Cargo features `arm-a` and `arm-b`, both off by default. They share the same renderer and the same red-team corpus. Each arm is built from a single commit, and every result records that commit SHA.
 
-**Arm A: sealed-only rich.** Rich blocks render only on a sealed layer. Track 0 output on an unsealed layer renders as escaped text. A Lumen-aware multiplexer runs as a sealed multiplexer layer with its own scoped keys, as described in [multiplexers](../../spec/v0/multiplexers.md#mux.lumen-aware). The multiplexer is a sealed layer in its own right and holds the keys for its own clients only.
+**Arm A: sealed-only rich.** Rich blocks render only on a sealed layer. Track 0 output on an unsealed layer renders as escaped text. Multiplexer behaviour follows [multiplexers](../../spec/v0/multiplexers.md#mux.lumen-aware); the multiplexer placement comparison is out of scope for this phase.
 
-**Arm B: decoupled.** Track 0 renders on every layer, subject to the Track 0 rules. The sealed upgrade applies on the default model: a layer that meets the [default sealing requirements](../../spec/v0/sealed-layers.md#sealed.requirements) gets sealed authority on top of Track 0. The multiplexer holds no keys. Its panes are rendered from Track 0 only.
+**Arm B: decoupled.** Track 0 renders on every layer, subject to the Track 0 rules. The sealed upgrade applies on the default model: a layer that meets the [default sealing requirements](../../spec/v0/sealed-layers.md#sealed.requirements) gets sealed authority on top of Track 0. This is the expected default.
 
 Both arms run every test in this document. An arm that cannot run a test reports that test as "not measured", never as a pass.
 
@@ -104,8 +104,8 @@ An arm's feature is off on a target OS until the gate that protects it passes th
 2. **Arm B is chosen** unless one of these holds:
    - the trust-area-pixel count (section 2.3) is non-zero in arm B;
    - the authority-leak count (section 2.4) is non-zero in arm B;
-   - arm B fails the spoofing user study (section 2.2a): its error rate is worse than the plain-VT control, or more than 2 percentage points worse than arm A.
-3. Arm B must also reach **at least 80%** of sessions (section 2.1). If it does not, the rule does not choose arm B.
+   - arm B fails the spoofing user study (section 2.2a): its error rate is worse than the plain-VT control, or more than 2 percentage points worse than arm A. **Pending human study:** this clause is decided by the study, not by the automated metrics. Until the study has run, it is recorded as pending and does not by itself change the outcome.
+3. Arm B must also reach **at least 80%** of sessions (section 2.1). If it does not, the rule does not choose arm B. The automated metrics decide this clause.
 4. If arm B is not chosen, arm A is the default for the sealed path, and arm B's Track 0 remains off by default.
 5. Parity (section 2.9), spoof success (section 2.2), DoS (section 2.6) and red-team findings (section 2.7) are gates on the result. A failure in arm B that is not listed in step 2 does not by itself disqualify arm B, but it must be fixed or the result is not accepted.
 
