@@ -118,3 +118,81 @@ fn an_over_budget_rejected_header_shows_once_without_the_introducer() {
         );
     }
 }
+
+mod hidden_frame {
+    use super::{a, b};
+    use lumen_arm_a::LayerState;
+    use lumen_detector::TAG;
+    use lumen_sealed::{Direction, DirectionKeys, LayerId, LayerRoot, Receiver, Sender};
+
+    const LAYER: LayerId = LayerId(7);
+
+    fn cap_of(_kind: u8) -> u8 {
+        2
+    }
+
+    fn keys() -> DirectionKeys {
+        DirectionKeys::derive(&LayerRoot::new([9; 32]), LAYER, Direction::ToTerminal)
+    }
+
+    fn receiver() -> Receiver {
+        Receiver::new(keys(), LAYER, Direction::ToTerminal)
+    }
+
+    fn sealed(seq: u64, plain: &[u8]) -> Vec<u8> {
+        let mut sender = Sender::new(keys(), LAYER, Direction::ToTerminal, seq);
+        let Ok(payload) = sender.seal(3, 2, plain) else {
+            unreachable!("sealing a short payload succeeds")
+        };
+        let mut v = b"\x1b_".to_vec();
+        v.extend_from_slice(&TAG);
+        v.push(3);
+        v.extend_from_slice(&u32::try_from(payload.len()).unwrap_or(0).to_be_bytes());
+        v.extend(payload);
+        v
+    }
+
+    /// An unsealed header that declares far more than it carries, then a
+    /// genuine sealed frame inside the declared length.
+    fn stream() -> Vec<u8> {
+        let mut v = b"\x1b_".to_vec();
+        v.extend_from_slice(&TAG);
+        v.extend_from_slice(&[0x80, 0, 0, 0x10, 0]);
+        v.extend_from_slice(b"abc");
+        v.extend(sealed(5, b"genuine"));
+        v.extend_from_slice(b"after");
+        v
+    }
+
+    #[test]
+    fn a_genuine_sealed_frame_inside_an_unsealed_declared_length_is_still_opened() {
+        let s = stream();
+        let mut la = a::Layer::new(
+            a::Config {
+                budget: a::Budget::quarter_of(400, 40_000),
+            },
+            LayerState::Sealed,
+        );
+        la.attach_sealed(receiver(), cap_of);
+        la.open_container();
+        let mut lb = b::Layer::new(b::Config {
+            budget: b::Budget::quarter_of(400, 40_000),
+            background_as_text: false,
+        });
+        lb.attach_sealed(receiver(), cap_of);
+        lb.open_container();
+        let ia = la.feed(&s, a::Context::default());
+        let ib = lb.feed(&s, b::Context::default());
+        let ka: Vec<_> = ia.iter().map(|i| a::item_summary(i).0).collect();
+        let kb: Vec<_> = ib.iter().map(|i| b::item_summary(i).0).collect();
+        assert_eq!(ka, kb);
+        assert_eq!(ka.iter().filter(|k| **k == "sealed").count(), 1, "{ka:?}");
+        let (ca, cb) = (la.counters(), lb.counters());
+        assert_eq!(ca.sealed_opened, 1);
+        assert_eq!(cb.sealed_opened, 1);
+        assert_eq!(ca.truncated, 1);
+        assert_eq!(cb.truncated, 1);
+        assert_eq!(ca.text_items, cb.text_items);
+        assert_eq!(ca.frames_refused, cb.frames_refused);
+    }
+}

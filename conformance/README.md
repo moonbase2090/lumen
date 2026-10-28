@@ -28,7 +28,8 @@ adjacent output is joined), `escaped` (the header of a rejected candidate, shown
 as escaped text: the 13 bytes after the introducer, fewer if the stream ends or
 an introducer starts among them; adjacent escaped is joined), `frame` (`kind`, `payload`), `rejected` (the
 introducer and header of a refused candidate) and `truncated` (payload received
-before the stream ended). The stream ends after the last read.
+before the stream ended, or before an introducer plus the full tag inside an
+unsealed payload, where scanning resumes at that introducer). The stream ends after the last read.
 
 Track 0 vectors give a `kind`, a `payload` and an `expect` of `{"ok": ..}` or
 `{"error": ..}` with one of `sealed_kind`, `unknown_kind`, `malformed`,

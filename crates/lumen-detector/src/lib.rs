@@ -24,6 +24,14 @@ pub const TAG: [u8; 8] = *b"\x8aLUMEN\x01\xf3";
 /// Largest declared payload accepted by default: the 1 MiB frame size limit.
 pub const DEFAULT_MAX_PAYLOAD: usize = 1 << 20;
 
+/// First type byte of the unsealed range. A frame of an unsealed type has an
+/// unverified length, so its payload is scanned for the start of another frame.
+const UNSEALED_MIN: u8 = 0x80;
+
+/// Bytes of a trigger that can sit at the end of what was read before: the
+/// longest introducer and the tag, less the byte that completes it.
+const TRIGGER_TAIL: usize = 2 + TAG.len() - 1;
+
 /// Length of the header after the introducer: tag, type byte, length field.
 const HEADER_LEN: usize = TAG.len() + 1 + 4;
 
@@ -110,6 +118,23 @@ enum State {
     },
 }
 
+/// Where a trigger was found, as seen from the payload being collected.
+enum Trigger {
+    /// It starts at this index of the payload read so far, and reaches into
+    /// the incoming bytes.
+    InBuffer(usize),
+    /// It starts at this index of the incoming bytes.
+    InData(usize),
+}
+
+/// How to go on after a trigger ended a frame.
+enum Resume {
+    /// Rescan these bytes first.
+    Rescan(Pass),
+    /// Carry on at this index of the input.
+    At(usize),
+}
+
 /// How a pass over some input ended.
 enum Pass {
     /// All input was used.
@@ -150,6 +175,18 @@ fn introducer_len(bytes: &[u8]) -> Option<usize> {
         [0x9f, ..] => Some(1),
         _ => None,
     }
+}
+
+/// Whether `bytes` start with an introducer followed by the whole tag. Inside an
+/// unsealed payload this is what ends the frame: shorter look-alikes, such as a
+/// length byte equal to `0x9F`, are payload.
+fn is_trigger(bytes: &[u8]) -> bool {
+    introducer_len(bytes).is_some_and(|n| bytes[n..].starts_with(&TAG))
+}
+
+/// Where the first trigger starts in `view`.
+fn find_trigger(view: &[u8]) -> Option<usize> {
+    (0..view.len()).find(|&s| is_trigger(&view[s..]))
 }
 
 /// Whether `bytes` could still become an introducer plus a matching header.
@@ -288,6 +325,64 @@ impl Detector {
         i
     }
 
+    /// Look for the start of another frame inside an unsealed payload: an
+    /// introducer followed by the whole tag. `incoming` is what would be added
+    /// to the payload; the end of the payload read so far is searched with it,
+    /// so a trigger split over reads is found.
+    fn find_payload_trigger(&self, incoming: &[u8]) -> Option<Trigger> {
+        let tail_start = self.buf.len().saturating_sub(TRIGGER_TAIL);
+        let tail = &self.buf[tail_start..];
+        let mut view = Vec::with_capacity(tail.len() + incoming.len());
+        view.extend_from_slice(tail);
+        view.extend_from_slice(incoming);
+        find_trigger(&view).map(|s| {
+            if s < tail.len() {
+                Trigger::InBuffer(tail_start + s)
+            } else {
+                Trigger::InData(s - tail.len())
+            }
+        })
+    }
+
+    /// If the next `take` bytes of `data[i..]` hold a trigger, end the frame as
+    /// truncated and say how to go on.
+    fn end_at_trigger(
+        &mut self,
+        data: &[u8],
+        i: usize,
+        take: usize,
+        plain: &mut Vec<u8>,
+        out: &mut Vec<Event>,
+    ) -> Option<Resume> {
+        match self.find_payload_trigger(&data[i..i + take])? {
+            Trigger::InBuffer(end) => {
+                // The trigger began in earlier reads: the bytes from `end` on
+                // are rescanned.
+                let rescan = self.buf.split_off(end);
+                self.truncate_at_trigger(plain, out);
+                Some(Resume::Rescan(Pass::Refused {
+                    rescan,
+                    consumed: i,
+                }))
+            }
+            Trigger::InData(k) => {
+                self.buf.extend_from_slice(&data[i..i + k]);
+                self.truncate_at_trigger(plain, out);
+                Some(Resume::At(i + k))
+            }
+        }
+    }
+
+    /// End the frame being collected as truncated, at a trigger. The caller has
+    /// left exactly the payload before the trigger in `buf`.
+    fn truncate_at_trigger(&mut self, plain: &mut Vec<u8>, out: &mut Vec<Event>) {
+        flush(plain, out);
+        out.push(Event::Truncated(std::mem::take(&mut self.buf)));
+        self.head.clear();
+        self.shown = 0;
+        self.state = State::Idle;
+    }
+
     fn run(
         &mut self,
         data: &[u8],
@@ -339,6 +434,16 @@ impl Detector {
                         remaining
                     };
                     let take = remaining.min(limit).min(data.len() - i);
+                    if need == 0 && kind >= UNSEALED_MIN {
+                        match self.end_at_trigger(data, i, take, plain, out) {
+                            Some(Resume::Rescan(pass)) => return pass,
+                            Some(Resume::At(next)) => {
+                                i = next;
+                                continue;
+                            }
+                            None => {}
+                        }
+                    }
                     self.buf.extend_from_slice(&data[i..i + take]);
                     i += take;
                     let remaining = remaining - take;

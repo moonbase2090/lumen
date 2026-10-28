@@ -277,6 +277,150 @@
    ]
   },
   {
+   "id": "unsealed-header-covers-later-frame",
+   "note": "an unsealed header whose declared length covers a later frame: the frame ends truncated at the introducer plus tag, the later frame is found",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f380000001f46162631b5f8a4c554d454e01f3050000000767656e75696e656166746572"
+    }
+   ],
+   "events": [
+    {
+     "truncated": {
+      "hex": "616263"
+     }
+    },
+    {
+     "frame": {
+      "kind": 5,
+      "payload": {
+       "hex": "67656e75696e65"
+      }
+     }
+    },
+    {
+     "output": {
+      "hex": "6166746572"
+     }
+    }
+   ]
+  },
+  {
+   "id": "unsealed-trigger-at-payload-start",
+   "note": "the trigger is the first thing in the payload: the truncated frame is empty",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f380000000641b5f8a4c554d454e01f3050000000178"
+    }
+   ],
+   "events": [
+    {
+     "truncated": {
+      "hex": ""
+     }
+    },
+    {
+     "frame": {
+      "kind": 5,
+      "payload": {
+       "hex": "78"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "unsealed-trigger-c1-forms",
+   "note": "the 8-bit and UTF-8 C1 introducers followed by the tag also end an unsealed payload",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f38000000064619f8a4c554d454e01f30500000001781b5f8a4c554d454e01f3800000006462c29f8a4c554d454e01f3050000000179"
+    }
+   ],
+   "events": [
+    {
+     "truncated": {
+      "hex": "61"
+     }
+    },
+    {
+     "frame": {
+      "kind": 5,
+      "payload": {
+       "hex": "78"
+      }
+     }
+    },
+    {
+     "truncated": {
+      "hex": "62"
+     }
+    },
+    {
+     "frame": {
+      "kind": 5,
+      "payload": {
+       "hex": "79"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "bare-introducer-bytes-in-payload-are-payload",
+   "note": "length bytes 00 9F, 00 1B 5F and E2 9F 9F are payload: these valid frames parse whole",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f380000000a1009f6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161611b5f8a4c554d454e01f3800000001d001b5f62626262626262626262626262626262626262626262626262621b5f8a4c554d454e01f380000000050003e29f9f"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "009f616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161"
+      }
+     }
+    },
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "001b5f6262626262626262626262626262626262626262626262626262"
+      }
+     }
+    },
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "0003e29f9f"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "sealed-range-region-is-not-scanned",
+   "note": "a frame of a sealed-range type is delimited by its accepted header, so a frame-looking run inside it is payload",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f3030000001361621b5f8a4c554d454e01f30500000002696e"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 3,
+      "payload": {
+       "hex": "61621b5f8a4c554d454e01f30500000002696e"
+      }
+     }
+    }
+   ]
+  },
+  {
    "id": "truncated-payload",
    "note": "header complete, payload cut short",
    "input": [
