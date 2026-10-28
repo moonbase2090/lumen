@@ -59,6 +59,7 @@ jobs:
           args: >-
             --offline --no-progress --include-fragments
             --root-dir ${{ github.workspace }}/site/public
+            --remap 'https://lumenprotocol\.org(/.*)? file://${{ github.workspace }}/site/public$1'
             'site/public/**/*.html'
           fail: true
 
@@ -82,6 +83,7 @@ jobs:
         with:
           args: >-
             --cache --max-cache-age 1d --no-progress
+            --scheme https --scheme http
             --exclude '^https?://(www\.)?lumenprotocol\.org'
             'README.md' 'spec/**/*.md' 'site/content/**/*.md'
           fail: false
