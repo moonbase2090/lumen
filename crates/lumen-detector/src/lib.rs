@@ -34,11 +34,13 @@ pub enum Event {
         /// The payload, exactly as long as the declared length.
         payload: Vec<u8>,
     },
-    /// A frame header whose declared length is over the limit: the introducer
-    /// and header bytes. The header failed, so no frame exists. The detector
-    /// resumes at the byte after the introducer, so a frame hidden in the rest
-    /// of the header or the body is still found, and the other bytes arrive as
-    /// ordinary output. The declared length is never used to skip input.
+    /// A frame header that was refused (over the length limit, or refused by a
+    /// [`HeaderCheck`]): the introducer and header bytes, for the caller to
+    /// account for. The header failed, so no frame exists. The bytes are not
+    /// withheld: they follow as [`Event::Output`], introducer first, and the
+    /// detector resumes at the byte after the introducer, so a frame hidden in
+    /// the rest of the header or the body is still found. The declared length is
+    /// never used to skip input.
     Rejected(Vec<u8>),
     /// The stream ended after a complete header but before the whole payload.
     /// The bytes are the payload received so far. A shorter, partial introducer
@@ -284,6 +286,9 @@ impl Detector {
                             let intro = introducer_len(&self.head).unwrap_or(0);
                             flush(plain, out);
                             out.push(Event::Rejected(self.head.clone()));
+                            // The introducer continues as ordinary output, like
+                            // that of any other candidate that is not a frame.
+                            plain.extend_from_slice(&self.head[..intro]);
                             let mut rescan = self.head.split_off(intro);
                             rescan.append(&mut self.buf);
                             self.head.clear();
@@ -374,6 +379,7 @@ impl Detector {
         if declared > self.max_payload || (need > 0 && declared < need) {
             let header = std::mem::take(&mut self.buf);
             out.push(Event::Rejected(header.clone()));
+            plain.extend_from_slice(&header[..intro]);
             self.state = State::Idle;
             return Some(header[intro..].to_vec());
         }

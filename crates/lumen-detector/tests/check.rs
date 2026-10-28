@@ -169,3 +169,37 @@ fn every_split_position_matches_the_unsplit_result_with_a_check() {
     let ones = vec![1; s.len() - 1];
     assert_eq!(run(&s, &ones), whole);
 }
+
+fn output_bytes(events: &[Event]) -> Vec<u8> {
+    events
+        .iter()
+        .flat_map(|e| match e {
+            Event::Output(b) => b.clone(),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+#[test]
+fn refused_candidate_is_ordinary_output_including_its_introducer() {
+    for intro in [&b"\x1b_"[..], b"\xc2\x9f", b"\x9f"] {
+        let mut s = b"a".to_vec();
+        s.extend(frame(intro, 3, b"BAD!rest of it"));
+        s.push(b'z');
+        let got = run(&s, &[]);
+        assert!(matches!(got[1], Event::Rejected(_)), "{got:?}");
+        assert_eq!(output_bytes(&got), s, "introducer {intro:?}");
+    }
+}
+
+#[test]
+fn over_the_length_limit_is_ordinary_output_including_its_introducer() {
+    let mut d = Detector::new(8);
+    let mut s = frame(b"\x1b_", 4, &[7u8; 9]);
+    s.push(b'!');
+    let mut out = Vec::new();
+    d.feed(&s, &mut out);
+    d.finish(&mut out);
+    assert!(matches!(out[0], Event::Rejected(_)), "{out:?}");
+    assert_eq!(output_bytes(&out), s);
+}

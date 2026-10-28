@@ -265,8 +265,9 @@ impl Layer {
                 Event::Output(bytes) => items.push(Item::Output(bytes)),
                 Event::Frame { kind, payload } => self.frame(kind, &payload, ctx, &mut items),
                 Event::Rejected(bytes) => {
-                    // A refused candidate is not a frame: its bytes already
-                    // continue as ordinary output. Only the budget is charged.
+                    // A refused candidate is not a frame: the detector has
+                    // already released its bytes as ordinary output. Only the
+                    // budget is charged.
                     self.charge(bytes.len(), &mut items);
                     if self.gate.pin_pending {
                         self.gate.pin_pending = false;
