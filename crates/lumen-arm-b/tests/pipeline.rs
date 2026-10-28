@@ -170,7 +170,7 @@ fn byte_budget_also_degrades() {
 }
 
 #[test]
-fn rejected_header_is_charged_and_shown_as_text() {
+fn rejected_header_is_charged_and_its_bytes_continue_as_output() {
     let mut l = Layer::new(Config {
         budget: Budget {
             max_frames: 2,
@@ -182,14 +182,21 @@ fn rejected_header_is_charged_and_shown_as_text() {
     let mut huge = b"\x1b_".to_vec();
     huge.extend_from_slice(&TAG);
     huge.extend_from_slice(&[KIND_PARAGRAPH, 0xff, 0xff, 0xff, 0xff]);
-    let mut texts = 0;
+    let mut outputs = 0;
     let mut notices = 0;
     for _ in 0..5 {
         let items = l.feed(&huge, no_ctx());
-        texts += items.iter().filter(|i| matches!(i, Item::Text(_))).count();
+        assert!(
+            items.iter().all(|i| !matches!(i, Item::Text(_))),
+            "{items:?}"
+        );
+        outputs += items
+            .iter()
+            .filter(|i| matches!(i, Item::Output(_)))
+            .count();
         notices += items.iter().filter(|i| matches!(i, Item::Degraded)).count();
     }
-    assert!(texts >= 5);
+    assert!(outputs >= 5);
     assert_eq!(
         notices, 1,
         "one notice when rejected headers spend the budget"
@@ -316,7 +323,7 @@ mod sealed {
     }
 
     #[test]
-    fn forged_replayed_and_wrong_kind_frames_are_text_and_never_count_toward_the_pin() {
+    fn forged_replayed_and_wrong_kind_frames_are_ordinary_output_and_never_count_toward_the_pin() {
         let mut l = layer();
         assert!(matches!(
             l.feed(&frame(5, 3, b"a", None), at(0)).as_slice(),
@@ -324,12 +331,19 @@ mod sealed {
         ));
         // Replay of an accepted sequence number.
         let items = l.feed(&frame(5, 3, b"a", None), at(1));
-        assert!(matches!(items.as_slice(), [Item::Text(_)]), "{items:?}");
+        assert!(
+            items.iter().all(|i| matches!(i, Item::Output(_))),
+            "{items:?}"
+        );
         // Tag broken.
         let mut bad = frame(6, 3, b"a", None);
         let tag_byte = 2 + TAG.len() + 1 + 4 + 20;
         bad[tag_byte] ^= 1;
-        assert!(matches!(l.feed(&bad, at(2)).as_slice(), [Item::Text(_)]));
+        let items = l.feed(&bad, at(2));
+        assert!(
+            items.iter().all(|i| matches!(i, Item::Output(_))),
+            "{items:?}"
+        );
         // A flood of such frames never pins the layer.
         for i in 0..50 {
             let _ = l.feed(&bad, at(3 + i));
@@ -345,7 +359,7 @@ mod sealed {
             // Authentic header that declares 99 bytes but carries 4.
             let items = l.feed(&frame(10 + i, 3, b"body", Some(99)), at(i * 1000));
             assert!(
-                items.iter().any(|x| matches!(x, Item::Text(_))),
+                items.iter().all(|x| !matches!(x, Item::Sealed { .. })),
                 "{items:?}"
             );
             pinned += items.iter().filter(|x| matches!(x, Item::Pinned)).count();
@@ -412,20 +426,68 @@ mod sealed {
     }
 
     #[test]
-    fn frames_past_the_cap_are_not_verified_and_are_shown_as_text() {
+    fn frames_past_the_cap_are_not_verified_and_continue_as_output() {
         let mut l = layer();
         let mut sealed = 0;
+        let mut outputs = 0;
         let mut texts = 0;
         for seq in 1..=4200u64 {
             for item in l.feed(&frame(seq, 3, b"a", None), at(5)) {
                 match item {
                     Item::Sealed { .. } => sealed += 1,
+                    Item::Output(_) => outputs += 1,
                     Item::Text(_) => texts += 1,
                     _ => {}
                 }
             }
         }
         assert_eq!(sealed, 4096);
-        assert!(texts >= 104);
+        assert_eq!(texts, 0, "over-cap frames are not shown as text");
+        assert!(outputs >= 104);
+    }
+}
+
+mod hidden {
+    use super::{Context, Item, Layer, TAG, cfg};
+    use lumen_sealed::{
+        Direction, DirectionKeys, Header, LayerId, LayerRoot, ORIGIN_APP, Receiver,
+    };
+
+    #[test]
+    fn a_forged_header_with_a_large_length_cannot_hide_the_frames_after_it() {
+        let layer = LayerId(7);
+        let keys = || DirectionKeys::derive(&LayerRoot::new([9; 32]), layer, Direction::ToTerminal);
+        let mut l = Layer::new(cfg());
+        l.attach_sealed(Receiver::new(keys(), layer, Direction::ToTerminal));
+        l.open_container();
+        // A forged sealed-range frame header that declares a large payload.
+        let mut s = b"\x1b_".to_vec();
+        s.extend_from_slice(&TAG);
+        s.push(3);
+        s.extend_from_slice(&5000u32.to_be_bytes());
+        s.extend_from_slice(&[0u8; 100]);
+        // A genuine frame within that many bytes after it.
+        let h = Header {
+            layer,
+            dir: Direction::ToTerminal,
+            origin: ORIGIN_APP,
+            seq: 1,
+            kind: 3,
+            len: 2,
+        };
+        let mut payload = h.seal(&keys()).to_vec();
+        payload.extend_from_slice(b"ok");
+        s.extend_from_slice(b"\x1b_");
+        s.extend_from_slice(&TAG);
+        s.push(3);
+        s.extend_from_slice(&u32::try_from(payload.len()).unwrap_or(0).to_be_bytes());
+        s.extend(payload);
+        let items = l.feed(&s, Context::default());
+        assert!(
+            items.iter().any(
+                |i| matches!(i, Item::Sealed { header, body } if header.seq == 1 && body == b"ok")
+            ),
+            "{items:?}"
+        );
     }
 }
