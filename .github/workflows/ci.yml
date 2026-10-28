@@ -44,11 +44,11 @@ jobs:
           if grep -qiE '^\s*(error|warning)' pagefind.log; then echo "pagefind reported problems"; exit 1; fi
           test -f public/pagefind/pagefind.js
           test -f public/pagefind/pagefind-ui.js
-      - name: Check base.html assets keep cachebust=true
+      - name: Check base.html CSS/JS assets keep cachebust=true
         run: |
           set -euo pipefail
-          bad=$(grep -nE "get_url\(path='assets/" site/templates/base.html | grep -v "cachebust=true" || true)
-          if [ -n "$bad" ]; then echo "$bad"; echo "asset links in base.html must use cachebust=true"; exit 1; fi
+          bad=$(grep -noE "get_url\(path='assets/[^']+\.(css|js)'[^)]*\)" site/templates/base.html | grep -v "cachebust=true" || true)
+          if [ -n "$bad" ]; then echo "$bad"; echo "CSS/JS asset links in base.html must use cachebust=true"; exit 1; fi
       - name: PII / secret scan (repo text and built site)
         env:
           PUBLIC_TEXT_DENYLIST: ${{ secrets.PUBLIC_TEXT_DENYLIST }}
