@@ -9,7 +9,9 @@
 //!   Lines carry kinds and lengths only, never payload text.
 //! - [`EffectLog`] is the contract for the authority-leak count. The terminal's
 //!   effect sinks call it. It reports a zero only when a sink was exercised,
-//!   and it never turns a run driven by stubs into a measurement.
+//!   and it never turns a run driven by stubs into a measurement. A result is
+//!   accepted only if its header names the terminal crate, at the measured
+//!   commit, as the source of the sink table; the reviewer checks this.
 
 #![forbid(unsafe_code)]
 
