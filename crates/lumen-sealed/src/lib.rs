@@ -19,6 +19,10 @@
 
 #![forbid(unsafe_code)]
 
+mod payload;
+
+pub use payload::{PayloadError, Sender, TAG_BYTES};
+
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -260,6 +264,23 @@ impl Receiver {
             len,
         })
     }
+
+    /// Verify a whole sealed frame (header, then payload) and return the
+    /// header and the decrypted payload. `cap` is the capability the caller
+    /// expects this frame to carry; it is bound into the associated data, so a
+    /// frame sealed for another capability fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns a header error if the header is refused, or a payload error if
+    /// the body length is wrong or the AEAD check fails. A header that verified
+    /// has consumed its sequence number even if the body then fails.
+    pub fn open(&mut self, cap: u8, frame: &[u8]) -> Result<(Header, Vec<u8>), PayloadError> {
+        let header = self.verify(frame).map_err(PayloadError::Header)?;
+        let body = &frame[HEADER_LEN..];
+        let plain = payload::open(&self.keys, &header, cap, body)?;
+        Ok((header, plain))
+    }
 }
 
 #[cfg(test)]
@@ -446,8 +467,7 @@ mod tests {
     }
 
     // Known-answer vectors, computed outside this crate with an independent
-    // HKDF-SHA256 and HMAC-SHA256 (Python standard library) from the stated
-    // inputs: root = 32 bytes of 0x01, no salt, info = label || layer id
+    // HKDF-SHA256 and HMAC-SHA256 from the stated inputs: root = 32 bytes of 0x01, no salt, info = label || layer id
     // (4 bytes big-endian) || direction byte.
     #[test]
     fn derivation_matches_known_answers() {
