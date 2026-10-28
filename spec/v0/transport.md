@@ -51,8 +51,8 @@ Decoders MUST cap every allocation from a declared length before reserving memor
 - An invalid header, an AEAD failure or a length beyond the limits aborts only that frame.
 - After a failed header, the layer creates no parser state of its own. The bytes continue to the grid parser as ordinary output, still subject to string caps and the unauthenticated budget, and the detector resumes at the byte after that introducer.
 - A verified header authenticates its length, so a body that fails AEAD aborts exactly that frame. The claimed region is rendered once as a failed frame, and the detector resumes after that introducer, so an authentic frame inside the region is still found.
-- A failed frame renders as at most 256 bytes of escaped literal text in a visually marked span (ESC shown as a visible glyph such as ␛, and all controls shown as escapes), plus a byte count. The rest is dropped. A failed frame is never parsed as VT and never forms a block.
-- Verification work is capped per layer per second at 4096 header checks and 256 body AEAD checks. Candidates beyond a cap are not verified. They are shown as escaped text like any other unverified frame and are charged to the unauthenticated bucket.
+- A failed frame (a verified header whose body fails) renders as at most 256 bytes of escaped literal text in a visually marked span (ESC shown as a visible glyph such as ␛, and all controls shown as escapes), plus a byte count. The rest is dropped. A failed frame is never parsed as VT and never forms a block.
+- Verification work is capped per layer per second at 4096 header checks and 256 body AEAD checks. A candidate beyond a cap is not verified and follows the failed-header rule above: its bytes continue as ordinary output and are charged to the unauthenticated bucket.
 - Nothing is charged to a producer before its header verifies. Bytes that look like frames but are unverified go to one capped per-layer unauthenticated bucket.
 - A frame aborts if its byte rate falls below 16 KiB/s after the first 2 s.
 - A command-start frame closes any open block. A block with no exit frame shows as ended-unknown, never as success.
