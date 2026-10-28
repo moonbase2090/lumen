@@ -261,6 +261,12 @@ dependencies = [
 [[package]]
 name = "lumen-arm-a"
 version = "0.0.0"
+dependencies = [
+ "lumen-detector",
+ "lumen-harness",
+ "lumen-sealed",
+ "lumen-track0",
+]
 
 [[package]]
 name = "lumen-arm-b"
