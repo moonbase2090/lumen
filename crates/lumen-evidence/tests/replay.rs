@@ -58,3 +58,33 @@ fn the_log_has_a_header_and_case_markers() {
         5
     );
 }
+
+fn write_corpus(name: &str, forbid: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("lumen-evidence-{name}-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let doc = format!(
+        r#"{{"revision":"t","cases":[{{"id":"case-x","reads":[{{"hex":"61"}}],"forbid":{forbid}}}]}}"#
+    );
+    assert!(std::fs::write(dir.join("c.json"), doc).is_ok());
+    dir
+}
+
+#[test]
+fn a_misspelled_forbid_kind_fails_the_load_with_the_case_id() {
+    for bad in [
+        r#"["Sealed"]"#,
+        r#"["blocks"]"#,
+        r#"["sealed", "nope"]"#,
+        "[1]",
+    ] {
+        let dir = write_corpus("typo", bad);
+        let Err(e) = load_corpus(&dir) else {
+            unreachable!("{bad} must not load")
+        };
+        assert!(e.contains("case-x"), "{e}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    let dir = write_corpus("ok", r#"["sealed", "block"]"#);
+    assert!(load_corpus(&dir).is_ok());
+    let _ = std::fs::remove_dir_all(&dir);
+}

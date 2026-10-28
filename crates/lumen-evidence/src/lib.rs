@@ -13,14 +13,18 @@
 //! - `id`, `category`: strings.
 //! - `reads`: the PTY reads in order. Each is `{"hex": ".."}` or
 //!   `{"fill": "<hex byte>", "count": n}`, with an optional `"t_ms"` (default 0).
-//! - `context`: optional `{"alt_screen": bool, "tmux_or_screen": bool}`.
+//! - `context`: optional `{"alt_screen": bool, "tmux_or_screen": bool,
+//!   "container": bool}`. `container` is whether a command's container is
+//!   open; it defaults to true, as while a command runs. With false, Track 0
+//!   goes to the background strip.
 //! - `forbid`: optional item kinds that must not appear (for example `sealed`
 //!   for input that never came from a sealed layer). Each occurrence is a
-//!   violation.
+//!   violation. The kinds are `lumen_arm_b::ITEM_KINDS`; an unknown kind fails
+//!   the load, so a typo cannot pass silently.
 
 #![forbid(unsafe_code)]
 
-use lumen_arm_b::{Budget, Config, Context, Counters, Item, Layer, item_summary};
+use lumen_arm_b::{Budget, Config, Context, Counters, ITEM_KINDS, Item, Layer, item_summary};
 use lumen_harness::{EffectLog, HeaderInfo, Recorder, SinkTable};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -107,6 +111,19 @@ fn case_of(v: &Value) -> Result<Case, String> {
         .map(read_of)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("{id}: {e}"))?;
+    let forbid: Vec<String> = v["forbid"].as_array().map_or_else(Vec::new, |a| {
+        a.iter()
+            .filter_map(|k| k.as_str().map(str::to_owned))
+            .collect()
+    });
+    if forbid.len() != v["forbid"].as_array().map_or(0, Vec::len) {
+        return Err(format!("{id}: forbid entries must be strings"));
+    }
+    if let Some(bad) = forbid.iter().find(|k| !ITEM_KINDS.contains(&k.as_str())) {
+        return Err(format!(
+            "{id}: unknown forbid kind {bad:?}; known kinds are {ITEM_KINDS:?}"
+        ));
+    }
     Ok(Case {
         category: v["category"].as_str().unwrap_or_default().to_owned(),
         alt_screen: v["context"]["alt_screen"].as_bool().unwrap_or(false),
