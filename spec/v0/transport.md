@@ -20,7 +20,7 @@ Frame payloads use a compact binary schema. A JSON debug form exists for tooling
 
 ## One pipeline {#transport.pipeline}
 
-PTY bytes pass through the frame detector and then the VT parser. The frame detector sees every byte first, removes frame bytes from the stream, and passes only non-frame bytes to the VT parser. Valid or not, frame bytes MUST never reach the VT parser.
+PTY bytes pass through the frame detector and then the VT parser. The frame detector sees every byte first, removes the bytes of every accepted frame from the stream, and passes all other bytes to the VT parser. A frame is accepted once its header is accepted, and its bytes MUST never reach the VT parser, whether or not its body then verifies. A candidate whose header fails is not a frame: its bytes continue as ordinary output, as described in [Frame abort](#transport.abort).
 
 ## Detector {#transport.detector}
 
