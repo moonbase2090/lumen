@@ -1,0 +1,28 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/moonbase2090/lumen"
+publish = false
+
+[workspace.dependencies]
+prismattyc-core = { git = "https://github.com/moonbase2090/Prismattyc", rev = "58673817e51ab559097b6d5b1c8e5846e1e4195c" }
+prismattyc-emulator = { git = "https://github.com/moonbase2090/Prismattyc", rev = "58673817e51ab559097b6d5b1c8e5846e1e4195c" }
+prismattyc-render = { git = "https://github.com/moonbase2090/Prismattyc", rev = "58673817e51ab559097b6d5b1c8e5846e1e4195c" }
+
+[workspace.lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"

@@ -1,0 +1,23 @@
+[package]
+name = "lumen"
+description = "Lumen Protocol reference implementation (workspace skeleton)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# Experiment arms. Both are off by default and carry no logic yet.
+arm-a = []
+arm-b = []
+
+[dependencies]
+prismattyc-core.workspace = true
+prismattyc-emulator.workspace = true
+prismattyc-render.workspace = true
+
+[lints]
+workspace = true
