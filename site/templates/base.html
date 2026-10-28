@@ -7,10 +7,10 @@
 <meta name="description" content="{{ config.description }}">
 <link rel="icon" href="{{ get_url(path='assets/img/favicon.svg') }}" type="image/svg+xml" media="(prefers-color-scheme: light)">
 <link rel="icon" href="{{ get_url(path='assets/img/favicon-dark.svg') }}" type="image/svg+xml" media="(prefers-color-scheme: dark)">
-<link rel="stylesheet" href="{{ get_url(path='assets/css/tokens.css') }}">
-<link rel="stylesheet" href="{{ get_url(path='assets/css/site.css') }}">
-<script src="{{ get_url(path='assets/js/theme.js') }}" defer></script>
-<script src="{{ get_url(path='assets/js/menu.js') }}" defer></script>
+<link rel="stylesheet" href="{{ get_url(path='assets/css/tokens.css', cachebust=true) }}">
+<link rel="stylesheet" href="{{ get_url(path='assets/css/site.css', cachebust=true) }}">
+<script src="{{ get_url(path='assets/js/theme.js', cachebust=true) }}" defer></script>
+<script src="{{ get_url(path='assets/js/menu.js', cachebust=true) }}" defer></script>
 {% block head %}{% endblock head %}
 </head>
 <body>
