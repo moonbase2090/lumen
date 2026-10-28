@@ -59,4 +59,4 @@ Keyed SSH layers are not part of v0. Any future design requires its own gate.
 
 ## Fuzzing {#gate.fuzzing}
 
-The conformance fuzzer feeds every introducer variant at every split position. It requires that no frame is accepted without valid authentication and that no frame bytes reach the VT parser. Every numeric limit in this specification has a test vector.
+The conformance fuzzer feeds every introducer variant at every split position. It requires that no frame is accepted without valid authentication and that no bytes of an accepted frame reach the VT parser. Every numeric limit in this specification has a test vector.

@@ -37,7 +37,7 @@ Each command and its output is a block, not grid scrollback. Boundaries come onl
 
 ## Grid sandbox {#grid.sandbox}
 
-VT output inside a grid can never emit Lumen frames, reference images or reach the decoder. The conformance fuzzer feeds every introducer variant (7-bit, 8-bit C1, UTF-8-encoded C1 and string types) at every split position. It requires that no frame is accepted from bytes that lack valid authentication under a held key, and that no frame bytes reach the VT parser.
+VT output inside a grid can never emit Lumen frames, reference images or reach the decoder. The conformance fuzzer feeds every introducer variant (7-bit, 8-bit C1, UTF-8-encoded C1 and string types) at every split position. It requires that no frame is accepted from bytes that lack valid authentication under a held key, and that no bytes of an accepted frame reach the VT parser.
 
 ## Grid input handling {#grid.input}
 
