@@ -20,9 +20,10 @@
 
 #![forbid(unsafe_code)]
 
-use lumen_detector::{Detector, Event};
+use lumen_detector::{Detector, Event, HeaderCheck};
 use lumen_sealed::{HEADER_LEN, Header, Receiver};
 use lumen_track0::{Block, escaped_text, parse};
+use std::collections::VecDeque;
 
 /// Per-read facts about the layer that change how Track 0 is shown.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -100,20 +101,88 @@ pub enum Item {
     Pinned,
 }
 
+/// Sealed-frame state that the detector consults before it commits to a
+/// frame: the header receiver, the per-second cap and the pin window.
+#[derive(Debug, Default)]
+struct Gate {
+    receiver: Option<Receiver>,
+    now_ms: u64,
+    window_start_ms: u64,
+    header_checks: u32,
+    aborts: Vec<u64>,
+    pinned: bool,
+    /// An authenticated abort just pinned the layer; the layer announces it
+    /// when it handles the refusal that caused it.
+    pin_pending: bool,
+    /// Headers that verified, in order, for the frames the detector then yields.
+    verified: VecDeque<Header>,
+}
+
+impl Gate {
+    fn count_abort(&mut self, now_ms: u64) {
+        self.aborts
+            .retain(|&t| now_ms.saturating_sub(t) < PIN_WINDOW_MS);
+        self.aborts.push(now_ms);
+        if self.aborts.len() > PIN_AFTER_ABORTS && !self.pinned {
+            self.pinned = true;
+            self.pin_pending = true;
+        }
+    }
+}
+
+impl HeaderCheck for Gate {
+    fn prefix_len(&self, kind: u8) -> usize {
+        if self.receiver.is_some() && kind < lumen_track0::UNSEALED_MIN {
+            HEADER_LEN
+        } else {
+            0
+        }
+    }
+
+    fn accept(&mut self, kind: u8, declared: usize, prefix: &[u8]) -> bool {
+        if self.pinned {
+            // Grid mode: no keys are used. The layer shows the frame as text.
+            return true;
+        }
+        if self.now_ms.saturating_sub(self.window_start_ms) >= 1000 {
+            self.window_start_ms = self.now_ms;
+            self.header_checks = 0;
+        }
+        self.header_checks = self.header_checks.saturating_add(1);
+        if self.header_checks > HEADER_CHECKS_PER_SEC {
+            // Over the cap: not verified, so unauthenticated input. It follows
+            // the failed-header rule and never counts toward the pin.
+            return false;
+        }
+        let Some(receiver) = self.receiver.as_mut() else {
+            return false;
+        };
+        let Ok(header) = receiver.verify(prefix) else {
+            return false;
+        };
+        // The header is authentic. If the detector's framing disagrees with it,
+        // that is an abort of an authenticated frame.
+        if header.kind != kind || declared != HEADER_LEN.saturating_add(header.len as usize) {
+            self.count_abort(self.now_ms);
+            return false;
+        }
+        self.verified.push_back(header);
+        true
+    }
+}
+
 /// The Track 0 pipeline for one layer.
 #[derive(Debug)]
 pub struct Layer {
     detector: Detector,
+    gate: Gate,
     config: Config,
     container_open: bool,
     frames: usize,
     bytes: usize,
     degraded: bool,
-    sealed: Option<Receiver>,
-    window_start_ms: u64,
-    header_checks: u32,
-    aborts: Vec<u64>,
-    pinned: bool,
+    /// The pin notice has been given; frames from here on are text.
+    pinned_shown: bool,
 }
 
 impl Layer {
@@ -122,47 +191,40 @@ impl Layer {
     pub fn new(config: Config) -> Self {
         Self {
             detector: Detector::default(),
+            gate: Gate::default(),
             config,
             container_open: false,
             frames: 0,
             bytes: 0,
             degraded: false,
-            sealed: None,
-            window_start_ms: 0,
-            header_checks: 0,
-            aborts: Vec::new(),
-            pinned: false,
+            pinned_shown: false,
         }
     }
 
     /// Give the layer a header receiver. Only a layer that has sealing keys
     /// has one. Without it, every sealed-range frame is escaped text.
     pub fn attach_sealed(&mut self, receiver: Receiver) {
-        self.sealed = Some(receiver);
+        self.gate.receiver = Some(receiver);
     }
 
     /// Whether the layer is pinned to grid mode.
     #[must_use]
     pub fn is_pinned(&self) -> bool {
-        self.pinned
+        self.pinned_shown
     }
 
     /// Record the abort of an authenticated sealed frame, such as a body that
     /// fails to open. More than [`PIN_AFTER_ABORTS`] in [`PIN_WINDOW_MS`] pins
     /// the layer. Track 0 and unverified frames never call this.
     pub fn sealed_abort(&mut self, now_ms: u64) -> Vec<Item> {
-        let mut items = Vec::new();
-        self.count_abort(now_ms, &mut items);
-        items
-    }
-
-    fn count_abort(&mut self, now_ms: u64, items: &mut Vec<Item>) {
-        self.aborts
-            .retain(|&t| now_ms.saturating_sub(t) < PIN_WINDOW_MS);
-        self.aborts.push(now_ms);
-        if self.aborts.len() > PIN_AFTER_ABORTS && !self.pinned {
-            self.pinned = true;
-            items.push(Item::Pinned);
+        let was = self.gate.pinned;
+        self.gate.count_abort(now_ms);
+        self.gate.pin_pending = false;
+        if self.gate.pinned && !was {
+            self.pinned_shown = true;
+            vec![Item::Pinned]
+        } else {
+            Vec::new()
         }
     }
 
@@ -183,7 +245,9 @@ impl Layer {
     /// Process one read of PTY bytes.
     pub fn feed(&mut self, data: &[u8], ctx: Context) -> Vec<Item> {
         let mut events = Vec::new();
-        self.detector.feed(data, &mut events);
+        self.gate.now_ms = ctx.now_ms;
+        self.detector
+            .feed_checked(data, &mut events, &mut self.gate);
         self.items(events, ctx)
     }
 
@@ -200,7 +264,18 @@ impl Layer {
             match event {
                 Event::Output(bytes) => items.push(Item::Output(bytes)),
                 Event::Frame { kind, payload } => self.frame(kind, &payload, ctx, &mut items),
-                Event::Rejected(bytes) | Event::Truncated(bytes) => {
+                Event::Rejected(bytes) => {
+                    // A refused candidate is not a frame: the detector has
+                    // already released its bytes as ordinary output. Only the
+                    // budget is charged.
+                    self.charge(bytes.len(), &mut items);
+                    if self.gate.pin_pending {
+                        self.gate.pin_pending = false;
+                        self.pinned_shown = true;
+                        items.push(Item::Pinned);
+                    }
+                }
+                Event::Truncated(bytes) => {
                     self.charge(bytes.len(), &mut items);
                     items.push(text(&bytes));
                 }
@@ -227,14 +302,21 @@ impl Layer {
         let mut raw = Vec::with_capacity(payload.len() + 1);
         raw.push(kind);
         raw.extend_from_slice(payload);
-        if self.pinned {
+        if self.pinned_shown {
             items.push(text(&raw));
             return;
         }
-        if kind < lumen_track0::UNSEALED_MIN
-            && self.sealed.is_some()
-            && self.sealed_frame(kind, payload, &raw, ctx, items)
-        {
+        if kind < lumen_track0::UNSEALED_MIN && self.gate.receiver.is_some() {
+            // The detector only yields this frame after the gate accepted it.
+            if let Some(header) = self.gate.verified.pop_front() {
+                let body = payload.get(HEADER_LEN..).unwrap_or_default();
+                items.push(Item::Sealed {
+                    header,
+                    body: body.to_vec(),
+                });
+            } else {
+                items.push(text(&raw));
+            }
             return;
         }
         let spent = self.charge(payload.len(), items);
@@ -252,50 +334,6 @@ impl Layer {
             Ok(block) => items.push(Item::Background(block)),
             Err(_) => items.push(text(&raw)),
         }
-    }
-
-    /// Handle a sealed-range frame on a layer that has keys. Returns whether
-    /// the frame is fully handled. A frame that returns `false` falls through to
-    /// the unverified path, where it is charged and shown as text.
-    fn sealed_frame(
-        &mut self,
-        kind: u8,
-        payload: &[u8],
-        raw: &[u8],
-        ctx: Context,
-        items: &mut Vec<Item>,
-    ) -> bool {
-        if ctx.now_ms.saturating_sub(self.window_start_ms) >= 1000 {
-            self.window_start_ms = ctx.now_ms;
-            self.header_checks = 0;
-        }
-        self.header_checks = self.header_checks.saturating_add(1);
-        if self.header_checks > HEADER_CHECKS_PER_SEC {
-            // Over the cap: the frame is not verified, so it is unauthenticated
-            // input. It is charged and shown as text, and it never counts
-            // toward the pin: unauthenticated bytes must not be able to pin a
-            // sealed layer.
-            return false;
-        }
-        let Some(receiver) = self.sealed.as_mut() else {
-            return false;
-        };
-        let Ok(header) = receiver.verify(payload) else {
-            return false;
-        };
-        // The header is authentic, so from here a mismatch is an abort of an
-        // authenticated frame and nothing is charged to the unverified bucket.
-        let body = payload.get(HEADER_LEN..).unwrap_or_default();
-        if header.kind != kind || usize::try_from(header.len).ok() != Some(body.len()) {
-            self.count_abort(ctx.now_ms, items);
-            items.push(text(raw));
-            return true;
-        }
-        items.push(Item::Sealed {
-            header,
-            body: body.to_vec(),
-        });
-        true
     }
 }
 
