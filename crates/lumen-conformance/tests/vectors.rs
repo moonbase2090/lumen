@@ -14,6 +14,7 @@ const SPLIT_SWEEP_MAX: usize = 4096;
 #[derive(Debug, PartialEq, Eq)]
 enum Ev {
     Out(Vec<u8>),
+    Escaped(Vec<u8>),
     Frame(u8, Vec<u8>),
     Rejected(Vec<u8>),
     Truncated(Vec<u8>),
@@ -77,6 +78,8 @@ fn expected(v: &Value) -> Vec<Ev> {
     for e in array(v, "events") {
         out.push(if e.get("output").is_some() {
             Ev::Out(segment(&e["output"]))
+        } else if e.get("escaped").is_some() {
+            Ev::Escaped(segment(&e["escaped"]))
         } else if e.get("frame").is_some() {
             Ev::Frame(
                 kind_of(&e["frame"]["kind"]),
@@ -106,6 +109,10 @@ fn run(reads: &[&[u8]]) -> Vec<Ev> {
             Event::Output(b) => match out.last_mut() {
                 Some(Ev::Out(prev)) => prev.extend_from_slice(&b),
                 _ => out.push(Ev::Out(b)),
+            },
+            Event::Escaped(b) => match out.last_mut() {
+                Some(Ev::Escaped(prev)) => prev.extend_from_slice(&b),
+                _ => out.push(Ev::Escaped(b)),
             },
             Event::Frame { kind, payload } => out.push(Ev::Frame(kind, payload)),
             Event::Rejected(b) => out.push(Ev::Rejected(b)),

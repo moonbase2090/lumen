@@ -322,6 +322,9 @@ impl Layer {
         for event in events {
             match event {
                 Event::Output(bytes) => items.push(Item::Output(bytes)),
+                // The header of a rejected candidate is visible text, never
+                // output. Budget accounting for it is left as it was.
+                Event::Escaped(bytes) => items.push(text(&bytes)),
                 Event::Frame { kind, payload } => {
                     self.gate.stats.frames_seen += 1;
                     self.gate.stats.frames_accepted += 1;

@@ -24,7 +24,9 @@ one byte per read, then split at every position for inputs up to 4 KiB. All
 runs must give the same result.
 
 Detector `events` are, in order: `output` (ordinary bytes for the VT parser;
-adjacent output is joined), `frame` (`kind`, `payload`), `rejected` (the
+adjacent output is joined), `escaped` (the header of a rejected candidate, shown
+as escaped text: the 13 bytes after the introducer, fewer if the stream ends or
+an introducer starts among them; adjacent escaped is joined), `frame` (`kind`, `payload`), `rejected` (the
 introducer and header of a refused candidate) and `truncated` (payload received
 before the stream ended). The stream ends after the last read.
 

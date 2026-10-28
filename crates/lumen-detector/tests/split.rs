@@ -31,7 +31,9 @@ fn run(stream: &[u8], chunks: &[usize]) -> Vec<Event> {
     d.finish(&mut raw);
     let mut merged: Vec<Event> = Vec::new();
     for e in raw {
-        if let (Event::Output(new), Some(Event::Output(last))) = (&e, merged.last_mut()) {
+        if let (Event::Output(new), Some(Event::Output(last)))
+        | (Event::Escaped(new), Some(Event::Escaped(last))) = (&e, merged.last_mut())
+        {
             last.extend_from_slice(new);
         } else {
             merged.push(e);
@@ -120,7 +122,8 @@ fn partial_introducer_or_header_at_end_of_stream_is_withheld_or_released() {
             "tail {tail:?}"
         );
     }
-    // A complete introducer is withheld; what follows it is released.
+    // A complete introducer is withheld; the partial header after it is shown
+    // as escaped text.
     let header_short = frame(b"\x1b_", 1, b"xyz");
     for (tail, rest) in [
         (&b"\x1b_"[..], &b""[..]),
@@ -130,14 +133,16 @@ fn partial_introducer_or_header_at_end_of_stream_is_withheld_or_released() {
     ] {
         let mut s = b"ab".to_vec();
         s.extend_from_slice(tail);
-        let mut want = b"ab".to_vec();
-        want.extend_from_slice(rest);
-        assert_eq!(expect_whole(&s), vec![Event::Output(want)], "tail {tail:?}");
+        let mut want = vec![Event::Output(b"ab".to_vec())];
+        if !rest.is_empty() {
+            want.push(Event::Escaped(rest.to_vec()));
+        }
+        assert_eq!(expect_whole(&s), want, "tail {tail:?}");
     }
 }
 
 #[test]
-fn wrong_tag_is_ordinary_output_and_scanning_resumes_inside_it() {
+fn wrong_tag_is_shown_as_escaped_text_and_scanning_resumes_inside_it() {
     let mut s = b"\x1b_".to_vec();
     s.extend_from_slice(b"NOTATAG!");
     s.extend(frame(b"\x1b_", 5, b"ok"));
@@ -145,7 +150,7 @@ fn wrong_tag_is_ordinary_output_and_scanning_resumes_inside_it() {
     assert_eq!(
         got,
         vec![
-            Event::Output(b"NOTATAG!".to_vec()),
+            Event::Escaped(b"NOTATAG!".to_vec()),
             Event::Frame {
                 kind: 5,
                 payload: b"ok".to_vec()

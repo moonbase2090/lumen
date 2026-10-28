@@ -170,7 +170,7 @@ fn byte_budget_also_degrades() {
 }
 
 #[test]
-fn rejected_header_is_charged_and_its_bytes_continue_as_output() {
+fn rejected_header_is_charged_and_shown_as_escaped_text() {
     let mut l = Layer::new(Config {
         budget: Budget {
             max_frames: 2,
@@ -186,14 +186,12 @@ fn rejected_header_is_charged_and_its_bytes_continue_as_output() {
     let mut notices = 0;
     for _ in 0..5 {
         let items = l.feed(&huge, no_ctx());
+        // The header is escaped text, never output.
         assert!(
-            items.iter().all(|i| !matches!(i, Item::Text(_))),
+            items.iter().all(|i| !matches!(i, Item::Output(_))),
             "{items:?}"
         );
-        outputs += items
-            .iter()
-            .filter(|i| matches!(i, Item::Output(_)))
-            .count();
+        outputs += items.iter().filter(|i| matches!(i, Item::Text(_))).count();
         notices += items.iter().filter(|i| matches!(i, Item::Degraded)).count();
     }
     assert!(outputs >= 5);
@@ -334,7 +332,8 @@ mod sealed {
     }
 
     #[test]
-    fn forged_replayed_and_wrong_kind_frames_are_ordinary_output_and_never_count_toward_the_pin() {
+    fn forged_replayed_and_wrong_kind_frames_show_their_header_as_text_and_never_count_toward_the_pin()
+     {
         let mut l = layer();
         assert!(matches!(
             l.feed(&frame(5, 3, b"a", None), at(0)).as_slice(),
@@ -343,7 +342,13 @@ mod sealed {
         // Replay of an accepted sequence number.
         let items = l.feed(&frame(5, 3, b"a", None), at(1));
         assert!(
-            items.iter().all(|i| matches!(i, Item::Output(_))),
+            items
+                .iter()
+                .all(|i| matches!(i, Item::Text(_) | Item::Output(_))),
+            "{items:?}"
+        );
+        assert!(
+            items.iter().any(|i| matches!(i, Item::Text(_))),
             "{items:?}"
         );
         // Tag broken.
@@ -352,7 +357,13 @@ mod sealed {
         bad[tag_byte] ^= 1;
         let items = l.feed(&bad, at(2));
         assert!(
-            items.iter().all(|i| matches!(i, Item::Output(_))),
+            items
+                .iter()
+                .all(|i| matches!(i, Item::Text(_) | Item::Output(_))),
+            "{items:?}"
+        );
+        assert!(
+            items.iter().any(|i| matches!(i, Item::Text(_))),
             "{items:?}"
         );
         // A flood of such frames never pins the layer.

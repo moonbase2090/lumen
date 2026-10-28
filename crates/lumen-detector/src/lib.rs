@@ -47,6 +47,13 @@ pub enum Event {
     /// introducer, so a frame hidden in the rest of the header or the body is
     /// still found. The declared length is never used to skip input.
     Rejected(Vec<u8>),
+    /// Bytes of a rejected header, to be shown as escaped text. They are the
+    /// header-length bytes that follow the introducer (fewer if the stream
+    /// ends first), up to the first introducer among them. They do not also appear as
+    /// [`Event::Output`]. The caller charges them to the unauthenticated
+    /// budget. Like `Output`, adjacent `Escaped` events may be split at read
+    /// boundaries and are to be joined.
+    Escaped(Vec<u8>),
     /// The stream ended after a complete header but before the whole payload.
     /// The bytes are the payload received so far. A shorter, partial introducer
     /// or header is released as `Output` instead.
@@ -122,6 +129,9 @@ pub struct Detector {
     /// Continuation bytes still expected in a UTF-8 sequence in ordinary
     /// output. A raw `0x9F` inside one is text, not an introducer.
     utf8_cont: u8,
+    /// How many more bytes of ordinary input are still part of the rejected
+    /// header just refused, and are reported as [`Event::Escaped`].
+    shown: usize,
     max_payload: usize,
 }
 
@@ -182,6 +192,7 @@ impl Detector {
             buf: Vec::new(),
             head: Vec::new(),
             utf8_cont: 0,
+            shown: 0,
             max_payload,
         }
     }
@@ -233,6 +244,49 @@ impl Detector {
         }
     }
 
+    /// Scan ordinary bytes from `data[start..]` up to the next possible
+    /// introducer. Bytes that belong to a rejected header go out as
+    /// [`Event::Escaped`], the rest into `plain`. Returns where scanning stopped.
+    fn scan_plain(
+        &mut self,
+        data: &[u8],
+        start: usize,
+        plain: &mut Vec<u8>,
+        out: &mut Vec<Event>,
+    ) -> usize {
+        let mut i = start;
+        while i < data.len() {
+            let b = data[i];
+            if self.utf8_cont > 0 && (0x80..=0xbf).contains(&b) {
+                self.utf8_cont -= 1;
+            } else if matches!(b, 0x1b | 0xc2 | 0x9f) {
+                self.utf8_cont = 0;
+                break;
+            } else {
+                self.utf8_cont = match b {
+                    0xc3..=0xdf => 1,
+                    0xe0..=0xef => 2,
+                    0xf0..=0xf4 => 3,
+                    _ => 0,
+                };
+            }
+            i += 1;
+        }
+        let show = self.shown.min(i - start);
+        if show > 0 {
+            flush(plain, out);
+            let shown = &data[start..start + show];
+            if let Some(Event::Escaped(last)) = out.last_mut() {
+                last.extend_from_slice(shown);
+            } else {
+                out.push(Event::Escaped(shown.to_vec()));
+            }
+            self.shown -= show;
+        }
+        plain.extend_from_slice(&data[start + show..i]);
+        i
+    }
+
     fn run(
         &mut self,
         data: &[u8],
@@ -244,26 +298,10 @@ impl Detector {
         while i < data.len() {
             match self.state {
                 State::Idle => {
-                    let start = i;
-                    while i < data.len() {
-                        let b = data[i];
-                        if self.utf8_cont > 0 && (0x80..=0xbf).contains(&b) {
-                            self.utf8_cont -= 1;
-                        } else if matches!(b, 0x1b | 0xc2 | 0x9f) {
-                            self.utf8_cont = 0;
-                            break;
-                        } else {
-                            self.utf8_cont = match b {
-                                0xc3..=0xdf => 1,
-                                0xe0..=0xef => 2,
-                                0xf0..=0xf4 => 3,
-                                _ => 0,
-                            };
-                        }
-                        i += 1;
-                    }
-                    plain.extend_from_slice(&data[start..i]);
+                    i = self.scan_plain(data, i, plain, out);
                     if i < data.len() {
+                        // A new candidate ends the rejected header's span.
+                        self.shown = 0;
                         self.buf.clear();
                         self.buf.push(data[i]);
                         i += 1;
@@ -312,6 +350,7 @@ impl Detector {
                             // The introducer is withheld from the VT parser.
                             let mut rescan = self.head.split_off(intro);
                             rescan.append(&mut self.buf);
+                            self.shown = HEADER_LEN;
                             self.head.clear();
                             self.state = State::Idle;
                             return Pass::Refused {
@@ -348,13 +387,19 @@ impl Detector {
     /// output.
     pub fn finish(&mut self, out: &mut Vec<Event>) {
         let buf = std::mem::take(&mut self.buf);
+        self.shown = 0;
         match std::mem::replace(&mut self.state, State::Idle) {
             State::Idle => {}
             State::Candidate => {
                 // Withhold a complete introducer; release the rest.
                 let intro = introducer_len(&buf).unwrap_or(0);
                 if buf.len() > intro {
-                    out.push(Event::Output(buf[intro..].to_vec()));
+                    let rest = buf[intro..].to_vec();
+                    out.push(if intro > 0 {
+                        Event::Escaped(rest)
+                    } else {
+                        Event::Output(rest)
+                    });
                 }
             }
             State::Payload { .. } => out.push(Event::Truncated(buf)),
@@ -382,6 +427,9 @@ impl Detector {
             plain.append(&mut self.buf);
         } else {
             self.buf.clear();
+            // The header failed (wrong tag): show what was read after the
+            // introducer, up to one header, as escaped text.
+            self.shown = HEADER_LEN;
         }
         self.state = State::Idle;
         // `rest` is shorter than the candidate was, so this recursion is bounded.
@@ -414,6 +462,7 @@ impl Detector {
             let header = std::mem::take(&mut self.buf);
             out.push(Event::Rejected(header.clone()));
             self.state = State::Idle;
+            self.shown = HEADER_LEN;
             return Some(header[intro..].to_vec());
         }
         if declared == 0 {
