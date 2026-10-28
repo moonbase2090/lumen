@@ -11,6 +11,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# The one exact, case-sensitive allowlist entry: the company's legal name. It
+# is removed from each line before the personal-identifier patterns run, so an
+# identifier beside it on the same line still fails.
+ALLOWED_NAME='Moonbase 2090 LLC'
 ALLOWED_EMAIL_RE='^(322824348\+mb2090@users\.noreply\.github\.com|[A-Za-z0-9._%+-]+@lumenprotocol\.org)$'
 DENYLIST_FILE="${PUBLIC_TEXT_DENYLIST_FILE:-$HOME/.config/moonbase/release-denylist.txt}"
 EMAIL_PATTERN='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
@@ -32,7 +36,8 @@ GENERIC_PATTERNS=(
 
 TMP_PATTERNS="$(mktemp)"
 TMP_FILES="$(mktemp)"
-trap 'rm -f "$TMP_PATTERNS" "$TMP_FILES"' EXIT
+TMP_SAN="$(mktemp)"
+trap 'rm -f "$TMP_PATTERNS" "$TMP_FILES" "$TMP_SAN"' EXIT
 
 {
   printf '%s\n' "${GENERIC_PATTERNS[@]}"
@@ -70,9 +75,11 @@ while IFS= read -r file; do
   [[ -f "$file" ]] || continue
   # Skip binary files (fonts, compressed search index chunks).
   grep -Iq . "$file" 2>/dev/null || continue
+  # Scan a copy with the exact allowlisted name removed, line numbers kept.
+  sed "s/${ALLOWED_NAME}/ /g" <"$file" >"$TMP_SAN"
   while IFS= read -r ln; do
     [[ -n "$ln" ]] && { echo "$file:$ln"; HITS=1; }
-  done < <(grep -niE -f "$TMP_PATTERNS" -- "$file" 2>/dev/null | cut -d: -f1 | sort -un)
+  done < <(grep -niE -f "$TMP_PATTERNS" -- "$TMP_SAN" 2>/dev/null | cut -d: -f1 | sort -un)
   while IFS=: read -r ln content; do
     [[ -z "$ln" ]] && continue
     while IFS= read -r email; do
@@ -81,7 +88,7 @@ while IFS= read -r file; do
         echo "$file:$ln"; HITS=1
       fi
     done < <(grep -oE "$EMAIL_PATTERN" <<<"$content" || true)
-  done < <(grep -nE "$EMAIL_PATTERN" -- "$file" 2>/dev/null || true)
+  done < <(grep -nE "$EMAIL_PATTERN" -- "$TMP_SAN" 2>/dev/null || true)
 done <"$TMP_FILES"
 
 if [[ "$HITS" -ne 0 ]]; then

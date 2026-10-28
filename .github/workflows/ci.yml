@@ -49,6 +49,8 @@ jobs:
           set -euo pipefail
           bad=$(grep -noE "get_url\(path='assets/[^']+\.(css|js)'[^)]*\)" site/templates/base.html | grep -v "cachebust=true" || true)
           if [ -n "$bad" ]; then echo "$bad"; echo "CSS/JS asset links in base.html must use cachebust=true"; exit 1; fi
+      - name: Release check tests
+        run: scripts/test-check-public-text.sh
       - name: PII / secret scan (repo text and built site)
         env:
           PUBLIC_TEXT_DENYLIST: ${{ secrets.PUBLIC_TEXT_DENYLIST }}
