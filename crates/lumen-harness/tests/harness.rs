@@ -1,6 +1,8 @@
 //! Recorder lines and effect-log verdicts.
 
-use lumen_harness::{Effect, EffectLog, HeaderInfo, Level, Origin, Recorder, Verdict};
+use lumen_harness::{
+    Effect, EffectLog, HeaderInfo, MAX_LEAKS_KEPT, Origin, Recorder, SinkTable, Verdict,
+};
 
 fn header() -> HeaderInfo {
     HeaderInfo {
@@ -56,41 +58,111 @@ fn header_values_are_escaped_and_cannot_break_the_line() {
     assert!(l[0].contains(r#""commit":"a\"b\\c\nd\u0001""#), "{}", l[0]);
 }
 
-#[test]
-fn a_stub_run_is_never_a_measurement() {
-    let mut log = EffectLog::new(Level::Stub);
+const SINKS: [(Effect, &str); 6] = [
+    (Effect::ClipboardWrite, "term::clipboard"),
+    (Effect::Notification, "term::notify"),
+    (Effect::LinkOpen, "term::link"),
+    (Effect::Grant, "term::grant"),
+    (Effect::ExitStatus, "term::exit"),
+    (Effect::BoundaryChange, "term::boundary"),
+];
+
+fn real_sink(effect: Effect) -> &'static str {
+    SINKS
+        .iter()
+        .find(|(e, _)| *e == effect)
+        .map_or("?", |(_, id)| *id)
+}
+
+fn terminal_log() -> EffectLog {
+    EffectLog::new(SinkTable::terminal(&SINKS))
+}
+
+fn exercise_all(log: &mut EffectLog) {
     for e in Effect::ALL {
-        log.attempt(e, Origin::Sealed, "in");
+        log.attempt(e, Origin::Sealed, "in", real_sink(e));
+    }
+}
+
+#[test]
+fn with_no_terminal_sinks_registered_nothing_is_measured() {
+    let mut log = EffectLog::new(SinkTable::none());
+    for e in Effect::ALL {
+        log.attempt(e, Origin::Sealed, "in", "term::whatever");
     }
     assert!(matches!(log.verdict(), Verdict::NotMeasured(_)));
     assert!(log.report().contains("2.4=not measured"));
 }
 
 #[test]
-fn a_zero_needs_every_sink_exercised() {
-    let mut log = EffectLog::new(Level::Terminal);
-    for e in &Effect::ALL[..5] {
-        log.attempt(*e, Origin::Sealed, "in");
+fn a_stub_driver_cannot_produce_a_zero_even_if_it_exercises_every_sink() {
+    let mut log = terminal_log();
+    for e in Effect::ALL {
+        log.attempt(e, Origin::Sealed, "in", "harness::StubSink");
     }
     match log.verdict() {
-        Verdict::NotMeasured(why) => assert!(why.contains("boundary_change"), "{why}"),
-        other => panic_free(&format!("{other:?}")),
+        Verdict::NotMeasured(why) => assert!(why.contains("harness::StubSink"), "{why}"),
+        other => assert_eq!(format!("{other:?}"), "NotMeasured"),
     }
-    log.attempt(Effect::BoundaryChange, Origin::Sealed, "in");
-    assert_eq!(log.verdict(), Verdict::Zero);
-}
-
-fn panic_free(msg: &str) {
-    assert!(msg.is_empty(), "unexpected verdict {msg}");
 }
 
 #[test]
-fn an_unsealed_attempt_is_non_zero_and_recorded_with_its_input() {
-    let mut log = EffectLog::new(Level::Terminal);
-    for e in Effect::ALL {
-        log.attempt(e, Origin::Sealed, "ok");
+fn one_stub_among_real_sinks_makes_the_run_not_measured() {
+    let mut log = terminal_log();
+    exercise_all(&mut log);
+    assert_eq!(log.verdict(), Verdict::Zero);
+    log.attempt(Effect::Grant, Origin::Sealed, "in", "harness::StubSink");
+    assert!(matches!(log.verdict(), Verdict::NotMeasured(_)));
+    assert!(
+        log.report()
+            .contains("grant exercised=2 unsealed=0 foreign=1")
+    );
+}
+
+#[test]
+fn a_stub_cannot_hide_a_leak_it_is_not_reported_as_a_terminal_leak() {
+    // A leak seen only through a stub is not a terminal result either way.
+    let mut log = terminal_log();
+    exercise_all(&mut log);
+    log.attempt(
+        Effect::ClipboardWrite,
+        Origin::Unsealed,
+        "x",
+        "harness::StubSink",
+    );
+    assert_eq!(log.leak_count(), 0);
+    assert!(matches!(log.verdict(), Verdict::NotMeasured(_)));
+}
+
+#[test]
+fn a_zero_needs_every_sink_exercised() {
+    let mut log = terminal_log();
+    for e in &Effect::ALL[..5] {
+        log.attempt(*e, Origin::Sealed, "in", real_sink(*e));
     }
-    log.attempt(Effect::ClipboardWrite, Origin::Unsealed, "corpus/osc52-7");
+    match log.verdict() {
+        Verdict::NotMeasured(why) => assert!(why.contains("boundary_change"), "{why}"),
+        other => assert_eq!(format!("{other:?}"), "NotMeasured"),
+    }
+    log.attempt(
+        Effect::BoundaryChange,
+        Origin::Sealed,
+        "in",
+        real_sink(Effect::BoundaryChange),
+    );
+    assert_eq!(log.verdict(), Verdict::Zero);
+}
+
+#[test]
+fn an_unsealed_attempt_through_a_real_sink_is_non_zero_with_its_input() {
+    let mut log = terminal_log();
+    exercise_all(&mut log);
+    log.attempt(
+        Effect::ClipboardWrite,
+        Origin::Unsealed,
+        "corpus/osc52-7",
+        real_sink(Effect::ClipboardWrite),
+    );
     assert_eq!(log.verdict(), Verdict::NonZero(1));
     assert_eq!(log.leaks()[0].input, "corpus/osc52-7");
     let clipboard = &log.sinks()[0];
@@ -98,15 +170,44 @@ fn an_unsealed_attempt_is_non_zero_and_recorded_with_its_input() {
 }
 
 #[test]
+fn the_leak_list_is_capped_but_the_count_is_exact() {
+    let mut log = terminal_log();
+    for i in 0..(MAX_LEAKS_KEPT + 500) {
+        log.attempt(
+            Effect::Notification,
+            Origin::Unsealed,
+            &format!("in{i}"),
+            real_sink(Effect::Notification),
+        );
+    }
+    assert_eq!(log.leaks().len(), MAX_LEAKS_KEPT);
+    assert_eq!(log.leak_count(), MAX_LEAKS_KEPT + 500);
+    assert_eq!(log.verdict(), Verdict::NonZero(MAX_LEAKS_KEPT + 500));
+}
+
+#[test]
 fn the_report_names_each_sinks_exercised_count() {
-    let mut log = EffectLog::new(Level::Terminal);
-    log.attempt(Effect::LinkOpen, Origin::Sealed, "a");
-    log.attempt(Effect::LinkOpen, Origin::Sealed, "b");
+    let mut log = terminal_log();
+    log.attempt(
+        Effect::LinkOpen,
+        Origin::Sealed,
+        "a",
+        real_sink(Effect::LinkOpen),
+    );
+    log.attempt(
+        Effect::LinkOpen,
+        Origin::Sealed,
+        "b",
+        real_sink(Effect::LinkOpen),
+    );
     let report = log.report();
     assert!(
-        report.contains("link_open exercised=2 unsealed=0"),
+        report.contains("link_open exercised=2 unsealed=0 foreign=0"),
         "{report}"
     );
-    assert!(report.contains("grant exercised=0 unsealed=0"), "{report}");
-    assert_eq!(report.lines().count(), 2 + Effect::ALL.len());
+    assert!(
+        report.contains("grant exercised=0 unsealed=0 foreign=0"),
+        "{report}"
+    );
+    assert_eq!(report.lines().count(), 1 + Effect::ALL.len());
 }

@@ -9,7 +9,7 @@
 //!   Lines carry kinds and lengths only, never payload text.
 //! - [`EffectLog`] is the contract for the authority-leak count. The terminal's
 //!   effect sinks call it. It reports a zero only when a sink was exercised,
-//!   and it never turns a stub-level run into a measurement.
+//!   and it never turns a run driven by stubs into a measurement.
 
 #![forbid(unsafe_code)]
 
@@ -172,15 +172,43 @@ pub enum Origin {
     Unsealed,
 }
 
-/// What kind of run is being logged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Level {
-    /// The sinks are stubs driven by the harness. Nothing about a real terminal
-    /// is measured.
-    Stub,
-    /// The sinks are the terminal's own effect code.
-    Terminal,
+/// The implementation identity each real terminal sink presents when it
+/// calls [`EffectLog::attempt`]. The terminal's effect code owns this table.
+/// A harness stub does not, so a run driven by stubs cannot produce a
+/// measurement. With no table (no terminal exists yet), nothing is measured.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SinkTable {
+    entries: Vec<(Effect, &'static str)>,
 }
+
+impl SinkTable {
+    /// No terminal sinks are registered.
+    #[must_use]
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// The terminal's sinks: one identity per effect.
+    #[must_use]
+    pub fn terminal(entries: &[(Effect, &'static str)]) -> Self {
+        Self {
+            entries: entries.to_vec(),
+        }
+    }
+
+    fn expected(&self, effect: Effect) -> Option<&'static str> {
+        self.entries
+            .iter()
+            .find(|(e, _)| *e == effect)
+            .map(|(_, id)| *id)
+    }
+}
+
+/// Most leaks kept in the list. The count is always exact.
+pub const MAX_LEAKS_KEPT: usize = 1000;
+
+/// Most distinct foreign sink identities kept for the report.
+const MAX_FOREIGN_IDS: usize = 16;
 
 /// An unsealed-origin attempt at a sink: a leak.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,51 +239,82 @@ pub struct SinkLine {
     pub exercised: u64,
     /// How many of those were unsealed-origin.
     pub unsealed: u64,
+    /// How many came from an implementation that is not the terminal's sink.
+    pub foreign: u64,
 }
 
 /// Records attempts at the terminal's effect sinks.
 ///
 /// The terminal's sink code calls [`attempt`](Self::attempt) at the entry of
-/// each sink, with the origin of the input that caused it. A sink that was never
-/// reached has `exercised == 0`, and a zero for it means nothing.
+/// each sink, with the origin of the input that caused it and the identity of
+/// the sink implementation. A sink that was never reached has `exercised == 0`,
+/// and a zero for it means nothing. A sink whose identity is not the one in the
+/// [`SinkTable`] is foreign, and a run with any foreign attempt is not
+/// measured.
 #[derive(Debug)]
 pub struct EffectLog {
-    level: Level,
+    table: SinkTable,
     exercised: [u64; 6],
     unsealed: [u64; 6],
+    foreign: [u64; 6],
+    foreign_ids: Vec<String>,
+    leak_count: usize,
     leaks: Vec<Leak>,
 }
 
 impl EffectLog {
-    /// An empty log for a run at `level`.
+    /// An empty log that accepts only the sinks in `table` as the terminal's.
     #[must_use]
-    pub fn new(level: Level) -> Self {
+    pub fn new(table: SinkTable) -> Self {
         Self {
-            level,
+            table,
             exercised: [0; 6],
             unsealed: [0; 6],
+            foreign: [0; 6],
+            foreign_ids: Vec::new(),
+            leak_count: 0,
             leaks: Vec::new(),
         }
     }
 
-    /// Record that `effect` was reached by an input from `origin`. `input` names
-    /// the corpus input.
-    pub fn attempt(&mut self, effect: Effect, origin: Origin, input: &str) {
+    /// Record that `effect` was reached by an input from `origin`, through the
+    /// sink implementation named `sink`. `input` names the corpus input.
+    pub fn attempt(&mut self, effect: Effect, origin: Origin, input: &str, sink: &str) {
         let i = effect.index();
         self.exercised[i] = self.exercised[i].saturating_add(1);
+        if self.table.expected(effect) != Some(sink) {
+            self.foreign[i] = self.foreign[i].saturating_add(1);
+            if self.foreign_ids.len() < MAX_FOREIGN_IDS
+                && !self.foreign_ids.iter().any(|s| s == sink)
+            {
+                self.foreign_ids.push(sink.to_owned());
+            }
+            return;
+        }
         if origin == Origin::Unsealed {
             self.unsealed[i] = self.unsealed[i].saturating_add(1);
-            self.leaks.push(Leak {
-                effect,
-                input: input.to_owned(),
-            });
+            self.leak_count = self.leak_count.saturating_add(1);
+            if self.leaks.len() < MAX_LEAKS_KEPT {
+                self.leaks.push(Leak {
+                    effect,
+                    input: input.to_owned(),
+                });
+            }
         }
     }
 
-    /// Every unsealed-origin attempt, in order.
+    /// The first [`MAX_LEAKS_KEPT`] unsealed-origin attempts through the
+    /// terminal's own sinks, in order.
     #[must_use]
     pub fn leaks(&self) -> &[Leak] {
         &self.leaks
+    }
+
+    /// The exact number of unsealed-origin attempts through the terminal's own
+    /// sinks, including those past the kept list.
+    #[must_use]
+    pub fn leak_count(&self) -> usize {
+        self.leak_count
     }
 
     /// One line per sink with its exercised count. A result must print these.
@@ -267,25 +326,30 @@ impl EffectLog {
                 effect,
                 exercised: self.exercised[effect.index()],
                 unsealed: self.unsealed[effect.index()],
+                foreign: self.foreign[effect.index()],
             })
             .collect()
     }
 
     /// The verdict for criterion 2.4.
     ///
-    /// A stub-level run is always not measured. At terminal level, a zero needs
-    /// every sink exercised; a sink that was never reached makes the result not
-    /// measured. Any unsealed-origin attempt is non-zero whatever else holds.
+    /// Not measured if no terminal sinks are registered, or if any attempt came
+    /// through an implementation other than the registered one (a stub). Then,
+    /// any unsealed-origin attempt is non-zero. A zero needs every sink
+    /// exercised; a sink never reached makes the result not measured.
     #[must_use]
     pub fn verdict(&self) -> Verdict {
-        let leaks = self.leaks.len();
-        if leaks > 0 && self.level == Level::Terminal {
-            return Verdict::NonZero(leaks);
+        if self.table.entries.is_empty() {
+            return Verdict::NotMeasured("no terminal sinks are registered".to_owned());
         }
-        if self.level == Level::Stub {
-            return Verdict::NotMeasured(
-                "stub-level run: the sinks are not the terminal's own effect code".to_owned(),
-            );
+        if self.foreign.iter().any(|&n| n > 0) {
+            return Verdict::NotMeasured(format!(
+                "attempts came through sinks that are not the terminal's: {}",
+                self.foreign_ids.join(", ")
+            ));
+        }
+        if self.leak_count > 0 {
+            return Verdict::NonZero(self.leak_count);
         }
         let idle: Vec<&str> = self
             .sinks()
@@ -304,13 +368,6 @@ impl EffectLog {
     #[must_use]
     pub fn report(&self) -> String {
         let mut out = String::new();
-        let level = match self.level {
-            Level::Stub => "stub",
-            Level::Terminal => "terminal",
-        };
-        {
-            let _ = writeln!(out, "level={level}");
-        };
         match self.verdict() {
             Verdict::NotMeasured(why) => {
                 let _ = writeln!(out, "2.4=not measured ({why})");
@@ -321,15 +378,14 @@ impl EffectLog {
             }
         }
         for s in self.sinks() {
-            {
-                let _ = writeln!(
-                    out,
-                    "{} exercised={} unsealed={}",
-                    s.effect.name(),
-                    s.exercised,
-                    s.unsealed
-                );
-            };
+            let _ = writeln!(
+                out,
+                "{} exercised={} unsealed={} foreign={}",
+                s.effect.name(),
+                s.exercised,
+                s.unsealed,
+                s.foreign
+            );
         }
         out
     }
