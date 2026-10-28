@@ -1,0 +1,85 @@
+{
+ "revision": "fixture-1",
+ "note": "test fixture only; not the red-team corpus",
+ "cases": [
+  {
+   "id": "para-plain",
+   "category": "fixture",
+   "reads": [
+    {
+     "hex": "6c730a1b5f8a4c554d454e01f38000000004000268692420"
+    }
+   ],
+   "expect": {
+    "block": 1
+   }
+  },
+  {
+   "id": "para-alt-screen",
+   "category": "fixture",
+   "context": {
+    "alt_screen": true
+   },
+   "reads": [
+    {
+     "hex": "1b5f8a4c554d454e01f3800000000400026869"
+    }
+   ],
+   "forbid": [
+    "block"
+   ],
+   "expect": {
+    "text": 1
+   }
+  },
+  {
+   "id": "forged-sealed-type",
+   "category": "fixture",
+   "note": "unauthenticated frame with a sealed-range type byte",
+   "reads": [
+    {
+     "hex": "1b5f8a4c554d454e01f3010000002800000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    }
+   ],
+   "forbid": [
+    "sealed",
+    "block"
+   ],
+   "expect": {}
+  },
+  {
+   "id": "split-frame",
+   "category": "fixture",
+   "reads": [
+    {
+     "hex": "1b5f8a4c554d45",
+     "t_ms": 0
+    },
+    {
+     "hex": "4e01f3800000000400026869",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "block": 1
+   }
+  },
+  {
+   "id": "deliberate-violation",
+   "category": "fixture",
+   "note": "forbids a kind the input does produce, to show a violation is counted",
+   "reads": [
+    {
+     "hex": "1b5f8a4c554d454e01f3800000000400026869"
+    }
+   ],
+   "forbid": [
+    "block"
+   ],
+   "expect": {
+    "block": 1
+   },
+   "expect_violation": true
+  }
+ ]
+}

@@ -294,6 +294,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumen-evidence"
+version = "0.0.0"
+dependencies = [
+ "lumen-arm-b",
+ "lumen-harness",
+ "serde_json",
+]
+
+[[package]]
 name = "lumen-harness"
 version = "0.0.0"
 

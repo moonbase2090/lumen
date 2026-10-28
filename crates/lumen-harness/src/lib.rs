@@ -84,6 +84,18 @@ impl<W: Write> Recorder<W> {
         Ok(Self { out })
     }
 
+    /// Mark the start of a new case. The reads that follow belong to it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error, if any.
+    pub fn case(&mut self, id: &str) -> io::Result<()> {
+        let mut line = String::from("{\"case\":");
+        json_string(&mut line, id);
+        line.push_str("}\n");
+        self.out.write_all(line.as_bytes())
+    }
+
     /// Record one read: its time, the bytes that went in, and what came out as
     /// `(kind, len)` pairs. The pairs carry no content.
     ///

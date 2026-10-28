@@ -234,3 +234,18 @@ fn the_report_names_each_sinks_exercised_count() {
     );
     assert_eq!(report.lines().count(), 1 + Effect::ALL.len());
 }
+
+#[test]
+fn recorder_marks_case_boundaries() {
+    let Ok(mut r) = Recorder::new(Vec::new(), &header()) else {
+        unreachable!("writing to a Vec succeeds")
+    };
+    assert!(r.case("a\"b").is_ok());
+    assert!(r.read(0, 1, &[]).is_ok());
+    let Ok(out) = r.finish() else {
+        unreachable!("flushing a Vec succeeds")
+    };
+    let got = lines(out);
+    assert_eq!(got[1], r#"{"case":"a\"b"}"#);
+    assert_eq!(got.len(), 3);
+}

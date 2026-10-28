@@ -214,3 +214,24 @@ fn item_summaries_carry_lengths_and_no_content() {
     assert_eq!(item_summary(&Item::Degraded), ("degraded", 0));
     assert_eq!(item_summary(&Item::Pinned), ("pinned", 0));
 }
+
+#[test]
+fn item_kinds_lists_every_kind_item_summary_returns() {
+    use lumen_arm_b::{ITEM_KINDS, Item, item_summary};
+    use lumen_track0::Block;
+    let block = || Block::Paragraph("x".into());
+    let items = [
+        Item::Output(vec![1]),
+        Item::Block(block()),
+        Item::Background(block()),
+        Item::Text("x".into()),
+        Item::Degraded,
+        Item::Pinned,
+    ];
+    let mut seen: Vec<&str> = items.iter().map(|i| item_summary(i).0).collect();
+    seen.push("sealed");
+    seen.sort_unstable();
+    let mut all = ITEM_KINDS.to_vec();
+    all.sort_unstable();
+    assert_eq!(seen, all);
+}
