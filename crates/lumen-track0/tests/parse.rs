@@ -35,7 +35,8 @@ fn well_formed_blocks_parse() {
         parse(KIND_CODE, &c),
         Ok(Block::Code {
             lang: "rust".into(),
-            text: "fn main() {}".into()
+            text: "fn main() {}".into(),
+            stripped: 0
         })
     );
 }
@@ -120,4 +121,66 @@ fn escaped_text_has_no_controls_and_is_capped() {
     let text = escaped_text(&long);
     assert_eq!(text.matches('a').count(), MAX_ESCAPED);
     assert!(text.ends_with("[10000 bytes]"));
+    // Worst case: every input byte expands to a four-byte escape.
+    let controls = vec![0x01u8; 256];
+    let text = escaped_text(&controls);
+    let body = text.split(" [").next().unwrap_or("");
+    assert!(body.len() <= MAX_ESCAPED, "{} bytes", body.len());
+    assert!(text.ends_with("[256 bytes]"));
+    // ESC input is three output bytes each and is capped the same way.
+    let escs = vec![0x1bu8; 1000];
+    let body = escaped_text(&escs);
+    let body = body.split(" [").next().unwrap_or("");
+    assert!(body.len() <= MAX_ESCAPED);
+}
+
+#[test]
+fn control_characters_are_refused_in_every_string() {
+    for c in [
+        '\u{1b}', '\u{07}', '\u{00}', '\u{7f}', '\u{85}', '\u{9b}', '\r',
+    ] {
+        let text = format!("a{c}b");
+        assert_eq!(
+            parse(KIND_PARAGRAPH, &s(&text)),
+            Err(Error::Control),
+            "{c:?}"
+        );
+        let mut h = vec![1];
+        h.extend(s(&text));
+        assert_eq!(parse(KIND_HEADING, &h), Err(Error::Control));
+        let mut code = s(&text);
+        code.extend(s("x"));
+        assert_eq!(parse(KIND_CODE, &code), Err(Error::Control));
+        let mut code = s("x");
+        code.extend(s(&text));
+        assert_eq!(parse(KIND_CODE, &code), Err(Error::Control));
+    }
+    assert!(parse(KIND_PARAGRAPH, &s("line one\n\tline two")).is_ok());
+}
+
+#[test]
+fn bidi_controls_are_stripped_and_counted_in_code_and_visible_elsewhere() {
+    let mut code = s("");
+    code.extend(s("a\u{202e}b\u{2066}c\u{200f}"));
+    assert_eq!(
+        parse(KIND_CODE, &code),
+        Ok(Block::Code {
+            lang: String::new(),
+            text: "abc".into(),
+            stripped: 3
+        })
+    );
+    assert_eq!(
+        parse(KIND_PARAGRAPH, &s("a\u{202e}b")),
+        Ok(Block::Paragraph("a\\u{202e}b".into()))
+    );
+    let mut h = vec![1];
+    h.extend(s("\u{061c}x"));
+    assert_eq!(
+        parse(KIND_HEADING, &h),
+        Ok(Block::Heading {
+            level: 1,
+            text: "\\u{061c}x".into()
+        })
+    );
 }

@@ -43,8 +43,11 @@ pub enum Block {
     Code {
         /// Language tag, empty when absent.
         lang: String,
-        /// The code text.
+        /// The code text, with bidi controls removed.
         text: String,
+        /// How many bidi controls were removed from `text`. The terminal shows
+        /// this count.
+        stripped: usize,
     },
 }
 
@@ -63,6 +66,35 @@ pub enum Error {
     NotUtf8,
     /// A heading level is outside 1 to 6.
     BadLevel,
+    /// A string holds a control character other than newline or tab.
+    Control,
+}
+
+/// Bidi override, isolate and mark controls (the spec's bidi list).
+fn is_bidi(c: char) -> bool {
+    matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200e}' | '\u{200f}' | '\u{061c}')
+}
+
+/// Text outside code: bidi controls are kept visible as `\u{..}` escapes, so
+/// they cannot reorder what the reader sees.
+fn visible(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if is_bidi(c) {
+            let _ =
+                std::fmt::Write::write_fmt(&mut out, format_args!("\\u{{{:04x}}}", u32::from(c)));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Code text: bidi controls are removed and counted.
+fn strip_bidi(text: &str) -> (String, usize) {
+    let kept: String = text.chars().filter(|&c| !is_bidi(c)).collect();
+    let removed = text.chars().count() - kept.chars().count();
+    (kept, removed)
 }
 
 /// Read a one-string field: a 2-byte big-endian length, then that many bytes.
@@ -77,7 +109,14 @@ fn take_string<'a>(input: &mut &'a [u8]) -> Result<&'a str, Error> {
     }
     let (text, rest) = rest.split_at(len);
     *input = rest;
-    std::str::from_utf8(text).map_err(|_| Error::NotUtf8)
+    let text = std::str::from_utf8(text).map_err(|_| Error::NotUtf8)?;
+    if text
+        .chars()
+        .any(|c| c.is_control() && c != '\n' && c != '\t')
+    {
+        return Err(Error::Control);
+    }
+    Ok(text)
 }
 
 fn finish(input: &[u8]) -> Result<(), Error> {
@@ -100,7 +139,7 @@ pub fn parse(kind: u8, payload: &[u8]) -> Result<Block, Error> {
     }
     let mut input = payload;
     let block = match kind {
-        KIND_PARAGRAPH => Block::Paragraph(take_string(&mut input)?.to_owned()),
+        KIND_PARAGRAPH => Block::Paragraph(visible(take_string(&mut input)?)),
         KIND_HEADING => {
             let (level, rest) = input.split_first().ok_or(Error::Malformed)?;
             if !(1..=6).contains(level) {
@@ -109,13 +148,17 @@ pub fn parse(kind: u8, payload: &[u8]) -> Result<Block, Error> {
             input = rest;
             Block::Heading {
                 level: *level,
-                text: take_string(&mut input)?.to_owned(),
+                text: visible(take_string(&mut input)?),
             }
         }
         KIND_CODE => {
-            let lang = take_string(&mut input)?.to_owned();
-            let text = take_string(&mut input)?.to_owned();
-            Block::Code { lang, text }
+            let lang = visible(take_string(&mut input)?);
+            let (text, stripped) = strip_bidi(take_string(&mut input)?);
+            Block::Code {
+                lang,
+                text,
+                stripped,
+            }
         }
         _ => return Err(Error::UnknownKind),
     };
@@ -123,22 +166,28 @@ pub fn parse(kind: u8, payload: &[u8]) -> Result<Block, Error> {
     Ok(block)
 }
 
-/// Render a failed frame as visible text: at most [`MAX_ESCAPED`] bytes, with
-/// ESC shown as `␛` and every other control or non-printable byte as `\xNN`,
-/// followed by the total byte count. The result contains no control character.
+/// Render a failed frame as visible text. The text is at most [`MAX_ESCAPED`]
+/// bytes of output: ESC is shown as `␛`, every other control or non-printable
+/// byte as `\xNN`, and rendering stops before an escape that would not fit. The
+/// total input byte count follows the text. The result contains no control
+/// character.
 #[must_use]
 pub fn escaped_text(bytes: &[u8]) -> String {
     let mut out = String::new();
-    for &b in bytes.iter().take(MAX_ESCAPED) {
+    for &b in bytes {
+        let mut piece = String::new();
         match b {
-            0x1b => out.push('\u{241b}'),
-            b'\\' => out.push_str("\\\\"),
-            0x20..=0x7e => out.push(char::from(b)),
+            0x1b => piece.push('\u{241b}'),
+            b'\\' => piece.push_str("\\\\"),
+            0x20..=0x7e => piece.push(char::from(b)),
             _ => {
-                use std::fmt::Write as _;
-                let _ = write!(out, "\\x{b:02x}");
+                let _ = std::fmt::Write::write_fmt(&mut piece, format_args!("\\x{b:02x}"));
             }
         }
+        if out.len() + piece.len() > MAX_ESCAPED {
+            break;
+        }
+        out.push_str(&piece);
     }
     let _ = std::fmt::Write::write_fmt(&mut out, format_args!(" [{} bytes]", bytes.len()));
     out
