@@ -1,0 +1,12 @@
+[package]
+name = "lumen-arm-a"
+description = "Phase 0.5 Arm A: sealed-only rich rendering policy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
