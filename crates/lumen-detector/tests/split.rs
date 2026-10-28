@@ -406,3 +406,22 @@ fn a_sealed_range_region_is_not_scanned_for_triggers() {
     let s = frame(b"\x1b_", 3, &payload);
     assert_eq!(run(&s, &[]), vec![Event::Frame { kind: 3, payload }]);
 }
+
+#[test]
+fn a_raw_9f_that_continues_utf8_inside_a_payload_is_text_not_a_trigger() {
+    // U+27CA is E2 9F 8A; the tag begins with 8A, so `9F` + tag would look like
+    // an introducer and a tag if the continuation byte were not excluded.
+    let mut payload = b"\xe2".to_vec();
+    payload.push(0x9f);
+    payload.extend_from_slice(&TAG[..]);
+    let s = frame(b"\x1b_", 0x80, &payload);
+    let want = vec![Event::Frame {
+        kind: 0x80,
+        payload: payload.clone(),
+    }];
+    assert_eq!(run(&s, &[]), want);
+    assert_eq!(run(&s, &vec![1; s.len() - 1]), want);
+    for at in 1..s.len() {
+        assert_eq!(run(&s, &[at]), want, "split {at}");
+    }
+}

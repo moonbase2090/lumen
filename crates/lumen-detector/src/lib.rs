@@ -28,9 +28,10 @@ pub const DEFAULT_MAX_PAYLOAD: usize = 1 << 20;
 /// unverified length, so its payload is scanned for the start of another frame.
 const UNSEALED_MIN: u8 = 0x80;
 
-/// Bytes of a trigger that can sit at the end of what was read before: the
-/// longest introducer and the tag, less the byte that completes it.
-const TRIGGER_TAIL: usize = 2 + TAG.len() - 1;
+/// Bytes kept from the end of the payload read so far: the longest introducer
+/// and the tag less the byte that completes it, and three more to tell whether
+/// a raw `0x9F` continues a UTF-8 sequence.
+const TRIGGER_TAIL: usize = 2 + TAG.len() - 1 + 3;
 
 /// Length of the header after the introducer: tag, type byte, length field.
 const HEADER_LEN: usize = TAG.len() + 1 + 4;
@@ -184,9 +185,30 @@ fn is_trigger(bytes: &[u8]) -> bool {
     introducer_len(bytes).is_some_and(|n| bytes[n..].starts_with(&TAG))
 }
 
-/// Where the first trigger starts in `view`.
+/// Whether a raw `0x9F` that follows `before` continues an incomplete UTF-8
+/// sequence, so it is text and not an introducer.
+fn continues_utf8(before: &[u8]) -> bool {
+    for k in 1..=3.min(before.len()) {
+        let b = before[before.len() - k];
+        if (0x80..=0xbf).contains(&b) {
+            continue;
+        }
+        let need = match b {
+            0xc3..=0xdf => 1,
+            0xe0..=0xef => 2,
+            0xf0..=0xf4 => 3,
+            _ => 0,
+        };
+        return need >= k;
+    }
+    false
+}
+
+/// Where the first trigger starts in `view`. A raw `0x9F` that continues a
+/// UTF-8 sequence is text, as outside a payload.
 fn find_trigger(view: &[u8]) -> Option<usize> {
-    (0..view.len()).find(|&s| is_trigger(&view[s..]))
+    (0..view.len())
+        .find(|&s| is_trigger(&view[s..]) && !(view[s] == 0x9f && continues_utf8(&view[..s])))
 }
 
 /// Whether `bytes` could still become an introducer plus a matching header.

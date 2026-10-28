@@ -402,6 +402,25 @@
    ]
   },
   {
+   "id": "utf8-continuation-9f-in-payload",
+   "note": "a raw 9F that continues a UTF-8 sequence inside an unsealed payload is text: E2 9F then the tag is one whole frame",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f3800000000ae29f8a4c554d454e01f3"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "e29f8a4c554d454e01f3"
+      }
+     }
+    }
+   ]
+  },
+  {
    "id": "sealed-range-region-is-not-scanned",
    "note": "a frame of a sealed-range type is delimited by its accepted header, so a frame-looking run inside it is payload",
    "input": [
