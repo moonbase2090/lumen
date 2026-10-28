@@ -268,6 +268,9 @@ dependencies = [
 [[package]]
 name = "lumen-detector"
 version = "0.0.0"
+dependencies = [
+ "vte",
+]
 
 [[package]]
 name = "lumen-sealed"

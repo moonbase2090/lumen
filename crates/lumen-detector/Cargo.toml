@@ -8,5 +8,8 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[dev-dependencies]
+vte = "0.15"
+
 [lints]
 workspace = true
