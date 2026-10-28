@@ -243,14 +243,3 @@ pub fn effective_gid() -> u32 {
     // SAFETY: `getegid` takes no arguments, has no memory effects and cannot fail.
     unsafe { libc::getegid() }
 }
-
-/// Take ownership of descriptor 0, which the parent passed as the socket.
-///
-/// Call once, at the start of a role that was started with the socket as its
-/// stdin; a second call would double-own the descriptor.
-#[must_use]
-pub fn stdin_owned() -> std::os::fd::OwnedFd {
-    // SAFETY: descriptor 0 is open for the life of the process, and the
-    // caller takes it exactly once, so no other owner closes it.
-    unsafe { std::os::fd::FromRawFd::from_raw_fd(0) }
-}

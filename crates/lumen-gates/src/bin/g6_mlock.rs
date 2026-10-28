@@ -1,7 +1,9 @@
 //! Gate G6: does `mlock` succeed for a key page under the default
 //! `RLIMIT_MEMLOCK`, run as an ordinary user?
 //!
-//! Prints one line per observation and ends with `G6 PASS` or `G6 FAIL`.
+//! Prints one line per observation and ends with `G6 PASS` or `G6 FAIL`. PASS
+//! needs the lock to succeed, the page to be resident afterwards, and on
+//! Linux the page to be excluded from core dumps.
 //! Run it as a normal user with the limits the machine starts with; a run as
 //! root or with a raised limit says nothing about the default.
 
@@ -51,11 +53,13 @@ fn main() -> ExitCode {
         Ok(()) => println!("G6 key page mlock: ok"),
         Err(e) => println!("G6 key page mlock: FAILED {e}"),
     }
-    match key_page.resident_pages(page) {
+    let resident = key_page.resident_pages(page);
+    match &resident {
         Ok(n) => println!("G6 key page resident after lock: {n} of 1"),
         Err(e) => println!("G6 key page resident: unreadable {e}"),
     }
-    match key_page.dont_dump() {
+    let dumpable = key_page.dont_dump();
+    match &dumpable {
         Ok(()) => println!("G6 key page MADV_DONTDUMP: ok"),
         Err(e) => println!("G6 key page MADV_DONTDUMP: {e}"),
     }
@@ -79,7 +83,9 @@ fn main() -> ExitCode {
         println!("G6 FAIL run as an ordinary user; root bypasses the limit");
         return ExitCode::FAILURE;
     }
-    if locked.is_ok() {
+    // The page must lock, be resident, and on Linux be excluded from dumps.
+    let dump_ok = cfg!(not(target_os = "linux")) || dumpable.is_ok();
+    if locked.is_ok() && matches!(resident, Ok(1)) && dump_ok {
         println!("G6 PASS");
         ExitCode::SUCCESS
     } else {

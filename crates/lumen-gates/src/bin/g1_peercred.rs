@@ -9,7 +9,8 @@
 //! macOS has no per-message credentials. The peer pid it reports follows the
 //! last process to use the socket, so with two writers it can name the wrong
 //! one. This program shows that too, so the difference is on record rather
-//! than assumed.
+//! than assumed. On macOS it ends in `G1 OBSERVED`, not `G1 PASS`: the gate
+//! property does not hold there, and the line records that.
 //!
 //! Run with no arguments. `child` is an internal role.
 
@@ -21,7 +22,7 @@ mod linux {
         Creds, enable_passcred, peer_pid, recv, send, socketpair_seqpacket,
     };
     use std::io;
-    use std::os::fd::OwnedFd;
+    use std::os::fd::{AsFd, OwnedFd};
     use std::process::{Command, ExitCode, Stdio};
 
     fn id() -> Creds {
@@ -34,7 +35,9 @@ mod linux {
 
     /// The child: stdin is the sending end. Send one message and exit.
     pub fn child() -> ExitCode {
-        let fd = lumen_gates::ffi_cred::stdin_owned();
+        let Ok(fd) = io::stdin().as_fd().try_clone_to_owned() else {
+            return ExitCode::FAILURE;
+        };
         match send(&fd, b"from child", None) {
             Ok(_) => ExitCode::SUCCESS,
             Err(_) => ExitCode::FAILURE,
@@ -150,12 +153,16 @@ mod linux {
 #[cfg(target_os = "macos")]
 mod macos {
     use lumen_gates::ffi_cred::peer_pid;
-    use std::io::{Read, Write};
+    use std::io::{self, Read, Write};
+    use std::os::fd::AsFd;
     use std::os::unix::net::UnixStream;
     use std::process::{Command, ExitCode, Stdio};
 
     pub fn child() -> ExitCode {
-        let mut s = UnixStream::from(lumen_gates::ffi_cred::stdin_owned());
+        let Ok(fd) = io::stdin().as_fd().try_clone_to_owned() else {
+            return ExitCode::FAILURE;
+        };
+        let mut s = UnixStream::from(fd);
         let _ = s.write_all(b"x");
         ExitCode::SUCCESS
     }
@@ -199,7 +206,11 @@ mod macos {
         let misattributed = seen == Some(i32::try_from(child_pid).unwrap_or(-1));
         println!(
             "G1 {} macOS has no per-message sender: the peer pid follows the last process to use the socket, so it named the wrong sender for the first message",
-            if misattributed { "PASS" } else { "FAIL" }
+            if misattributed {
+                "OBSERVED"
+            } else {
+                "UNEXPECTED"
+            }
         );
         if misattributed {
             ExitCode::SUCCESS
