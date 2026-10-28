@@ -20,11 +20,11 @@ Frame payloads use a compact binary schema. A JSON debug form exists for tooling
 
 ## One pipeline {#transport.pipeline}
 
-PTY bytes pass through the frame detector and then the VT parser. The frame detector sees every byte first, removes the bytes of every accepted frame from the stream, and passes all other bytes to the VT parser. A frame is accepted once its header is accepted, and its bytes MUST never reach the VT parser, whether or not its body then verifies. A candidate whose header fails is not a frame: its bytes continue as ordinary output, as described in [Frame abort](#transport.abort).
+PTY bytes pass through the frame detector and then the VT parser. The frame detector sees every byte first, removes the bytes of every accepted frame from the stream, and passes all other bytes to the VT parser. A frame is accepted once its header is accepted, and its bytes MUST never reach the VT parser, whether or not its body then verifies. A candidate whose header fails is not a frame: its introducer is dropped and the bytes after it continue as ordinary output, as described in [Frame abort](#transport.abort).
 
 ## Detector {#transport.detector}
 
-A single detector state machine runs on the raw stream ahead of the VT parser. Its state persists across all PTY reads, including a partial introducer. The VT parser's per-read reset does not apply to it. A split introducer is reassembled and then its header must still be accepted (verified, for a sealed frame). The introducer is a sequence that the grid-mode VT parser never recognises, and it includes a 64-bit fixed tag so binary output almost never matches it.
+A single detector state machine runs on the raw stream ahead of the VT parser. Its state persists across all PTY reads, including a partial introducer. The VT parser's per-read reset does not apply to it. A split introducer is reassembled and then its header must still be accepted (verified, for a sealed frame). The introducer is a sequence that the grid-mode VT parser never recognises, and it includes a 64-bit fixed tag so binary output almost never matches it. When a candidate is not an accepted frame, its introducer bytes are dropped and never reach the VT parser. The bytes after the introducer are scanned again and continue as ordinary output. A raw 0x9F byte that continues an incomplete UTF-8 sequence is text, not an introducer, so the 8-bit C1 introducer is recognised only outside a UTF-8 sequence.
 
 ## Track 0 frames {#transport.track0-frames}
 
@@ -49,10 +49,10 @@ Decoders MUST cap every allocation from a declared length before reserving memor
 ## Frame abort {#transport.abort}
 
 - An invalid header, an AEAD failure or a length beyond the limits aborts only that frame.
-- After a failed header, the layer creates no parser state of its own. The bytes continue to the grid parser as ordinary output, still subject to string caps and the unauthenticated budget, and the detector resumes at the byte after that introducer.
+- After a failed header, the layer creates no parser state of its own. The introducer is dropped. The bytes after it continue to the grid parser as ordinary output, still subject to string caps and the unauthenticated budget, and the detector resumes at the byte after that introducer.
 - A verified header authenticates its length, so a body that fails AEAD aborts exactly that frame. The claimed region is rendered once as a failed frame, and the detector resumes after that introducer, so an authentic frame inside the region is still found.
 - A failed frame (a verified header whose body fails) renders as at most 256 bytes of escaped literal text in a visually marked span (ESC shown as a visible glyph such as ␛, and all controls shown as escapes), plus a byte count. The rest is dropped. A failed frame is never parsed as VT and never forms a block.
-- Verification work is capped per layer per second at 4096 header checks and 256 body AEAD checks. A candidate beyond a cap is not verified and follows the failed-header rule above: its bytes continue as ordinary output and are charged to the unauthenticated bucket.
+- Verification work is capped per layer per second at 4096 header checks and 256 body AEAD checks. A candidate beyond a cap is not verified and follows the failed-header rule above: its introducer is dropped, the bytes after it continue as ordinary output, and they are charged to the unauthenticated bucket.
 - Nothing is charged to a producer before its header verifies. Bytes that look like frames but are unverified go to one capped per-layer unauthenticated bucket.
 - A frame aborts if its byte rate falls below 16 KiB/s after the first 2 s.
 - A command-start frame closes any open block. A block with no exit frame shows as ended-unknown, never as success.
