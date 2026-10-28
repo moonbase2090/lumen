@@ -1,0 +1,412 @@
+{
+ "suite": "limits",
+ "spec": "transport.md#transport.limits",
+ "detector_vectors": [
+  {
+   "id": "frame-size-at-limit",
+   "note": "exactly 1 MiB is accepted by the detector",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f38000100000"
+    },
+    {
+     "fill": "61",
+     "count": 1048576
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "fill": "61",
+       "count": 1048576
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "track0_vectors": [
+  {
+   "id": "string-at-cap",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "1000"
+    },
+    {
+     "fill": "61",
+     "count": 4096
+    }
+   ],
+   "expect": {
+    "ok": "paragraph"
+   }
+  },
+  {
+   "id": "string-over-cap",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "1001"
+    },
+    {
+     "fill": "61",
+     "count": 4097
+    }
+   ],
+   "expect": {
+    "error": "string_too_long"
+   }
+  },
+  {
+   "id": "declared-length-over-cap-no-body",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "ffff"
+    }
+   ],
+   "expect": {
+    "error": "string_too_long"
+   }
+  },
+  {
+   "id": "sealed-range-kind",
+   "kind": 127,
+   "payload": [
+    {
+     "hex": "00026869"
+    }
+   ],
+   "expect": {
+    "error": "sealed_kind"
+   }
+  },
+  {
+   "id": "unknown-unsealed-kind",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "00026869"
+    }
+   ],
+   "expect": {
+    "error": "unknown_kind"
+   }
+  },
+  {
+   "id": "trailing-bytes",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "0002686900"
+    }
+   ],
+   "expect": {
+    "error": "malformed"
+   }
+  },
+  {
+   "id": "esc-in-text",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "0003611b62"
+    }
+   ],
+   "expect": {
+    "error": "control"
+   }
+  },
+  {
+   "id": "c1-in-text",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "000461c29b62"
+    }
+   ],
+   "expect": {
+    "error": "control"
+   }
+  },
+  {
+   "id": "invalid-utf8",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "0001ff"
+    }
+   ],
+   "expect": {
+    "error": "not_utf8"
+   }
+  },
+  {
+   "id": "bad-heading-level",
+   "kind": 129,
+   "payload": [
+    {
+     "hex": "07000174"
+    }
+   ],
+   "expect": {
+    "error": "bad_level"
+   }
+  }
+ ],
+ "escaped_text_vectors": [
+  {
+   "id": "escaped-cap",
+   "input": [
+    {
+     "fill": "61",
+     "count": 10000
+    }
+   ],
+   "max_body_bytes": 256,
+   "suffix": " [10000 bytes]"
+  },
+  {
+   "id": "escaped-controls-worst-case",
+   "input": [
+    {
+     "fill": "01",
+     "count": 256
+    }
+   ],
+   "max_body_bytes": 256,
+   "suffix": " [256 bytes]"
+  }
+ ],
+ "table": [
+  {
+   "id": "frame-size",
+   "value": "1 MiB",
+   "spec": "transport.md#transport.limits",
+   "status": "vector",
+   "vectors": [
+    "frame-size-at-limit",
+    "over-limit-length"
+   ]
+  },
+  {
+   "id": "string-cap",
+   "value": "4 KiB",
+   "spec": "transport.md#transport.limits; grid.md",
+   "status": "vector",
+   "vectors": [
+    "string-at-cap",
+    "string-over-cap"
+   ]
+  },
+  {
+   "id": "escaped-failed-frame",
+   "value": "256 bytes",
+   "spec": "transport.md#transport.limits",
+   "status": "vector",
+   "vectors": [
+    "escaped-cap",
+    "escaped-controls-worst-case"
+   ]
+  },
+  {
+   "id": "image-frame-size",
+   "value": "16 MiB (images, Track B)",
+   "spec": "transport.md#transport.limits",
+   "status": "pending",
+   "reason": "no Track B decoder yet"
+  },
+  {
+   "id": "nesting-depth",
+   "value": "32",
+   "spec": "transport.md#transport.limits",
+   "status": "pending",
+   "reason": "no nested block parser yet"
+  },
+  {
+   "id": "header-checks",
+   "value": "4096 per second per layer",
+   "spec": "transport.md#transport.limits",
+   "status": "pending",
+   "reason": "needs a clock input in the vector format; covered by Rust unit tests meanwhile"
+  },
+  {
+   "id": "body-checks",
+   "value": "256 per second per layer",
+   "spec": "transport.md#transport.limits",
+   "status": "pending",
+   "reason": "needs a clock input in the vector format; covered by Rust unit tests meanwhile"
+  },
+  {
+   "id": "abort-pin",
+   "value": "more than 3 authenticated aborts in 60 s",
+   "spec": "transport.md",
+   "status": "pending",
+   "reason": "needs a clock and sealed keys in the vector format"
+  },
+  {
+   "id": "frame-min-rate",
+   "value": "16 KiB/s after 2 s",
+   "spec": "transport.md#transport.limits",
+   "status": "pending",
+   "reason": "needs a clock input in the vector format"
+  },
+  {
+   "id": "blocks-per-document",
+   "value": "100,000",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no document model yet"
+  },
+  {
+   "id": "patches-per-block",
+   "value": "10,000 per second",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no patch handling yet; needs a clock"
+  },
+  {
+   "id": "patches-per-document",
+   "value": "50,000 per second",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no patch handling yet; needs a clock"
+  },
+  {
+   "id": "shaping-cache",
+   "value": "64 MiB",
+   "spec": "security.md#security.limits; layout.md#layout.limits",
+   "status": "pending",
+   "reason": "no shaping yet"
+  },
+  {
+   "id": "table-size",
+   "value": "256 columns, 100,000 cells",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no table block yet"
+  },
+  {
+   "id": "grids-per-document",
+   "value": "64",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no grid yet"
+  },
+  {
+   "id": "grid-cells-per-document",
+   "value": "4 million",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no grid yet"
+  },
+  {
+   "id": "scrollback-per-document",
+   "value": "64 MiB",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no document store yet"
+  },
+  {
+   "id": "frames-per-producer",
+   "value": "2,000 per second",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "needs a clock input in the vector format"
+  },
+  {
+   "id": "bytes-per-producer",
+   "value": "8 MiB per second",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "needs a clock input in the vector format"
+  },
+  {
+   "id": "decoded-images",
+   "value": "256 MiB per session",
+   "spec": "security.md#security.limits; images.md",
+   "status": "pending",
+   "reason": "no image path yet"
+  },
+  {
+   "id": "gpu-textures",
+   "value": "512 MiB",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no renderer path yet"
+  },
+  {
+   "id": "layers",
+   "value": "at most 8",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no layer manager yet"
+  },
+  {
+   "id": "budget-local-reserve",
+   "value": "25% of every budget reserved for local use",
+   "spec": "security.md#security.budget-shares",
+   "status": "pending",
+   "reason": "needs the budget model in the vector format; Rust counter tests cover frames and bytes meanwhile"
+  },
+  {
+   "id": "budget-producer-share",
+   "value": "no producer over 50% of the remainder",
+   "spec": "security.md#security.budget-shares",
+   "status": "pending",
+   "reason": "needs the budget model in the vector format"
+  },
+  {
+   "id": "budget-unsigned-share",
+   "value": "25% of each budget for an unauthenticated producer",
+   "spec": "trust.md#trust.must4-budgets",
+   "status": "pending",
+   "reason": "needs the budget model in the vector format; Rust counter tests cover frames and bytes meanwhile"
+  },
+  {
+   "id": "control-channel-message",
+   "value": "128 bytes, queue of 16",
+   "spec": "sealed-layers.md",
+   "status": "pending",
+   "reason": "no holder or seal channel yet"
+  },
+  {
+   "id": "track-b-marker-buffer",
+   "value": "4 MiB, 256 pending ids, 5 s timeout",
+   "spec": "transport.md#transport.track-b",
+   "status": "pending",
+   "reason": "no Track B side channel yet"
+  },
+  {
+   "id": "track-b-socket-path",
+   "value": "under 104 bytes",
+   "spec": "transport.md#transport.track-b",
+   "status": "pending",
+   "reason": "no Track B side channel yet"
+  },
+  {
+   "id": "decoder-limits",
+   "value": "512 MiB memory, 2 s CPU per image",
+   "spec": "images.md; conformance.md#gate.decoder",
+   "status": "pending",
+   "reason": "no out-of-process decoder yet"
+  },
+  {
+   "id": "grid-winsize",
+   "value": "1000 cols x 500 rows",
+   "spec": "grid.md",
+   "status": "pending",
+   "reason": "no grid yet"
+  },
+  {
+   "id": "sigwinch-rate",
+   "value": "20 per second per grid",
+   "spec": "grid.md",
+   "status": "pending",
+   "reason": "no grid yet"
+  }
+ ]
+}
