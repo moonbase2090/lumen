@@ -2,7 +2,7 @@
 a{color:var(--link);text-underline-offset:2px}a:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--link);outline-offset:2px}
 code,pre,.mono{font-family:var(--mono);font-size:.86em}
 .wrap{max-width:1200px;margin:0 auto;padding:0 32px}
-.top{border-bottom:1px solid var(--line);background:var(--bg)}.top .wrap{display:flex;align-items:center;gap:28px;height:64px}
+.top{position:relative;border-bottom:1px solid var(--line);background:var(--bg)}.top .wrap{display:flex;align-items:center;gap:28px;height:64px}
 .brand{display:flex;align-items:center;gap:10px;color:var(--text);text-decoration:none;font-weight:700;font-size:22px;letter-spacing:-.3px}.brand img{height:40px;width:auto}.wm-d{display:none}[data-theme=dark] .wm-l{display:none}[data-theme=dark] .wm-d{display:block}
 .nav{display:flex;gap:22px;font-weight:600;font-size:15px}.nav a{color:var(--text);text-decoration:none}.nav a[aria-current]{color:var(--link);box-shadow:inset 0 -2px var(--link)}
 .search{margin-left:auto;display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:6px 10px;color:var(--muted);font-size:14px;min-width:220px}
@@ -47,7 +47,19 @@ table{border-collapse:collapse;width:100%;font-size:15px}th,td{text-align:left;p
 .alert{border:1px solid var(--line);border-left:4px solid var(--sec-text);background:var(--sec-bg);color:var(--sec-text);padding:14px 18px;border-radius:6px}.alert strong{color:inherit}
 .impl{display:grid;grid-template-columns:1fr 1fr;gap:20px}.impl .card{display:flex;flex-direction:column;gap:10px}
 @media (max-width:760px){html{font-size:16px}.wrap{padding:0 18px}.nav,.search .kbd{display:none}.search{min-width:0;flex:1}.hero{grid-template-columns:1fr;padding:36px 0;gap:16px}.hero h1{font-size:38px}.cubehero{order:-1}.cubehero img{width:120px;height:120px}.blocks,.duo,.impl{grid-template-columns:1fr}.spec{grid-template-columns:minmax(0,1fr);gap:16px;padding-top:20px}pre{white-space:pre-wrap;overflow-wrap:anywhere}.toc{position:static;border:0;padding:0}.toc>ol{display:none}.sl{position:static;margin-right:6px}.meta{grid-template-columns:1fr}.lede{font-size:18px}}
-@media print{.top,.toc,.foot,.toggle,.search{display:none}.spec{display:block}.status{border:1px solid #000}a{color:#000}}
+/* mobile nav menu */
+.mnav{display:none}
+@media (max-width:760px){h1,h2,h3{text-wrap:balance}p,dd,li{text-wrap:pretty}.top .search,.top .toggle{display:none}.top .wrap{justify-content:space-between}.brand img{height:34px}
+.mnav{display:block}.mnav-btn{list-style:none;display:grid;place-items:center;width:44px;height:44px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);cursor:pointer}.mnav-btn::-webkit-details-marker{display:none}
+.mnav-btn:focus-visible{outline:2px solid var(--link);outline-offset:2px}.mnav .i-close,.mnav[open] .i-open{display:none}.mnav[open] .i-close{display:block}
+.mnav-panel{position:absolute;left:0;right:0;top:100%;z-index:20;background:var(--raised);border-bottom:1px solid var(--line);box-shadow:0 12px 24px rgba(0,0,0,.12);padding:8px 18px 20px}
+.mnav[open] .mnav-panel{animation:mnav-in .18s ease-out}
+.mnav-panel nav{display:flex;flex-direction:column}.mnav-panel nav a{display:flex;align-items:center;min-height:48px;padding:0 12px;color:var(--text);font-weight:600;font-size:17px;text-decoration:none;border-bottom:1px solid var(--line)}
+.mnav-panel nav a[aria-current]{color:var(--link);box-shadow:inset 3px 0 var(--link)}
+.mnav-panel .msearch{display:flex;margin:16px 0 12px;min-height:44px;background:var(--raised)}.mnav-panel .mtoggle{display:block;min-height:44px;width:100%;text-align:left;padding:0 12px;font-size:15px}}
+@keyframes mnav-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.mnav[open] .mnav-panel{animation:none}}
+@media print{.mnav,.top,.toc,.foot,.toggle,.search{display:none}.spec{display:block}.status{border:1px solid #000}a{color:#000}}
 /* CSP: replaces former inline style attributes */
 .skip{position:absolute;left:-999px;font:600 11px var(--sans)}.skip:focus{left:12px;top:12px;z-index:10;background:var(--surface);padding:6px 10px}
 .cta{display:flex;gap:12px;flex-wrap:wrap}
