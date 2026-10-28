@@ -183,14 +183,17 @@ fn rejected_header_is_charged_and_shown_as_text() {
     huge.extend_from_slice(&TAG);
     huge.extend_from_slice(&[KIND_PARAGRAPH, 0xff, 0xff, 0xff, 0xff]);
     let mut texts = 0;
+    let mut notices = 0;
     for _ in 0..5 {
-        texts += l
-            .feed(&huge, no_ctx())
-            .iter()
-            .filter(|i| matches!(i, Item::Text(_)))
-            .count();
+        let items = l.feed(&huge, no_ctx());
+        texts += items.iter().filter(|i| matches!(i, Item::Text(_))).count();
+        notices += items.iter().filter(|i| matches!(i, Item::Degraded)).count();
     }
     assert!(texts >= 5);
+    assert_eq!(
+        notices, 1,
+        "one notice when rejected headers spend the budget"
+    );
     // After the budget is spent, a valid block in the same command is text.
     assert!(
         l.feed(&para("late"), no_ctx())
@@ -210,4 +213,24 @@ fn text_items_never_contain_control_characters() {
             assert!(t.chars().all(|c| !c.is_control()), "{t:?}");
         }
     }
+}
+
+#[test]
+fn truncated_frame_spending_the_budget_gives_the_notice_too() {
+    let mut l = Layer::new(Config {
+        budget: Budget {
+            max_frames: 1000,
+            max_bytes: 10,
+        },
+        background_as_text: false,
+    });
+    l.open_container();
+    let cut = para(&"q".repeat(50));
+    let mut items = l.feed(&cut[..cut.len() - 5], no_ctx());
+    items.extend(l.finish());
+    assert_eq!(
+        items.iter().filter(|i| matches!(i, Item::Degraded)).count(),
+        1,
+        "{items:?}"
+    );
 }

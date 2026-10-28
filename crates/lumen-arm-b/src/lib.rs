@@ -7,8 +7,10 @@
 //! - On the alternate screen, or under tmux or screen, a frame is escaped text.
 //! - A block is drawn in the unverified-output container only while the
 //!   terminal has opened one. Otherwise it goes to the background strip.
-//! - Each producer has a small budget. Past it, the rest of the command is
-//!   plain text with one notice.
+//! - Each producer has a small budget of frames and frame bytes. Past it, the
+//!   rest of the command is plain text with one notice, whatever spent it. This
+//!   covers only part of MUST 4: block counts, depth, table cells, shaping
+//!   cache, patch rate and decoded image bytes are not counted here.
 //! - A frame that fails to parse, an unknown or sealed-range type, a rejected
 //!   header and a truncated frame are all escaped text and nothing more.
 //!
@@ -134,7 +136,7 @@ impl Layer {
                 Event::Output(bytes) => items.push(Item::Output(bytes)),
                 Event::Frame { kind, payload } => self.frame(kind, &payload, ctx, &mut items),
                 Event::Rejected(bytes) | Event::Truncated(bytes) => {
-                    self.charge(bytes.len());
+                    self.charge(bytes.len(), &mut items);
                     items.push(text(&bytes));
                 }
             }
@@ -142,25 +144,26 @@ impl Layer {
         items
     }
 
-    /// Count a frame against the budget. Returns whether it is now spent.
-    fn charge(&mut self, len: usize) -> bool {
+    /// Count a frame against the budget. The first time it is spent, whatever
+    /// the cause, the notice is pushed. Returns whether the budget is spent.
+    fn charge(&mut self, len: usize, items: &mut Vec<Item>) -> bool {
         self.frames = self.frames.saturating_add(1);
         self.bytes = self.bytes.saturating_add(len).saturating_add(1);
-        self.degraded |= self.frames > self.config.budget.max_frames
+        let over = self.frames > self.config.budget.max_frames
             || self.bytes > self.config.budget.max_bytes;
+        if over && !self.degraded {
+            self.degraded = true;
+            items.push(Item::Degraded);
+        }
         self.degraded
     }
 
     fn frame(&mut self, kind: u8, payload: &[u8], ctx: Context, items: &mut Vec<Item>) {
-        let was_degraded = self.degraded;
-        let spent = self.charge(payload.len());
+        let spent = self.charge(payload.len(), items);
         let mut raw = Vec::with_capacity(payload.len() + 1);
         raw.push(kind);
         raw.extend_from_slice(payload);
         if spent {
-            if !was_degraded {
-                items.push(Item::Degraded);
-            }
             items.push(text(&raw));
             return;
         }
