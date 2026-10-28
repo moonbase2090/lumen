@@ -8,7 +8,7 @@ Normative terms follow [spec/v0](../../spec/v0/_index.md). The arms are describe
 
 Both arms are built in this repository behind Cargo features `arm-a` and `arm-b`, both off by default. They share the same renderer and the same red-team corpus. Each arm is built from a single commit, and every result records that commit SHA.
 
-**Arm A: sealed-only rich.** Rich blocks render only on a sealed layer. Track 0 output on an unsealed layer renders as escaped text. Multiplexer behaviour follows [multiplexers](../../spec/v0/multiplexers.md#mux.lumen-aware). Where rich panes are placed is compared separately in section 7.
+**Arm A: sealed-only rich.** Rich blocks render only on a sealed layer. Track 0 output on an unsealed layer renders as escaped text. The spec only states this for the alternate-screen and multiplexer cases ([trust](../../spec/v0/trust.md), [multiplexers](../../spec/v0/multiplexers.md#mux.alt-screen)); applying it to every unsealed layer under arm A is a proposal of this document, not a spec rule. Multiplexer behaviour follows [multiplexers](../../spec/v0/multiplexers.md#mux.lumen-aware). Where rich panes are placed is compared separately in section 7.
 
 **Arm B: decoupled.** Track 0 renders on every layer, subject to the Track 0 rules. The sealed upgrade applies on the default model: a layer that meets the [default sealing requirements](../../spec/v0/sealed-layers.md#sealed.requirements) gets sealed authority on top of Track 0. This is the expected default.
 
@@ -74,7 +74,7 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 - **Unit:** peak resident memory of the terminal under a hostile decoder, sustained frame rate and budget violations under a Track 0 flood, and the longest UI stall.
 - **Method:** run a flood of Track 0 frames from an unauthenticated producer and a lying decoder stream, and record peak memory, budget counters and the longest interval without a frame being drawn.
 - **Harness:** comparison harness, flood mode, and the decoder memory test.
-- **Threshold:** the terminal stays within its budgets and reservations (the [decoder memory gate](../../spec/v0/conformance.md#gate.decoder-memory)). No stall longer than 2 s. Peak memory under the 512 MiB decoder limit. The unauthenticated producer gets no more than its 25% share of each budget.
+- **Threshold:** the terminal stays within its budgets and reservations (the [decoder memory gate](../../spec/v0/conformance.md#gate.decoder-memory)). No stall longer than 2 s (a proposed value; the spec's 2 s limit applies to decoder hangs, not UI stalls). Peak memory under the 512 MiB decoder limit. The unauthenticated producer gets no more than its 25% share of each budget.
 
 ### 2.7 Red-team findings
 
@@ -116,8 +116,8 @@ An arm's feature is off on a target OS until the gate that protects it passes th
    - the authority-leak count (section 2.4) is non-zero in arm B;
    - arm B fails the spoofing user study (section 2.2a): its error rate is worse than the plain-VT control, or more than 2 percentage points worse than arm A. **Pending human study:** this clause is decided by the human study in section 2.2a, not by the automated metrics or the simulated-reader proxy in section 2.2b. Until the study has run, it is recorded as pending and does not by itself change the outcome. A veto from section 2.2b applies at once.
 3. Arm B must also reach **at least 80%** of sessions (section 2.1). If it does not, the rule does not choose arm B. The automated metrics decide this clause.
-4. If arm B is not chosen, arm A is the default for the sealed path, and arm B's Track 0 remains off by default.
-5. Parity (section 2.9), spoof success (section 2.2), DoS (section 2.6) and red-team findings (section 2.7) are gates on the result. A failure in arm B that is not listed in step 2 does not by itself disqualify arm B, but it must be fixed or the result is not accepted.
+4. If arm B is not chosen, arm A is the default for the sealed path. This document does not decide the default for Track 0 on unsealed layers. The spec's Track 0 default ([trust](../../spec/v0/trust.md)) would have to change for arm A's rule, and that change is a spec revision, outside this comparison.
+5. Failures in arm B on parity (section 2.9), spoof success (section 2.2), DoS (section 2.6) or red-team findings (section 2.7) do not change the choice in steps 2 and 3. They do block acceptance of the result: each must be fixed, or waived in writing, before the result is accepted.
 
 This decision rule restates the phase 0.5 comparison in [spec/v0](../../spec/v0/_index.md). It does not change it.
 
@@ -144,7 +144,7 @@ This section compares where rich panes are placed in a Lumen-aware multiplexer. 
 
 ### 7.1 The two placements
 
-**Option A: sealed containers (default).** The multiplexer parses each pane's Track 0 itself and re-emits it as sealed pane-container frames, with an opaque pane id, a layout generation and a rectangle. Its keys are scoped to the layout and pane-container frame types only, as described in [multiplexers](../../spec/v0/multiplexers.md#mux.pane-containers). Rich panes are on only on platforms where the [multiplexer gate](../../spec/v0/conformance.md#gate.multiplexer) passes.
+**Option A: sealed containers (default).** The multiplexer parses each pane's Track 0 itself and re-emits it as sealed pane-container frames, with an opaque pane id, a layout generation and a rectangle. Its keys are scoped to the layout and pane-container frame types only, as described in [multiplexers](../../spec/v0/multiplexers.md#mux.pane-containers). Rich panes are only on platforms where the [multiplexer gate](../../spec/v0/conformance.md#gate.multiplexer) passes.
 
 **Option B: unsealed producer (off by default).** The multiplexer is treated as an ordinary unsealed producer, as the [unsealed multiplexer mode](../../spec/v0/multiplexers.md#mux.unsealed) describes. It gets only the Track 0 rules and the possibly-remote treatment. It draws no per-pane containers, so it has no rich panes.
 
