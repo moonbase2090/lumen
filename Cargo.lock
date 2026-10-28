@@ -273,6 +273,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumen-harness"
+version = "0.0.0"
+
+[[package]]
 name = "lumen-sealed"
 version = "0.0.0"
 dependencies = [
