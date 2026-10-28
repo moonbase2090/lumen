@@ -57,7 +57,7 @@ jobs:
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
           args: >-
-            --offline --no-progress --include-fragments
+            --offline --no-progress
             --root-dir ${{ github.workspace }}/site/public
             --remap 'https://lumenprotocol\.org(/.*)? file://${{ github.workspace }}/site/public$1'
             'site/public/**/*.html'
