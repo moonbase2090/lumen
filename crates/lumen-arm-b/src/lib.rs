@@ -112,8 +112,6 @@ pub struct Layer {
     sealed: Option<Receiver>,
     window_start_ms: u64,
     header_checks: u32,
-    /// The window whose cap overrun was already counted as an abort.
-    cap_abort_window: Option<u64>,
     aborts: Vec<u64>,
     pinned: bool,
 }
@@ -132,7 +130,6 @@ impl Layer {
             sealed: None,
             window_start_ms: 0,
             header_checks: 0,
-            cap_abort_window: None,
             aborts: Vec::new(),
             pinned: false,
         }
@@ -274,12 +271,10 @@ impl Layer {
         }
         self.header_checks = self.header_checks.saturating_add(1);
         if self.header_checks > HEADER_CHECKS_PER_SEC {
-            // Over the cap: not verified, treated as ordinary unverified
-            // bytes, and the second counts as one abort.
-            if self.cap_abort_window != Some(self.window_start_ms) {
-                self.cap_abort_window = Some(self.window_start_ms);
-                self.count_abort(ctx.now_ms, items);
-            }
+            // Over the cap: the frame is not verified, so it is unauthenticated
+            // input. It is charged and shown as text, and it never counts
+            // toward the pin: unauthenticated bytes must not be able to pin a
+            // sealed layer.
             return false;
         }
         let Some(receiver) = self.sealed.as_mut() else {

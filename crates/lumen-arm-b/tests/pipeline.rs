@@ -388,7 +388,7 @@ mod sealed {
     }
 
     #[test]
-    fn header_check_cap_is_per_second_and_the_second_counts_as_one_abort() {
+    fn unauthenticated_flood_over_the_header_cap_never_pins_the_layer() {
         let mut l = layer();
         let bad = {
             let mut b = frame(1, 3, b"a", None);
@@ -396,19 +396,36 @@ mod sealed {
             b[i] ^= 1;
             b
         };
-        // 4096 checks are made; the rest of that second are over the cap.
-        for _ in 0..5000 {
-            let _ = l.feed(&bad, at(10));
-        }
-        assert!(!l.is_pinned(), "one second over the cap is one abort");
-        for s in 1..=3u64 {
-            for _ in 0..4097 {
+        // Well over the cap, every second, for ten seconds.
+        for s in 0..10u64 {
+            for _ in 0..4100 {
                 let _ = l.feed(&bad, at(10 + s * 1000));
             }
+            assert!(!l.is_pinned(), "second {s}");
         }
+        // The layer still accepts a genuine sealed frame in a new second.
+        let items = l.feed(&frame(2, 3, b"ok", None), at(20_000));
         assert!(
-            l.is_pinned(),
-            "four capped seconds in a minute pin the layer"
+            matches!(items.as_slice(), [Item::Sealed { .. }]),
+            "{items:?}"
         );
+    }
+
+    #[test]
+    fn frames_past_the_cap_are_not_verified_and_are_shown_as_text() {
+        let mut l = layer();
+        let mut sealed = 0;
+        let mut texts = 0;
+        for seq in 1..=4200u64 {
+            for item in l.feed(&frame(seq, 3, b"a", None), at(5)) {
+                match item {
+                    Item::Sealed { .. } => sealed += 1,
+                    Item::Text(_) => texts += 1,
+                    _ => {}
+                }
+            }
+        }
+        assert_eq!(sealed, 4096);
+        assert!(texts >= 104);
     }
 }
