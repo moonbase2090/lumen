@@ -21,6 +21,7 @@
 #![forbid(unsafe_code)]
 
 use lumen_detector::{Detector, Event};
+use lumen_sealed::{HEADER_LEN, Header, Receiver};
 use lumen_track0::{Block, escaped_text, parse};
 
 /// Per-read facts about the layer that change how Track 0 is shown.
@@ -30,7 +31,17 @@ pub struct Context {
     pub alt_screen: bool,
     /// `TMUX` or `STY` is present in the layer's environment.
     pub tmux_or_screen: bool,
+    /// Monotonic time of this read, in milliseconds. Used for the per-second
+    /// verification cap and the pin window.
+    pub now_ms: u64,
 }
+
+/// Header checks allowed per layer per second.
+pub const HEADER_CHECKS_PER_SEC: u32 = 4096;
+/// Sealed aborts allowed in [`PIN_WINDOW_MS`] before the layer is pinned.
+pub const PIN_AFTER_ABORTS: usize = 3;
+/// The pin window, in milliseconds.
+pub const PIN_WINDOW_MS: u64 = 60_000;
 
 /// The unauthenticated producer's budget for one command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +85,19 @@ pub enum Item {
     Text(String),
     /// The budget is spent. Shown once per command as a chrome notice.
     Degraded,
+    /// A sealed frame whose header verified. The body is not yet opened: the
+    /// sealed stage that holds the payload keys does that and reports a
+    /// failure through [`Layer::sealed_abort`].
+    Sealed {
+        /// The verified header.
+        header: Header,
+        /// The body, exactly the declared length.
+        body: Vec<u8>,
+    },
+    /// The layer is pinned to grid mode: too many sealed aborts in the window.
+    /// Shown once, as a chrome notice. The caller closes open blocks as
+    /// ended-unknown and offers the out-of-band restore action.
+    Pinned,
 }
 
 /// The Track 0 pipeline for one layer.
@@ -85,6 +109,13 @@ pub struct Layer {
     frames: usize,
     bytes: usize,
     degraded: bool,
+    sealed: Option<Receiver>,
+    window_start_ms: u64,
+    header_checks: u32,
+    /// The window whose cap overrun was already counted as an abort.
+    cap_abort_window: Option<u64>,
+    aborts: Vec<u64>,
+    pinned: bool,
 }
 
 impl Layer {
@@ -98,6 +129,43 @@ impl Layer {
             frames: 0,
             bytes: 0,
             degraded: false,
+            sealed: None,
+            window_start_ms: 0,
+            header_checks: 0,
+            cap_abort_window: None,
+            aborts: Vec::new(),
+            pinned: false,
+        }
+    }
+
+    /// Give the layer a header receiver. Only a layer that has sealing keys
+    /// has one. Without it, every sealed-range frame is escaped text.
+    pub fn attach_sealed(&mut self, receiver: Receiver) {
+        self.sealed = Some(receiver);
+    }
+
+    /// Whether the layer is pinned to grid mode.
+    #[must_use]
+    pub fn is_pinned(&self) -> bool {
+        self.pinned
+    }
+
+    /// Record the abort of an authenticated sealed frame, such as a body that
+    /// fails to open. More than [`PIN_AFTER_ABORTS`] in [`PIN_WINDOW_MS`] pins
+    /// the layer. Track 0 and unverified frames never call this.
+    pub fn sealed_abort(&mut self, now_ms: u64) -> Vec<Item> {
+        let mut items = Vec::new();
+        self.count_abort(now_ms, &mut items);
+        items
+    }
+
+    fn count_abort(&mut self, now_ms: u64, items: &mut Vec<Item>) {
+        self.aborts
+            .retain(|&t| now_ms.saturating_sub(t) < PIN_WINDOW_MS);
+        self.aborts.push(now_ms);
+        if self.aborts.len() > PIN_AFTER_ABORTS && !self.pinned {
+            self.pinned = true;
+            items.push(Item::Pinned);
         }
     }
 
@@ -159,10 +227,20 @@ impl Layer {
     }
 
     fn frame(&mut self, kind: u8, payload: &[u8], ctx: Context, items: &mut Vec<Item>) {
-        let spent = self.charge(payload.len(), items);
         let mut raw = Vec::with_capacity(payload.len() + 1);
         raw.push(kind);
         raw.extend_from_slice(payload);
+        if self.pinned {
+            items.push(text(&raw));
+            return;
+        }
+        if kind < lumen_track0::UNSEALED_MIN
+            && self.sealed.is_some()
+            && self.sealed_frame(kind, payload, &raw, ctx, items)
+        {
+            return;
+        }
+        let spent = self.charge(payload.len(), items);
         if spent {
             items.push(text(&raw));
             return;
@@ -177,6 +255,52 @@ impl Layer {
             Ok(block) => items.push(Item::Background(block)),
             Err(_) => items.push(text(&raw)),
         }
+    }
+
+    /// Handle a sealed-range frame on a layer that has keys. Returns whether
+    /// the frame is fully handled. A frame that returns `false` falls through to
+    /// the unverified path, where it is charged and shown as text.
+    fn sealed_frame(
+        &mut self,
+        kind: u8,
+        payload: &[u8],
+        raw: &[u8],
+        ctx: Context,
+        items: &mut Vec<Item>,
+    ) -> bool {
+        if ctx.now_ms.saturating_sub(self.window_start_ms) >= 1000 {
+            self.window_start_ms = ctx.now_ms;
+            self.header_checks = 0;
+        }
+        self.header_checks = self.header_checks.saturating_add(1);
+        if self.header_checks > HEADER_CHECKS_PER_SEC {
+            // Over the cap: not verified, treated as ordinary unverified
+            // bytes, and the second counts as one abort.
+            if self.cap_abort_window != Some(self.window_start_ms) {
+                self.cap_abort_window = Some(self.window_start_ms);
+                self.count_abort(ctx.now_ms, items);
+            }
+            return false;
+        }
+        let Some(receiver) = self.sealed.as_mut() else {
+            return false;
+        };
+        let Ok(header) = receiver.verify(payload) else {
+            return false;
+        };
+        // The header is authentic, so from here a mismatch is an abort of an
+        // authenticated frame and nothing is charged to the unverified bucket.
+        let body = payload.get(HEADER_LEN..).unwrap_or_default();
+        if header.kind != kind || usize::try_from(header.len).ok() != Some(body.len()) {
+            self.count_abort(ctx.now_ms, items);
+            items.push(text(raw));
+            return true;
+        }
+        items.push(Item::Sealed {
+            header,
+            body: body.to_vec(),
+        });
+        true
     }
 }
 

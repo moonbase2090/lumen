@@ -60,11 +60,11 @@ fn alt_screen_and_tmux_or_screen_render_frames_as_text() {
     for ctx in [
         Context {
             alt_screen: true,
-            tmux_or_screen: false,
+            ..Context::default()
         },
         Context {
-            alt_screen: false,
             tmux_or_screen: true,
+            ..Context::default()
         },
     ] {
         let mut l = Layer::new(cfg());
@@ -233,4 +233,182 @@ fn truncated_frame_spending_the_budget_gives_the_notice_too() {
         1,
         "{items:?}"
     );
+}
+
+mod sealed {
+    use super::{Budget, Config, Context, Item, Layer, TAG, cfg, para};
+    use lumen_sealed::{
+        Direction, DirectionKeys, Header, LayerId, LayerRoot, ORIGIN_APP, Receiver,
+    };
+
+    const LAYER: LayerId = LayerId(7);
+
+    fn keys() -> DirectionKeys {
+        DirectionKeys::derive(&LayerRoot::new([9; 32]), LAYER, Direction::ToTerminal)
+    }
+
+    fn layer() -> Layer {
+        let mut l = Layer::new(cfg());
+        l.attach_sealed(Receiver::new(keys(), LAYER, Direction::ToTerminal));
+        l.open_container();
+        l
+    }
+
+    fn at(now_ms: u64) -> Context {
+        Context {
+            now_ms,
+            ..Context::default()
+        }
+    }
+
+    /// A detector frame carrying a sealed header and `body`.
+    fn frame(seq: u64, kind: u8, body: &[u8], declared: Option<u32>) -> Vec<u8> {
+        let len = declared.unwrap_or(u32::try_from(body.len()).unwrap_or(0));
+        let h = Header {
+            layer: LAYER,
+            dir: Direction::ToTerminal,
+            origin: ORIGIN_APP,
+            seq,
+            kind,
+            len,
+        };
+        let mut payload = h.seal(&keys()).to_vec();
+        payload.extend_from_slice(body);
+        let mut v = b"\x1b_".to_vec();
+        v.extend_from_slice(&TAG);
+        v.push(kind);
+        v.extend_from_slice(&u32::try_from(payload.len()).unwrap_or(0).to_be_bytes());
+        v.extend(payload);
+        v
+    }
+
+    #[test]
+    fn verified_header_yields_a_sealed_item_and_charges_nothing() {
+        let mut l = Layer::new(Config {
+            budget: Budget {
+                max_frames: 1,
+                max_bytes: 1000,
+            },
+            background_as_text: false,
+        });
+        l.attach_sealed(Receiver::new(keys(), LAYER, Direction::ToTerminal));
+        l.open_container();
+        for seq in 1..=20 {
+            let items = l.feed(&frame(seq, 3, b"body", None), at(0));
+            assert!(
+                matches!(items.as_slice(), [Item::Sealed { header, body }] if header.seq == seq && body == b"body"),
+                "{items:?}"
+            );
+        }
+        // The unverified budget is untouched, so Track 0 still works.
+        assert!(matches!(
+            l.feed(&para("x"), at(0)).as_slice(),
+            [Item::Block(_)]
+        ));
+    }
+
+    #[test]
+    fn without_keys_a_sealed_range_frame_is_text() {
+        let mut l = Layer::new(cfg());
+        l.open_container();
+        let items = l.feed(&frame(1, 3, b"b", None), at(0));
+        assert!(matches!(items.as_slice(), [Item::Text(_)]), "{items:?}");
+    }
+
+    #[test]
+    fn forged_replayed_and_wrong_kind_frames_are_text_and_never_count_toward_the_pin() {
+        let mut l = layer();
+        assert!(matches!(
+            l.feed(&frame(5, 3, b"a", None), at(0)).as_slice(),
+            [Item::Sealed { .. }]
+        ));
+        // Replay of an accepted sequence number.
+        let items = l.feed(&frame(5, 3, b"a", None), at(1));
+        assert!(matches!(items.as_slice(), [Item::Text(_)]), "{items:?}");
+        // Tag broken.
+        let mut bad = frame(6, 3, b"a", None);
+        let tag_byte = 2 + TAG.len() + 1 + 4 + 20;
+        bad[tag_byte] ^= 1;
+        assert!(matches!(l.feed(&bad, at(2)).as_slice(), [Item::Text(_)]));
+        // A flood of such frames never pins the layer.
+        for i in 0..50 {
+            let _ = l.feed(&bad, at(3 + i));
+        }
+        assert!(!l.is_pinned());
+    }
+
+    #[test]
+    fn authenticated_length_mismatch_counts_as_an_abort_and_four_in_a_minute_pin() {
+        let mut l = layer();
+        let mut pinned = 0;
+        for i in 0..5u64 {
+            // Authentic header that declares 99 bytes but carries 4.
+            let items = l.feed(&frame(10 + i, 3, b"body", Some(99)), at(i * 1000));
+            assert!(
+                items.iter().any(|x| matches!(x, Item::Text(_))),
+                "{items:?}"
+            );
+            pinned += items.iter().filter(|x| matches!(x, Item::Pinned)).count();
+            assert_eq!(l.is_pinned(), i >= 3, "after abort {}", i + 1);
+        }
+        assert_eq!(pinned, 1, "the pin notice appears once");
+        // Pinned: both sealed and Track 0 frames are text; ordinary output flows.
+        let mut s = b"hello".to_vec();
+        s.extend(para("p"));
+        s.extend(frame(100, 3, b"ok", None));
+        let items = l.feed(&s, at(10_000));
+        assert_eq!(items[0], Item::Output(b"hello".to_vec()));
+        assert!(
+            items[1..].iter().all(|x| matches!(x, Item::Text(_))),
+            "{items:?}"
+        );
+    }
+
+    #[test]
+    fn aborts_spread_over_more_than_the_window_do_not_pin() {
+        let mut l = layer();
+        for i in 0..10u64 {
+            let _ = l.sealed_abort(i * 25_000);
+            assert!(!l.is_pinned(), "abort {i}");
+        }
+    }
+
+    #[test]
+    fn body_failures_reported_by_the_sealed_stage_pin_after_more_than_three() {
+        let mut l = layer();
+        for i in 0..3 {
+            assert_eq!(l.sealed_abort(i), Vec::<Item>::new());
+        }
+        assert_eq!(l.sealed_abort(3), vec![Item::Pinned]);
+        assert_eq!(
+            l.sealed_abort(4),
+            Vec::<Item>::new(),
+            "pin notice only once"
+        );
+    }
+
+    #[test]
+    fn header_check_cap_is_per_second_and_the_second_counts_as_one_abort() {
+        let mut l = layer();
+        let bad = {
+            let mut b = frame(1, 3, b"a", None);
+            let i = 2 + TAG.len() + 1 + 4 + 20;
+            b[i] ^= 1;
+            b
+        };
+        // 4096 checks are made; the rest of that second are over the cap.
+        for _ in 0..5000 {
+            let _ = l.feed(&bad, at(10));
+        }
+        assert!(!l.is_pinned(), "one second over the cap is one abort");
+        for s in 1..=3u64 {
+            for _ in 0..4097 {
+                let _ = l.feed(&bad, at(10 + s * 1000));
+            }
+        }
+        assert!(
+            l.is_pinned(),
+            "four capped seconds in a minute pin the layer"
+        );
+    }
 }
