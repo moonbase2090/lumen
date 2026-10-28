@@ -36,11 +36,11 @@ pub enum Event {
     },
     /// A frame header that was refused (over the length limit, or refused by a
     /// [`HeaderCheck`]): the introducer and header bytes, for the caller to
-    /// account for. The header failed, so no frame exists. The bytes are not
-    /// withheld: they follow as [`Event::Output`], introducer first, and the
-    /// detector resumes at the byte after the introducer, so a frame hidden in
-    /// the rest of the header or the body is still found. The declared length is
-    /// never used to skip input.
+    /// account for. The header failed, so no frame exists. The introducer is
+    /// dropped, never sent to the VT parser. The rest of the bytes follow as
+    /// [`Event::Output`], and the detector resumes at the byte after the
+    /// introducer, so a frame hidden in the rest of the header or the body is
+    /// still found. The declared length is never used to skip input.
     Rejected(Vec<u8>),
     /// The stream ended after a complete header but before the whole payload.
     /// The bytes are the payload received so far. A shorter, partial introducer
@@ -114,6 +114,9 @@ pub struct Detector {
     buf: Vec<u8>,
     /// The introducer and header of the frame being collected.
     head: Vec<u8>,
+    /// Continuation bytes still expected in a UTF-8 sequence in ordinary
+    /// output. A raw `0x9F` inside one is text, not an introducer.
+    utf8_cont: u8,
     max_payload: usize,
 }
 
@@ -173,6 +176,7 @@ impl Detector {
             state: State::Idle,
             buf: Vec::new(),
             head: Vec::new(),
+            utf8_cont: 0,
             max_payload,
         }
     }
@@ -236,7 +240,21 @@ impl Detector {
             match self.state {
                 State::Idle => {
                     let start = i;
-                    while i < data.len() && !matches!(data[i], 0x1b | 0xc2 | 0x9f) {
+                    while i < data.len() {
+                        let b = data[i];
+                        if self.utf8_cont > 0 && (0x80..=0xbf).contains(&b) {
+                            self.utf8_cont -= 1;
+                        } else if matches!(b, 0x1b | 0xc2 | 0x9f) {
+                            self.utf8_cont = 0;
+                            break;
+                        } else {
+                            self.utf8_cont = match b {
+                                0xc3..=0xdf => 1,
+                                0xe0..=0xef => 2,
+                                0xf0..=0xf4 => 3,
+                                _ => 0,
+                            };
+                        }
                         i += 1;
                     }
                     plain.extend_from_slice(&data[start..i]);
@@ -286,9 +304,7 @@ impl Detector {
                             let intro = introducer_len(&self.head).unwrap_or(0);
                             flush(plain, out);
                             out.push(Event::Rejected(self.head.clone()));
-                            // The introducer continues as ordinary output, like
-                            // that of any other candidate that is not a frame.
-                            plain.extend_from_slice(&self.head[..intro]);
+                            // The introducer is withheld from the VT parser.
                             let mut rescan = self.head.split_off(intro);
                             rescan.append(&mut self.buf);
                             self.head.clear();
@@ -329,7 +345,13 @@ impl Detector {
         let buf = std::mem::take(&mut self.buf);
         match std::mem::replace(&mut self.state, State::Idle) {
             State::Idle => {}
-            State::Candidate => out.push(Event::Output(buf)),
+            State::Candidate => {
+                // Withhold a complete introducer; release the rest.
+                let intro = introducer_len(&buf).unwrap_or(0);
+                if buf.len() > intro {
+                    out.push(Event::Output(buf[intro..].to_vec()));
+                }
+            }
             State::Payload { .. } => out.push(Event::Truncated(buf)),
         }
     }
@@ -347,8 +369,15 @@ impl Detector {
         if is_candidate_prefix(&self.buf) {
             return self.try_header(plain, out, check);
         }
-        let rest = self.buf.split_off(1);
-        plain.append(&mut self.buf);
+        // A complete introducer is withheld from the VT parser. A prefix that
+        // is not an introducer (such as `ESC [`) is ordinary output.
+        let intro = introducer_len(&self.buf).unwrap_or(1);
+        let rest = self.buf.split_off(intro);
+        if introducer_len(&self.buf).is_none() {
+            plain.append(&mut self.buf);
+        } else {
+            self.buf.clear();
+        }
         self.state = State::Idle;
         // `rest` is shorter than the candidate was, so this recursion is bounded.
         self.consume(&rest, plain, out, check);
@@ -379,7 +408,6 @@ impl Detector {
         if declared > self.max_payload || (need > 0 && declared < need) {
             let header = std::mem::take(&mut self.buf);
             out.push(Event::Rejected(header.clone()));
-            plain.extend_from_slice(&header[..intro]);
             self.state = State::Idle;
             return Some(header[intro..].to_vec());
         }

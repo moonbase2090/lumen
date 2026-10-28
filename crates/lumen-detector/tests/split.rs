@@ -106,12 +106,12 @@ fn frame_bytes_never_appear_in_output() {
 }
 
 #[test]
-fn partial_introducer_or_header_at_end_of_stream_is_ordinary_output() {
+fn partial_introducer_or_header_at_end_of_stream_is_withheld_or_released() {
     let mut s = b"ab\x1b".to_vec();
     s.extend_from_slice(b"[0m");
     assert_eq!(expect_whole(&s), vec![Event::Output(s.clone())]);
-    let header_short = frame(b"\x1b_", 1, b"xyz");
-    for tail in [&b"\x1b"[..], b"\x1b_", b"\xc2", b"\x9f", &header_short[..6]] {
+    // A lone ESC or a lone 0xC2 is not an introducer, so it is ordinary output.
+    for tail in [&b"\x1b"[..], b"\xc2"] {
         let mut s = b"ab".to_vec();
         s.extend_from_slice(tail);
         assert_eq!(
@@ -119,6 +119,20 @@ fn partial_introducer_or_header_at_end_of_stream_is_ordinary_output() {
             vec![Event::Output(s.clone())],
             "tail {tail:?}"
         );
+    }
+    // A complete introducer is withheld; what follows it is released.
+    let header_short = frame(b"\x1b_", 1, b"xyz");
+    for (tail, rest) in [
+        (&b"\x1b_"[..], &b""[..]),
+        (b"\xc2\x9f", b""),
+        (b"\x9f", b""),
+        (&header_short[..6], &header_short[2..6]),
+    ] {
+        let mut s = b"ab".to_vec();
+        s.extend_from_slice(tail);
+        let mut want = b"ab".to_vec();
+        want.extend_from_slice(rest);
+        assert_eq!(expect_whole(&s), vec![Event::Output(want)], "tail {tail:?}");
     }
 }
 
@@ -131,7 +145,7 @@ fn wrong_tag_is_ordinary_output_and_scanning_resumes_inside_it() {
     assert_eq!(
         got,
         vec![
-            Event::Output(b"\x1b_NOTATAG!".to_vec()),
+            Event::Output(b"NOTATAG!".to_vec()),
             Event::Frame {
                 kind: 5,
                 payload: b"ok".to_vec()
