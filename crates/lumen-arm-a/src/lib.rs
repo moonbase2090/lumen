@@ -1,8 +1,8 @@
 //! Arm A of the phase 0.5 comparison: sealed-only rich.
 //!
-//! Rich blocks render only on a sealed layer, from a verified sealed frame.
-//! Track 0 output renders as escaped text on every layer. This crate holds
-//! the pure policy; it does no I/O and holds no keys.
+//! Rich blocks render only on a sealed layer. On an unsealed layer, Track 0
+//! output renders as escaped text. This crate holds the pure policy; it does
+//! no I/O and holds no keys.
 
 #![forbid(unsafe_code)]
 
@@ -86,13 +86,16 @@ pub enum Rendering {
     EscapedText,
 }
 
-/// Arm A's render rule: rich only for a verified sealed frame on a sealed
-/// layer. Everything else, including all Track 0 output, is escaped text.
+/// Arm A's render rule (comparison criteria, section 1): rich blocks only on
+/// a sealed layer, whether from a verified sealed frame or from Track 0
+/// (which is still subject to the Track 0 rules). Anything on an unsealed
+/// layer is escaped text. A sealed-looking frame on an unsealed layer cannot
+/// verify, so it is escaped text too.
 #[must_use]
 pub fn rendering(layer: LayerState, source: Source) -> Rendering {
     match (layer, source) {
-        (LayerState::Sealed, Source::VerifiedSealedFrame) => Rendering::Rich,
-        _ => Rendering::EscapedText,
+        (LayerState::Sealed, Source::VerifiedSealedFrame | Source::Track0) => Rendering::Rich,
+        (LayerState::Unsealed, _) => Rendering::EscapedText,
     }
 }
 
@@ -153,21 +156,24 @@ mod tests {
     }
 
     #[test]
-    fn track0_is_escaped_text_on_every_layer() {
-        for layer in [LayerState::Sealed, LayerState::Unsealed] {
-            assert_eq!(rendering(layer, Source::Track0), Rendering::EscapedText);
+    fn nothing_is_rich_on_an_unsealed_layer() {
+        for source in [Source::Track0, Source::VerifiedSealedFrame] {
+            assert_eq!(
+                rendering(LayerState::Unsealed, source),
+                Rendering::EscapedText,
+                "{source:?}"
+            );
         }
     }
 
     #[test]
-    fn sealed_frame_is_rich_only_on_a_sealed_layer() {
-        assert_eq!(
-            rendering(LayerState::Sealed, Source::VerifiedSealedFrame),
-            Rendering::Rich
-        );
-        assert_eq!(
-            rendering(LayerState::Unsealed, Source::VerifiedSealedFrame),
-            Rendering::EscapedText
-        );
+    fn both_sources_are_rich_on_a_sealed_layer() {
+        for source in [Source::Track0, Source::VerifiedSealedFrame] {
+            assert_eq!(
+                rendering(LayerState::Sealed, source),
+                Rendering::Rich,
+                "{source:?}"
+            );
+        }
     }
 }
