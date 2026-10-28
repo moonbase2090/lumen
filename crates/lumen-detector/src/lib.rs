@@ -40,12 +40,13 @@ pub enum Event {
         payload: Vec<u8>,
     },
     /// A frame header that was refused (over the length limit, or refused by a
-    /// [`HeaderCheck`]): the introducer and header bytes, for the caller to
-    /// account for. The header failed, so no frame exists. The introducer is
-    /// dropped, never sent to the VT parser. The rest of the bytes follow as
-    /// [`Event::Output`], and the detector resumes at the byte after the
-    /// introducer, so a frame hidden in the rest of the header or the body is
-    /// still found. The declared length is never used to skip input.
+    /// [`HeaderCheck`]). The header failed, so no frame exists. This event only
+    /// reports the refusal, for the caller to count; its bytes (the introducer
+    /// and header) are not to be shown. The header is reported as
+    /// [`Event::Escaped`], the introducer is withheld from the VT parser, and
+    /// the rest follows as [`Event::Output`]. The detector resumes at the byte
+    /// after the introducer, so a frame hidden in the rest of the header or the
+    /// body is still found. The declared length is never used to skip input.
     Rejected(Vec<u8>),
     /// Bytes of a rejected header, to be shown as escaped text. They are the
     /// header-length bytes that follow the introducer (fewer if the stream
