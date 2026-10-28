@@ -1,6 +1,6 @@
 //! Replays the fixture corpus through the driver.
 
-use lumen_evidence::{load_corpus, run};
+use lumen_evidence::{Arm, load_corpus, run, run_arm};
 use std::path::Path;
 
 fn fixture() -> std::path::PathBuf {
@@ -87,4 +87,67 @@ fn a_misspelled_forbid_kind_fails_the_load_with_the_case_id() {
     let dir = write_corpus("ok", r#"["sealed", "block"]"#);
     assert!(load_corpus(&dir).is_ok());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn replay(arm: Arm) -> (lumen_evidence::Report, lumen_harness::HeaderInfo) {
+    let Ok(corpus) = load_corpus(&fixture()) else {
+        unreachable!("fixture loads")
+    };
+    let Ok(out) = run_arm(&corpus, "testsha", arm, Vec::new()) else {
+        unreachable!("writing to a Vec succeeds")
+    };
+    out
+}
+
+fn kinds(
+    report: &lumen_evidence::Report,
+    id: &str,
+) -> std::collections::BTreeMap<&'static str, usize> {
+    report
+        .cases
+        .iter()
+        .find(|c| c.id == id)
+        .map(|c| c.kinds.clone())
+        .unwrap_or_default()
+}
+
+#[test]
+fn arm_a_on_a_sealed_layer_draws_track0_in_the_container() {
+    let (report, header) = replay(Arm::ASealed);
+    assert_eq!(header.features, "arm-a sealed-layer");
+    assert_eq!(kinds(&report, "para-plain").get("block"), Some(&1));
+    assert_eq!(kinds(&report, "split-frame").get("block"), Some(&1));
+    // Alternate screen and a forged sealed type stay out of blocks and sealed items.
+    assert_eq!(kinds(&report, "para-alt-screen").get("block"), None);
+    assert_eq!(kinds(&report, "forged-sealed-type").get("sealed"), None);
+    // Only the case that forbids what it produces is a violation.
+    assert_eq!(report.violations(), 1);
+}
+
+#[test]
+fn arm_a_on_an_unsealed_layer_draws_nothing_rich() {
+    let (report, header) = replay(Arm::AUnsealed);
+    assert_eq!(header.features, "arm-a unsealed-layer");
+    for case in &report.cases {
+        assert_eq!(case.kinds.get("block"), None, "{}", case.id);
+        assert_eq!(case.kinds.get("sealed"), None, "{}", case.id);
+    }
+    assert_eq!(kinds(&report, "para-plain").get("text"), Some(&1));
+    assert_eq!(report.violations(), 0);
+}
+
+#[test]
+fn both_arms_name_their_counters_the_same_way() {
+    let (a, _) = replay(Arm::ASealed);
+    let (b, _) = replay(Arm::B);
+    let names = |s: &str| {
+        s.split(['{', '}', ','])
+            .filter_map(|p| p.split(':').next().map(str::trim))
+            .skip(1)
+            .filter(|n| !n.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(&a.cases[0].counters), names(&b.cases[0].counters));
+    assert!(names(&a.cases[0].counters).len() >= 17);
 }
