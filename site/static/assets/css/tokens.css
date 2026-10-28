@@ -1,0 +1,20 @@
+/* Lumen tokens. Dark neutrals taken from Graphite (ground #101216, text #E6E9EE, muted #A3ABB8, divider #2B3038). */
+@font-face{font-family:"Source Sans 3";src:url(../fonts/source-sans-3-latin-400-normal.woff2) format("woff2");font-weight:400;font-display:swap}
+@font-face{font-family:"Source Sans 3";src:url(../fonts/source-sans-3-latin-600-normal.woff2) format("woff2");font-weight:600;font-display:swap}
+@font-face{font-family:"Source Sans 3";src:url(../fonts/source-sans-3-latin-700-normal.woff2) format("woff2");font-weight:700;font-display:swap}
+@font-face{font-family:"JetBrains Mono";src:url(../fonts/jetbrains-mono-latin-400-normal.woff2) format("woff2");font-weight:400;font-display:swap}
+:root{--sans:"Source Sans 3",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace}
+:root,[data-theme=light]{
+--bg:#FAF7F0;--surface:#F2EEE4;--raised:#FDFBF6;--line:#DDD6C6;
+--text:#1E2430;--muted:#545A66;--link:#1B5AB8;--accent:#7A4A00;--mark:#A86800;
+--glow:#FFD45C;--cube:#FFFFFF;--cube-edge:#9AA1AC;
+--status-bg:#F8EBC8;--status-text:#5A3B00;--status-line:#D9B65A;
+--sec-bg:#F8E6E1;--sec-text:#8A1C2B;--ok-bg:#E4F0E6;--ok-text:#0F6A45;
+--ph-a:#F2EEE4;--ph-b:#E9E3D6;--ph-text:#545A66}
+[data-theme=dark]{
+--bg:#101216;--surface:#15181D;--raised:#1B1F25;--line:#2B3038;
+--text:#E6E9EE;--muted:#A3ABB8;--link:#7FB8FF;--accent:#F2C14B;
+--glow:#FFE7A0;--cube:#F7F8FA;--cube-edge:#8C939E;
+--status-bg:#2A2312;--status-text:#F7D98A;--status-line:#6B5520;
+--sec-bg:#2C1719;--sec-text:#FFB3B8;--ok-bg:#12261D;--ok-text:#7FDDB0;
+--ph-a:#15181D;--ph-b:#1A1E24;--ph-text:#A3ABB8}

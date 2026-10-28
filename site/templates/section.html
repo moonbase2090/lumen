@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% block title %}{{ section.title }} · Lumen{% endblock title %}
+{% block content %}<div class="wrap page" data-pagefind-body><h1>{{ section.title }}</h1>{{ section.content | safe }}
+<ul>{% for p in section.pages %}<li><a href="{{ p.permalink }}">{{ p.title }}</a></li>{% endfor %}{% for s in section.subsections %}{% set ss = get_section(path=s) %}<li><a href="{{ ss.permalink }}">{{ ss.title }}</a></li>{% endfor %}</ul></div>{% endblock content %}

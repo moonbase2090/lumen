@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}{{ config.title }}{% endblock title %}</title>
+<meta name="description" content="{{ config.description }}">
+<link rel="icon" href="{{ get_url(path='assets/img/favicon.svg') }}" type="image/svg+xml" media="(prefers-color-scheme: light)">
+<link rel="icon" href="{{ get_url(path='assets/img/favicon-dark.svg') }}" type="image/svg+xml" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="{{ get_url(path='assets/css/tokens.css') }}">
+<link rel="stylesheet" href="{{ get_url(path='assets/css/site.css') }}">
+<script src="{{ get_url(path='assets/js/theme.js') }}" defer></script>
+{% block head %}{% endblock head %}
+</head>
+<body>
+{% set cur = current_path | default(value="/") %}
+<a class="skip" href="#main">Skip to content</a>
+<header class="top" data-pagefind-ignore><div class="wrap">
+<a class="brand" href="{{ get_url(path='/') }}" aria-label="Lumen home"><img class="wm-l" src="{{ get_url(path='assets/img/lumen-wordmark-plain.svg') }}" alt=""><img class="wm-d" src="{{ get_url(path='assets/img/lumen-wordmark-plain-dark.svg') }}" alt=""></a>
+<nav class="nav" aria-label="Primary">
+<a href="{{ get_url(path='@/spec/v0/_index.md') }}"{% if cur is starting_with(pat="/spec/") %} aria-current="page"{% endif %}>Spec</a>
+<a href="{{ get_url(path='@/implementations.md') }}"{% if cur == "/implementations/" %} aria-current="page"{% endif %}>Implementations</a>
+<a href="{{ get_url(path='@/security.md') }}"{% if cur == "/security/" %} aria-current="page"{% endif %}>Security</a>
+<a href="{{ config.extra.repo }}">GitHub</a>
+</nav>
+<form class="search" role="search" action="{{ get_url(path='@/search.md') }}"><span aria-hidden="true">⌕</span><input name="q" placeholder="Search spec" aria-label="Search the site"><span class="kbd">/</span></form>
+<button class="toggle" type="button" aria-label="Toggle colour theme">◐</button>
+</div></header>
+<main id="main">{% block content %}{% endblock content %}</main>
+<footer class="foot" data-pagefind-ignore><div class="wrap">
+<span>© 2026 Moonbase 2090 LLC</span><span>Spec: CC-BY-4.0 · Code: MIT OR Apache-2.0</span>
+<a href="{{ get_url(path='@/security.md') }}">Report a vulnerability (private)</a>
+<a href="{{ config.extra.repo }}">github.com/moonbase2090/lumen</a>
+<span>No trackers. No cookies.</span>
+</div></footer>
+</body>
+</html>

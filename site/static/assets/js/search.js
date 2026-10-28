@@ -1,0 +1,1 @@
+window.addEventListener("DOMContentLoaded",function(){var ui=new PagefindUI({element:"#search",showSubResults:true,showImages:false});var q=new URLSearchParams(location.search).get("q");if(q)ui.triggerSearch(q);});

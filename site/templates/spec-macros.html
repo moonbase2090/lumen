@@ -1,0 +1,9 @@
+{% component spec_chrome(repo) %}
+<div class="status" role="note" data-pagefind-ignore><div class="wrap"><strong>Draft</strong><span>Lumen Protocol v0, revision 25 (frozen snapshot)</span><span>Not stable. Breaking changes expected.</span><a href="{{ repo }}/tree/main/spec/v0">Source</a><a href="{{ repo }}/issues">Report an issue</a></div></div>
+{% endcomponent spec_chrome %}
+{% component spec_toc(cur, v0) %}
+<aside class="toc" aria-label="Spec chapters" data-pagefind-ignore><ol>
+<li><a href="{{ v0.permalink }}"{% if cur == v0.path %} aria-current="true"{% endif %}><span>0</span>Overview</a></li>
+{% for p in v0.pages %}<li><a href="{{ p.permalink }}"{% if cur == p.path %} aria-current="true"{% endif %}><span>{{ loop.index }}</span>{{ p.title }}</a></li>{% endfor %}
+</ol></aside>
+{% endcomponent spec_toc %}

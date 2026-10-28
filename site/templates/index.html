@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Structured content for the terminal · Lumen{% endblock title %}
+{% block content %}<div class="wrap">
+<section class="hero"><div><span class="badge">Draft · v0 · revision 25 · not stable</span>
+<h1>Structured content for the terminal.</h1>
+<p class="lede">Lumen is an open protocol for blocks, text runs, layout and events. Rich blocks get proportional type and browser-style layout; grid blocks host legacy terminal apps, so old and new share one document.</p>
+<p class="cta"><a class="btn primary" href="{{ get_url(path='@/spec/v0/_index.md') }}">Read the spec</a><a class="btn" href="{{ config.extra.repo }}">View on GitHub</a></p></div>
+<div class="cubehero"><img class="wm-l" src="{{ get_url(path='assets/img/lumen-cube-pulse.svg') }}" alt="The Lumen cube"><img class="wm-d" src="{{ get_url(path='assets/img/lumen-cube-pulse-dark.svg') }}" alt="The Lumen cube"></div></section>
+<section class="blocks" aria-label="Pillars">
+<div class="card"><span class="tag">block.rich</span><h3>Rich blocks</h3><p>Proportional fonts, wrapping and layout, described as structured data rather than escape codes.</p></div>
+<div class="card"><span class="tag">block.grid</span><h3>Grid blocks</h3><p>A cell grid on its own PTY, sized to the block, so existing terminal apps keep working inside a Lumen document.</p></div>
+<div class="card"><span class="tag">security</span><h3>Security first</h3><p>The prime directive: capabilities are explicit, content is inert by default, disclosure is private.</p></div></section>
+{{ section.content | safe }}
+</div>{% endblock content %}

@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% block title %}Search · Lumen{% endblock title %}
+{% block head %}<link rel="stylesheet" href="{{ get_url(path='pagefind/pagefind-ui.css') }}"><script src="{{ get_url(path='pagefind/pagefind-ui.js') }}" defer></script><script src="{{ get_url(path='assets/js/search.js') }}" defer></script>{% endblock head %}
+{% block content %}<div class="wrap page"><h1>Search</h1><div id="search"></div><noscript><p>Search needs JavaScript. The <a href="{{ get_url(path='@/spec/v0/_index.md') }}">spec index</a> lists every chapter.</p></noscript></div>{% endblock content %}

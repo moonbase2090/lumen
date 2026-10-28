@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% block title %}{{ page.title }} · Spec · Lumen{% endblock title %}
+{% block content %}{% set v0 = get_section(path="spec/v0/_index.md") %}{% set repo = config.extra.repo %}{{ <spec_chrome repo /> }}
+<div class="wrap spec">{{ <spec_toc cur={page.path} v0 /> }}<article data-pagefind-body>{{ page.content | safe }}</article></div>{% endblock content %}

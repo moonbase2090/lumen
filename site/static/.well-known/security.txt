@@ -1,0 +1,6 @@
+Contact: mailto:security@lumenprotocol.org
+Contact: https://github.com/moonbase2090/lumen/security/advisories/new
+Policy: https://lumenprotocol.org/security/
+Canonical: https://lumenprotocol.org/.well-known/security.txt
+Preferred-Languages: en
+Expires: 2027-10-27T00:00:00.000Z
