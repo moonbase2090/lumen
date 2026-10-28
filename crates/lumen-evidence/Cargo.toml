@@ -1,0 +1,17 @@
+[package]
+name = "lumen-evidence"
+description = "Test-only driver that replays a corpus through the Arm B layer and writes the comparison run log"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+lumen-arm-b = { path = "../lumen-arm-b" }
+lumen-harness = { path = "../lumen-harness" }
+serde_json = "1"
+
+[lints]
+workspace = true
