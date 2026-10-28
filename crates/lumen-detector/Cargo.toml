@@ -1,0 +1,12 @@
+[package]
+name = "lumen-detector"
+description = "Stateful, split-safe frame detector that runs ahead of the VT parser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
