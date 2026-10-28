@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZOLA_VERSION: "0.23.6"
+  PAGEFIND_VERSION: "1.5.2"
+
+jobs:
+  site-build:
+    name: site-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Install Zola
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/getzola/zola/releases/download/v${ZOLA_VERSION}/zola-v${ZOLA_VERSION}-x86_64-unknown-linux-gnu.tar.gz" | tar -xz -C /usr/local/bin zola
+          zola --version
+      - name: Build site (as Cloudflare Pages does)
+        working-directory: site
+        run: |
+          set -euo pipefail
+          rm -rf content/spec/v0 && mkdir -p content/spec && cp -R ../spec/v0 content/spec/v0
+          zola build
+      - name: Pagefind index
+        working-directory: site
+        run: |
+          set -euo pipefail
+          npx -y "pagefind@${PAGEFIND_VERSION}" --site public 2>&1 | tee pagefind.log
+          if grep -qiE '^\s*(error|warning)' pagefind.log; then echo "pagefind reported problems"; exit 1; fi
+          test -f public/pagefind/pagefind.js
+          test -f public/pagefind/pagefind-ui.js
+      - name: Check base.html CSS/JS assets keep cachebust=true
+        run: |
+          set -euo pipefail
+          bad=$(grep -noE "get_url\(path='assets/[^']+\.(css|js)'[^)]*\)" site/templates/base.html | grep -v "cachebust=true" || true)
+          if [ -n "$bad" ]; then echo "$bad"; echo "CSS/JS asset links in base.html must use cachebust=true"; exit 1; fi
+      - name: PII / secret scan (repo text and built site)
+        env:
+          PUBLIC_TEXT_DENYLIST: ${{ secrets.PUBLIC_TEXT_DENYLIST }}
+        run: scripts/check-public-text.sh site/public
+      - name: Internal link check (offline)
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: >-
+            --offline --no-progress --include-fragments
+            --root-dir ${{ github.workspace }}/site/public
+            'site/public/**/*.html'
+          fail: true
+
+  link-check-external:
+    name: link-check-external
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Restore lychee cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .lycheecache
+          key: lychee-${{ github.sha }}
+          restore-keys: lychee-
+      - name: External link check (non-blocking)
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: >-
+            --cache --max-cache-age 1d --no-progress
+            --exclude '^https?://(www\.)?lumenprotocol\.org'
+            'README.md' 'spec/**/*.md' 'site/content/**/*.md'
+          fail: false
