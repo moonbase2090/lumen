@@ -281,6 +281,23 @@ impl Receiver {
         let plain = payload::open(&self.keys, &header, cap, body)?;
         Ok((header, plain))
     }
+
+    /// Decrypt the body of a frame whose `header` this receiver already
+    /// verified with [`verify`](Self::verify). It reads no sequence state, so it
+    /// is for callers that verify the header first and open the body later.
+    ///
+    /// # Errors
+    ///
+    /// [`PayloadError::Length`] if `body` is not the declared length, or
+    /// [`PayloadError::Aead`] if the AEAD check fails.
+    pub fn open_body(
+        &self,
+        header: &Header,
+        cap: u8,
+        body: &[u8],
+    ) -> Result<Vec<u8>, PayloadError> {
+        payload::open(&self.keys, header, cap, body)
+    }
 }
 
 #[cfg(test)]
@@ -507,6 +524,39 @@ mod tests {
         assert_eq!(expected.len(), HEADER_LEN);
         assert_eq!(sealed(1).as_slice(), expected);
         assert_eq!(receiver().verify(&expected), Ok(header(1)));
+    }
+
+    #[test]
+    fn a_verified_header_lets_the_body_open_later() {
+        let mut sender = Sender::new(
+            keys(1, LAYER, Direction::ToTerminal),
+            LAYER,
+            Direction::ToTerminal,
+            1,
+        );
+        let Ok(frame) = sender.seal(3, 2, b"hello") else {
+            unreachable!("sealing a short payload succeeds")
+        };
+        let mut rx = receiver();
+        let Ok(h) = rx.verify(&frame) else {
+            unreachable!("the header verifies")
+        };
+        assert_eq!(
+            rx.open_body(&h, 2, &frame[HEADER_LEN..]),
+            Ok(b"hello".to_vec())
+        );
+        // Another capability, or a changed body, fails the AEAD check.
+        assert_eq!(
+            rx.open_body(&h, 3, &frame[HEADER_LEN..]),
+            Err(PayloadError::Aead)
+        );
+        let mut bad = frame[HEADER_LEN..].to_vec();
+        bad[0] ^= 1;
+        assert_eq!(rx.open_body(&h, 2, &bad), Err(PayloadError::Aead));
+        assert_eq!(
+            rx.open_body(&h, 2, &bad[..bad.len() - 1]),
+            Err(PayloadError::Length)
+        );
     }
 
     #[test]
