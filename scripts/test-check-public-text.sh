@@ -38,7 +38,7 @@ run_case() {
 run_case "planted personal identifier fails" 1 "Contact $FIXTURE_NAME for details."
 run_case "identifier beside the allowlisted name on the same line fails" 1 "Moonbase 2090 LLC $FIXTURE_NAME"
 run_case "allowlisted name alone passes" 0 "Copyright (c) Moonbase 2090 LLC. All rights reserved."
-run_case "a lower-case variant of the legal name is not exempt" 1 "moonbase 2090 llc $FIXTURE_NAME"
+run_case "a lower-case variant of the legal name is not exempt" 1 "moonbase 2090 llc"
 
 if [[ "$FAILED" -ne 0 ]]; then
   echo "test-check-public-text: FAILED" >&2
