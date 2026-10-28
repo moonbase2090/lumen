@@ -245,10 +245,15 @@ fn truncated_frame_spending_the_budget_gives_the_notice_too() {
 mod sealed {
     use super::{Budget, Config, Context, Item, Layer, TAG, cfg, para};
     use lumen_sealed::{
-        Direction, DirectionKeys, Header, LayerId, LayerRoot, ORIGIN_APP, Receiver,
+        Direction, DirectionKeys, HEADER_LEN, LayerId, LayerRoot, Receiver, Sender,
     };
 
     const LAYER: LayerId = LayerId(7);
+    const CAP: u8 = 2;
+
+    fn cap_of(_kind: u8) -> u8 {
+        CAP
+    }
 
     fn keys() -> DirectionKeys {
         DirectionKeys::derive(&LayerRoot::new([9; 32]), LAYER, Direction::ToTerminal)
@@ -256,7 +261,7 @@ mod sealed {
 
     fn layer() -> Layer {
         let mut l = Layer::new(cfg());
-        l.attach_sealed(Receiver::new(keys(), LAYER, Direction::ToTerminal));
+        l.attach_sealed(Receiver::new(keys(), LAYER, Direction::ToTerminal), cap_of);
         l.open_container();
         l
     }
@@ -268,24 +273,30 @@ mod sealed {
         }
     }
 
-    /// A detector frame carrying a sealed header and `body`.
-    fn frame(seq: u64, kind: u8, body: &[u8], declared: Option<u32>) -> Vec<u8> {
-        let len = declared.unwrap_or(u32::try_from(body.len()).unwrap_or(0));
-        let h = Header {
-            layer: LAYER,
-            dir: Direction::ToTerminal,
-            origin: ORIGIN_APP,
-            seq,
-            kind,
-            len,
+    /// A detector frame carrying a sealed frame for `plain`. `carry` keeps only
+    /// that many body bytes, so the detector's length disagrees with the header.
+    fn frame(seq: u64, kind: u8, plain: &[u8], carry: Option<usize>) -> Vec<u8> {
+        let mut sender = Sender::new(keys(), LAYER, Direction::ToTerminal, seq);
+        let Ok(mut payload) = sender.seal(kind, CAP, plain) else {
+            unreachable!("sealing a short payload succeeds")
         };
-        let mut payload = h.seal(&keys()).to_vec();
-        payload.extend_from_slice(body);
+        if let Some(n) = carry {
+            payload.truncate(HEADER_LEN + n);
+        }
         let mut v = b"\x1b_".to_vec();
         v.extend_from_slice(&TAG);
         v.push(kind);
         v.extend_from_slice(&u32::try_from(payload.len()).unwrap_or(0).to_be_bytes());
         v.extend(payload);
+        v
+    }
+
+    /// The same frame with one body byte changed, so the header still verifies
+    /// and the AEAD check fails.
+    fn tampered(seq: u64, kind: u8, plain: &[u8]) -> Vec<u8> {
+        let mut v = frame(seq, kind, plain, None);
+        let at = 2 + TAG.len() + 1 + 4 + HEADER_LEN;
+        v[at] ^= 1;
         v
     }
 
@@ -298,7 +309,7 @@ mod sealed {
             },
             background_as_text: false,
         });
-        l.attach_sealed(Receiver::new(keys(), LAYER, Direction::ToTerminal));
+        l.attach_sealed(Receiver::new(keys(), LAYER, Direction::ToTerminal), cap_of);
         l.open_container();
         for seq in 1..=20 {
             let items = l.feed(&frame(seq, 3, b"body", None), at(0));
@@ -357,7 +368,7 @@ mod sealed {
         let mut pinned = 0;
         for i in 0..5u64 {
             // Authentic header that declares 99 bytes but carries 4.
-            let items = l.feed(&frame(10 + i, 3, b"body", Some(99)), at(i * 1000));
+            let items = l.feed(&frame(10 + i, 3, b"body", Some(4)), at(i * 1000));
             assert!(
                 items.iter().all(|x| !matches!(x, Item::Sealed { .. })),
                 "{items:?}"
@@ -426,39 +437,102 @@ mod sealed {
     }
 
     #[test]
-    fn frames_past_the_cap_are_not_verified_and_continue_as_output() {
+    fn a_body_that_fails_the_aead_check_is_a_failed_frame_and_counts_toward_the_pin() {
+        let mut l = layer();
+        let mut pinned = 0;
+        for i in 0..5u64 {
+            let items = l.feed(&tampered(1 + i, 3, b"secret"), at(i * 1000));
+            assert!(
+                items.iter().all(|x| !matches!(x, Item::Sealed { .. })),
+                "{items:?}"
+            );
+            if i < 4 {
+                // Shown once as a failed frame, never as ordinary output.
+                assert!(
+                    items.iter().any(|x| matches!(x, Item::Text(_))),
+                    "{items:?}"
+                );
+                assert!(
+                    items.iter().all(|x| !matches!(x, Item::Output(_))),
+                    "{items:?}"
+                );
+            }
+            pinned += items.iter().filter(|x| matches!(x, Item::Pinned)).count();
+            assert_eq!(l.is_pinned(), i >= 3, "after failure {}", i + 1);
+        }
+        assert_eq!(pinned, 1);
+    }
+
+    #[test]
+    fn a_frame_sealed_for_another_capability_does_not_open() {
+        let mut l = Layer::new(cfg());
+        l.attach_sealed(Receiver::new(keys(), LAYER, Direction::ToTerminal), |_| {
+            CAP + 1
+        });
+        l.open_container();
+        let items = l.feed(&frame(1, 3, b"x", None), at(0));
+        assert!(
+            items.iter().all(|x| !matches!(x, Item::Sealed { .. })),
+            "{items:?}"
+        );
+        assert!(
+            items.iter().any(|x| matches!(x, Item::Text(_))),
+            "{items:?}"
+        );
+    }
+
+    #[test]
+    fn plaintext_is_not_in_the_text_shown_for_a_failed_frame() {
+        let mut l = layer();
+        let items = l.feed(&tampered(1, 3, b"hunter2-password"), at(0));
+        for item in items {
+            if let Item::Text(t) = item {
+                assert!(!t.contains("hunter2"), "{t}");
+            }
+        }
+    }
+
+    #[test]
+    fn body_checks_are_capped_per_second_without_spending_sequence_numbers() {
         let mut l = layer();
         let mut sealed = 0;
-        let mut outputs = 0;
-        let mut texts = 0;
-        for seq in 1..=4200u64 {
+        let mut seqs = Vec::new();
+        for seq in 1..=300u64 {
             for item in l.feed(&frame(seq, 3, b"a", None), at(5)) {
-                match item {
-                    Item::Sealed { .. } => sealed += 1,
-                    Item::Output(_) => outputs += 1,
-                    Item::Text(_) => texts += 1,
-                    _ => {}
+                if let Item::Sealed { header, .. } = item {
+                    sealed += 1;
+                    seqs.push(header.seq);
                 }
             }
         }
-        assert_eq!(sealed, 4096);
-        assert_eq!(texts, 0, "over-cap frames are not shown as text");
-        assert!(outputs >= 104);
+        assert_eq!(sealed, 256, "256 bodies are opened in one second");
+        assert!(!l.is_pinned(), "the cap is not an authenticated abort");
+        // The refused frames were not verified, so their sequence numbers are
+        // still usable in the next second.
+        let items = l.feed(&frame(257, 3, b"a", None), at(1_500));
+        assert!(
+            items
+                .iter()
+                .any(|x| matches!(x, Item::Sealed { header, .. } if header.seq == 257)),
+            "{items:?}"
+        );
     }
 }
 
 mod hidden {
     use super::{Context, Item, Layer, TAG, cfg};
-    use lumen_sealed::{
-        Direction, DirectionKeys, Header, LayerId, LayerRoot, ORIGIN_APP, Receiver,
-    };
+    use lumen_sealed::{Direction, DirectionKeys, LayerId, LayerRoot, Receiver, Sender};
+
+    fn cap_of(_kind: u8) -> u8 {
+        2
+    }
 
     #[test]
     fn a_forged_header_with_a_large_length_cannot_hide_the_frames_after_it() {
         let layer = LayerId(7);
         let keys = || DirectionKeys::derive(&LayerRoot::new([9; 32]), layer, Direction::ToTerminal);
         let mut l = Layer::new(cfg());
-        l.attach_sealed(Receiver::new(keys(), layer, Direction::ToTerminal));
+        l.attach_sealed(Receiver::new(keys(), layer, Direction::ToTerminal), cap_of);
         l.open_container();
         // A forged sealed-range frame header that declares a large payload.
         let mut s = b"\x1b_".to_vec();
@@ -467,16 +541,10 @@ mod hidden {
         s.extend_from_slice(&5000u32.to_be_bytes());
         s.extend_from_slice(&[0u8; 100]);
         // A genuine frame within that many bytes after it.
-        let h = Header {
-            layer,
-            dir: Direction::ToTerminal,
-            origin: ORIGIN_APP,
-            seq: 1,
-            kind: 3,
-            len: 2,
+        let Ok(payload) = Sender::new(keys(), layer, Direction::ToTerminal, 1).seal(3, 2, b"ok")
+        else {
+            unreachable!("sealing a short payload succeeds")
         };
-        let mut payload = h.seal(&keys()).to_vec();
-        payload.extend_from_slice(b"ok");
         s.extend_from_slice(b"\x1b_");
         s.extend_from_slice(&TAG);
         s.push(3);
