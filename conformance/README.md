@@ -12,7 +12,7 @@ crate), not a normative encoding. Update the vectors when the profile changes.
 | File | Covers | Status |
 | --- | --- | --- |
 | `vectors/framing.json` | Introducers, split-safe detection, failed-header rule, UTF-8 continuation, truncation | run |
-| `vectors/limits.json` | Frame size, 4 KiB string cap, 256-byte escaped text, Track 0 type domain separation, and a table of every numeric limit with its vector or the reason it has none yet | run; table rows marked `pending` have no vector yet |
+| `vectors/limits.json` | Frame size, 4 KiB string cap, 256-byte escaped text, Track 0 type domain separation, and a table of the numeric limits listed in the transport limits section, the security resource-limits table, the budget shares and the Track B side channel, each with its vector or the reason it has none yet | run; table rows marked `pending` have no vector yet |
 | `vectors/grid-isolation.json` | Grid parser: C1 and string-escape drop, 4 KiB string cap and skip state | pending: no grid parser exists yet |
 
 ## Format

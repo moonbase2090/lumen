@@ -200,7 +200,7 @@ fn limit_vectors_for_escaped_text() {
 }
 
 #[test]
-fn every_limit_has_a_vector_or_a_stated_reason() {
+fn listed_limits_have_a_vector_or_a_stated_reason() {
     let doc = load("limits.json");
     let mut ids = BTreeSet::new();
     for key in ["detector_vectors", "track0_vectors", "escaped_text_vectors"] {

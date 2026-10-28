@@ -133,6 +133,18 @@
    }
   },
   {
+   "id": "invalid-utf8",
+   "kind": 128,
+   "payload": [
+    {
+     "hex": "0001ff"
+    }
+   ],
+   "expect": {
+    "error": "not_utf8"
+   }
+  },
+  {
    "id": "bad-heading-level",
    "kind": 129,
    "payload": [
@@ -241,6 +253,146 @@
    "spec": "transport.md#transport.limits",
    "status": "pending",
    "reason": "needs a clock input in the vector format"
+  },
+  {
+   "id": "blocks-per-document",
+   "value": "100,000",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no document model yet"
+  },
+  {
+   "id": "patches-per-block",
+   "value": "10,000 per second",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no patch handling yet; needs a clock"
+  },
+  {
+   "id": "patches-per-document",
+   "value": "50,000 per second",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no patch handling yet; needs a clock"
+  },
+  {
+   "id": "shaping-cache",
+   "value": "64 MiB",
+   "spec": "security.md#security.limits; layout.md#layout.limits",
+   "status": "pending",
+   "reason": "no shaping yet"
+  },
+  {
+   "id": "table-size",
+   "value": "256 columns, 100,000 cells",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no table block yet"
+  },
+  {
+   "id": "grids-per-document",
+   "value": "64",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no grid yet"
+  },
+  {
+   "id": "grid-cells-per-document",
+   "value": "4 million",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no grid yet"
+  },
+  {
+   "id": "scrollback-per-document",
+   "value": "64 MiB",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no document store yet"
+  },
+  {
+   "id": "frames-per-producer",
+   "value": "2,000 per second",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "needs a clock input in the vector format"
+  },
+  {
+   "id": "bytes-per-producer",
+   "value": "8 MiB per second",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "needs a clock input in the vector format"
+  },
+  {
+   "id": "decoded-images",
+   "value": "256 MiB per session",
+   "spec": "security.md#security.limits; images.md",
+   "status": "pending",
+   "reason": "no image path yet"
+  },
+  {
+   "id": "gpu-textures",
+   "value": "512 MiB",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no renderer path yet"
+  },
+  {
+   "id": "layers",
+   "value": "at most 8",
+   "spec": "security.md#security.limits",
+   "status": "pending",
+   "reason": "no layer manager yet"
+  },
+  {
+   "id": "budget-local-reserve",
+   "value": "25% of every budget reserved for local use",
+   "spec": "security.md#security.budget-shares",
+   "status": "pending",
+   "reason": "needs the budget model in the vector format; Rust counter tests cover frames and bytes meanwhile"
+  },
+  {
+   "id": "budget-producer-share",
+   "value": "no producer over 50% of the remainder",
+   "spec": "security.md#security.budget-shares",
+   "status": "pending",
+   "reason": "needs the budget model in the vector format"
+  },
+  {
+   "id": "budget-unsigned-share",
+   "value": "25% of each budget for an unauthenticated producer",
+   "spec": "trust.md#trust.must4-budgets",
+   "status": "pending",
+   "reason": "needs the budget model in the vector format; Rust counter tests cover frames and bytes meanwhile"
+  },
+  {
+   "id": "control-channel-message",
+   "value": "128 bytes, queue of 16",
+   "spec": "sealed-layers.md",
+   "status": "pending",
+   "reason": "no holder or seal channel yet"
+  },
+  {
+   "id": "track-b-marker-buffer",
+   "value": "4 MiB, 256 pending ids, 5 s timeout",
+   "spec": "transport.md#transport.track-b",
+   "status": "pending",
+   "reason": "no Track B side channel yet"
+  },
+  {
+   "id": "track-b-socket-path",
+   "value": "under 104 bytes",
+   "spec": "transport.md#transport.track-b",
+   "status": "pending",
+   "reason": "no Track B side channel yet"
+  },
+  {
+   "id": "decoder-limits",
+   "value": "512 MiB memory, 2 s CPU per image",
+   "spec": "images.md; conformance.md#gate.decoder",
+   "status": "pending",
+   "reason": "no out-of-process decoder yet"
   },
   {
    "id": "grid-winsize",
