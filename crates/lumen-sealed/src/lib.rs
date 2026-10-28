@@ -5,6 +5,15 @@
 //! fixed layout; its 64-byte authenticator field holds a 128-bit tag,
 //! zero-padded, and is verified before any payload byte is consumed.
 //!
+//! The tag also covers the origin byte, which the spec's list of tagged fields
+//! does not name; covering more than the spec lists only makes forgery harder.
+//!
+//! Memory hygiene: the root, the derived keys and the key bytes held in the
+//! header MAC are zeroized on drop. The intermediate HKDF pseudo-random keys
+//! and the HMAC states inside the `hkdf` and `hmac` crates are not, because
+//! those types do not zeroize themselves. That is a known gap. Like the spec's
+//! other key-page measures it is hygiene, not a security boundary.
+//!
 //! The byte layout is the phase 0.5 experiment profile, not a normative
 //! encoding. This crate does no I/O and holds no process state beyond a
 //! receiver's last sequence number.
@@ -428,6 +437,57 @@ mod tests {
         assert_ne!(a.aead_key(), b.aead_key());
         assert_ne!(a.aead_key(), c.aead_key());
         assert_ne!(a.aead_key(), &*a.header);
+    }
+
+    fn hex(s: &str) -> Vec<u8> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("test vector is hex"))
+            .collect()
+    }
+
+    // Known-answer vectors, computed outside this crate with an independent
+    // HKDF-SHA256 and HMAC-SHA256 (Python standard library) from the stated
+    // inputs: root = 32 bytes of 0x01, no salt, info = label || layer id
+    // (4 bytes big-endian) || direction byte.
+    #[test]
+    fn derivation_matches_known_answers() {
+        let a = keys(1, LAYER, Direction::ToTerminal);
+        assert_eq!(
+            a.aead_key().as_slice(),
+            hex("145545e30e7b0dfb41aa9b4a37be0f100b1c16e1452b926e8198ab20fc25d0ff")
+        );
+        assert_eq!(
+            a.header.as_slice(),
+            hex("412412728eb4aef1c7c69ebc2b496922421b02b5146cac0f521da9a024d24bc9")
+        );
+        assert_eq!(
+            keys(1, LAYER, Direction::ToShell).aead_key().as_slice(),
+            hex("dcfd97ba198233732b6f3f3df6f3212c698863701f647b891d0a27b4f7d9929f")
+        );
+        assert_eq!(
+            keys(1, LayerId(8), Direction::ToTerminal)
+                .aead_key()
+                .as_slice(),
+            hex("19efe04f609ab26453e5eb9ae7295417ee979e45add69d92e9df224ddb21fade")
+        );
+    }
+
+    #[test]
+    fn sealed_header_matches_known_answer() {
+        // Fields: layer 7, to-terminal, app origin, seq 1, type 3, length 100;
+        // tag = HMAC-SHA256(header subkey, "lumen v0 header tag" || fields)[..16].
+        let expected = hex(concat!(
+            "00000007000000000000000000010300",
+            "0000644f62d6150b951234f240332d55",
+            "d9f6d900000000000000000000000000",
+            "00000000000000000000000000000000",
+            "00000000000000000000000000000000",
+            "000000",
+        ));
+        assert_eq!(expected.len(), HEADER_LEN);
+        assert_eq!(sealed(1).as_slice(), expected);
+        assert_eq!(receiver().verify(&expected), Ok(header(1)));
     }
 
     #[test]
