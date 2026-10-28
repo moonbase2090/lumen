@@ -1,0 +1,16 @@
+[package]
+name = "lumen-arm-b"
+description = "Phase 0.5 Arm B: Track 0 rich output everywhere plus the sealed upgrade"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+lumen-detector = { path = "../lumen-detector" }
+lumen-track0 = { path = "../lumen-track0" }
+
+[lints]
+workspace = true
