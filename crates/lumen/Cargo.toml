@@ -11,7 +11,7 @@ publish.workspace = true
 [features]
 default = []
 # Experiment arms. Both are off by default and carry no logic yet.
-arm-a = []
+arm-a = ["dep:lumen-arm-a"]
 arm-b = ["dep:lumen-arm-b"]
 
 [dependencies]
@@ -19,6 +19,7 @@ prismattyc-core.workspace = true
 prismattyc-emulator.workspace = true
 prismattyc-render.workspace = true
 
+lumen-arm-a = { path = "../lumen-arm-a", optional = true }
 lumen-arm-b = { path = "../lumen-arm-b", optional = true }
 
 [lints]
