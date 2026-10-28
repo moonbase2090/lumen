@@ -8,5 +8,10 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[dependencies]
+lumen-detector = { path = "../lumen-detector" }
+lumen-sealed = { path = "../lumen-sealed" }
+lumen-track0 = { path = "../lumen-track0" }
+
 [lints]
 workspace = true

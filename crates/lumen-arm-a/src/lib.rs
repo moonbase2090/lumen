@@ -6,6 +6,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod pipeline;
+
 /// The result of each default sealing requirement for one layer, checked
 /// once at layer start (see the spec's sealed-layers page).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
