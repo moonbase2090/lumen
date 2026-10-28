@@ -24,7 +24,7 @@ PTY bytes pass through the frame detector and then the VT parser. The frame dete
 
 ## Detector {#transport.detector}
 
-A single detector state machine runs on the raw stream ahead of the VT parser. Its state persists across all PTY reads, including a partial introducer. The VT parser's per-read reset does not apply to it. A split introducer is reassembled and then its header must still be accepted (verified, for a sealed frame). The introducer is a sequence that the grid-mode VT parser never recognises, and it includes a 64-bit fixed tag so binary output almost never matches it. When a candidate is not an accepted frame, its introducer bytes are dropped and never reach the VT parser. The bytes after the introducer are scanned again and continue as ordinary output.
+A single detector state machine runs on the raw stream ahead of the VT parser. Its state persists across all PTY reads, including a partial introducer. The VT parser's per-read reset does not apply to it. A split introducer is reassembled and then its header must still be accepted (verified, for a sealed frame). The introducer is a sequence that the grid-mode VT parser never recognises, and it includes a 64-bit fixed tag so binary output almost never matches it. When a candidate is not an accepted frame, its introducer bytes are dropped and never reach the VT parser. The bytes after the introducer are scanned again and continue as ordinary output. A raw 0x9F byte that continues an incomplete UTF-8 sequence is text, not an introducer, so the 8-bit C1 introducer is recognised only outside a UTF-8 sequence.
 
 ## Track 0 frames {#transport.track0-frames}
 
