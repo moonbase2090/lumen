@@ -80,21 +80,25 @@ pub enum Source {
 /// How the terminal draws a block.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rendering {
-    /// Drawn as a rich block.
+    /// Drawn as a rich block from a verified sealed frame.
     Rich,
+    /// Drawn as a rich block inside the unverified output container, with no
+    /// authority. This is what Track 0 gets on a sealed layer.
+    RichUnverified,
     /// Drawn as escaped literal text.
     EscapedText,
 }
 
 /// Arm A's render rule (comparison criteria, section 1): rich blocks only on
-/// a sealed layer, whether from a verified sealed frame or from Track 0
-/// (which is still subject to the Track 0 rules). Anything on an unsealed
+/// a sealed layer. A verified sealed frame is `Rich`; Track 0 stays inside
+/// the unverified output container (`RichUnverified`). Anything on an unsealed
 /// layer is escaped text. A sealed-looking frame on an unsealed layer cannot
 /// verify, so it is escaped text too.
 #[must_use]
 pub fn rendering(layer: LayerState, source: Source) -> Rendering {
     match (layer, source) {
-        (LayerState::Sealed, Source::VerifiedSealedFrame | Source::Track0) => Rendering::Rich,
+        (LayerState::Sealed, Source::VerifiedSealedFrame) => Rendering::Rich,
+        (LayerState::Sealed, Source::Track0) => Rendering::RichUnverified,
         (LayerState::Unsealed, _) => Rendering::EscapedText,
     }
 }
@@ -167,13 +171,18 @@ mod tests {
     }
 
     #[test]
-    fn both_sources_are_rich_on_a_sealed_layer() {
-        for source in [Source::Track0, Source::VerifiedSealedFrame] {
-            assert_eq!(
-                rendering(LayerState::Sealed, source),
-                Rendering::Rich,
-                "{source:?}"
-            );
-        }
+    fn sealed_frame_is_rich_on_a_sealed_layer() {
+        assert_eq!(
+            rendering(LayerState::Sealed, Source::VerifiedSealedFrame),
+            Rendering::Rich
+        );
+    }
+
+    #[test]
+    fn track0_on_a_sealed_layer_stays_in_the_unverified_container() {
+        assert_eq!(
+            rendering(LayerState::Sealed, Source::Track0),
+            Rendering::RichUnverified
+        );
     }
 }
