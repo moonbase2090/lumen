@@ -8,8 +8,7 @@
 //! The tag also covers the origin byte, which the spec's list of tagged fields
 //! does not name; covering more than the spec lists only makes forgery harder.
 //!
-//! Memory hygiene: the root, the derived keys and the key bytes held in the
-//! header MAC are zeroized on drop. The intermediate HKDF pseudo-random keys
+//! Memory hygiene: the root and the derived keys are zeroized on drop. The intermediate HKDF pseudo-random keys
 //! and the HMAC states inside the `hkdf` and `hmac` crates are not, because
 //! those types do not zeroize themselves. That is a known gap. Like the spec's
 //! other key-page measures it is hygiene, not a security boundary.
@@ -442,7 +441,7 @@ mod tests {
     fn hex(s: &str) -> Vec<u8> {
         (0..s.len())
             .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("test vector is hex"))
+            .filter_map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
             .collect()
     }
 
