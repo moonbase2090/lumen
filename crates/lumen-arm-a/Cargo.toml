@@ -13,5 +13,8 @@ lumen-detector = { path = "../lumen-detector" }
 lumen-sealed = { path = "../lumen-sealed" }
 lumen-track0 = { path = "../lumen-track0" }
 
+[dev-dependencies]
+lumen-harness = { path = "../lumen-harness" }
+
 [lints]
 workspace = true
