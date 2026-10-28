@@ -1,7 +1,8 @@
 //! Recorder lines and effect-log verdicts.
 
 use lumen_harness::{
-    Effect, EffectLog, HeaderInfo, MAX_LEAKS_KEPT, Origin, Recorder, SinkTable, Verdict,
+    Effect, EffectLog, HeaderInfo, MAX_LEAKS_KEPT, Origin, Recorder, SinkTable, TerminalSinks,
+    Verdict,
 };
 
 fn header() -> HeaderInfo {
@@ -9,6 +10,7 @@ fn header() -> HeaderInfo {
         commit: "abc123".into(),
         features: "arm-b".into(),
         corpus: "r1".into(),
+        sinks: "none".into(),
     }
 }
 
@@ -33,7 +35,7 @@ fn recorder_writes_a_header_then_one_line_per_read() {
     assert_eq!(
         lines(out),
         vec![
-            r#"{"header":{"format":1,"commit":"abc123","features":"arm-b","corpus":"r1"}}"#,
+            r#"{"header":{"format":1,"commit":"abc123","features":"arm-b","corpus":"r1","sinks":"none"}}"#,
             r#"{"t_ms":5,"bytes_in":100,"items":[{"kind":"output","len":90},{"kind":"block","len":10}]}"#,
             r#"{"t_ms":9,"bytes_in":0,"items":[]}"#,
         ]
@@ -46,6 +48,7 @@ fn header_values_are_escaped_and_cannot_break_the_line() {
         commit: "a\"b\\c\nd\u{1}".into(),
         features: String::new(),
         corpus: "x".into(),
+        sinks: "none".into(),
     };
     let Ok(r) = Recorder::new(Vec::new(), &h) else {
         unreachable!("writing to a Vec succeeds")
@@ -74,8 +77,28 @@ fn real_sink(effect: Effect) -> &'static str {
         .map_or("?", |(_, id)| *id)
 }
 
+/// A table for these tests only. In real use the terminal's effect code
+/// implements `TerminalSinks`; the harness has no way to declare one.
+struct TestTerminal;
+
+impl TerminalSinks for TestTerminal {
+    fn source(&self) -> &'static str {
+        "test-only"
+    }
+
+    fn sinks(&self) -> &'static [(Effect, &'static str)] {
+        &SINKS
+    }
+}
+
 fn terminal_log() -> EffectLog {
-    EffectLog::new(SinkTable::terminal(&SINKS))
+    EffectLog::new(SinkTable::from_terminal(&TestTerminal))
+}
+
+#[test]
+fn the_table_source_is_visible_for_the_header() {
+    assert_eq!(terminal_log().table_source(), "test-only");
+    assert_eq!(EffectLog::new(SinkTable::none()).table_source(), "none");
 }
 
 fn exercise_all(log: &mut EffectLog) {

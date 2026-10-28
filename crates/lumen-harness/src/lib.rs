@@ -28,6 +28,8 @@ pub struct HeaderInfo {
     pub features: String,
     /// The corpus revision the run replays.
     pub corpus: String,
+    /// Where the effect-sink table came from: [`EffectLog::table_source`].
+    pub sinks: String,
 }
 
 /// Write `s` as a JSON string, escaping what JSON requires.
@@ -68,6 +70,7 @@ impl<W: Write> Recorder<W> {
             ("commit", &header.commit),
             ("features", &header.features),
             ("corpus", &header.corpus),
+            ("sinks", &header.sinks),
         ] {
             line.push_str(",\"");
             line.push_str(key);
@@ -172,12 +175,25 @@ pub enum Origin {
     Unsealed,
 }
 
+/// Implemented by the terminal's effect code, and only there, to say which
+/// sink implementation handles each effect. The harness never declares this
+/// itself, so a harness driver cannot define what counts as the terminal.
+pub trait TerminalSinks {
+    /// The name of the crate or module that owns the sinks. It is written into
+    /// every log header, so a reader can see where the table came from.
+    fn source(&self) -> &'static str;
+
+    /// One identity per effect, as each sink presents it in
+    /// [`EffectLog::attempt`].
+    fn sinks(&self) -> &'static [(Effect, &'static str)];
+}
+
 /// The implementation identity each real terminal sink presents when it
-/// calls [`EffectLog::attempt`]. The terminal's effect code owns this table.
-/// A harness stub does not, so a run driven by stubs cannot produce a
-/// measurement. With no table (no terminal exists yet), nothing is measured.
+/// calls [`EffectLog::attempt`]. It is built from a [`TerminalSinks`] impl, or
+/// it is empty. With no table (no terminal exists yet), nothing is measured.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SinkTable {
+    source: Option<&'static str>,
     entries: Vec<(Effect, &'static str)>,
 }
 
@@ -188,11 +204,12 @@ impl SinkTable {
         Self::default()
     }
 
-    /// The terminal's sinks: one identity per effect.
+    /// The table the terminal's own effect code declares.
     #[must_use]
-    pub fn terminal(entries: &[(Effect, &'static str)]) -> Self {
+    pub fn from_terminal(terminal: &dyn TerminalSinks) -> Self {
         Self {
-            entries: entries.to_vec(),
+            source: Some(terminal.source()),
+            entries: terminal.sinks().to_vec(),
         }
     }
 
@@ -301,6 +318,13 @@ impl EffectLog {
                 });
             }
         }
+    }
+
+    /// Where the sink table came from, for the log header: the
+    /// [`TerminalSinks::source`], or `"none"`.
+    #[must_use]
+    pub fn table_source(&self) -> &'static str {
+        self.table.source.unwrap_or("none")
     }
 
     /// The first [`MAX_LEAKS_KEPT`] unsealed-origin attempts through the
