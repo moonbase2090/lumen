@@ -156,3 +156,34 @@ fn utf8_text_with_a_0x9f_continuation_byte_is_not_damaged() {
         assert_eq!(got, bytes, "cut {cut}");
     }
 }
+
+#[test]
+fn raw_c1_introducer_after_an_open_utf8_lead_byte_is_text_not_a_frame() {
+    // Documented exception: 0x9F continues the sequence started by 0xC3.
+    let mut s = vec![0xc3];
+    s.extend_from_slice(&[0x9f]);
+    s.extend_from_slice(&TAG);
+    s.push(1);
+    s.extend_from_slice(&0u32.to_be_bytes());
+    let mut d = Detector::default();
+    let mut out = Vec::new();
+    d.feed(&s, &mut out);
+    d.finish(&mut out);
+    assert!(
+        out.iter().all(|e| !matches!(e, Event::Frame { .. })),
+        "{out:?}"
+    );
+    // With no open sequence the same bytes are a frame.
+    let mut s = vec![b'a', 0x9f];
+    s.extend_from_slice(&TAG);
+    s.push(1);
+    s.extend_from_slice(&0u32.to_be_bytes());
+    let mut out = Vec::new();
+    let mut d = Detector::default();
+    d.feed(&s, &mut out);
+    assert!(
+        out.iter()
+            .any(|e| matches!(e, Event::Frame { kind: 1, .. })),
+        "{out:?}"
+    );
+}

@@ -9,6 +9,11 @@
 //! four-byte big-endian payload length and the payload. The introducer is
 //! `ESC _`, the C1 byte `0x9F`, or the UTF-8 form of that C1 byte (`0xC2 0x9F`).
 //!
+//! The introducer of a candidate that is not a frame is dropped, never sent on
+//! to the VT parser. A raw `0x9F` byte that continues an incomplete UTF-8
+//! sequence is text, so an 8-bit C1 introducer is only recognised outside a
+//! UTF-8 sequence.
+//!
 //! This crate only finds frames. It does not authenticate or interpret them.
 
 #![forbid(unsafe_code)]
