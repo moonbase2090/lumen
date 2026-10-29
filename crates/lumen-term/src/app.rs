@@ -6,8 +6,9 @@
 
 use crate::keys::{self, Key, Mods};
 use crate::layer::Layer;
+use crate::layout::{GUTTER_COLUMNS, HEADER_ROWS, STRIP_COLLAPSED_ROWS};
 use crate::pty::SpawnError;
-use crate::raster::{Frame, Renderer};
+use crate::raster::{Frame, Renderer, Window};
 use crate::session::{MAX_COLUMNS, MAX_ROWS, Session};
 
 /// A terminal in a window of `width` by `height` pixels.
@@ -27,6 +28,34 @@ pub fn cells_for(width: u32, height: u32, cell: (u32, u32)) -> (usize, usize) {
     (columns as usize, rows as usize)
 }
 
+/// Rows of the input editor.
+pub const EDITOR_ROWS: u32 = 2;
+
+/// The window, in cells, for `columns` by `rows` of the whole window: the
+/// editor sits above the one row kept for the background strip.
+#[must_use]
+pub fn window_for(columns: usize, rows: usize) -> Window {
+    let cols = u32::try_from(columns).unwrap_or(u32::MAX);
+    let rows = u32::try_from(rows).unwrap_or(u32::MAX);
+    Window {
+        cols,
+        rows,
+        editor_row: rows.saturating_sub(EDITOR_ROWS + STRIP_COLLAPSED_ROWS),
+        editor_rows: EDITOR_ROWS,
+    }
+}
+
+/// The cells of the block area of a window of `columns` by `rows`: what is
+/// left of the window after the gutter, the header, the editor and the strip
+/// row. At least 1 by 1.
+#[must_use]
+pub fn block_cells(columns: usize, rows: usize) -> (usize, usize) {
+    let win = window_for(columns, rows);
+    let usable_columns = win.cols.saturating_sub(GUTTER_COLUMNS).max(1);
+    let usable_rows = win.editor_row.saturating_sub(HEADER_ROWS).max(1);
+    (usable_columns as usize, usable_rows as usize)
+}
+
 impl App {
     /// Run `program` behind `layer` in a window of `width` by `height` pixels,
     /// drawn at `scale`.
@@ -44,7 +73,8 @@ impl App {
     ) -> Result<Self, SpawnError> {
         let renderer = Renderer::light(scale).map_err(SpawnError)?;
         let (columns, rows) = cells_for(width, height, renderer.cell());
-        let session = Session::start(layer, columns, rows, program, arguments)?;
+        let (block_columns, block_rows) = block_cells(columns, rows);
+        let session = Session::start(layer, block_columns, block_rows, program, arguments)?;
         Ok(Self {
             session,
             renderer,
@@ -66,7 +96,8 @@ impl App {
     /// Returns why the program could not be told.
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), SpawnError> {
         let (columns, rows) = cells_for(width, height, self.renderer.cell());
-        self.session.resize(columns, rows)?;
+        let (block_columns, block_rows) = block_cells(columns, rows);
+        self.session.resize(block_columns, block_rows)?;
         self.width = width;
         self.height = height;
         Ok(())
@@ -107,10 +138,9 @@ impl App {
     /// The window's contents: exactly `width` by `height` pixels.
     #[must_use]
     pub fn view(&self) -> Frame {
-        self.renderer.render(self.session.document()).viewport(
-            self.width,
-            self.height,
-            self.renderer.theme().background,
-        )
+        let (columns, rows) = cells_for(self.width, self.height, self.renderer.cell());
+        self.renderer
+            .render_window(self.session.document(), &window_for(columns, rows))
+            .viewport(self.width, self.height, self.renderer.theme().background)
     }
 }
