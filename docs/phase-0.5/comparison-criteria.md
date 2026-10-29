@@ -82,7 +82,7 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 - **Unit:** peak resident memory of the terminal under a hostile decoder, budget violations under a Track 0 flood, and the longest UI stall. Sustained frame rate is reported only.
 - **Flood parameters (proposed):** one run per platform, lasting 10 minutes, with an unauthenticated producer writing Track 0 at the maximum rate it can sustain. The total bytes and frame count are recorded in the log.
 - **Method:** run the flood alongside a lying decoder stream, and record peak memory, budget counters, the longest interval without a frame being drawn and the sustained frame rate.
-- **Harness:** comparison harness, flood mode, and the decoder memory test.
+- **Harness:** comparison harness, flood mode (section 5.3), and the decoder memory test.
 - **Threshold:** the terminal stays within its budgets and reservations (the [decoder memory gate](../../spec/v0/conformance.md#gate.decoder-memory)). Peak memory stays under the 512 MiB decoder limit. The unauthenticated producer gets no more than its 25% share of each budget. No UI stall longer than 2 s (proposed; the spec's 2 s limit applies to decoder hangs, not UI stalls). Frame rate is not gated.
 
 ### 2.7 Red-team findings
@@ -164,6 +164,18 @@ The session matrix is one file, `docs/phase-0.5/session-matrix.json`: `{"revisio
 The run log header (format 2) records `commit`, `features`, `harness` (the harness version), `corpus` (the corpus revision, or `none`), `session_matrix` (the matrix revision, or `none`) and `sinks`. A reach run has `corpus` `none`; a corpus replay has `session_matrix` `none`.
 
 The first matrix (`sm-1`) has one Track 0 paragraph after a shell command in each session. It has no sealed frames yet, so Arm A's sealed rendering is not exercised by it; the sealed-frame sessions arrive with the sealed-frame corpus.
+
+### 5.3 Flood mode
+
+`lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]` runs the byte-pipeline part of 2.6. One command's output receives, for N seconds and as fast as the layer takes it, 64 KiB reads rotating through valid Track 0 paragraph frames, headers with a wrong tag, bare introducers and ordinary output. Nothing in it is authenticated. The log has the header of 5.2 (`corpus` and `session_matrix` are `none`), a `flood` case marker and one line per second with that second's input bytes and, per item kind, the payload length produced.
+
+The summary reports:
+
+- `budget`: blocks drawn (in the container or the strip) and their bytes against the unauthenticated share (a quarter of 2000 frames and 8 MiB per command), and the number of degrade notices, which must be at most one. The run exits 1 on a violation.
+- `peak_rss_mib`: peak resident memory of the driver process against the 512 MiB limit, with its source. On Linux that is the kernel's high-water mark; elsewhere it is the largest of samples taken every 100 ms, so it can miss a short peak.
+- `longest_feed_ms`: the longest single call into the layer. It is a proxy for how long a caller would be held up. It is not the UI stall of 2.6.
+
+Three things are reported as `not measured`, with the reason, because the driver has no UI or decoder: the longest UI stall, the sustained frame rate and the lying-decoder stream. The 10-minute duration of 2.6 is the caller's choice of N. A shorter run is a shorter run and its result says so.
 
 ## 6. Results format
 
