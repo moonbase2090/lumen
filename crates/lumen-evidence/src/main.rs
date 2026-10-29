@@ -9,6 +9,11 @@
 //! Flood mode (criteria 2.6): an unauthenticated producer floods one command
 //! for N seconds. Exits 1 when the budget or memory limit was exceeded.
 //!
+//! `lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR`
+//!
+//! Cost mode (criteria 2.8): counts what each arm crate adds to the shared
+//! baseline in the source tree at DIR. Reported only; exits 0 when it ran.
+//!
 //! `lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]`
 //!
 //! Reach mode (criteria 2.1): replays the session matrix and reports how many
@@ -25,7 +30,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]";
+const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR";
 
 /// Write the log and summary for a finished run and print the summary.
 fn finish(out: &std::path::Path, summary: &str) -> Result<(), String> {
@@ -66,6 +71,19 @@ fn replay(
     } else {
         ExitCode::from(1)
     })
+}
+
+fn cost(root: &str, base: &str, commit: &str, out: &std::path::Path) -> Result<ExitCode, String> {
+    std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    let log = std::fs::File::create(out.join("run.jsonl")).map_err(|e| e.to_string())?;
+    let (report, header) = lumen_evidence::cost::run_cost(
+        &PathBuf::from(root),
+        base,
+        commit,
+        std::io::BufWriter::new(log),
+    )?;
+    finish(out, &report.summary(&header))?;
+    Ok(ExitCode::SUCCESS)
 }
 
 fn flood(
@@ -130,6 +148,12 @@ fn main() -> ExitCode {
             Some(n) => flood(&n, &commit, &out, &arm),
             None => Err("--flood needs --seconds".to_owned()),
         },
+        (None, None) if args.iter().any(|a| a == "--cost") => {
+            match (arg(&args, "--root"), arg(&args, "--base")) {
+                (Some(root), Some(base)) => cost(&root, &base, &commit, &out),
+                _ => Err("--cost needs --root and --base".to_owned()),
+            }
+        }
         (Some(corpus), None) => replay(&corpus, &commit, &out, &arm),
         (None, Some(matrix)) => reach(&matrix, &commit, &out, &arm),
         _ => {
