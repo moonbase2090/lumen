@@ -12,7 +12,7 @@ fn run(p: Placement) -> Vec<CaseResult> {
     let Ok(corpus) = load_panes(&dir()) else {
         unreachable!("pane corpus loads")
     };
-    assert_eq!(corpus.revision, "pc-1");
+    assert_eq!(corpus.revision, "pc-2");
     let Ok((report, _)) = run_placement(&corpus, "testsha", p, Vec::new()) else {
         unreachable!("writing to a Vec succeeds")
     };
@@ -49,6 +49,8 @@ fn option_a_draws_what_the_rules_allow_and_nothing_else() {
         ("detach-and-reattach", 2),
         ("pane-writes-sealed-looking-frame", 0),
         ("forged-frame-among-real-ones", 2),
+        ("cross-pane-forged-container-then-replay", 1),
+        ("forged-layout-from-a-pane-replayed", 0),
         ("hostile-stale-and-early-containers", 1),
         ("hostile-wrong-rectangle", 0),
         ("hostile-container-for-unlisted-pane", 0),
@@ -89,7 +91,7 @@ fn option_a_counts_the_malformed_layouts_as_failed_frames() {
 #[test]
 fn option_b_has_no_per_pane_containers_and_no_forged_container() {
     let cases = run(Placement::B);
-    assert_eq!(cases.len(), 18);
+    assert_eq!(cases.len(), 20);
     for c in &cases {
         assert_eq!(c.drawn, 0, "{}", c.id);
         assert!(c.violations.is_empty(), "{}", c.id);
@@ -149,14 +151,16 @@ fn a_hostile_multiplexer_cannot_get_an_out_of_generation_container_drawn() {
 #[test]
 fn a_replayed_frame_is_refused_every_time() {
     let cases = run(Placement::A);
-    assert_eq!(total(&cases, |c| c.replays_sent), 2);
-    assert_eq!(total(&cases, |c| c.replays_refused), 2);
+    // One hostile case replays a container twice; the cross-pane cases replay
+    // the last frame the terminal took (a layout) three times.
+    assert_eq!(total(&cases, |c| c.replays_sent), 5);
+    assert_eq!(total(&cases, |c| c.replays_refused), 5);
 }
 
 #[test]
 fn pane_written_sealed_looking_frames_do_not_open_even_if_passed_through() {
     let cases = run(Placement::A);
-    assert_eq!(total(&cases, |c| c.forged_seen), 4);
+    assert_eq!(total(&cases, |c| c.forged_seen), 6);
     assert_eq!(total(&cases, |c| c.passthrough_opened), 0);
 }
 
@@ -178,4 +182,68 @@ fn the_hostile_cases_exercise_the_terminal_counters_they_are_for() {
     let kind = counters(&cases, "hostile-container-with-a-sealed-content-type");
     assert!(kind.contains("malformed: 1"), "{kind}");
     assert!(kind.contains("containers_unparsed: 1"), "{kind}");
+}
+
+#[test]
+fn option_b_counts_the_forged_frames_and_replays_instead_of_reading_zero_of_zero() {
+    let cases = run(Placement::B);
+    let get = |id: &str| {
+        let Some(c) = cases.iter().find(|c| c.id == id) else {
+            unreachable!("case {id} present")
+        };
+        (
+            c.forged_seen,
+            c.passthrough_opened,
+            c.replays_sent,
+            c.replays_refused,
+        )
+    };
+    // Seen, none opened, every replay refused.
+    assert_eq!(get("pane-writes-sealed-looking-frame"), (3, 0, 0, 0));
+    assert_eq!(get("cross-pane-forged-container-then-replay"), (1, 0, 2, 2));
+    assert_eq!(get("forged-layout-from-a-pane-replayed"), (1, 0, 1, 1));
+    assert_eq!(total(&cases, |c| c.passthrough_opened), 0);
+    assert!(total(&cases, |c| c.forged_seen) >= 6);
+    assert!(total(&cases, |c| c.replays_sent) >= 3);
+}
+
+#[test]
+fn both_placements_see_the_new_cross_pane_cases_without_a_violation() {
+    for p in [Placement::A, Placement::B] {
+        let cases = run(p);
+        let seen = |id: &str| {
+            cases
+                .iter()
+                .find(|c| c.id == id)
+                .map_or(0, |c| c.forged_seen)
+        };
+        assert_eq!(seen("cross-pane-forged-container-then-replay"), 1, "{p:?}");
+        assert_eq!(seen("forged-layout-from-a-pane-replayed"), 1, "{p:?}");
+    }
+}
+
+#[test]
+fn the_option_b_summary_states_what_its_counts_do_not_show() {
+    let Ok(corpus) = load_panes(&dir()) else {
+        unreachable!("pane corpus loads")
+    };
+    for (p, expect) in [(Placement::A, false), (Placement::B, true)] {
+        let Ok((report, header)) = run_placement(&corpus, "testsha", p, Vec::new()) else {
+            unreachable!("writing to a Vec succeeds")
+        };
+        let text = report.summary(&header);
+        assert_eq!(
+            text.contains("option_b_limit: panes hold no keys"),
+            expect,
+            "{p:?}"
+        );
+        if expect {
+            // The limit sits right after the counts it qualifies.
+            let counts = text
+                .find("forged_passthrough_opened=")
+                .unwrap_or(usize::MAX);
+            let limit = text.find("option_b_limit").unwrap_or(0);
+            assert!(limit > counts && limit - counts < 400, "{text}");
+        }
+    }
 }

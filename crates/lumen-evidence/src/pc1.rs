@@ -1,4 +1,5 @@
-//! The `pc-1` pane corpus: scripts for the multiplexer placement comparison.
+//! The `pc-2` pane corpus (`pc-1` plus two cross-pane cases that Option B can
+//! count): scripts for the multiplexer placement comparison.
 //!
 //! The committed JSON file is the output of [`pc1_json`]; a test fails if the
 //! two differ. Pane output is real Track 0 framing, built here with the same
@@ -9,7 +10,7 @@ use serde_json::{Value, json};
 use std::fmt::Write as _;
 
 /// The corpus revision.
-pub const REVISION: &str = "pc-1";
+pub const REVISION: &str = "pc-2";
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().fold(String::new(), |mut s, b| {
@@ -233,6 +234,39 @@ pub fn pc1_json() -> String {
             mixed.extend(paragraph("real again"));
             [layout(1, &two), output(1, &mixed)]
         },
+        &ALL,
+    ));
+
+    // Cross-pane forgery and replay, written by a pane. Option B has no sealed
+    // relay, so these are where it has something to count: every forged frame
+    // reaches the outer terminal's pipeline, and every replay writes the same
+    // bytes again.
+    cases.push(case(
+        "cross-pane-forged-container-then-replay",
+        "forged",
+        &[
+            layout(1, &two),
+            output(2, &{
+                // Pane 2 writes a pane container that claims pane 1's id.
+                let mut claim = 1u32.to_be_bytes().to_vec();
+                claim.extend_from_slice(&1u32.to_be_bytes());
+                claim.extend_from_slice(&[0u8; 32]);
+                frame(0x02, &claim)
+            }),
+            output(1, &paragraph("real")),
+            json!({"op": "replay"}),
+            json!({"op": "replay"}),
+        ],
+        &ALL,
+    ));
+    cases.push(case(
+        "forged-layout-from-a-pane-replayed",
+        "forged",
+        &[
+            layout(1, &two),
+            output(1, &frame(0x01, &[0u8; 24])),
+            json!({"op": "replay"}),
+        ],
         &ALL,
     ));
 
