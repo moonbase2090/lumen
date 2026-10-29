@@ -1,6 +1,7 @@
 //! The list of blocks a stream makes, as the layer's pieces arrive.
 
 use crate::grid::GridBlock;
+use crate::guard::Guard;
 use crate::layer::{Context, Layer, Notice, Piece};
 use crate::strip::Strip;
 use lumen_track0::Block as Track0Block;
@@ -16,6 +17,27 @@ pub struct RichBlock {
     /// The prompt cycle the block arrived in, so the strip can be one
     /// aggregate per layer per cycle.
     pub cycle: u32,
+}
+
+/// Something the terminal has to handle that the document does not draw: a
+/// notification sequence it removed, or a sealed frame that opened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Event {
+    /// An OSC 9, 777 or 99 sequence in unsigned grid output, removed before
+    /// the emulator saw it.
+    Unsigned {
+        /// The OSC number.
+        number: u32,
+        /// The prompt cycle it arrived in.
+        cycle: u32,
+    },
+    /// A sealed frame that verified and opened.
+    Sealed {
+        /// The sealed frame type.
+        kind: u8,
+        /// The decrypted payload.
+        body: Vec<u8>,
+    },
 }
 
 /// One block of the document.
@@ -35,6 +57,8 @@ pub struct Document {
     sealed: Vec<(u8, usize)>,
     cycle: u32,
     open_strips: BTreeSet<u32>,
+    guard: Guard,
+    events: Vec<Event>,
 }
 
 impl Document {
@@ -49,6 +73,8 @@ impl Document {
             sealed: Vec::new(),
             cycle: 0,
             open_strips: BTreeSet::new(),
+            guard: Guard::new(),
+            events: Vec::new(),
         }
     }
 
@@ -94,7 +120,20 @@ impl Document {
     pub fn apply(&mut self, pieces: Vec<Piece>) {
         for piece in pieces {
             match piece {
-                Piece::Bytes(bytes) => self.grid().feed(&bytes),
+                Piece::Bytes(bytes) => {
+                    // Notification sequences are removed before the emulator sees
+                    // the bytes, on this path as on every other.
+                    let mut kept = Vec::with_capacity(bytes.len());
+                    let mut found = Vec::new();
+                    self.guard.filter(&bytes, &mut kept, &mut found);
+                    for f in found {
+                        self.events.push(Event::Unsigned {
+                            number: f.number,
+                            cycle: self.cycle,
+                        });
+                    }
+                    self.grid().feed(&kept);
+                }
                 Piece::Text(text) => {
                     let mut line = text.into_bytes();
                     line.extend_from_slice(b"\r\n");
@@ -111,9 +150,17 @@ impl Document {
                     cycle: self.cycle,
                 })),
                 Piece::Notice(n) => self.notices.push(n),
-                Piece::Sealed { kind, len } => self.sealed.push((kind, len)),
+                Piece::Sealed { kind, body } => {
+                    self.sealed.push((kind, body.len()));
+                    self.events.push(Event::Sealed { kind, body });
+                }
             }
         }
+    }
+
+    /// Take the events raised since the last call, oldest first.
+    pub fn take_events(&mut self) -> Vec<Event> {
+        std::mem::take(&mut self.events)
     }
 
     /// The background strips, one per prompt cycle that has background
@@ -187,5 +234,11 @@ impl Document {
     pub fn finish(&mut self, layer: &mut dyn Layer) {
         let pieces = layer.finish();
         self.apply(pieces);
+        // Whatever the guard held back at the end of a stream goes on to the grid.
+        let mut rest = Vec::new();
+        self.guard.finish(&mut rest);
+        if !rest.is_empty() {
+            self.grid().feed(&rest);
+        }
     }
 }

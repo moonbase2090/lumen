@@ -22,6 +22,8 @@ fontdue = "0.9"
 png = "0.17"
 lumen-arm-a = { path = "../lumen-arm-a", optional = true }
 lumen-arm-b = { path = "../lumen-arm-b", optional = true }
+unicode-general-category = "1.1.0"
+lumen-sealed = { path = "../lumen-sealed" }
 
 [dev-dependencies]
 # The tests run both arms: a self-dependency turns the features on for them.
