@@ -198,10 +198,13 @@ fn placement(
     let (report, header) = lumen_evidence::placement::run_placement(&corpus, commit, which, log)
         .map_err(|e| e.to_string())?;
     finish(out, &report.summary(&header))?;
-    Ok(if report.violations() == 0 {
-        ExitCode::SUCCESS
-    } else {
+    Ok(if report.violations() > 0 {
         ExitCode::from(1)
+    } else if !report.cases.is_empty() && report.not_run() == report.cases.len() {
+        // Nothing was played, so nothing was measured.
+        ExitCode::from(3)
+    } else {
+        ExitCode::SUCCESS
     })
 }
 

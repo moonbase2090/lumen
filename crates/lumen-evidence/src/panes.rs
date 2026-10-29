@@ -98,6 +98,88 @@ pub enum Event {
     Detach,
     /// The client reattaches and gets fresh keys.
     Reattach,
+    /// Something happens to a pane's process.
+    Process {
+        /// The pane.
+        pane: u32,
+        /// What happened.
+        what: ProcessEvent,
+    },
+    /// A check the terminal's classification of the pane's Track 0 must meet
+    /// at this point.
+    Expect {
+        /// The pane.
+        pane: u32,
+        /// How its Track 0 must be classified.
+        track0: Classification,
+        /// Which frames the check is about.
+        scope: Scope,
+    },
+}
+
+impl Event {
+    /// Whether the step is about a pane's process, which a model of the
+    /// multiplexer and the outer terminal does not have.
+    #[must_use]
+    pub fn is_process_trust(&self) -> bool {
+        matches!(self, Event::Process { .. } | Event::Expect { .. })
+    }
+}
+
+/// What happens to a pane's process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProcessEvent {
+    /// The pane's first command, by absolute path. `listed` says whether that
+    /// program is one of the listed shells.
+    Spawn {
+        /// The program's absolute path.
+        program: String,
+        /// Whether it is a listed shell.
+        listed: bool,
+    },
+    /// The foreground leader executes another program.
+    Exec {
+        /// The new program's absolute path.
+        program: String,
+    },
+    /// The pid the terminal recorded at spawn now belongs to another process
+    /// (or has another start time).
+    PidReuse,
+    /// Job control in the pane's shell is turned on or off.
+    JobControl {
+        /// Whether it is on.
+        on: bool,
+    },
+    /// The number of processes in the foreground process group.
+    Group {
+        /// How many.
+        members: u32,
+    },
+    /// The foreground process is this program.
+    Foreground {
+        /// The program's absolute path.
+        program: String,
+    },
+}
+
+/// How a pane's Track 0 is classified.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Classification {
+    /// Possibly remote. In v0 this is every pane's Track 0.
+    PossiblyRemote,
+    /// Local. No v0 pane case expects it: the local signal for panes is not
+    /// part of v0.
+    Local,
+}
+
+/// Which frames an expectation is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// Frames the pane writes from now on.
+    Now,
+    /// Frames already read earlier in the script, which keep the more remote of
+    /// their read-time and emit-time states.
+    FramesReadEarlier,
 }
 
 /// One pane-corpus case.
@@ -155,6 +237,7 @@ fn rect_of(v: &Value) -> Result<PaneRect, String> {
     })
 }
 
+#[allow(clippy::too_many_lines, reason = "one arm per kind of step")]
 fn event_of(v: &Value) -> Result<Event, String> {
     let op = v["op"].as_str().ok_or("a step needs an op")?;
     match op {
@@ -210,10 +293,75 @@ fn event_of(v: &Value) -> Result<Event, String> {
             kind: u8::try_from(whole(&v["kind"], "a foreign frame's kind")?)
                 .map_err(|_| "a foreign frame's kind must fit one byte".to_owned())?,
         }),
+        "process" => {
+            let program = |v: &Value| -> Result<String, String> {
+                let p = v["program"]
+                    .as_str()
+                    .ok_or("a process step needs a program")?;
+                if p.starts_with('/') {
+                    Ok(p.to_owned())
+                } else {
+                    Err(format!("program {p:?} must be an absolute path"))
+                }
+            };
+            let what = match v["what"].as_str().ok_or("a process step needs a what")? {
+                "spawn" => ProcessEvent::Spawn {
+                    program: program(v)?,
+                    listed: v["listed"]
+                        .as_bool()
+                        .ok_or("spawn needs listed true or false")?,
+                },
+                "exec" => ProcessEvent::Exec {
+                    program: program(v)?,
+                },
+                "pid_reuse" => ProcessEvent::PidReuse,
+                "job_control" => ProcessEvent::JobControl {
+                    on: v["on"]
+                        .as_bool()
+                        .ok_or("job_control needs on true or false")?,
+                },
+                "group" => {
+                    let members = whole(&v["members"], "a group's members")?;
+                    if members == 0 {
+                        return Err("a group has at least one member".into());
+                    }
+                    ProcessEvent::Group { members }
+                }
+                "foreground" => ProcessEvent::Foreground {
+                    program: program(v)?,
+                },
+                other => {
+                    return Err(format!(
+                        "unknown process step {other:?}; use spawn, exec, pid_reuse, job_control, group or foreground"
+                    ));
+                }
+            };
+            Ok(Event::Process {
+                pane: whole(&v["pane"], "a process step's pane")?,
+                what,
+            })
+        }
+        "expect" => Ok(Event::Expect {
+            pane: whole(&v["pane"], "an expectation's pane")?,
+            track0: match v["track0"].as_str() {
+                Some("possibly_remote") => Classification::PossiblyRemote,
+                Some("local") => Classification::Local,
+                _ => return Err("expect needs track0 possibly_remote or local".into()),
+            },
+            scope: match v["scope"].as_str() {
+                None | Some("now") => Scope::Now,
+                Some("frames_read_earlier") => Scope::FramesReadEarlier,
+                Some(other) => {
+                    return Err(format!(
+                        "unknown scope {other:?}; use now or frames_read_earlier"
+                    ));
+                }
+            },
+        }),
         "detach" => Ok(Event::Detach),
         "reattach" => Ok(Event::Reattach),
         other => Err(format!(
-            "unknown op {other:?}; use layout, output, container, replay, foreign, resize, zoom, detach or reattach"
+            "unknown op {other:?}; use layout, output, container, replay, foreign, resize, zoom, detach, reattach, process or expect"
         )),
     }
 }
@@ -381,6 +529,97 @@ mod tests {
             json!([{"op": "layout", "generation": 1, "panes": [{"id": 1, "x": 0, "y": 0, "w": -4, "h": 1}]}]),
             json!([{"op": "output", "pane": 1}]),
             json!([{"op": "resize", "cols": 1}]),
+        ] {
+            let Err(e) = parsed(&json!([case(&bad)])) else {
+                unreachable!("{bad} must be refused")
+            };
+            assert!(e.starts_with("c: "), "{e}");
+        }
+    }
+
+    #[test]
+    fn process_and_expect_steps_load_with_their_fields() {
+        let c = case(&json!([
+            {"op": "process", "pane": 1, "what": "spawn", "program": "/bin/zsh", "listed": true},
+            {"op": "process", "pane": 1, "what": "exec", "program": "/usr/bin/ssh"},
+            {"op": "process", "pane": 1, "what": "pid_reuse"},
+            {"op": "process", "pane": 1, "what": "job_control", "on": false},
+            {"op": "process", "pane": 1, "what": "group", "members": 2},
+            {"op": "process", "pane": 1, "what": "foreground", "program": "/usr/bin/ssh"},
+            {"op": "expect", "pane": 1, "track0": "possibly_remote"},
+            {"op": "expect", "pane": 1, "track0": "local", "scope": "frames_read_earlier"}
+        ]));
+        let Ok((_, cases)) = parsed(&json!([c])) else {
+            unreachable!("loads")
+        };
+        let s = &cases[0].script;
+        assert_eq!(s.len(), 8);
+        assert!(
+            matches!(&s[0], Event::Process { pane: 1, what: ProcessEvent::Spawn { program, listed: true } } if program == "/bin/zsh")
+        );
+        assert!(
+            matches!(&s[1], Event::Process { what: ProcessEvent::Exec { program }, .. } if program == "/usr/bin/ssh")
+        );
+        assert!(matches!(
+            &s[2],
+            Event::Process {
+                what: ProcessEvent::PidReuse,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &s[3],
+            Event::Process {
+                what: ProcessEvent::JobControl { on: false },
+                ..
+            }
+        ));
+        assert!(matches!(
+            &s[4],
+            Event::Process {
+                what: ProcessEvent::Group { members: 2 },
+                ..
+            }
+        ));
+        assert!(matches!(
+            &s[5],
+            Event::Process {
+                what: ProcessEvent::Foreground { .. },
+                ..
+            }
+        ));
+        assert!(matches!(
+            &s[6],
+            Event::Expect {
+                track0: Classification::PossiblyRemote,
+                scope: Scope::Now,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &s[7],
+            Event::Expect {
+                track0: Classification::Local,
+                scope: Scope::FramesReadEarlier,
+                ..
+            }
+        ));
+        assert!(s.iter().all(Event::is_process_trust));
+    }
+
+    #[test]
+    fn malformed_process_and_expect_steps_are_refused() {
+        for bad in [
+            json!([{"op": "process", "pane": 1, "what": "spawn", "program": "zsh", "listed": true}]),
+            json!([{"op": "process", "pane": 1, "what": "spawn", "program": "/bin/zsh"}]),
+            json!([{"op": "process", "pane": 1, "what": "exec"}]),
+            json!([{"op": "process", "pane": 1, "what": "group", "members": 0}]),
+            json!([{"op": "process", "pane": 1, "what": "job_control"}]),
+            json!([{"op": "process", "pane": 1, "what": "teleport"}]),
+            json!([{"op": "process", "what": "pid_reuse"}]),
+            json!([{"op": "expect", "pane": 1, "track0": "mostly_local"}]),
+            json!([{"op": "expect", "pane": 1}]),
+            json!([{"op": "expect", "pane": 1, "track0": "local", "scope": "yesterday"}]),
         ] {
             let Err(e) = parsed(&json!([case(&bad)])) else {
                 unreachable!("{bad} must be refused")

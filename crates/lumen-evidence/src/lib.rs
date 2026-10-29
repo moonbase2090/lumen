@@ -57,6 +57,7 @@ pub mod panes;
 pub mod parity;
 pub mod pc1;
 pub mod placement;
+pub mod pp1;
 pub mod render;
 pub mod rt2;
 pub mod rt4;
