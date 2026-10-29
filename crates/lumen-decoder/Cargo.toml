@@ -1,0 +1,49 @@
+[package]
+name = "lumen-decoder"
+description = "Out-of-process image decoder: worker, process contract and sandbox"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# Builds the hostile test worker used by the sandbox suite. Never a default.
+test-hostile = []
+
+[dependencies]
+image-webp = "=0.2.4"
+png = "=0.18.1"
+zune-core = "0.5"
+zune-jpeg = "=0.5.15"
+
+[dev-dependencies]
+jpeg-encoder = "0.6"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[[bin]]
+name = "lumen-decoder-worker"
+path = "src/bin/lumen-decoder-worker.rs"
+
+[[bin]]
+name = "lumen-decoder-hostile"
+path = "src/bin/lumen-decoder-hostile.rs"
+required-features = ["test-hostile"]
+
+# Not `workspace = true`: the workspace forbids unsafe code, and the ffi_*
+# modules are the one place this crate needs it (see the contract page).
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "deny"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+undocumented_unsafe_blocks = "deny"
