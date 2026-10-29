@@ -320,6 +320,14 @@ name = "lumen-harness"
 version = "0.0.0"
 
 [[package]]
+name = "lumen-panes"
+version = "0.0.0"
+dependencies = [
+ "lumen-sealed",
+ "lumen-track0",
+]
+
+[[package]]
 name = "lumen-sealed"
 version = "0.0.0"
 dependencies = [
