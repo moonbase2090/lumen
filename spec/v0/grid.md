@@ -41,4 +41,4 @@ VT output inside a grid can never emit Lumen frames, reference images or reach t
 
 ## Grid input handling {#grid.input}
 
-Grid shell input and grid text get the same bidi and invisible-character handling as command text.
+Grid shell input and grid text get the same bidi and invisible-character handling as command text (the command and code text rule of [Bidi and invisible characters](@/spec/v0/text-runs.md#runs.bidi), not the paragraph rule).
