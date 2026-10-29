@@ -17,7 +17,41 @@ Terminals still render a 1970s character grid. Lumen treats a session as a docum
 3. **Developed in public.** Design, spec and code happen in the open.
 
 ## Status
-Concept and spec stage: no code yet. Early work runs experiments on transport (PTY framing vs a local side channel), frame authentication, mode detection, layout scope and copy/paste semantics.
+Lumen is in **Phase 0.5**: a comparison of two candidate designs before v0 is chosen.
+
+- **Spec:** Lumen Protocol v0, revision 25 (frozen snapshot), in [spec/v0](spec/v0/_index.md). It is a public draft, not a stable release, and breaking changes are expected.
+- **Comparison:** Arm A (sealed-only rich) and Arm B (Track 0 everywhere, with the sealed upgrade) are built in this repository as separate crates, `lumen-arm-a` and `lumen-arm-b`. The criteria, the decision rule and the results are in [docs/phase-0.5](docs/phase-0.5/comparison-criteria.md).
+- **Latest run:** a second comparison run at main `7529aca`, on a clean Linux VM. It measured parts of 2.1, 2.2 and 2.6 only:
+  - reach on the session matrix: 14 of 14 sessions, on the item-kind oracle rather than screenshots;
+  - forbidden items over the red-team corpora (rt-1, rt-2): 0 for each arm, which checks byte-pipeline output only, not what a terminal draws;
+  - sealed frames: 261 opened on each sealed arm, so the upgrade path is exercised;
+  - flood: within budget for a 30 s run, with the memory and latency readings reported as sampled values.
+- **Not measured yet:** the human spoofing study (2.2a), trust-margin pixels (2.3), authority leakage (2.4), decoder robustness (2.5), the red-team review (2.7) and side-channel parity (2.9). No outcome under the decision rule is possible until they are. The macOS gate experiments are not yet proven on macOS.
+
+### Running the comparison
+
+The evidence driver is a test-only crate, `lumen-evidence`. Each mode writes `run.jsonl` and `summary.txt` to its output directory:
+
+```sh
+# Replay the red-team corpus through one arm (b, a-sealed or a-unsealed)
+cargo run -p lumen-evidence -- --corpus docs/phase-0.5/corpus --commit "$(git rev-parse HEAD)" --out out/rt1 --arm b
+
+# Reach over the 14-session matrix (b or a)
+cargo run -p lumen-evidence -- --matrix docs/phase-0.5/session-matrix.json --commit "$(git rev-parse HEAD)" --out out/reach --arm b
+
+# Flood for N seconds (2.6)
+cargo run -p lumen-evidence -- --flood --seconds 600 --commit "$(git rev-parse HEAD)" --out out/flood --arm b
+
+# Code added per arm against a base commit (2.8)
+cargo run -p lumen-evidence -- --cost --root . --base <base-sha> --commit "$(git rev-parse HEAD)" --out out/cost
+
+# Declared channels against the PTY baseline (2.9)
+cargo run -p lumen-evidence -- --parity --channels docs/phase-0.5/channels.json --commit "$(git rev-parse HEAD)" --out out/parity
+```
+
+A result states the commit it was measured at, and the criteria say which revision it was judged against. Modes that cannot measure something report it as "not measured" rather than as a pass.
+
+The formal rules are in [docs/phase-0.5/comparison-criteria.md](docs/phase-0.5/comparison-criteria.md); the results files are [results for Arm A](docs/phase-0.5/results-arm-a.md) and [results for Arm B](docs/phase-0.5/results-arm-b.md).
 
 ## Projects
 - **Lumen**: the protocol specification
