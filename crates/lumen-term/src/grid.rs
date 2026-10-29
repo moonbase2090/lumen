@@ -1,43 +1,21 @@
 //! A block of terminal cells with its own emulator and, optionally, its own PTY.
 
-use prismattyc_emulator::{Emulator, PtySession, pty_size_with_cell_pixels};
-use std::io::{Read, Write};
-use std::sync::mpsc::{Receiver, channel};
-use std::thread::JoinHandle;
+use crate::pty::{Pty, SpawnError};
+use prismattyc_emulator::Emulator;
 
 /// Scrollback lines kept per block.
 pub const SCROLLBACK: usize = 1000;
-/// The cell size, in pixels, told to a program that asks. The window replaces
-/// it with the real one.
-const CELL_PX: (u32, u32) = (8, 16);
-
-/// Why a program could not be started in a block.
-#[derive(Debug)]
-pub struct SpawnError(pub String);
-
-impl std::fmt::Display for SpawnError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "could not start the program: {}", self.0)
-    }
-}
-
-impl std::error::Error for SpawnError {}
-
-struct Running {
-    session: PtySession,
-    input: Box<dyn Write + Send>,
-    output: Receiver<Vec<u8>>,
-    reader: Option<JoinHandle<()>>,
-}
 
 /// A block of `columns` by `rows` cells.
 ///
 /// A block that runs a program owns that program's PTY, and the PTY is the
 /// size of the block: resizing the block resizes the PTY, so the program sees
-/// the size it really has.
+/// the size it really has. Bytes from that PTY reach the emulator only when the
+/// owner [`feed`](Self::feed)s them, so an arm layer can sit in between; the
+/// [`Session`](crate::Session) does that.
 pub struct GridBlock {
     emulator: Emulator,
-    running: Option<Running>,
+    pty: Option<Pty>,
 }
 
 impl GridBlock {
@@ -46,7 +24,7 @@ impl GridBlock {
     pub fn new(columns: usize, rows: usize) -> Self {
         Self {
             emulator: Emulator::new(columns, rows, SCROLLBACK),
-            running: None,
+            pty: None,
         }
     }
 
@@ -61,31 +39,8 @@ impl GridBlock {
         program: &str,
         arguments: &[S],
     ) -> Result<Self, SpawnError> {
-        let size = pty_size_with_cell_pixels(columns, rows, CELL_PX.0, CELL_PX.1);
-        let mut session =
-            PtySession::spawn(program, arguments, size).map_err(|e| SpawnError(e.to_string()))?;
-        let mut reader = session
-            .take_reader()
-            .map_err(|e| SpawnError(e.to_string()))?;
-        let input = session
-            .take_input_writer()
-            .map_err(|e| SpawnError(e.to_string()))?;
-        let (send, output) = channel();
-        let handle = std::thread::spawn(move || {
-            let mut buf = [0u8; 4096];
-            while let Ok(n) = reader.read(&mut buf) {
-                if n == 0 || send.send(buf[..n].to_vec()).is_err() {
-                    break;
-                }
-            }
-        });
         let mut block = Self::new(columns, rows);
-        block.running = Some(Running {
-            session,
-            input,
-            output,
-            reader: Some(handle),
-        });
+        block.pty = Some(Pty::spawn(columns, rows, program, arguments)?);
         Ok(block)
     }
 
@@ -109,26 +64,15 @@ impl GridBlock {
 
     /// The bytes the program has written since the last call, without waiting.
     pub fn poll(&mut self) -> Vec<u8> {
-        let Some(running) = &self.running else {
-            return Vec::new();
-        };
-        let mut bytes = Vec::new();
-        while let Ok(chunk) = running.output.try_recv() {
-            bytes.extend(chunk);
-        }
-        bytes
+        self.pty.as_mut().map(Pty::poll).unwrap_or_default()
     }
 
     /// Wait up to `wait` for the program's next output.
     pub fn poll_wait(&mut self, wait: std::time::Duration) -> Vec<u8> {
-        let Some(running) = &self.running else {
-            return Vec::new();
-        };
-        let mut bytes = running.output.recv_timeout(wait).unwrap_or_default();
-        while let Ok(chunk) = running.output.try_recv() {
-            bytes.extend(chunk);
-        }
-        bytes
+        self.pty
+            .as_mut()
+            .map(|p| p.poll_wait(wait))
+            .unwrap_or_default()
     }
 
     /// Type `bytes` to the program.
@@ -137,11 +81,10 @@ impl GridBlock {
     ///
     /// Returns the write error, or an error if no program runs here.
     pub fn send(&mut self, bytes: &[u8]) -> std::io::Result<()> {
-        let Some(running) = &mut self.running else {
-            return Err(std::io::Error::other("no program runs in this block"));
-        };
-        running.input.write_all(bytes)?;
-        running.input.flush()
+        match &mut self.pty {
+            Some(pty) => pty.send(bytes),
+            None => Err(std::io::Error::other("no program runs in this block")),
+        }
     }
 
     /// Resize the block, and the program's PTY with it.
@@ -151,12 +94,8 @@ impl GridBlock {
     /// Returns the PTY error if the program could not be told.
     pub fn resize(&mut self, columns: usize, rows: usize) -> Result<(), SpawnError> {
         self.emulator.resize(columns, rows);
-        if let Some(running) = &self.running {
-            let size = pty_size_with_cell_pixels(columns, rows, CELL_PX.0, CELL_PX.1);
-            running
-                .session
-                .resize(size)
-                .map_err(|e| SpawnError(e.to_string()))?;
+        if let Some(pty) = &self.pty {
+            pty.resize(columns, rows)?;
         }
         Ok(())
     }
@@ -179,22 +118,17 @@ impl GridBlock {
             .collect()
     }
 
+    /// Whether the alternate screen is active.
+    #[must_use]
+    pub fn alt_active(&self) -> bool {
+        self.emulator.screen().alt_active()
+    }
+
     /// Whether the program has exited.
     pub fn has_exited(&mut self) -> bool {
-        match &mut self.running {
-            Some(r) => r.session.try_wait().ok().flatten().is_some(),
+        match &mut self.pty {
+            Some(pty) => pty.has_exited(),
             None => true,
-        }
-    }
-}
-
-impl Drop for GridBlock {
-    fn drop(&mut self) {
-        if let Some(mut running) = self.running.take() {
-            running.session.kill_and_reap();
-            if let Some(handle) = running.reader.take() {
-                let _ = handle.join();
-            }
         }
     }
 }
