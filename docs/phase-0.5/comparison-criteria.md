@@ -271,3 +271,19 @@ This is a selection rule: a result can select Option B on a platform, so it is a
 ### 7.4 Preconditions
 
 The Track 0 gates in section 3 and the [alternate-screen rule](../../spec/v0/multiplexers.md#mux.alt-screen), which applies per pane, must pass before any rich pane is measured.
+
+### 7.5 Pane corpus format
+
+The pane corpus is a directory of JSON files read in name order, with the rules of section 5.1: every file is `{"revision": "...", "cases": [...]}`, every file gives the same revision, and ids are unique across the corpus. A case has `id`, `category`, `screen` (`cols` and `rows` at the start), `script` and an optional `forbid`.
+
+A script is a list of steps, each an object with an `op`:
+
+- `layout`: `generation` and `panes`, a list of `{id, x, y, w, h, visible}` in cells. `visible` defaults to true. `x` and `y` may be negative and `w` and `h` may be zero, because a malformed rectangle is a test input. A layout may not name a pane id twice.
+- `output`: `pane` and the bytes the pane writes, as `hex` or as `fill` and `count` like the reads of 5.1, with an optional `t_ms`. The pane id may be one that no layout names. A forged pane-container frame is written this way.
+- `resize`: `cols` and `rows`. `zoom`: `pane`, or no `pane` to clear the zoom. `detach` and `reattach`.
+
+A script says what the multiplexer is told and what its panes write. It does not say how a layout or pane-container frame is encoded, so a case does not depend on the payload layout of those frames.
+
+`forbid` lists outcomes that must not happen. The kinds cover five of the 7.2 metrics: `draw_outside_rect` and `draw_hidden_pane` (cross-pane and hidden-pane drawing), `stale_generation_drawn` (stale-generation drop), `forged_container_drawn` (forged frames stay text), and `key_reuse` and `unmarked_replay` (reattach). Three metrics have no kind and are measured another way: trust-margin pixels in panes need the screenshot and pixel diff of 2.3, key custody needs a memory and environment scan of the multiplexer server during a run, and pane reach is reported only and needs the screenshot oracle. Introducer fuzzing of the pane parser uses this corpus as input (a pane writes the variants at every split position with `output`), but its two counts, frames accepted without valid sealing and frame bytes reaching the VT parser, are read from the parser's counters, not from `forbid`. An unknown kind fails the load with the case id, so a typo cannot pass silently.
+
+The format is defined in `crates/lumen-evidence/src/panes.rs`. A change to it is a change to the pane corpus revision and needs both arms' agreement.

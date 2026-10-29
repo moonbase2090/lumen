@@ -53,6 +53,7 @@ pub mod cost;
 pub mod decoder;
 pub mod flood;
 pub mod matrix;
+pub mod panes;
 pub mod parity;
 pub mod render;
 pub mod rt2;
@@ -154,7 +155,7 @@ pub struct Corpus {
     pub cases: Vec<Case>,
 }
 
-fn unhex(s: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn unhex(s: &str) -> Result<Vec<u8>, String> {
     if !s.len().is_multiple_of(2) || !s.is_ascii() {
         return Err(format!("bad hex {s:?}"));
     }
@@ -164,7 +165,7 @@ fn unhex(s: &str) -> Result<Vec<u8>, String> {
         .collect()
 }
 
-fn read_of(v: &Value) -> Result<Read, String> {
+pub(crate) fn read_of(v: &Value) -> Result<Read, String> {
     let bytes = if let Some(h) = v["hex"].as_str() {
         unhex(h)?
     } else if let Some(f) = v["fill"].as_str() {
