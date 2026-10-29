@@ -10,7 +10,7 @@ Both arms are built in this repository as separate crates, `lumen-arm-a` and `lu
 
 **Arm A: sealed-only rich.** Rich blocks render only on a sealed layer. Track 0 output on an unsealed layer renders as escaped text. The spec only states this for the alternate-screen and multiplexer cases ([trust](../../spec/v0/trust.md), [multiplexers](../../spec/v0/multiplexers.md#mux.alt-screen)). Applying it to every unsealed layer under arm A is a proposal of this document, not a spec rule.
 
-**Arm B: decoupled.** Track 0 renders on every layer, subject to the Track 0 rules. The sealed upgrade applies on the default model: a layer that meets the [default sealing requirements](../../spec/v0/sealed-layers.md#sealed.requirements) gets sealed authority on top of Track 0. This is the expected default.
+**Arm B: decoupled.** Track 0 renders on every layer, subject to the Track 0 rules. The sealed upgrade applies on the default model: a layer that meets the [default sealing requirements](../../spec/v0/sealed-layers.md#sealed.requirements) gets sealed authority on top of Track 0. This is the expected default. The `ssh.track0` default of `rich` ([possibly remote](../../spec/v0/trust.md#trust.possibly-remote)) describes arm B. Arm A's unsealed-layer rule (escaped text, no rich blocks) overrides that default for arm A.
 
 Where rich panes are placed in a Lumen-aware multiplexer is compared separately, in section 7.
 
@@ -103,7 +103,7 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 
 - **Unit:** count of Lumen channels that accept an action a PTY write could not already perform.
 - **Method:** the [side-channel parity](../../spec/v0/conformance.md#gate.parity) test: for each channel, enumerate the actions it accepts and check each against the actions a plain PTY writer can already trigger.
-- **Harness:** comparison harness, parity mode.
+- **Harness:** comparison harness, parity mode (section 5.5).
 - **Threshold:** **zero** channels that accept more than a PTY write could. Any failure in arm B fails the decision rule.
 
 ## 3. Hard gates and preconditions
@@ -163,7 +163,7 @@ The session matrix is one file, `docs/phase-0.5/session-matrix.json`: `{"revisio
 
 The run log header (format 2) records `commit`, `features`, `harness` (the harness version), `corpus` (the corpus revision, or `none`), `session_matrix` (the matrix revision, or `none`) and `sinks`. A reach run has `corpus` `none`; a corpus replay has `session_matrix` `none`.
 
-The first matrix (`sm-1`) has one Track 0 paragraph after a shell command in each session. It has no sealed frames yet, so Arm A's sealed rendering is not exercised by it; the sealed-frame sessions arrive with the sealed-frame corpus.
+The first matrix (`sm-1`) has one Track 0 paragraph after a shell command in each session. It has no sealed frames yet, so Arm A's sealed rendering is not exercised by it; the sealed-frame sessions arrive with the sealed-frame corpus. An SSH image reach case changes the existing SSH session's `expect` once the arms' Track 0 parser has an image kind. It does not add a fifteenth session cell, so the 14-cell denominator and the 80% threshold stay as they are.
 
 ### 5.3 Flood mode
 
@@ -190,7 +190,13 @@ Three things are reported as `not measured`, with the reason, because the driver
 
 The summary, with its per-file counts, is the raw log; `run.jsonl` holds only the header. Cost is reported and not gated (2.8).
 
-### 5.5 Decoder mode
+### 5.5 Parity mode
+
+`lumen-evidence --parity --channels FILE --commit SHA --out DIR` counts the Lumen channels that accept an action a PTY write could not already perform (2.9). The harness cannot discover channels, so the arm's author declares them in the channel catalogue, `docs/phase-0.5/channels.json`: `{"revision": "...", "channels": [...]}`, where a channel is `{"id": "...", "actions": [...]}` and an action is `{"id": "...", "pty_equivalent": "..."}`. `pty_equivalent` says in a sentence which PTY write already performs the same action, or is `null` when none does. A `null` makes its channel one that accepts more than a PTY write could. Channel ids are unique, and action ids are unique within a channel.
+
+The count is only as complete as the catalogue, so a result must say that the catalogue was checked against the channel code at the measured commit, and by whom. The run exits 0 only for a measured zero, 1 when the count is not zero and 3 when no channel is declared; 2 is a usage or load error. A catalogue with no channel is reported as `2.9=not measured` and exits 3, not 0, so a gate script cannot read it as a pass: a count over nothing says nothing about the gate. The committed catalogue (`ch-1`) declares no channel, because no channel (Track B, the seal channel) has code in the arms yet. `run.jsonl` holds only the header.
+
+### 5.6 Decoder mode
 
 `lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR` judges a decoder fuzzing ledger against the threshold of 2.5. The driver does not fuzz: there is no image decoder in this repository and images are off. With no ledger the summary says `2.5=not measured`. The run exits 0 when the gate holds, 1 when it does not and 3 when nothing was measured: no ledger, or a ledger that enables no format. Exit 0 is therefore never printed for a run that measured nothing.
 
