@@ -64,12 +64,12 @@ Each unauthenticated producer gets a smaller share than any sealed layer: **25% 
 
 **OS path.** OS notifications are off by default. The policy key `notifications.os` (default `false`, set only in the user's policy file) allows them. When it is on, a sealed 0x22 notification with the `notifications` capability raises an OS notification only if all of these hold, evaluated when the notification arrives:
 
-- the layer is not possibly-remote, not an SSH session and not a multiplexer pane. A notification from any of those layers is never an OS notification in v0;
+- the layer is not possibly-remote, not an SSH session and not a multiplexer pane. A notification from any of those layers is never an OS notification in v0. A layer counts as local only when its foreground process tree is shown to be local; if the terminal cannot tell, the layer is treated as not local;
 - the terminal is unfocused. A focused terminal shows a toast instead;
-- the pane is not muted by the user;
-- the layer is within the rate limits below.
+- the pane is not muted, and neither is the layer;
+- the layer is within the OS budget: at most one OS notification per layer per second, at most 3 per layer per minute, and at most 8 per minute across all layers.
 
-A notification that fails the OS conditions is shown as a toast if the toast limits allow, and otherwise dropped and counted.
+An OS notification cannot be recalled once sent: it may stay in a history, sync to other devices, or survive the terminal. The budget above is therefore the only limit on what the OS keeps. When the OS budget is spent, the layer's notifications are toasts only until the user acts on that layer (unmutes it or opens it) or ten minutes pass with no notification from it, whichever comes first. A notification that fails the OS conditions is shown as a toast if the toast limits allow, and otherwise dropped and counted.
 
 **Exposure of program text.** By default an OS notification carries only the fixed prefix and the pane label. The program's text is never sent to the operating system unless the separate policy key `notifications.os-text` is set (default `false`, set only in the user's policy file). Enabling it sends the program's plain text to the operating system's notification service. That service may show it on a lock screen, keep it in a history, sync it to other devices, and expose it to other apps with notification access. Sealed output can contain secrets. The setting's description must state this, next to the setting itself.
 
@@ -77,25 +77,27 @@ A notification that fails the OS conditions is shown as a toast if the toast lim
 
 1. a fixed prefix, `Program in <pane label> says:`, which the program cannot remove;
 2. the pane label, as defined below;
-3. the program's plain text, after these rules: valid UTF-8 only; one line, with all C0 and C1 control characters, bidirectional controls and zero-width characters removed; markup escaped for the notification API in use, and nothing made clickable; at most 200 bytes and 60 terminal cells, truncated with a visible marker.
+3. the program's plain text, after these rules. The text is UTF-8, and any character whose Unicode general category is Cc, Cf, Cs, Co, Cn, Zl or Zp is removed. That includes the bidirectional controls, the zero-width characters, the tag characters (U+E0000 to U+E007F), the invisible operators, the line and paragraph separators (U+2028 and U+2029) and the fillers. Combining marks (Mn, Mc, Me) are kept only up to one per base character; further marks are removed. The text is one line, with no markup and no link made clickable; markup is escaped for the notification API in use. It is capped at 200 bytes and at 60 terminal cells, measured with the terminal's own cell-width table, not by character count. A truncated text ends with a visible marker.
 
-**Pane label.** The pane label is the layer's position in the terminal's own layout (window, tab or pane index), with the colour and glyph derived from its opaque id, as [Pane identity](@/spec/v0/multiplexers.md#mux.pane-identity) describes for panes. It is never program text: no title, working directory or pane text.
+**Pane label.** The pane label is the layer's position in the terminal's own layout (window, tab or pane index), with the colour and glyph derived from its opaque id, as [Pane identity](@/spec/v0/multiplexers.md#mux.pane-identity) describes for panes. It is never program text: no title, working directory or pane text. Layer ids are never reused, as pane ids are. When a layer closes, its queued and shown toasts are removed, so a position is never shown with a toast from a layer that has gone.
 
 **Rate limits.** The numbers below are provisional proposals, to be tuned by measurement. Measured on a monotonic clock, and applied to toasts from `allow-unsigned` and to every sealed notification alike:
 
 - at least 1000 ms must pass between two notifications accepted from the same layer;
 - each layer has a queue of at most 8 toasts, and at most 4 toasts from a layer are shown in any 10 seconds;
-- at most 16 toasts are shown at once across all layers. Each toast stays for at most 6 seconds, and the terminal removes it sooner if the user dismisses it. When the 16-toast cap is full, the new toast replaces the oldest toast from the layer with the most toasts shown; if no toast can be replaced, the new notification is dropped and counted.
+- at most 16 toasts are shown at once across all layers. Each toast stays for at most 6 seconds, and the terminal removes it sooner if the user dismisses it. When a layer is at its own limit of 4 toasts in 10 seconds, its new toast replaces its own oldest toast. When the 16-toast cap is full, a new toast from a layer replaces that layer's own oldest shown toast if it has one; otherwise the new notification is dropped. A new toast never removes another layer's toast.
 
 A notification over these limits is dropped and counted in the chrome count.
 
-**Toast placement.** Toasts are drawn only in the terminal's notification area. They never occlude, and are never drawn in, the trust margin, the unverified-boundary labels or the command structure. An unsigned toast carries the unverified-output label as well as the pane label.
+**Toast placement.** Toasts are drawn only in the terminal's notification area. They never occlude, and are never drawn in, the trust margin, the unverified-boundary labels or the command structure. Every toast is clipped to its own box: no glyph overflows into neighbouring chrome. An unsigned toast carries the unverified-output label as well as the pane label.
 
-**Click.** The OS callback carries only an opaque token the terminal made for that notification, never an identifier the program supplied (such as OSC 99's). Activating a notification focuses the pane. It confirms nothing, dismisses nothing and executes nothing. No dock or taskbar badge, no urgency request and no sound is made.
+**Click and platform content.** The OS notification passes no program icon, no action button, no reply field and no inline image to the operating system. The only interaction is one default activation. The OS callback carries only a token the terminal made for that notification. The token is random, single-use and bound to one layer; it is invalid after that layer closes or the terminal restarts, and a stale token focuses nothing. Activating a notification focuses the pane. It confirms nothing, dismisses nothing and executes nothing. No dock or taskbar badge, no urgency request and no sound is made.
 
-**Accepted residual risk.** A signed program is authenticated, not trusted: a hostile dependency inside a sealed command qualifies. Such a program can write misleading wording into its notification text. The fixed prefix, the pane label and the `notifications` capability are the mitigations. The wording itself is not checked, and this risk is accepted by the owner.
+**User control.** Muting a pane silences its toasts as well as its OS notifications. The user can mute the terminal's notifications in one step, and can revoke the `notifications` capability for a layer in one step. Both are reachable from the keyboard.
 
-**Red-team pass.** This section does not count toward any gate until a red-team pass by a reviewer other than its author is recorded, and the red-team findings on the first revision have been addressed.
+**Accepted residual risk.** A signed program is authenticated, not trusted: a hostile dependency inside a sealed command qualifies. Such a program can write misleading wording into its notification text, and once an OS notification is sent it cannot be recalled. The fixed prefix, the pane label, the OS budget and the `notifications` capability are the mitigations. The wording itself is not checked, and this risk is accepted by the owner.
+
+**Red-team pass.** This section does not count toward any gate until a red-team pass by a reviewer other than its author is recorded, and the findings of both passes are answered in the text. The second pass is `docs/phase-0.5/red-team-notifications.md`.
 
 ## Unverified boundaries {#trust.unverified-boundaries}
 
