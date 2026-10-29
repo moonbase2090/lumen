@@ -196,3 +196,43 @@ mod hidden_frame {
         assert_eq!(ca.frames_refused, cb.frames_refused);
     }
 }
+
+/// The pin notice and counter each arm gives for a sequence of sealed aborts.
+fn aborts_a(times: &[u64]) -> (Vec<usize>, bool, u64) {
+    let mut l = a::Layer::new(
+        a::Config {
+            budget: a::Budget {
+                max_frames: 100,
+                max_bytes: 100_000,
+            },
+        },
+        LayerState::Sealed,
+    );
+    let shown = times.iter().map(|t| l.sealed_abort(*t).len()).collect();
+    (shown, l.is_pinned(), l.counters().pinned_notices)
+}
+
+fn aborts_b(times: &[u64]) -> (Vec<usize>, bool, u64) {
+    let mut l = b::Layer::new(b::Config {
+        budget: b::Budget {
+            max_frames: 100,
+            max_bytes: 100_000,
+        },
+        background_as_text: false,
+    });
+    let shown = times.iter().map(|t| l.sealed_abort(*t).len()).collect();
+    (shown, l.is_pinned(), l.counters().pinned_notices)
+}
+
+#[test]
+fn sealed_aborts_pin_both_arms_at_the_same_abort() {
+    for times in [
+        vec![0, 1, 2, 3, 4],
+        vec![0, 0, 0, 60_000, 60_001],
+        vec![0, 30_000, 59_999, 60_000, 90_000, 119_999],
+        vec![5, 5, 5, 5],
+        vec![0, 60_000, 120_000, 180_000, 240_000],
+    ] {
+        assert_eq!(aborts_a(&times), aborts_b(&times), "{times:?}");
+    }
+}
