@@ -174,7 +174,7 @@ The first matrix (`sm-1`) has one Track 0 paragraph after a shell command in eac
 - `new_deps`: external (non-path) dependencies, with dev-dependencies, that none of the shared crates already has. Path dependencies are not counted.
 - `unsafe_uses` and `forbids_unsafe`: lines with the word `unsafe` or `extern` outside a trailing `//` comment and outside a string literal (raw strings and block comments are not recognised), and whether the crate root or the workspace lints forbid unsafe code. A non-zero count needs its module named and justified in the result.
 - `fuzz_targets`: `.rs` files under the crate's `fuzz` directory.
-- `conformance vectors`: the number of vectors in each file under `conformance/vectors`. They gate both arms equally, so one count is given for both and none is attributed to an arm; each arm's own test functions are the per-arm count of tests that hold its gates. Rows of the pending table are not vectors.
+- `conformance vectors`: the number of vectors in each file under `conformance/vectors`. They gate both arms equally, so one count is given for both and none is attributed to an arm; each arm's own test functions are the per-arm count of tests that hold its gates.
 
 The summary, with its per-file counts, is the raw log; `run.jsonl` holds only the header. Cost is reported and not gated (2.8).
 

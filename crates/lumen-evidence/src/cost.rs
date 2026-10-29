@@ -273,7 +273,7 @@ pub struct Added {
 /// The conformance vectors in the tree, which gate both arms.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Vectors {
-    /// `(file, vectors)` per suite file. Pending-table rows are not vectors.
+    /// `(file, vectors)` per suite file.
     pub files: Vec<(String, usize)>,
 }
 
