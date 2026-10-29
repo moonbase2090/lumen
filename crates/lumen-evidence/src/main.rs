@@ -39,7 +39,7 @@
 //! Option B at the model level. Exits 1 when a case produced a forbidden
 //! outcome.
 //!
-//! `lumen-evidence --screenshots --corpus DIR [--corpus DIR ...] [--scale N] --commit SHA --out DIR`
+//! `lumen-evidence --screenshots --corpus DIR [--corpus DIR ...] [--scale N] [--terminal PATH] --commit SHA --out DIR`
 //!
 //! Pixel mode (criteria 2.3): changed pixels in the trust margin and the editor
 //! against a baseline, over the corpus. Exits 0 for a measured zero, 1 for a
@@ -61,7 +61,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR\n       lumen-evidence --parity --channels FILE --commit SHA --out DIR\n       lumen-evidence --screenshots --corpus DIR [--corpus DIR ...] [--scale N] --commit SHA --out DIR\n       lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR\n       lumen-evidence --render-log [--log FILE] --commit SHA --out DIR\n       lumen-evidence --panes DIR --placement a|b --commit SHA --out DIR";
+const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR\n       lumen-evidence --parity --channels FILE --commit SHA --out DIR\n       lumen-evidence --screenshots --corpus DIR [--corpus DIR ...] [--scale N] [--terminal PATH] --commit SHA --out DIR\n       lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR\n       lumen-evidence --render-log [--log FILE] --commit SHA --out DIR\n       lumen-evidence --panes DIR --placement a|b --commit SHA --out DIR";
 
 /// Write the log and summary for a finished run and print the summary.
 fn finish(out: &std::path::Path, summary: &str) -> Result<(), String> {
@@ -214,6 +214,53 @@ fn placement(
     })
 }
 
+fn screenshots_terminal(
+    corpora: &[String],
+    commit: &str,
+    out: &std::path::Path,
+    scale: &str,
+    terminal: &str,
+) -> Result<ExitCode, String> {
+    let scale: u32 = scale
+        .parse()
+        .ok()
+        .filter(|s| (1..=4).contains(s))
+        .ok_or_else(|| format!("--scale {scale:?} must be 1 to 4 (criteria 2.3 names 2)"))?;
+    let dirs: Vec<PathBuf> = corpora.iter().map(PathBuf::from).collect();
+    let dirs: Vec<&std::path::Path> = dirs.iter().map(PathBuf::as_path).collect();
+    let corpus = lumen_evidence::load_corpora(&dirs)?;
+    std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
+    let run = lumen_evidence::pixels_terminal::run_terminal(
+        &corpus,
+        scale,
+        std::path::Path::new(terminal),
+        Some(out),
+    )?;
+    let header = lumen_harness::HeaderInfo {
+        commit: commit.to_owned(),
+        features: "terminal-binary".to_owned(),
+        harness: lumen_evidence::HARNESS_VERSION.to_owned(),
+        corpus: corpus.revision.clone(),
+        session_matrix: "none".to_owned(),
+        sinks: "none".to_owned(),
+    };
+    let rects = lumen_evidence::Renderer::light(scale)
+        .map(|r| lumen_evidence::pixels_terminal::terminal_rects(&r))
+        .unwrap_or_default();
+    let mut text = run.report.summary_of(
+        &header,
+        &rects,
+        "2.3 is a count over the frame the real terminal binary draws headless (--snapshot); it is not a capture of an operating-system window on screen",
+    );
+    for s in &run.skipped {
+        text.push_str("skipped ");
+        text.push_str(s);
+        text.push('\n');
+    }
+    finish(out, &text)?;
+    Ok(ExitCode::from(run.report.exit_code()))
+}
+
 fn screenshots(
     corpora: &[String],
     commit: &str,
@@ -294,7 +341,10 @@ fn main() -> ExitCode {
         },
         (Some(()), None) if args.iter().any(|a| a == "--screenshots") => {
             let scale = arg(&args, "--scale").unwrap_or_else(|| "2".to_owned());
-            screenshots(&corpora, &commit, &out, &scale)
+            match arg(&args, "--terminal") {
+                Some(t) => screenshots_terminal(&corpora, &commit, &out, &scale, &t),
+                None => screenshots(&corpora, &commit, &out, &scale),
+            }
         }
         (Some(()), None) => replay(&corpora, &commit, &out, &arm),
         (None, Some(matrix)) => reach(&matrix, &commit, &out, &arm),
