@@ -144,6 +144,16 @@ fn a_word_joiner_and_a_joiner_are_never_the_place_a_line_breaks() {
     assert_eq!(wrap_text(family, 4).concat(), family);
 }
 
+/// The cell width of each character in the property test's alphabet, written
+/// out here so the expectation does not depend on the wrapping code.
+fn known_width(c: char) -> usize {
+    match c {
+        '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{2060}' | '\u{fe0f}' | '\u{202e}' => 0,
+        '\u{1f468}' | '\u{4e2d}' => 2,
+        _ => 1,
+    }
+}
+
 #[test]
 fn wrapping_loses_no_character_whatever_the_text_and_width() {
     let alphabet: Vec<char> =
@@ -164,11 +174,11 @@ fn wrapping_loses_no_character_whatever_the_text_and_width() {
             let kept: String = lines.concat().chars().filter(|c| *c != ' ').collect();
             let want: String = text.chars().filter(|c| *c != ' ').collect();
             // A character wider than the line cannot be shown and is dropped
-            // whole; everything else must be there, in order.
-            let wide_ok =
-                |c: char| lumen_term::wrap_text(&c.to_string(), width).concat() == c.to_string();
-            let want: String = want.chars().filter(|c| wide_ok(*c)).collect();
-            let kept: String = kept.chars().filter(|c| wide_ok(*c)).collect();
+            // whole; everything else must be there, in order. The widths come
+            // from this test's own table, not from the code under test.
+            let shown = |c: char| known_width(c) <= width;
+            let want: String = want.chars().filter(|c| shown(*c)).collect();
+            let kept: String = kept.chars().filter(|c| shown(*c)).collect();
             assert_eq!(kept, want, "width {width}: {text:?}");
         }
     }
