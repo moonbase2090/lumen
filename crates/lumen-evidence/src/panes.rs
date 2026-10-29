@@ -17,7 +17,9 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::Path;
 
-/// The outcomes a case may forbid, one per gated count of 7.2.
+/// The outcomes a case may forbid. They cover five of the metrics of 7.2; the
+/// others (trust-margin pixels, introducer fuzzing, key custody, pane reach)
+/// are measured another way.
 pub const FORBID_KINDS: [&str; 6] = [
     "draw_outside_rect",
     "draw_hidden_pane",
