@@ -181,6 +181,31 @@ fn arm_b_makes_a_rich_block_from_the_same_bytes_on_any_layer() {
     doc.receive(&mut layer, &stream("hello"), at(0));
     doc.finish(&mut layer);
     assert_eq!(kinds(&doc), ["grid", "rich", "grid"]);
+    let Block::Rich(rich) = &doc.blocks()[1] else {
+        unreachable!("the Track 0 frame is an inert rich block")
+    };
+    assert_eq!(rich.content, Track0Block::Paragraph("hello".into()));
+    assert!(
+        !rich.background,
+        "the terminal opened the unverified container"
+    );
+}
+
+#[test]
+fn an_unsealed_program_cannot_turn_a_sealed_power_frame_into_document_state() {
+    let mut bytes = b"\x1b_".to_vec();
+    bytes.extend_from_slice(&TAG);
+    // 0x01 is a sealed command-structure frame type, which has no authority
+    // when emitted by an unsealed program.
+    bytes.extend_from_slice(&[0x01, 0, 0, 0, 1, b'x']);
+
+    let mut doc = Document::new(30, 6);
+    let mut layer = b_layer(true);
+    doc.receive(&mut layer, &bytes, at(0));
+    doc.finish(&mut layer);
+
+    assert_eq!(kinds(&doc), ["grid"]);
+    assert_eq!(doc.sealed(), []);
 }
 
 #[test]
