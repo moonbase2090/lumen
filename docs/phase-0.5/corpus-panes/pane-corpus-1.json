@@ -1,0 +1,666 @@
+{
+  "cases": [
+    {
+      "category": "layout",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn"
+      ],
+      "id": "two-panes-basic",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000600046c656674",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000700057269676874",
+          "op": "output",
+          "pane": 2
+        }
+      ]
+    },
+    {
+      "category": "layout",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn"
+      ],
+      "id": "output-before-any-layout",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000700056561726c79",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "category": "parser",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn"
+      ],
+      "id": "frame-split-across-reads",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f380",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "hex": "00000007000573706c6974",
+          "op": "output",
+          "pane": 1
+        }
+      ]
+    },
+    {
+      "category": "race",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn"
+      ],
+      "id": "stale-layout-after-newer",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 2,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 80,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000d000b756e6465722067656e2032",
+          "op": "output",
+          "pane": 1
+        }
+      ]
+    },
+    {
+      "category": "race",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn"
+      ],
+      "id": "equal-generation-layout-ignored",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 3,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "generation": 3,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 80,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000600046b657074",
+          "op": "output",
+          "pane": 1
+        }
+      ]
+    },
+    {
+      "category": "layout",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn"
+      ],
+      "id": "malformed-rectangles",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": -1,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "generation": 2,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 0,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "generation": 3,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 81,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "generation": 4,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 50,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000f000d6d757374206e6f742064726177",
+          "op": "output",
+          "pane": 1
+        }
+      ]
+    },
+    {
+      "category": "layout",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn"
+      ],
+      "id": "pane-not-in-layout",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 80,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000d000b68696464656e2070616e65",
+          "op": "output",
+          "pane": 2
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000e000c756e6b6e6f776e2070616e65",
+          "op": "output",
+          "pane": 9
+        }
+      ]
+    },
+    {
+      "category": "resize",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn"
+      ],
+      "id": "resize-collapses-until-new-layout",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000800066265666f7265",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "cols": 100,
+          "op": "resize",
+          "rows": 30
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000b0009636f6c6c6170736564",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "generation": 2,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 30,
+              "id": 1,
+              "w": 100,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000700056166746572",
+          "op": "output",
+          "pane": 1
+        }
+      ]
+    },
+    {
+      "category": "zoom",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn"
+      ],
+      "id": "zoom-and-restore",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "op": "zoom",
+          "pane": 2
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000800067a6f6f6d6564",
+          "op": "output",
+          "pane": 2
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f38000000015001368696464656e207768696c65207a6f6f6d6564",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "zoom"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000600046261636b",
+          "op": "output",
+          "pane": 1
+        }
+      ]
+    },
+    {
+      "category": "reattach",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn"
+      ],
+      "id": "detach-and-reattach",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000a00086174746163686564",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "detach"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f38000000010000e7768696c65206465746163686564",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "reattach"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000f000d6e6f206c61796f757420796574",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f38000000010000e7265706c61796564206c61796572",
+          "op": "output",
+          "pane": 1
+        }
+      ]
+    },
+    {
+      "category": "forged",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn"
+      ],
+      "id": "pane-writes-sealed-looking-frame",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3020000002800000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3010000000c000000000000000000000000",
+          "op": "output",
+          "pane": 2
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000000600047370616d",
+          "op": "output",
+          "pane": 1
+        }
+      ]
+    },
+    {
+      "category": "forged",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn"
+      ],
+      "id": "forged-frame-among-real-ones",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000600047265616c1b5f8a4c554d454e01f3020000001e0101010101010101010101010101010101010101010101010101010101011b5f8a4c554d454e01f3800000000c000a7265616c20616761696e",
+          "op": "output",
+          "pane": 1
+        }
+      ]
+    }
+  ],
+  "revision": "pc-1"
+}

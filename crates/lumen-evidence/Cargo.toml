@@ -13,6 +13,7 @@ lumen-arm-a = { path = "../lumen-arm-a" }
 lumen-arm-b = { path = "../lumen-arm-b" }
 lumen-detector = { path = "../lumen-detector" }
 lumen-harness = { path = "../lumen-harness" }
+lumen-panes = { path = "../lumen-panes" }
 lumen-sinks = { path = "../lumen-sinks" }
 lumen-sealed = { path = "../lumen-sealed" }
 lumen-track0 = { path = "../lumen-track0" }

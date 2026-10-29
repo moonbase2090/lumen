@@ -302,6 +302,7 @@ dependencies = [
  "lumen-arm-b",
  "lumen-detector",
  "lumen-harness",
+ "lumen-panes",
  "lumen-sealed",
  "lumen-sinks",
  "lumen-track0",

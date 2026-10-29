@@ -55,6 +55,8 @@ pub mod flood;
 pub mod matrix;
 pub mod panes;
 pub mod parity;
+pub mod pc1;
+pub mod placement;
 pub mod render;
 pub mod rt2;
 
