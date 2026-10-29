@@ -88,10 +88,10 @@ assert r and all('at_epoch' in x for x in r)"
 # 3. The cap: thresholds that cannot be met, a small cap.
 LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/b" "${SMALL[@]}" --cap-cpu-hours 0.012 > "$T/b.log" 2>&1
 check "a run that cannot meet the gate ends at the cap with exit 0" test $? -eq 0
-check "both formats are capped and neither passed the cap (the last slice is cut to what is left, so they stop just under it)" python3 -c "
+check "both formats are capped and neither is more than 5% over the cap (the last slice is sized from the learned CPU ratio, so they stop just under it)" python3 -c "
 import json
 d=json.load(open('$T/b/status.json'))['formats']
-raise SystemExit(0 if all(f['state']=='capped' and 0.0085<=f['CpuHours']<=0.0126 for f in d.values()) else 1)"
+raise SystemExit(0 if all(f['state']=='capped' and 0.007<=f['CpuHours']<=0.012*1.05 for f in d.values()) else 1)"
 
 # 3b. The console prefix is a parameter: a custom one replaces the default.
 LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/b2" "${SMALL[@]}" --cap-cpu-hours 0.004 --console "$T/b2-console" --console-prefix CUSTOM-STATUS > "$T/b2.log" 2>&1
@@ -99,12 +99,21 @@ check "a custom console prefix is used and the default is not" python3 -c "
 L=[l for l in open('$T/b2-console')]
 assert L and all(l.startswith('CUSTOM-STATUS') for l in L), L[:2]"
 
+# 3d. The learned ratio: with several slices before the last, the cap holds to 5%.
+LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/cap2" --workers 2 --slice-seconds 6 --formats png --gate-run --cap-cpu-hours 0.02 > "$T/cap2.log" 2>&1
+check "after several slices the format is capped within 5% of a 0.02 CPU-hour cap, and a ratio was learned" python3 -c "
+import json
+d=json.load(open('$T/cap2/status.json'))['formats']['png']
+r=float(open('$T/cap2/png/ratio').read())
+n=len(open('$T/cap2/png/samples.jsonl').read().splitlines())
+assert n >= 3 and d['state']=='capped' and 0.014 <= d['CpuHours'] <= 0.02*1.05 and 0.3 < r < 2.5, (n, d, r)"
+
 # 3c. The cap and the wall limit hold to within seconds, not to the end of a slice.
 LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/cap" --workers 2 --slice-seconds 60 --formats png --gate-run --cap-cpu-hours 0.01 > "$T/cap.log" 2>&1
-check "with a 60 s slice and a 0.01 CPU-hour cap the format stops near the cap, not a full slice past it" python3 -c "
+check "with a 60 s slice and a 0.01 CPU-hour cap the format stops within 5% of the cap at most, not a full slice past it" python3 -c "
 import json
 d=json.load(open('$T/cap/status.json'))['formats']['png']
-assert d['state']=='capped' and 0.006 <= d['CpuHours'] <= 0.0125, d"
+assert d['state']=='capped' and 0.007 <= d['CpuHours'] <= 0.01*1.05, d"
 start=$(date +%s)
 LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/wall" --workers 2 --slice-seconds 60 --formats png --gate-run --cap-cpu-hours 5 --max-wall-hours 0.01 > "$T/wall.log" 2>&1
 rc=$?
