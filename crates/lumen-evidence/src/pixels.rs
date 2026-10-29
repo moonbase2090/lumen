@@ -54,6 +54,9 @@ pub struct PixelCase {
     pub margin: usize,
     /// Changed pixels in the editor.
     pub chrome: usize,
+    /// Changed pixels anywhere in the window: nothing drawn at all means the
+    /// case did not reach the terminal, and a zero in the margin would mean nothing.
+    pub anywhere: usize,
 }
 
 /// The result of a pixel run.
@@ -84,11 +87,18 @@ impl PixelReport {
         self.cases.iter().map(|c| c.chrome).sum()
     }
 
+    /// Cases whose frame differs from the baseline somewhere.
+    #[must_use]
+    pub fn drawn(&self) -> usize {
+        self.cases.iter().filter(|c| c.anywhere > 0).count()
+    }
+
     /// The exit status: 0 for a measured zero, 1 for a non-zero count, 3 when the
-    /// baseline was not stable or there was nothing to measure.
+    /// baseline was not stable, there was nothing to measure, or no case drew
+    /// anything (so a zero would be vacuous).
     #[must_use]
     pub fn exit_code(&self) -> u8 {
-        if !self.baseline_stable || self.cases.is_empty() {
+        if !self.baseline_stable || self.cases.is_empty() || self.drawn() == 0 {
             3
         } else {
             u8::from(self.margin() + self.chrome() != 0)
@@ -135,6 +145,13 @@ impl PixelReport {
             let _ = writeln!(out, "2.3=not measured (no cases)");
             return out;
         }
+        if self.drawn() == 0 {
+            let _ = writeln!(
+                out,
+                "2.3=not measured (no case changed any pixel of the window, so the cases did not reach the drawing)"
+            );
+            return out;
+        }
         let _ = writeln!(
             out,
             "2.3 changed_pixels margin={} chrome={} over {} case-window runs (threshold 0)",
@@ -144,14 +161,17 @@ impl PixelReport {
         );
         let _ = writeln!(
             out,
-            "2.3 is a count over this drawing code, not an operating-system window"
+            "{} of {} runs changed some pixel of the window outside the margin and the editor (the content and the strip)",
+            self.drawn(),
+            self.cases.len()
         );
+        let _ = writeln!(out, "{basis}");
         out.push_str(rects);
         for c in &self.cases {
             let _ = writeln!(
                 out,
-                "{} {}x{} margin={} chrome={}",
-                c.id, c.window.0, c.window.1, c.margin, c.chrome
+                "{} {}x{} margin={} chrome={} window={}",
+                c.id, c.window.0, c.window.1, c.margin, c.chrome, c.anywhere
             );
         }
         out
@@ -319,11 +339,18 @@ pub fn run_pixels_with<W: Write>(
                 &[("margin_changed", margin), ("chrome_changed", chrome)],
             )
             .map_err(|e| e.to_string())?;
+            let everything = Rect {
+                x: 0,
+                y: 0,
+                w: w.cols,
+                h: w.rows,
+            };
             cases.push(PixelCase {
                 id: case.id.clone(),
                 window: (w.cols, w.rows),
                 margin,
                 chrome,
+                anywhere: changed_in(&renderer, &first, &frame, &[everything]),
             });
         }
         baselines.push(first);

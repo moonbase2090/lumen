@@ -21,8 +21,13 @@ use crate::pixels::{PixelCase, PixelReport, changed_in};
 use lumen_term::app::{cells_for, window_for};
 use lumen_term::{Frame, Renderer, layout};
 use sha2::{Digest, Sha256};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Work directories handed out so far, so runs in one process never share one.
+static RUNS: AtomicUsize = AtomicUsize::new(0);
 
 /// The windows, in cells, the real terminal is sized to.
 pub const WINDOWS: [(u32, u32); 2] = [(80, 24), (40, 12)];
@@ -117,7 +122,11 @@ pub fn run_terminal(
 ) -> Result<TerminalReport, String> {
     let renderer = Renderer::light(scale)?;
     let (cw, ch) = renderer.cell();
-    let work = std::env::temp_dir().join(format!("lumen-pixels-term-{}", std::process::id()));
+    let work = std::env::temp_dir().join(format!(
+        "lumen-pixels-term-{}-{}",
+        std::process::id(),
+        RUNS.fetch_add(1, Ordering::Relaxed)
+    ));
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let shots = out.map(|o| o.join("screenshots-terminal"));
     if let Some(dir) = &shots {
@@ -150,7 +159,7 @@ pub fn run_terminal(
     for (cols, rows) in WINDOWS {
         let size = (cols * cw, rows * ch);
         let (c, r) = cells_for(size.0, size.1, (cw, ch));
-        if (c as u32, r as u32) != (cols, rows) {
+        if (u32::try_from(c).ok(), u32::try_from(r).ok()) != (Some(cols), Some(rows)) {
             return Err(format!(
                 "{size:?} pixels is {c}x{r} cells, not {cols}x{rows}"
             ));
@@ -175,11 +184,18 @@ pub fn run_terminal(
             let script = format!("stty -onlcr; cat '{}'", file.display());
             let frame = snapshot(terminal, &work, &case.id, size, scale, &script)?;
             keep(&format!("{}-{cols}x{rows}.png", case.id), &frame)?;
+            let everything = lumen_term::Rect {
+                x: 0,
+                y: 0,
+                w: cols,
+                h: rows,
+            };
             cases.push(PixelCase {
                 id: case.id.clone(),
                 window: (cols, rows),
                 margin: changed_in(&renderer, &first, &frame, &l.margin),
                 chrome: changed_in(&renderer, &first, &frame, &[l.editor]),
+                anywhere: changed_in(&renderer, &first, &frame, &[everything]),
             });
         }
         baselines.push(first);
@@ -208,14 +224,15 @@ pub fn terminal_rects(renderer: &Renderer) -> String {
         let l = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
         let px =
             |r: &lumen_term::Rect| format!("{},{},{},{}", r.x * cw, r.y * ch, r.w * cw, r.h * ch);
-        out.push_str(&format!(
-            "rects {cols}x{rows} cells, {}x{} px: margin=[{}] [{}] chrome=[{}]\n",
+        let _ = writeln!(
+            out,
+            "rects {cols}x{rows} cells, {}x{} px: margin=[{}] [{}] chrome=[{}]",
             cols * cw,
             rows * ch,
             px(&l.margin[0]),
             px(&l.margin[1]),
             px(&l.editor)
-        ));
+        );
     }
     out
 }

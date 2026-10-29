@@ -253,7 +253,9 @@ fn screenshots_terminal(
         "2.3 is a count over the frame the real terminal binary draws headless (--snapshot); it is not a capture of an operating-system window on screen",
     );
     for s in &run.skipped {
-        text.push_str(&format!("skipped {s}\n"));
+        text.push_str("skipped ");
+        text.push_str(s);
+        text.push('\n');
     }
     finish(out, &text)?;
     Ok(ExitCode::from(run.report.exit_code()))
