@@ -12,7 +12,7 @@ FAILED=0
 
 # The stand-in prints its arguments and exits with the status that
 # FAKE_STATUS_<mode> names, where the mode is the first argument without its
-# dashes (corpus, matrix, flood, cost, parity, decoder, render_log), or
+# dashes (corpus, matrix, flood, cost, parity, decoder, render_log, screenshots), or
 # panes_a and panes_b for the two placements.
 cat >"$WORK/fake-evidence" <<'FAKE'
 #!/usr/bin/env bash
@@ -95,6 +95,16 @@ else
   echo "FAIL arguments reaching the driver"
   FAILED=1
 fi
+
+# The pixel mode (2.3) runs at scale 2 over the pixel corpus, and a failure names it.
+if grep -q -- "--scale 2" "$out/pixels.out" && grep -q -- "corpus-pixel" "$out/pixels.out" \
+  && grep -q $'pixels\t0\tmeasured' "$out/modes.tsv"; then
+  echo "ok   the pixel mode runs at scale 2 over the pixel corpus"
+else
+  echo "FAIL pixel mode arguments"
+  FAILED=1
+fi
+run_case "a failing pixel mode is named" 1 "pixels" FAKE_STATUS_screenshots=1
 
 # By default each flood's own render log is judged, one mode per arm.
 out="$WORK/out default render"

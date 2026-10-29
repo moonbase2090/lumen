@@ -368,8 +368,10 @@ dependencies = [
  "lumen-panes",
  "lumen-sealed",
  "lumen-sinks",
+ "lumen-term",
  "lumen-track0",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
