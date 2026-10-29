@@ -12,10 +12,10 @@ T="$(mktemp -d)"
 # must fail the test, not hang it.
 ( sleep "${TEST_TIMEOUT:-1500}"; echo "TEST TIMEOUT after ${TEST_TIMEOUT:-1500} s" >&2; kill -TERM $$ ) &
 WATCHDOG=$!
-ART="$ROOT/crates/lumen-decoder/fuzz/artifacts"
-if [ -d "$ART" ]; then mv "$ART" "$T/art-backup"; fi
-restore_art() { rm -rf "$ART"; if [ -d "$T/art-backup" ]; then mv "$T/art-backup" "$ART"; fi; }
-trap 'kill "$WATCHDOG" 2>/dev/null; pkill -f "/release/decode_" 2>/dev/null; restore_art; rm -rf "$T"' EXIT
+# Every run keeps its crash inputs under its own output directory, and the clean-up
+# below only touches processes whose command line carries this test's temp
+# directory, so this test can run next to other fuzz runs on the same machine.
+trap 'kill "$WATCHDOG" 2>/dev/null; pkill -f -- "$T" 2>/dev/null; rm -rf "$T"' EXIT
 export NIGHTLY="${NIGHTLY:-nightly}"
 fail=0
 check() { desc="$1"; shift; if "$@"; then echo "ok    $desc"; else echo "FAIL  $desc"; fail=1; fi; }
@@ -74,8 +74,8 @@ c=int(t['CRASHES'])
 import json
 first=json.loads(open('$T/a/png/samples.jsonl').readline())['at_epoch']
 assert c>0 or int(t['LAST_CRASH_EPOCH'])==first, (c,t,first)"
-check "the console file has one LTM51-STATUS line per format and slice, and an overall one" python3 -c "
-L=[l for l in open('$T/a-console') if l.startswith('LTM51-STATUS')]
+check "the console file has one FUZZ-STATUS line per format and slice, and an overall one" python3 -c "
+L=[l for l in open('$T/a-console') if l.startswith('FUZZ-STATUS')]
 assert any(' fmt=png ' in l for l in L) and any(' fmt=webp ' in l for l in L), L[:3]
 assert any(' overall ' in l for l in L)
 assert all(' EPOCH=' in l for l in L)
@@ -88,44 +88,73 @@ assert r and all('at_epoch' in x for x in r)"
 # 3. The cap: thresholds that cannot be met, a small cap.
 LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/b" "${SMALL[@]}" --cap-cpu-hours 0.012 > "$T/b.log" 2>&1
 check "a run that cannot meet the gate ends at the cap with exit 0" test $? -eq 0
-check "both formats are capped, none went far past the cap" python3 -c "
+check "both formats are capped and neither passed the cap (the last slice is cut to what is left, so they stop just under it)" python3 -c "
 import json
 d=json.load(open('$T/b/status.json'))['formats']
-raise SystemExit(0 if all(f['state']=='capped' and 0.012<=f['CpuHours']<0.012+0.01 for f in d.values()) else 1)"
+raise SystemExit(0 if all(f['state']=='capped' and 0.0085<=f['CpuHours']<=0.0126 for f in d.values()) else 1)"
+
+# 3b. The console prefix is a parameter: a custom one replaces the default.
+LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/b2" "${SMALL[@]}" --cap-cpu-hours 0.004 --console "$T/b2-console" --console-prefix CUSTOM-STATUS > "$T/b2.log" 2>&1
+check "a custom console prefix is used and the default is not" python3 -c "
+L=[l for l in open('$T/b2-console')]
+assert L and all(l.startswith('CUSTOM-STATUS') for l in L), L[:2]"
+
+# 3c. The cap and the wall limit hold to within seconds, not to the end of a slice.
+LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/cap" --workers 2 --slice-seconds 60 --formats png --gate-run --cap-cpu-hours 0.01 > "$T/cap.log" 2>&1
+check "with a 60 s slice and a 0.01 CPU-hour cap the format stops near the cap, not a full slice past it" python3 -c "
+import json
+d=json.load(open('$T/cap/status.json'))['formats']['png']
+assert d['state']=='capped' and 0.006 <= d['CpuHours'] <= 0.0125, d"
+start=$(date +%s)
+LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/wall" --workers 2 --slice-seconds 60 --formats png --gate-run --cap-cpu-hours 5 --max-wall-hours 0.01 > "$T/wall.log" 2>&1
+rc=$?
+check "the wall limit exits 8 within seconds of the limit (36 s) and not after a 60 s slice" test "$rc" -eq 8 -a $(( $(date +%s) - start )) -lt 60
 
 # 4. Pause on a crash after the pause hour: exit 7, the finish command does not run.
-mkdir -p "$ART/decode_png"
 LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/c" "${SMALL[@]}" --cap-cpu-hours 5 --pause-on-crash-after 0 \
   --finish-cmd "date > \"$T/finished-c\"" > "$T/c.log" 2>&1 &
 pid=$!
 for _ in $(seq 1 180); do grep -qE '^#[0-9]+: cov:' "$T/c/png/last.log" 2>/dev/null && break; sleep 1; done
-echo "not a real crash" > "$ART/decode_png/crash-gate-test"
+mkdir -p "$T/c/png/raw-artifacts" && echo "not a real crash" > "$T/c/png/raw-artifacts/crash-gate-test"
 wait "$pid"; rc=$?
 check "a crash pauses the run with exit 7" test "$rc" -eq 7
 check "the finish command did NOT run on a pause" test ! -e "$T/finished-c"
 check "the ledger was still written" test -s "$T/c/ledger.json"
+check "the crash record carries a wall-clock epoch" python3 -c "
+import json
+rows=[json.loads(l) for l in open('$T/c/png/crashes.jsonl')]
+assert rows and all('at_epoch' in r and r['at_epoch']>0 for r in rows), rows"
 check "status says paused and why" python3 -c "
 import json
 d=json.load(open('$T/c/status.json'))
 raise SystemExit(0 if d['state'].startswith('paused') and 'crash' in d['state'] else 1)"
-rm -f "$ART/decode_png/crash-gate-test"
 
 # 5. A crash BEFORE the pause hour does not pause (here the pause hour is large).
-mkdir -p "$ART/decode_png"
 LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/d" "${SMALL[@]}" --cap-cpu-hours 0.012 --pause-on-crash-after 1032 > "$T/d.log" 2>&1 &
 pid=$!
 for _ in $(seq 1 180); do grep -qE '^#[0-9]+: cov:' "$T/d/png/last.log" 2>/dev/null && break; sleep 1; done
-echo "not a real crash" > "$ART/decode_png/crash-gate-test2"
+mkdir -p "$T/d/png/raw-artifacts" && echo "not a real crash" > "$T/d/png/raw-artifacts/crash-gate-test2"
 wait "$pid"; rc=$?
 check "an early crash is recorded but does not pause (exit 0)" test "$rc" -eq 0
 check "...and is in the crashes list" test "$(wc -l < "$T/d/png/crashes.jsonl" | tr -d ' ')" -ge 1
-rm -f "$ART/decode_png/crash-gate-test2"
 
 # 6. The wall-clock limit.
 LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/e" "${SMALL[@]}" --cap-cpu-hours 5 --max-wall-hours 0.0003 \
   --finish-cmd "date > \"$T/finished-e\"" > "$T/e.log" 2>&1
 check "the wall-clock limit stops the run with exit 8" test $? -eq 8
 check "...and does not run the finish command" test ! -e "$T/finished-e"
+
+# 6b. The CPU time counted for a slice is fuzzing, not compiling the target. Delete
+# the fuzz build directory so the first slice has to compile everything (minutes of
+# CPU), then check that slice's counted hours are close to workers x slice length.
+rm -rf "$ROOT/crates/lumen-decoder/fuzz/target"
+LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/f" --workers 2 --slice-seconds 6 --formats png --gate-run --cap-cpu-hours 0.01 > "$T/f.log" 2>&1
+check "a gate run on a cold build still ends (exit 0)" test $? -eq 0
+check "the first slice counted fuzzing CPU, not the compile: under 3x workers x slice length" python3 -c "
+import json
+first=json.loads(open('$T/f/png/samples.jsonl').readline())['at_cpu_hour']
+nominal=2*6/3600.0
+assert 0 < first < 3*nominal, (first, nominal)"
 
 # 7. A fuzzer that cannot start must stop the run (exit 9), not spin. Each run is
 # watched: if it is still going after 150 s it spun, and the check fails.
