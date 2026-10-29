@@ -2,7 +2,7 @@
 
 use lumen_arm_a::LayerState;
 use lumen_arm_a::pipeline::{
-    Budget, Config, Context, Counters, Item, Layer, PIN_AFTER_ABORTS, item_summary,
+    Budget, Config, Context, Counters, Item, Layer, PIN_AFTER_ABORTS, PIN_WINDOW_MS, item_summary,
 };
 use lumen_detector::TAG;
 use lumen_sealed::{Direction, DirectionKeys, HEADER_LEN, LayerId, LayerRoot, Receiver, Sender};
@@ -313,4 +313,50 @@ fn counters_add_up_and_the_summary_carries_no_content() {
         body: b"secret-body".to_vec(),
     });
     assert_eq!(summary, ("sealed", 11));
+}
+
+#[test]
+fn sealed_abort_pins_after_more_than_the_allowed_aborts_and_announces_once() {
+    let mut l = layer(LayerState::Sealed);
+    for i in 0..PIN_AFTER_ABORTS {
+        assert_eq!(
+            l.sealed_abort(u64::try_from(i).unwrap_or(0)),
+            Vec::<Item>::new()
+        );
+        assert!(!l.is_pinned());
+    }
+    assert_eq!(l.sealed_abort(10), vec![Item::Pinned]);
+    assert!(l.is_pinned());
+    assert_eq!(l.sealed_abort(11), Vec::<Item>::new(), "announced once");
+    assert_eq!(l.counters().pinned_notices, 1);
+}
+
+#[test]
+fn a_sealed_abort_just_inside_the_window_still_counts() {
+    let mut l = layer(LayerState::Sealed);
+    for _ in 0..PIN_AFTER_ABORTS {
+        let _ = l.sealed_abort(0);
+    }
+    assert_eq!(l.sealed_abort(PIN_WINDOW_MS - 1), vec![Item::Pinned]);
+}
+
+#[test]
+fn a_sealed_abort_at_the_window_edge_no_longer_counts_the_old_ones() {
+    let mut l = layer(LayerState::Sealed);
+    for _ in 0..PIN_AFTER_ABORTS {
+        let _ = l.sealed_abort(0);
+    }
+    assert_eq!(l.sealed_abort(PIN_WINDOW_MS), Vec::<Item>::new());
+    assert!(!l.is_pinned());
+}
+
+#[test]
+fn a_pinned_layer_shows_sealed_frames_as_text() {
+    let mut l = layer(LayerState::Sealed);
+    for i in 0..=PIN_AFTER_ABORTS {
+        let _ = l.sealed_abort(u64::try_from(i).unwrap_or(0));
+    }
+    assert!(l.is_pinned());
+    let items = l.feed(&sealed(1, 0x01, b"x"), at(20));
+    assert!(is_text(&items), "{items:?}");
 }

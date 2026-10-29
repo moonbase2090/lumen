@@ -287,6 +287,24 @@ impl Layer {
         self.pinned_shown
     }
 
+    /// Record the abort of an authenticated sealed frame, such as a body that
+    /// fails to open or a payload the terminal refuses as a failed frame. More
+    /// than [`PIN_AFTER_ABORTS`] in [`PIN_WINDOW_MS`] pins the layer. Track 0
+    /// and unverified frames never call this. It has the same signature and
+    /// effect as the Arm B method of the same name.
+    pub fn sealed_abort(&mut self, now_ms: u64) -> Vec<Item> {
+        let was = self.gate.pinned;
+        self.gate.count_abort(now_ms);
+        self.gate.pin_pending = false;
+        if self.gate.pinned && !was {
+            self.pinned_shown = true;
+            self.gate.stats.pinned_notices += 1;
+            vec![Item::Pinned]
+        } else {
+            Vec::new()
+        }
+    }
+
     /// The terminal opens the container for a new command and resets the
     /// producer's budget. Frame output never calls this.
     pub fn open_container(&mut self) {

@@ -1,6 +1,7 @@
-//! `lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]`
+//! `lumen-evidence --corpus DIR [--corpus DIR ...] --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]`
 //!
-//! Replays the corpus through one arm's layer (default `b`). Writes `run.jsonl` and
+//! Replays the corpus (several directories run as one, so one verdict covers
+//! them all) through one arm's layer (default `b`). Writes `run.jsonl` and
 //! `summary.txt` to the output directory and prints the summary. Exits 1 when
 //! a case produced a forbidden item.
 //!
@@ -70,7 +71,7 @@ fn open_log(out: &std::path::Path) -> Result<std::io::BufWriter<std::fs::File>, 
 }
 
 fn replay(
-    corpus: &str,
+    corpus: &[String],
     commit: &str,
     out: &std::path::Path,
     arm: &str,
@@ -85,7 +86,9 @@ fn replay(
             ));
         }
     };
-    let corpus = lumen_evidence::load_corpus(&PathBuf::from(corpus))?;
+    let dirs: Vec<PathBuf> = corpus.iter().map(PathBuf::from).collect();
+    let dirs: Vec<&std::path::Path> = dirs.iter().map(PathBuf::as_path).collect();
+    let corpus = lumen_evidence::load_corpora(&dirs)?;
     let log = open_log(out)?;
     let (report, header) =
         lumen_evidence::run_arm(&corpus, commit, arm, log).map_err(|e| e.to_string())?;
@@ -219,7 +222,12 @@ fn main() -> ExitCode {
     };
     let out = PathBuf::from(out);
     let arm = arg(&args, "--arm").unwrap_or_else(|| "b".to_owned());
-    let result = match (arg(&args, "--corpus"), arg(&args, "--matrix")) {
+    let corpora: Vec<String> = args
+        .windows(2)
+        .filter(|w| w[0] == "--corpus")
+        .map(|w| w[1].clone())
+        .collect();
+    let result = match (corpora.first().map(|_| ()), arg(&args, "--matrix")) {
         (None, None) if args.iter().any(|a| a == "--flood") => match arg(&args, "--seconds") {
             Some(n) => flood(&n, &commit, &out, &arm),
             None => Err("--flood needs --seconds".to_owned()),
@@ -246,7 +254,7 @@ fn main() -> ExitCode {
             Some(f) => parity(&f, &commit, &out),
             None => Err("--parity needs --channels".to_owned()),
         },
-        (Some(corpus), None) => replay(&corpus, &commit, &out, &arm),
+        (Some(()), None) => replay(&corpora, &commit, &out, &arm),
         (None, Some(matrix)) => reach(&matrix, &commit, &out, &arm),
         _ => {
             eprintln!("{USAGE}");
