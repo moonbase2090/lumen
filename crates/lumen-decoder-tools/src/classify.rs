@@ -13,6 +13,10 @@ pub enum Kind {
     Panic,
     /// A crash the fuzzer reported that none of the above explains.
     Other,
+    /// An out-of-memory report from the fuzzer whose replay through the real
+    /// worker stayed under the limit: an artifact of the sanitizer and the
+    /// corpus, not a crash. It is recorded, with its replay size, and not counted.
+    AsanArtifact,
 }
 
 impl Kind {
@@ -25,6 +29,7 @@ impl Kind {
             Self::Sanitizer => "sanitizer",
             Self::Panic => "panic",
             Self::Other => "other",
+            Self::AsanArtifact => "asan-artifact",
         }
     }
 }
@@ -55,4 +60,25 @@ pub fn classify(log: &str) -> Option<Kind> {
     } else {
         None
     }
+}
+
+/// The worker's memory limit in KiB.
+const LIMIT_KIB: u64 = 512 * 1024;
+/// `SIGABRT` as `subprocess` reports a death by signal: the capped allocator
+/// aborts the worker when a decode wants more than the limit.
+const SIGABRT_EXIT: i64 = -6;
+
+/// Classifies a replay record (`scripts/decoder-replay.py`) of an `oom-*`
+/// artifact: it is a memory crash if the real worker peaked over 512 MiB or
+/// was aborted by its own allocator cap, and otherwise an [`Kind::AsanArtifact`].
+/// `None` if the record has no peak size.
+#[must_use]
+pub fn classify_replay(record: &serde_json::Value) -> Option<Kind> {
+    let peak = record["peak_rss_kb"].as_u64()?;
+    let aborted = record["exit"].as_i64() == Some(SIGABRT_EXIT);
+    Some(if peak > LIMIT_KIB || aborted {
+        Kind::Memory
+    } else {
+        Kind::AsanArtifact
+    })
 }

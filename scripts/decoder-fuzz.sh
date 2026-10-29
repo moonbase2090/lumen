@@ -4,7 +4,7 @@
 # ledger that `lumen-evidence --decoder` judges.
 #
 #   scripts/decoder-fuzz.sh --out DIR [--workers N] [--slice-seconds S]
-#       [--slices K] [--formats png,jpeg,webp] [--seeds DIR] [--image-path-build ID]
+#       [--slices K] [--formats png,jpeg,webp] [--seeds DIR] [--image-path-build ID] [--rss-mb MB]
 #
 # CPU-hours are wall time times workers, summed over the slices. The run
 # resumes in DIR: corpora, samples and crashes are kept, so a later call adds
@@ -30,6 +30,7 @@ while [ $# -gt 0 ]; do
     --formats) FORMATS="$2"; shift 2 ;;
     --seeds) SEEDS="$2"; shift 2 ;;
     --image-path-build) IMAGE_PATH_BUILD="$2"; shift 2 ;;
+    --rss-mb) RSS_MB="$2"; shift 2 ;;
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -48,10 +49,21 @@ DECODER_BUILD="$("${TOOLS[@]}" identity "$ROOT" "$FUZZ_FLAGS")"
 echo "$DECODER_BUILD" > "$OUT/decoder_build"
 git -C "$ROOT" rev-parse HEAD > "$OUT/commit" 2>/dev/null || true
 
-kind_of() { # artifact file -> crash kind word
+# The real worker, built without sanitizers, replays every oom-* artifact.
+cargo build -q --release --locked -p lumen-decoder --bin lumen-decoder-worker
+WORKER="$ROOT/target/release/lumen-decoder-worker"
+
+kind_of() { # artifact file, target -> crash kind word
   case "$(basename "$1")" in
     timeout-*) echo hang ;;
-    oom-*) echo memory ;;
+    oom-*)
+      # libFuzzer's RSS limit counts sanitizer and corpus memory. Only the real
+      # worker's peak decides: over 512 MiB, or aborted by its heap cap, is a
+      # memory crash; anything smaller is recorded as an ASan artifact.
+      fmt="${2#decode_}"
+      python3 "$ROOT/scripts/decoder-replay.py" "$WORKER" "$fmt" "$1" > "$OUT/replay.json" || echo '{}' > "$OUT/replay.json"
+      (cat "$OUT/replay.json"; echo) >> "$OUT/$fmt/replays.jsonl"
+      "${TOOLS[@]}" replay-kind "$OUT/replay.json" || echo other ;;
     *) (cd "$ROOT/crates/lumen-decoder" && cargo +"$NIGHTLY" fuzz run "$2" "$1" -- -rss_limit_mb="$RSS_MB" 2>&1 | head -c 200000 > "$OUT/replay.log" || true)
        "${TOOLS[@]}" classify "$OUT/replay.log" || true ;;
   esac
@@ -87,6 +99,10 @@ PY
     comm -13 <(echo "$before") <(echo "$after") | while read -r a; do
       [ -n "$a" ] || continue
       k="$(kind_of "$art/$a" "$target")"
+      if [ "$k" = "asan-artifact" ]; then
+        echo "oom report in $f ($a) replayed under the limit; recorded in replays.jsonl, not a crash" >&2
+        continue
+      fi
       echo "{\"at_cpu_hour\": $now_h, \"kind\": \"${k:-other}\", \"artifact\": \"$a\"}" >> "$dir/crashes.jsonl"
       echo "crash in $f at ${now_h} CPU-hours: ${k:-other} ($a)" >&2
     done

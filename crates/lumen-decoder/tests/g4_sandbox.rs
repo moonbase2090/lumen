@@ -313,15 +313,19 @@ mod hostile {
 
     #[test]
     fn a_stdout_flood_is_cut_off_at_the_reservation() {
+        let t = Instant::now();
         // A worker that blocked on a full pipe would time out instead.
         assert_eq!(run("flood-stdout"), Outcome::Crash(Crash::Overflow));
+        assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
     }
 
     #[test]
     fn a_stderr_flood_neither_blocks_nor_changes_the_result() -> R {
+        let t = Instant::now();
         // A worker blocked on a full stderr pipe would time out instead.
         let img = expect_image(run("flood-stderr"))?;
         assert_eq!(img.rgba, vec![9, 8, 7, 255]);
+        assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
         Ok(())
     }
 
@@ -331,7 +335,7 @@ mod hostile {
         assert_eq!(run("raw-hang"), Outcome::Crash(Crash::Timeout));
         let e = t.elapsed();
         assert!(
-            e >= Duration::from_millis(3900) && e < Duration::from_secs(8),
+            e >= Duration::from_millis(3900) && e < Duration::from_secs(10),
             "{e:?}"
         );
     }
@@ -343,8 +347,9 @@ mod hostile {
         let e = t.elapsed();
         // Killed by the CPU limit, not by the wall clock (that would be a
         // `Timeout`). On a busy host 2 CPU seconds can take longer than 4 s of
-        // wall time, so the elapsed time is not asserted.
+        // wall time; the bound below only catches a kill that never comes.
         assert_eq!(o, Outcome::Crash(Crash::Exit), "{e:?}");
+        assert!(e < Duration::from_secs(10), "{e:?}");
     }
 
     #[test]

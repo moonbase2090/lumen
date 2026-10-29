@@ -2,6 +2,8 @@
 //!
 //! - `classify LOG` prints the crash kind of a libFuzzer log and exits 1 if it
 //!   reports a crash, 0 if not.
+//! - `replay-kind RECORD` prints `memory` or `asan-artifact` for a replay record
+//!   of an `oom-*` artifact (see `scripts/decoder-replay.py`).
 //! - `identity ROOT [RUSTFLAGS]` prints the decoder build identity.
 //! - `format NAME SAMPLES CRASHES` prints one format's ledger entry.
 //! - `escape TESTLOG REVISION` prints `{revision, passed, total}` for the G4
@@ -27,6 +29,13 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
             }
             None => Ok(ExitCode::SUCCESS),
         },
+        "replay-kind" => {
+            let record: Value = serde_json::from_str(&fs::read_to_string(arg(1)?)?)?;
+            let kind =
+                classify::classify_replay(&record).ok_or("the replay record has no peak_rss_kb")?;
+            println!("{}", kind.word());
+            Ok(ExitCode::SUCCESS)
+        }
         "identity" => {
             let root = Path::new(arg(1)?);
             let flags = args.get(2).map_or("", String::as_str);

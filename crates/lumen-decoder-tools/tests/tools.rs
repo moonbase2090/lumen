@@ -8,7 +8,7 @@ use std::error::Error;
 
 use lumen_decoder::decode::decode;
 use lumen_decoder::protocol::Format;
-use lumen_decoder_tools::classify::{Kind, classify};
+use lumen_decoder_tools::classify::{Kind, classify, classify_replay};
 use lumen_decoder_tools::{escape, identity, ledger};
 
 #[path = "../examples/seeds/generate.rs"]
@@ -207,4 +207,25 @@ fn a_format_with_no_samples_has_no_cpu_hours_and_cannot_pass() -> R {
     assert_eq!(e["cpu_hours"], json!(0.0));
     assert!(!judged(e, 33)?.passes());
     Ok(())
+}
+
+#[test]
+fn an_oom_report_that_replays_small_is_an_asan_artifact_not_a_crash() -> R {
+    // A record written by scripts/decoder-replay.py for the real input behind
+    // the 676 MB report: the real worker peaked at about 55 MiB.
+    let real: serde_json::Value = serde_json::from_str(&fixture("replay-oom-jpeg.json")?)?;
+    assert_eq!(classify_replay(&real), Some(Kind::AsanArtifact));
+    Ok(())
+}
+
+#[test]
+fn a_replay_over_the_limit_or_aborted_by_the_cap_is_a_memory_crash() {
+    // Hand-written records: no real input is known to need this much.
+    let over = json!({"peak_rss_kb": 512 * 1024 + 1, "exit": 0});
+    let at = json!({"peak_rss_kb": 512 * 1024, "exit": 0});
+    let aborted = json!({"peak_rss_kb": 300_000, "exit": -6});
+    assert_eq!(classify_replay(&over), Some(Kind::Memory));
+    assert_eq!(classify_replay(&at), Some(Kind::AsanArtifact));
+    assert_eq!(classify_replay(&aborted), Some(Kind::Memory));
+    assert_eq!(classify_replay(&json!({"exit": 0})), None);
 }
