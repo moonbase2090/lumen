@@ -26,6 +26,6 @@ pub use grid::GridBlock;
 pub use layer::{Context, Layer, Notice, Passthrough, Piece};
 pub use layout::{Layout, Rect, StripPlacement, layout};
 pub use pty::SpawnError;
-pub use raster::{Frame, Renderer, Theme};
+pub use raster::{Frame, Renderer, Theme, Window};
 pub use session::Session;
 pub use strip::Strip;

@@ -12,6 +12,7 @@
 
 use crate::document::{Block, Document, RichBlock};
 use crate::grid::GridBlock;
+use crate::layout::{GUTTER_COLUMNS, Rect, StripPlacement, layout};
 use lumen_track0::Block as Track0Block;
 use prismattyc_core::{Color, Style, grapheme_display_width};
 use std::cell::RefCell;
@@ -26,6 +27,8 @@ const FACE: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf");
 pub const BASE_PX: f32 = 14.0;
 /// The label every rich block's container carries.
 pub const CONTAINER_LABEL: &str = "unverified output";
+/// The terminal's own text in the header strip of the trust margin.
+pub const MARGIN_LABEL: &str = "lumen";
 
 /// A colour.
 pub type Rgb = [u8; 3];
@@ -49,6 +52,12 @@ pub struct Theme {
     pub code: Rgb,
     /// Foreground of a heading.
     pub heading: Rgb,
+    /// The trust margin: the gutter and the header strip. Only the terminal paints it.
+    pub margin: Rgb,
+    /// The terminal's own text in the margin.
+    pub margin_text: Rgb,
+    /// The input editor.
+    pub editor: Rgb,
 }
 
 impl Theme {
@@ -81,8 +90,24 @@ impl Theme {
             label: [120, 64, 0],
             code: [232, 234, 240],
             heading: [20, 60, 120],
+            margin: [226, 230, 238],
+            margin_text: [60, 70, 90],
+            editor: [250, 250, 250],
         }
     }
+}
+
+/// The size of a window and where its editor sits, in cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Window {
+    /// Columns.
+    pub cols: u32,
+    /// Rows.
+    pub rows: u32,
+    /// The row the editor starts at.
+    pub editor_row: u32,
+    /// Rows of the editor.
+    pub editor_rows: u32,
 }
 
 /// An RGBA image.
@@ -430,6 +455,136 @@ impl Renderer {
             self.text_line(frame, inner, line_y, line, colour);
             line_y += self.cell_h;
         }
+    }
+
+    /// Copy `src` into `frame` with its top left at `x`, `y`. `src` is the
+    /// whole of one region, so what was painted into it cannot reach outside.
+    fn blit(frame: &mut Frame, src: &Frame, x: u32, y: u32) {
+        for row in 0..src.height {
+            for col in 0..src.width {
+                if let Some(c) = src.pixel(col, row) {
+                    frame.put(x + col, y + row, c);
+                }
+            }
+        }
+    }
+
+    /// Paint a window: the trust margin, the content above the editor, the
+    /// editor, and the background strip below it.
+    ///
+    /// Every part has a rectangle from [`layout`], and a producer's output
+    /// reaches only two of them: the content area and the strip. Each is
+    /// painted into a frame of its own size and copied in, so nothing it holds
+    /// can spill. The margin is painted last, from the terminal's own text and
+    /// colours, as well: nothing a producer writes is an input to a margin
+    /// pixel. The editor is fixed (a prompt and no producer text).
+    ///
+    /// The strip drawn is the newest cycle's: collapsed it is one row with
+    /// `background output (N)`, and open it is one row per block, each the
+    /// kind and the first line, clipped. Background blocks are never part of
+    /// the content flow.
+    #[must_use]
+    pub fn render_window(&self, doc: &Document, win: &Window) -> Frame {
+        let t = &self.theme;
+        let strips = doc.strips();
+        let newest = strips.last();
+        let lay = layout(
+            win.cols,
+            win.rows,
+            win.editor_row,
+            win.editor_rows,
+            newest.map(|s| (s.open, s.count())),
+        );
+        let px = |r: &Rect| {
+            (
+                r.x * self.cell_w,
+                r.y * self.cell_h,
+                r.w * self.cell_w,
+                r.h * self.cell_h,
+            )
+        };
+        let mut frame = Frame::new(
+            (win.cols * self.cell_w).max(1),
+            (win.rows * self.cell_h).max(1),
+            t.background,
+        );
+
+        // Content: foreground blocks only, top down, clipped to the area above the editor.
+        let area = Rect {
+            x: lay.content.x,
+            y: lay.content.y,
+            w: lay.content.w,
+            h: lay.editor.y.saturating_sub(lay.content.y),
+        };
+        let (ax, ay, aw, ah) = px(&area);
+        if aw > 0 && ah > 0 {
+            let mut region = Frame::new(aw, ah, t.background);
+            let columns = usize::try_from(area.w).unwrap_or(1);
+            let mut y = 0;
+            for b in doc.blocks() {
+                match b {
+                    Block::Grid(g) => {
+                        self.paint_grid(&mut region, 0, y, g);
+                        y += u32::try_from(g.size().1).unwrap_or(0) * self.cell_h;
+                    }
+                    Block::Rich(r) if !r.background => {
+                        self.paint_rich(&mut region, 0, y, columns, r);
+                        y += self.rich_height(r, columns);
+                    }
+                    Block::Rich(_) => {}
+                }
+            }
+            Self::blit(&mut frame, &region, ax, ay);
+        }
+
+        // Editor: a fixed box with a prompt.
+        let (ex, ey, ew, eh) = px(&lay.editor);
+        frame.fill(ex, ey, ew, eh, t.border);
+        frame.fill(
+            ex + self.scale,
+            ey + self.scale,
+            ew.saturating_sub(2 * self.scale),
+            eh.saturating_sub(2 * self.scale),
+            t.editor,
+        );
+        self.text_line(&mut frame, ex + self.cell_w, ey, ">", t.foreground);
+
+        // Strip: below the editor.
+        if let (StripPlacement::Placed(r), Some(strip)) = (lay.strip, newest) {
+            let (sx, sy, sw, sh) = px(&r);
+            let mut region = Frame::new(sw, sh, t.container);
+            let width = usize::try_from(r.w).unwrap_or(1).saturating_sub(2);
+            self.text_line(&mut region, self.cell_w, 0, &strip.label(), t.label);
+            if strip.open {
+                for (i, block) in strip.blocks.iter().enumerate() {
+                    let (lines, _) = Self::body(&block.content, width.max(1));
+                    let first = lines.first().map_or("", String::as_str);
+                    let row = u32::try_from(i + 1).unwrap_or(u32::MAX) * self.cell_h;
+                    self.text_line(
+                        &mut region,
+                        self.cell_w,
+                        row,
+                        &clip(first, width),
+                        t.foreground,
+                    );
+                }
+            }
+            Self::blit(&mut frame, &region, sx, sy);
+        }
+
+        // Margin: last, from the terminal's own colours and text.
+        for m in &lay.margin {
+            let (mx, my, mw, mh) = px(m);
+            frame.fill(mx, my, mw, mh, t.margin);
+        }
+        self.text_line(
+            &mut frame,
+            self.cell_w * GUTTER_COLUMNS.min(win.cols),
+            0,
+            MARGIN_LABEL,
+            t.margin_text,
+        );
+        frame
     }
 
     /// Paint a whole document, blocks stacked top to bottom.
