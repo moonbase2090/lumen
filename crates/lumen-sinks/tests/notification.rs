@@ -1,7 +1,7 @@
 //! The notification sink, read from the real upstream emulator.
 
 use lumen_harness::{Effect, Origin, Verdict};
-use lumen_sinks::{Policy, Terminal};
+use lumen_sinks::{Layer, Policy, Terminal};
 
 fn notifications(t: &Terminal) -> u64 {
     t.log()
@@ -57,20 +57,21 @@ fn allow_unsigned_shows_one_toast_a_second_and_never_reaches_the_os_sink() {
 
 #[test]
 fn the_opt_in_never_applies_to_ssh_or_a_multiplexer_pane() {
-    for policy in [
-        Policy {
+    for layer in [
+        Layer {
             ssh: true,
-            ..allowing()
+            ..Layer::default()
         },
-        Policy {
+        Layer {
             multiplexer_pane: true,
-            ..allowing()
+            ..Layer::default()
         },
     ] {
-        let mut t = Terminal::with_policy(policy);
+        let mut t = Terminal::with_policy(allowing());
+        t.set_layer(layer);
         t.feed_at(b"\x1b]9;a\x07", Origin::Unsealed, "x", 0);
         let c = t.case_sinks();
-        assert_eq!((c.toasts, c.denied_notifications), (0, 1), "{policy:?}");
+        assert_eq!((c.toasts, c.denied_notifications), (0, 1), "{layer:?}");
         assert_eq!(notifications(&t), 0);
     }
 }
@@ -99,7 +100,7 @@ fn a_split_notification_is_one_denial() {
 }
 
 #[test]
-fn the_verdict_is_never_zero_while_other_sinks_have_no_code() {
+fn an_idle_terminal_is_not_measured() {
     let mut t = Terminal::new();
     t.feed(b"nothing to see", Origin::Unsealed, "plain");
     match t.log().verdict() {

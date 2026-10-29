@@ -1,0 +1,923 @@
+{
+  "cases": [
+    {
+      "category": "authority",
+      "context": {},
+      "id": "cmd-lifecycle",
+      "note": "start, prompt and end: three boundary changes and one exit status, all sealed origin",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f3100000006700000007000000000000000000011000000014a824100747b48afefc115c7b1ee5d3900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008a8e3e5571d594c88478bd18f4cc20d6b8565f59",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3110000006300000007000000000000000000021100000010122902a464d075016f8fead1e2971f1b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000009430ecb7952acc08bd962a62f81748ee",
+          "t_ms": 5
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3120000006b00000007000000000000000000031200000018dbaf9c120e542940e61d3c35761c49540000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000d985085eb2dc2829f339d906d282d411fb02472f880cdb6",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "boundary_change": 3,
+          "exit_status": 1
+        },
+        "refused": 0
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {},
+      "id": "cmd-start-out-of-sequence",
+      "note": "the first command id must be 1",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f3100000006700000007000000000000000000011000000014a824100747b48afefc115c7b1ee5d3900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008a8e3e566f8972257ed716676b9f0cda9a436e2f",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "effects": {},
+        "refused": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {},
+      "id": "cmd-end-without-start",
+      "note": "a command end for a command that is not open",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f3120000006b00000007000000000000000000011200000018511e42d899013480b8c7ab12cb293fe80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008a8e3e55364e0f47944b2b3f641a951fc91ced830be4adba",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "effects": {},
+        "refused": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {},
+      "id": "cmd-end-wrong-id",
+      "note": "the end names another command: refused, and the exit status sink is not reached",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f3100000006700000007000000000000000000011000000014a824100747b48afefc115c7b1ee5d3900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008a8e3e5571d594c88478bd18f4cc20d6b8565f59",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3120000006b00000007000000000000000000021200000018d2aeeeb9079a36999a27f1103826f134000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cad1e40e0acea8085f2837e39b6ba6cd9a15a43ead064696",
+          "t_ms": 5
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "boundary_change": 1
+        },
+        "refused": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "confirm_clipboard": true
+      },
+      "id": "grant-then-revoke",
+      "note": "a revoke takes effect at once, so the clipboard write after it is refused",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b896c48bbfbff643548f1976b09c427593c",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3200000006500000007000000000000000000022000000012fb73e4b5258c35c4ab0afd42e14935a9000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cad60ab7ec20b0f174ce66144d6914e6660d",
+          "t_ms": 5
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3210000007300000007000000000000000000032100000020fb867369018bd5438b8a21be85c118360000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006cfe24e1990db6e9ccaf0c0220a3fd9d7a7afb165f14bdbd18f24a3e296d23d8",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 2
+        },
+        "refused": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {},
+      "id": "grant-bad-action",
+      "note": "an action other than 0 or 1 is malformed",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000888f8c8976292dd589736c09f1699b5b7dbb",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "effects": {},
+        "refused": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {},
+      "id": "grant-capability-nine",
+      "note": "capability numbers stop at 8",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b87b18ec83d4dc846a31990a72fa67b23e9",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "effects": {},
+        "refused": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {},
+      "id": "grant-capability-zero",
+      "note": "0 is not a capability that can be granted",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b8ec2189ad6beec89648cabd5a90e565f0c",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "effects": {},
+        "refused": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "confirm_clipboard": true,
+        "deny_grants": [
+          7
+        ]
+      },
+      "id": "grant-denied-by-policy",
+      "note": "the policy does not allow clipboard-write to be granted: the grant is refused and the write after it too",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b896c48bbfbff643548f1976b09c427593c",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3210000006400000007000000000000000000022100000011c044c8135711f589f52e207b8eaf0b9b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b2b617c3e7ba152ff88fe6e6050769213d",
+          "t_ms": 5
+        }
+      ],
+      "sinks": {
+        "effects": {},
+        "refused": 2
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "deny_grants": [
+          7
+        ]
+      },
+      "id": "revoke-is-never-denied-by-policy",
+      "note": "a revoke is allowed whatever the policy denies",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008a89114f5ca2b1ed625cedb57efaed8c2fbe",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1
+        },
+        "refused": 0
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "confirm_clipboard": true
+      },
+      "id": "clipboard-without-grant",
+      "note": "no clipboard-write capability: refused even though the user would confirm",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f3210000006400000007000000000000000000012100000011b21cc7eef981ce1eecd17cbc70df89e2000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f26ce1d044fc5a9f53cebab1389c861332",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "effects": {},
+        "refused": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {},
+      "id": "clipboard-granted-not-confirmed",
+      "note": "granted but the user does not confirm: nothing reaches the clipboard sink",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b896c48bbfbff643548f1976b09c427593c",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3210000006a000000070000000000000000000221000000175a9dd79b00bc55e6bee8aa5d73d0280b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a9be94752aa3cd91ad3fac6d5b0689a0b74ce9b7f71e5f",
+          "t_ms": 5
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1
+        },
+        "refused": 0
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "confirm_clipboard": true
+      },
+      "id": "clipboard-granted-confirmed",
+      "note": "granted and confirmed (the confirmation is simulated): one clipboard write, sealed origin",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b896c48bbfbff643548f1976b09c427593c",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3210000006a000000070000000000000000000221000000175a9dd79b00bc55e6bee8aa5d73d0280b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a9be94752aa3cd91ad3fac6d5b0689a0b74ce9b7f71e5f",
+          "t_ms": 5
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "clipboard_write": 1,
+          "grant": 1
+        },
+        "refused": 0
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "os_notifications": true,
+        "unfocused": true
+      },
+      "id": "notification-without-capability",
+      "note": "no notifications capability: refused",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f322000000670000000700000000000000000001220000001468fcb04b4160be1532c99fc43ed7c0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008a8c563deecb851b485d392e88b528b1c797be74",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "effects": {},
+        "os_notifications": 0,
+        "refused": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {},
+      "id": "notification-toast-by-default",
+      "note": "OS notifications are off by default: a sealed notification is a toast",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006f0000000700000000000000000002220000001c2d8a958f2883300b827a36c59dca6696000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cadb867963a2cc28c3bad57c740839b8bfc21319670e82309f8cfb16",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1
+        },
+        "os_notifications": 0,
+        "toasts": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "os_notifications": true
+      },
+      "id": "notification-os-but-focused",
+      "note": "the terminal is focused: a toast, not an OS notification",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006f0000000700000000000000000002220000001c2d8a958f2883300b827a36c59dca6696000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cadb867963a2cc28c3bad57c740839b8bfc21319670e82309f8cfb16",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1
+        },
+        "os_notifications": 0,
+        "toasts": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "muted": true,
+        "os_notifications": true,
+        "unfocused": true
+      },
+      "id": "notification-os-but-muted",
+      "note": "the pane is muted: a toast",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006f0000000700000000000000000002220000001c2d8a958f2883300b827a36c59dca6696000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cadb867963a2cc28c3bad57c740839b8bfc21319670e82309f8cfb16",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1
+        },
+        "os_notifications": 0,
+        "toasts": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "os_notifications": true,
+        "ssh": true,
+        "unfocused": true
+      },
+      "id": "notification-os-but-ssh",
+      "note": "an SSH session never raises an OS notification",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006f0000000700000000000000000002220000001c2d8a958f2883300b827a36c59dca6696000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cadb867963a2cc28c3bad57c740839b8bfc21319670e82309f8cfb16",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1
+        },
+        "os_notifications": 0,
+        "toasts": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "os_notifications": true,
+        "tmux_or_screen": true,
+        "unfocused": true
+      },
+      "id": "notification-os-but-multiplexer",
+      "note": "a multiplexer pane never raises an OS notification",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006f0000000700000000000000000002220000001c2d8a958f2883300b827a36c59dca6696000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cadb867963a2cc28c3bad57c740839b8bfc21319670e82309f8cfb16",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1
+        },
+        "os_notifications": 0,
+        "toasts": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "unfocused": true
+      },
+      "id": "notification-os-setting-off",
+      "note": "notifications.os is off: a toast",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006f0000000700000000000000000002220000001c2d8a958f2883300b827a36c59dca6696000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cadb867963a2cc28c3bad57c740839b8bfc21319670e82309f8cfb16",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1
+        },
+        "os_notifications": 0,
+        "toasts": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "os_notifications": true,
+        "unfocused": true
+      },
+      "id": "notification-os-unfocused",
+      "note": "setting on, capability held, unfocused, local, not muted: exactly one OS notification, labelled, with no program text",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000007800000007000000000000000000022200000025184022fb49929b7f866d822d7888484d000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cac2976969bccd7c87b7ce701f0b765025e4d943e1163007d08d8c9a127faf398f81d8ea0b",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1,
+          "notification": 1
+        },
+        "os_notifications": 1,
+        "os_texts": [
+          "Program in pane 1 says:"
+        ],
+        "toasts": 0
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "os_notifications": true,
+        "os_text": true,
+        "unfocused": true
+      },
+      "id": "notification-os-text-opt-in",
+      "note": "with notifications.os-text the program's text follows the fixed prefix",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006f0000000700000000000000000002220000001c2d8a958f2883300b827a36c59dca6696000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cadb867963a2cc28c3bad57c740839b8bfc21319670e82309f8cfb16",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1,
+          "notification": 1
+        },
+        "os_notifications": 1,
+        "os_texts": [
+          "Program in pane 1 says: build done"
+        ]
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "os_notifications": true,
+        "os_text": true,
+        "unfocused": true
+      },
+      "id": "notification-os-text-capped",
+      "note": "bidirectional and zero-width characters are removed and the text is capped",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000019b00000007000000000000000000022200000148f7bc8a4037b549095b7235598b57fbca000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cbe785ee8a60caea275ed8390b172e4728e8d14eedd75e7e03ea5dc0f10511ca3c9d5dea58d79fc5aec9fa3b429c4fa690ffec0261d17003f3010e8b2ad73c008c1c3384a3c26d879af11e2e85c436cb5735687e7954177466b596a61f3efe7cd6f528f5c750310bc525e1a2552cfa1524cc44170f59449a2f04e41b69b9d73b38bd4ac76f4328e9433822ac14cf9b6e17a644f4de03f27b133edcb5ea49199afdb75cbeafa3bf9336df89d6be14d390e85cc213c547446c91d7bb98d481a9d0da7287180f010dbc0f9b69844dbdf4751543848a183179a6796313dae9fe5168cbae3597d0d20aa0acc04edaa436e07de5e7aa7c11385f27e0a53b871ed21c19ff2d813932b13e5d53849af1a39c896d359dc31bc35eae374a3c122dd1361ee87713f6bca1c6a9264fa9daffffcd01933329dc6a4685dc5d58ce8fb5889b5a74df32e34f30c83ec1",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1,
+          "notification": 1
+        },
+        "os_notifications": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "os_notifications": true,
+        "unfocused": true
+      },
+      "id": "notification-rate-limit-500ms",
+      "note": "a second notification 500 ms after the first is dropped and counted",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006f0000000700000000000000000002220000001c2d8a958f2883300b827a36c59dca6696000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cadb867963a2cc28c3bad57c740839b8bfc21319670e82309f8cfb16",
+          "t_ms": 10
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006a0000000700000000000000000003220000001743b0702fc316d3830f3bc7c763a413e30000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000d9d31e38a44acd70b217fa5c81c20860f29ba8e510cf2",
+          "t_ms": 510
+        }
+      ],
+      "sinks": {
+        "denied_notifications": 1,
+        "effects": {
+          "grant": 1,
+          "notification": 1
+        },
+        "os_notifications": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "os_notifications": true,
+        "unfocused": true
+      },
+      "id": "notification-rate-limit-1000ms",
+      "note": "1000 ms apart both are accepted",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006f0000000700000000000000000002220000001c2d8a958f2883300b827a36c59dca6696000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cadb867963a2cc28c3bad57c740839b8bfc21319670e82309f8cfb16",
+          "t_ms": 10
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006a0000000700000000000000000003220000001743b0702fc316d3830f3bc7c763a413e30000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000d9d31e38a44acd70b217fa5c81c20860f29ba8e510cf2",
+          "t_ms": 1010
+        }
+      ],
+      "sinks": {
+        "denied_notifications": 0,
+        "effects": {
+          "grant": 1,
+          "notification": 2
+        },
+        "os_notifications": 2
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {},
+      "id": "notification-malformed-length",
+      "note": "the length field disagrees with the text",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006700000007000000000000000000022200000014e2ca5aa69be54240bfa3b9ca89bc9a1f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cad88c6548b2cb41ada2b87fb4f2e2626770eca2",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1
+        },
+        "refused": 1,
+        "toasts": 0
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {},
+      "id": "marker-has-no-effect",
+      "note": "a staged-content marker is parsed and has no other effect in this revision",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f3300000008700000007000000000000000000013000000034ac93d197b5419814e59cfe96774794db0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008a8e3e5731490840bffc4bd81adc0b2f1c63abb017812d9baf35293df0114e84420de932314db818733e10fb21854ad273d4798a",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "effects": {},
+        "refused": 0
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {},
+      "id": "unknown-type",
+      "note": "a type that is not in the table is refused",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f3050000006600000007000000000000000000010500000013de5808cdd7ddbda1fa36134cfb2ca6ec0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b8c3d52f96a1258bf3f257a99606c67ff16d2",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "effects": {},
+        "refused": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {},
+      "id": "link-open-confirmed",
+      "note": "the user confirms the full target (simulated): one link open, user origin, not a leak",
+      "reads": [
+        {
+          "hex": "6c730a",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "link_open": 1
+        }
+      },
+      "sinks_unsealed_layer": {
+        "effects": {
+          "link_open": 1
+        }
+      },
+      "user_actions": [
+        "open_link_confirmed"
+      ]
+    },
+    {
+      "category": "authority",
+      "context": {},
+      "id": "link-open-not-confirmed",
+      "note": "no confirmation: the link sink is not reached",
+      "reads": [
+        {
+          "hex": "6c730a",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "effects": {}
+      },
+      "sinks_unsealed_layer": {
+        "effects": {}
+      },
+      "user_actions": [
+        "open_link_unconfirmed"
+      ]
+    }
+  ],
+  "note": "sealed frames of the shell-integration, clipboard, notification and marker types, sealed under the fixed test keys; every case says what the sinks must see",
+  "revision": "rt-4"
+}
