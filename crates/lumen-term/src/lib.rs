@@ -23,5 +23,5 @@ pub use document::{Block, Document, RichBlock};
 pub use grid::GridBlock;
 pub use layer::{Context, Layer, Notice, Passthrough, Piece};
 pub use layout::{Layout, Rect, StripPlacement, layout};
-pub use raster::{Frame, Renderer, Theme};
+pub use raster::{Frame, Renderer, Theme, Window};
 pub use strip::Strip;
