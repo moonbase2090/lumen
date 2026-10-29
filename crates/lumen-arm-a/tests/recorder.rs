@@ -23,7 +23,9 @@ fn record(state: LayerState, reads: &[Vec<u8>]) -> String {
     let header = HeaderInfo {
         commit: "test".into(),
         features: "arm-a".into(),
+        harness: "test".into(),
         corpus: "inline".into(),
+        session_matrix: "none".into(),
         sinks: "none".into(),
     };
     let Ok(mut rec) = Recorder::new(Vec::new(), &header) else {
