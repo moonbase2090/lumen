@@ -16,7 +16,7 @@ page_template = "spec-page.html"
 - This specification is licensed under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). Reference code is licensed MIT OR Apache-2.0.
 - **Security issues:** report them privately through GitHub private vulnerability reporting on this repository, or by email to security@lumenprotocol.org. Do not open public issues for vulnerabilities.
 
-This is a frozen snapshot. Later changes will be published as new revisions or versions. They will not edit this text.
+Revision 25 takes in-place edits until it is published. After publication, later changes will be made as new revisions or versions, and this text will not be edited.
 
 ## Summary {#summary}
 
