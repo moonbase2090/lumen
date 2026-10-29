@@ -94,7 +94,7 @@ A failure to enter the sandbox is a hard failure: the worker exits before readin
 - First frame only. Animation, extra frames, and all metadata (EXIF, ICC, text chunks) are dropped inside the worker. No colour management and no orientation rotation.
 - Output is converted to 8-bit premultiplied RGBA. 16-bit and palette inputs are converted by the worker.
 - The worker reads the header first, applies the size limits to the **decoded** dimensions in checked 64-bit arithmetic, and only then allocates the output buffer. It does not trust `hint_width` or `hint_height`.
-- No `unsafe` in the decoding path, and no C library in the worker.
+- The worker's own decoding module has no `unsafe`, and there is no C library in the worker. The libraries it calls are not all free of `unsafe`: `zune-jpeg` has SIMD code behind its default `x86` and `neon` features (see [the fuzz campaign](decoder-fuzz-campaign.md)).
 
 ## Proposed libraries
 
