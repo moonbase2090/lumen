@@ -49,7 +49,7 @@ The type byte of a frame names what the frame asks for. Sealed types are below 0
 | 0x12 | command end | closes the command's container and carries its exit status (an exit-status and command-boundary change) | a sealed shell-integration layer |
 | 0x20 | grant | grants a capability to the layer, or narrows a grant | a sealed shell-integration layer |
 | 0x21 | clipboard write | asks for a clipboard write; nothing is written until the terminal's own confirmation, which shows the exact bytes | the `clipboard-write` capability |
-| 0x22 | notification | draws one terminal toast, in the terminal's own chrome; never an OS notification | the `notifications` capability |
+| 0x22 | notification | draws one terminal toast, or one OS notification under [Notifications](@/spec/v0/trust.md#trust.notifications); never executes anything | the `notifications` capability |
 | 0x30 | staged-content marker | commits side-channel content staged under a one-shot id | the `side-channel` capability |
 
 Type 0x23 (title) is reserved. v0 defines no capability for it, so a terminal rejects it as it rejects any unknown sealed type. Notifications from unsealed bytes are not frames and are handled as the [capability list](@/spec/v0/capabilities.md#caps.list) and the trust rules describe.

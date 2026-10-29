@@ -13,7 +13,7 @@ The protocol version is `major.minor`. A minor version adds optional features. A
 
 ## Capabilities {#caps.list}
 
-v0 defines the capabilities `images`, `tables`, `rgb-color`, `cell-spans`, `side-channel`, `hyperlinks`, `clipboard-write` and `notifications`. The `notifications` grant is the one that lets a sealed frame draw a terminal toast (never an OS notification) ([Notifications](@/spec/v0/trust.md#trust.notifications)). An advertisement (including `LUMEN=0`) is only a hint. The terminal decides by its policy, and nothing is ever granted because of the advertisement alone.
+v0 defines the capabilities `images`, `tables`, `rgb-color`, `cell-spans`, `side-channel`, `hyperlinks`, `clipboard-write` and `notifications`. The `notifications` grant is the one that lets a sealed frame draw a terminal toast, or an OS notification when the user has enabled it ([Notifications](@/spec/v0/trust.md#trust.notifications)) ([Notifications](@/spec/v0/trust.md#trust.notifications)). An advertisement (including `LUMEN=0`) is only a hint. The terminal decides by its policy, and nothing is ever granted because of the advertisement alone.
 
 ## Grants {#caps.grants}
 

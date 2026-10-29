@@ -46,7 +46,6 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 - Byte-for-byte backwards compatibility with xterm outside grid blocks.
 - Embedding HTML, CSS or JavaScript.
 - Multiplexer integration in v0 beyond a Lumen-aware multiplexer that implements the [sealed multiplexer layer](@/spec/v0/multiplexers.md#mux.lumen-aware). tmux and screen are post-v0.
-- OS (system) notifications on any path. v0 draws terminal toasts only; OS notifications are a post-v0 item.
 - Remote GUI or general application streaming.
 - Running in a browser in v0.
 
