@@ -13,10 +13,12 @@
 #![forbid(unsafe_code)]
 
 pub mod codec;
+pub mod identity;
 pub mod mux;
 pub mod terminal;
 
 pub use codec::{Layout, PaneContainer, Rect};
+pub use identity::{Identity, PaneLabel};
 pub use mux::Multiplexer;
 pub use terminal::{Counters, Draw, Outcome, PaneTerminal};
 
