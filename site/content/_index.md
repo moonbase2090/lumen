@@ -19,6 +19,6 @@ The current public draft is **Lumen Protocol v0, revision 25 (frozen snapshot)**
 Lumen is in **Phase 0.5**. On the owner's decision, v0 uses Arm B: Track 0 rich everywhere, with the sealed upgrade, and multiplexer panes keep the sealed relay. The evidence, and what is not yet measured, is in [the decision record](https://github.com/moonbase2090/lumen/blob/main/docs/phase-0.5/decision.md).
 
 
-Phase 1 has started on Arm B. The terminal runs programs on the upstream VT core and draws the trust margin itself. A sandboxed image decoder, a grid parser that drops string escapes, a notification path (off by default, with no operating-system backend yet), and the first Linux sealing probe are in the repository. Nothing here is released, and no gate result is claimed for any of it. The progress is listed in the [README](https://github.com/moonbase2090/lumen#status).
+Phase 1 has started on Arm B. The terminal runs programs on the upstream VT core and draws the trust margin itself. A sandboxed image decoder (not yet connected to the terminal, so images are not shown yet), a grid parser that drops string escapes, a notification path (off by default, with no operating-system backend yet), and the first Linux sealing probe are in the repository. Nothing here is released, and no gate result is claimed for any of it. The progress is listed in the [README](https://github.com/moonbase2090/lumen#status).
 
 </section>
