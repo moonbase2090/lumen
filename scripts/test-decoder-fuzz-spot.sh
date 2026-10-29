@@ -38,6 +38,14 @@ check "the synced copy has the ledger" test -s "$T/dest-a/ledger.json"
 check "the synced copy has both samples" test "$(wc -l < "$T/dest-a/png/samples.jsonl" | tr -d ' ')" -eq 2
 check "the finish command ran" test -f "$T/finished-a"
 check "the lock is released at exit" test ! -e "$T/a/.lock"
+check "the ledger carries a real image-path identity, not 'absent'" python3 -c "
+import json,sys
+l=json.load(open('$T/dest-a/ledger.json'))
+sys.exit(0 if len(l['image_path_build'])==64 and l['image_path_build']!=l['decoder_build'] else 1)"
+check "...and says that it covers the host half only" python3 -c "
+import json,sys
+l=json.load(open('$T/dest-a/ledger.json'))
+sys.exit(0 if l['notes']['image_path']['scope']=='partial' else 1)"
 
 # 2. A failing sync: the finish command must not run, and the exit says so.
 "$RUN" --out "$T/b" "${COMMON[@]}" --slices 1 --sync-cmd "false" --finish-cmd "date > \"$T/finished-b\"" > "$T/b.log" 2>&1
@@ -106,6 +114,11 @@ kill -TERM "$pid"; wait "$pid"; rc=$?
 check "an early SIGTERM exits 143" test "$rc" -eq 143
 check "...well before a 120 s slice could have finished" test $(( $(date +%s) - start )) -lt 100
 check "...with no fuzz process left" test -z "$(pgrep -f '/release/decode_png')"
+
+# 10. A directory of the same commit and decoder but another image path is refused.
+cp -R "$T/a" "$T/j" && rm -rf "$T/j/.lock" && echo 0000 > "$T/j/image_path_build"
+"$RUN" --out "$T/j" "${COMMON[@]}" --slices 1 > "$T/j.log" 2>&1
+check "a different image-path identity is refused with exit 3" test $? -eq 3
 
 [ "$fail" -eq 0 ] && echo "all spot-VM checks passed" || { echo "some checks FAILED"; tail -5 "$T"/*.log; }
 exit "$fail"

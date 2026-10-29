@@ -37,7 +37,7 @@ set -euo pipefail
 
 NIGHTLY="${NIGHTLY:-nightly}"
 OUT=""; WORKERS=2; SLICE=3600; SLICES=1; FORMATS="png,jpeg,webp"; SEEDS=""
-IMAGE_PATH_BUILD="absent: no terminal image path exists yet"
+IMAGE_PATH_BUILD=""
 RSS_MB=2048
 MIRI_RECORD=""
 TARGET_H=""; RESTORE_CMD=""; SYNC_CMD=""; FINISH_CMD=""
@@ -95,14 +95,20 @@ REGRESSION="$ROOT/crates/lumen-decoder/fuzz/seeds-regression"
 # Identity of what is fuzzed, recorded once per call so a changed build shows.
 FUZZ_FLAGS="cargo-fuzz asan; overflow-checks+debug-assertions (no UBSan for Rust); libfuzzer -timeout=2 -rss_limit_mb=$RSS_MB; nightly=$NIGHTLY"
 DECODER_BUILD="$("${TOOLS[@]}" identity "$ROOT" "$FUZZ_FLAGS")"
+# The image path's identity covers its host half only (runner, process control,
+# unlock rule, wire format, limits): the frame parser, reassembly and upload do
+# not exist yet. An identity passed with --image-path-build overrides it.
+[ -n "$IMAGE_PATH_BUILD" ] || IMAGE_PATH_BUILD="$("${TOOLS[@]}" identity "$ROOT" "$FUZZ_FLAGS" image-path)"
 HEAD_COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
 # A resumed run must be of this same build, or its CPU-hours do not count for it.
 same_build() { # directory -> 0 if it holds no run, or a run of this build
   [ -f "$1/decoder_build" ] || return 0
-  [ "$(cat "$1/decoder_build")" = "$DECODER_BUILD" ] && [ "$(cat "$1/commit" 2>/dev/null)" = "$HEAD_COMMIT" ]
+  [ "$(cat "$1/decoder_build")" = "$DECODER_BUILD" ] \
+    && [ "$(cat "$1/image_path_build" 2>/dev/null)" = "$IMAGE_PATH_BUILD" ] \
+    && [ "$(cat "$1/commit" 2>/dev/null)" = "$HEAD_COMMIT" ]
 }
 refuse_msg() { # directory
-  echo "refusing to resume: $1 holds a run of a different build (commit $(cat "$1/commit" 2>/dev/null), identity $(cat "$1/decoder_build"); this is $HEAD_COMMIT, $DECODER_BUILD)" >&2
+  echo "refusing to resume: $1 holds a run of a different build (commit $(cat "$1/commit" 2>/dev/null), identities $(cat "$1/decoder_build") and $(cat "$1/image_path_build" 2>/dev/null); this is $HEAD_COMMIT, $DECODER_BUILD and $IMAGE_PATH_BUILD)" >&2
 }
 refuse() { refuse_msg "$1"; exit 3; }
 same_build "$OUT" || refuse "$OUT"
@@ -120,6 +126,7 @@ if [ -n "$RESTORE_CMD" ]; then
   rm -rf "$STAGE"
 fi
 echo "$DECODER_BUILD" > "$OUT/decoder_build"
+echo "$IMAGE_PATH_BUILD" > "$OUT/image_path_build"
 echo "$HEAD_COMMIT" > "$OUT/commit"
 
 # The real worker, built without sanitizers, replays every oom-* artifact.
@@ -266,7 +273,10 @@ JSON
 cat > "$OUT/ubsan.json" <<'JSON'
 {"run": false, "reason": "Rust has no UBSan (rustc -Zsanitizer has no undefined). Nothing here is labelled UBSan. Overflow checks and debug assertions are on in the fuzz build; Miri results, if any, are in notes.miri."}
 JSON
-NOTES=("past_cve_seeds=$ROOT/crates/lumen-decoder/fuzz/seeds-regression/PAST_CVES.json" "build=$OUT/build.json" "ubsan=$OUT/ubsan.json")
+cat > "$OUT/image_path.json" <<'JSON'
+{"scope": "partial", "covers": "the host half of the image path: the runner (bounds and validates a worker's reply), process control, the unlock rule, the wire format and the limits", "does_not_cover": "the image-frame parser, multi-frame reassembly and the upload step, which do not exist yet, so the stateful multi-frame fuzz targets of the plan cannot be run", "reading": "a pass on this ledger is not a pass of the whole image path"}
+JSON
+NOTES=("image_path=$OUT/image_path.json" "past_cve_seeds=$ROOT/crates/lumen-decoder/fuzz/seeds-regression/PAST_CVES.json" "build=$OUT/build.json" "ubsan=$OUT/ubsan.json")
 [ -n "$MIRI_RECORD" ] || MIRI_RECORD="$ROOT/crates/lumen-decoder/fuzz/miri-record.json"
 [ ! -f "$MIRI_RECORD" ] || NOTES+=("miri=$MIRI_RECORD" "miri_gaps=$ROOT/crates/lumen-decoder/fuzz/miri-gaps.json")
 "${TOOLS[@]}" annotate "$OUT/ledger.plain.json" "${NOTES[@]}" > "$OUT/ledger.json"

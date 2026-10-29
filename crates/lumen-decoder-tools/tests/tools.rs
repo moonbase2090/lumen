@@ -8,7 +8,9 @@ use std::error::Error;
 
 use lumen_decoder::decode::decode;
 use lumen_decoder::protocol::Format;
+use lumen_decoder::unlock::{GateRecord, Identities, images_enabled};
 use lumen_decoder_tools::classify::{Kind, classify, classify_replay};
+use lumen_decoder_tools::identity::Kind as Identity;
 use lumen_decoder_tools::{escape, identity, ledger};
 
 #[path = "../examples/seeds/generate.rs"]
@@ -115,48 +117,138 @@ fn tree(files: &[(&str, &str)]) -> Result<std::path::PathBuf, Box<dyn Error>> {
     Ok(root)
 }
 
-const BASE: [(&str, &str); 4] = [
-    ("crates/lumen-decoder/src/lib.rs", "a"),
+const BASE: [(&str, &str); 14] = [
+    ("crates/lumen-decoder/src/decode.rs", "d"),
+    ("crates/lumen-decoder/src/ffi_sandbox.rs", "s"),
+    ("crates/lumen-decoder/src/ffi_alloc.rs", "a"),
+    ("crates/lumen-decoder/src/limits.rs", "l"),
+    ("crates/lumen-decoder/src/protocol.rs", "p"),
+    ("crates/lumen-decoder/src/bin/lumen-decoder-worker.rs", "w"),
+    ("crates/lumen-decoder/src/runner.rs", "r"),
+    ("crates/lumen-decoder/src/ffi_process.rs", "f"),
+    ("crates/lumen-decoder/src/unlock.rs", "u"),
+    ("crates/lumen-decoder/src/lib.rs", "i"),
     ("crates/lumen-decoder/src/bin/lumen-decoder-hostile.rs", "h"),
     ("crates/lumen-decoder/Cargo.toml", "m"),
-    ("Cargo.lock", "l"),
+    ("Cargo.lock", "k"),
+    ("crates/lumen-decoder/src/notes.txt", "n"),
 ];
 
-fn id(root: &std::path::Path, compiler: &str, flags: &str) -> Result<String, Box<dyn Error>> {
+fn id(
+    root: &std::path::Path,
+    kind: Identity,
+    compiler: &str,
+    flags: &str,
+) -> Result<String, Box<dyn Error>> {
     Ok(identity::hash(
         root,
-        &identity::decoder_files(root)?,
+        &identity::files(root, kind)?,
         compiler,
         flags,
     )?)
 }
 
 #[test]
-fn the_build_identity_changes_with_each_input() -> R {
+fn each_identity_changes_with_the_inputs_that_belong_to_it() -> R {
     let root = tree(&BASE)?;
-    let base = id(&root, "rustc 1", "")?;
-    assert_eq!(base, id(&root, "rustc 1", "")?, "stable");
-    assert_ne!(base, id(&root, "rustc 2", "")?, "compiler");
-    assert_ne!(base, id(&root, "rustc 1", "-Cdebuginfo=2")?, "flags");
-    for (path, _) in [BASE[0], BASE[2], BASE[3]] {
-        let before = std::fs::read_to_string(root.join(path))?;
-        std::fs::write(root.join(path), "changed")?;
-        assert_ne!(base, id(&root, "rustc 1", "")?, "{path}");
-        std::fs::write(root.join(path), before)?;
+    for kind in [Identity::Decoder, Identity::ImagePath] {
+        let base = id(&root, kind, "rustc 1", "")?;
+        assert_eq!(base, id(&root, kind, "rustc 1", "")?, "{kind:?} stable");
+        assert_ne!(base, id(&root, kind, "rustc 2", "")?, "{kind:?} compiler");
+        assert_ne!(
+            base,
+            id(&root, kind, "rustc 1", "-Cdebuginfo=2")?,
+            "{kind:?} flags"
+        );
+        for path in [
+            "crates/lumen-decoder/Cargo.toml",
+            "Cargo.lock",
+            "crates/lumen-decoder/src/limits.rs",
+            "crates/lumen-decoder/src/protocol.rs",
+        ] {
+            let before = std::fs::read_to_string(root.join(path))?;
+            std::fs::write(root.join(path), "changed")?;
+            assert_ne!(base, id(&root, kind, "rustc 1", "")?, "{kind:?}: {path}");
+            std::fs::write(root.join(path), before)?;
+        }
+        assert_eq!(base, id(&root, kind, "rustc 1", "")?, "{kind:?} restored");
     }
-    assert_eq!(base, id(&root, "rustc 1", "")?, "restored");
     Ok(())
 }
 
 #[test]
-fn the_test_only_worker_is_not_part_of_the_identity() -> R {
+fn a_change_on_one_side_moves_only_that_identity() -> R {
     let root = tree(&BASE)?;
-    let base = id(&root, "c", "")?;
+    let (d, p) = (
+        id(&root, Identity::Decoder, "c", "")?,
+        id(&root, Identity::ImagePath, "c", "")?,
+    );
+    assert_ne!(d, p);
+    // Worker-only source: the decoder identity moves, the image path's does not.
+    std::fs::write(root.join("crates/lumen-decoder/src/decode.rs"), "changed")?;
+    assert_ne!(d, id(&root, Identity::Decoder, "c", "")?);
+    assert_eq!(p, id(&root, Identity::ImagePath, "c", "")?);
+    // Host-only source: the other way round.
+    let d2 = id(&root, Identity::Decoder, "c", "")?;
+    std::fs::write(root.join("crates/lumen-decoder/src/runner.rs"), "changed")?;
+    assert_eq!(d2, id(&root, Identity::Decoder, "c", "")?);
+    assert_ne!(p, id(&root, Identity::ImagePath, "c", "")?);
+    Ok(())
+}
+
+#[test]
+fn the_test_only_worker_is_in_neither_identity() -> R {
+    let root = tree(&BASE)?;
+    let before = [
+        id(&root, Identity::Decoder, "c", "")?,
+        id(&root, Identity::ImagePath, "c", "")?,
+    ];
     std::fs::write(
         root.join("crates/lumen-decoder/src/bin/lumen-decoder-hostile.rs"),
         "different",
     )?;
-    assert_eq!(base, id(&root, "c", "")?);
+    assert_eq!(
+        before,
+        [
+            id(&root, Identity::Decoder, "c", "")?,
+            id(&root, Identity::ImagePath, "c", "")?
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_listed_source_that_is_missing_is_an_error_not_a_smaller_identity() -> R {
+    let root = tree(&BASE)?;
+    std::fs::remove_file(root.join("crates/lumen-decoder/src/runner.rs"))?;
+    assert!(identity::files(&root, Identity::ImagePath).is_err());
+    assert!(
+        identity::files(&root, Identity::Decoder).is_ok(),
+        "the decoder does not list it"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_source_file_in_neither_list_is_reported() -> R {
+    let root = tree(&BASE)?;
+    let extra = identity::uncovered(&root)?;
+    assert_eq!(extra.len(), 1, "{extra:?}");
+    assert!(extra[0].ends_with("notes.txt"));
+    Ok(())
+}
+
+#[test]
+fn every_source_file_of_the_real_crate_is_in_an_identity() -> R {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let extra = identity::uncovered(&root)?;
+    assert!(
+        extra.is_empty(),
+        "add these to DECODER_SOURCES or IMAGE_PATH_SOURCES: {extra:?}"
+    );
+    for kind in [Identity::Decoder, Identity::ImagePath] {
+        identity::files(&root, kind)?;
+    }
     Ok(())
 }
 
@@ -243,5 +335,93 @@ fn notes_travel_with_the_ledger_and_do_not_change_the_verdict() -> R {
     let (a, b) = (judge(&base.to_string())?, judge(&annotated.to_string())?);
     assert_eq!(a, b);
     assert!(b.passes());
+    Ok(())
+}
+
+// The unlock rule against identities computed from a real file tree: each way a
+// build can change moves an identity, and the alt text is shown until the gate
+// has passed for the new pair.
+
+fn pair(root: &std::path::Path, compiler: &str, flags: &str) -> Result<Identities, Box<dyn Error>> {
+    Ok(Identities {
+        decoder_build: id(root, Identity::Decoder, compiler, flags)?,
+        image_path_build: id(root, Identity::ImagePath, compiler, flags)?,
+    })
+}
+
+fn passed(ids: &Identities) -> GateRecord {
+    GateRecord {
+        platform: "linux".into(),
+        decoder_build: ids.decoder_build.clone(),
+        image_path_build: ids.image_path_build.clone(),
+        decoder_gate_passed: true,
+        memory_gate_passed: true,
+    }
+}
+
+#[test]
+fn images_stay_on_for_the_build_the_gate_passed_for() -> R {
+    let root = tree(&BASE)?;
+    let ids = pair(&root, "rustc 1", "")?;
+    assert!(images_enabled(true, "linux", &ids, &[passed(&ids)]));
+    Ok(())
+}
+
+#[test]
+fn a_changed_source_file_shows_alt_text() -> R {
+    for path in [
+        "crates/lumen-decoder/src/decode.rs",
+        "crates/lumen-decoder/src/runner.rs",
+    ] {
+        let root = tree(&BASE)?;
+        let record = passed(&pair(&root, "rustc 1", "")?);
+        std::fs::write(root.join(path), "changed")?;
+        let now = pair(&root, "rustc 1", "")?;
+        assert!(!images_enabled(true, "linux", &now, &[record]), "{path}");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_changed_compiler_flag_shows_alt_text() -> R {
+    let root = tree(&BASE)?;
+    let record = passed(&pair(&root, "rustc 1", "")?);
+    let now = pair(&root, "rustc 1", "-Cdebuginfo=2")?;
+    assert!(!images_enabled(true, "linux", &now, &[record]));
+    Ok(())
+}
+
+#[test]
+fn a_changed_compiler_shows_alt_text() -> R {
+    let root = tree(&BASE)?;
+    let record = passed(&pair(&root, "rustc 1", "")?);
+    let now = pair(&root, "rustc 2", "")?;
+    assert!(!images_enabled(true, "linux", &now, &[record]));
+    Ok(())
+}
+
+#[test]
+fn a_dependency_bump_in_the_lockfile_shows_alt_text() -> R {
+    let root = tree(&BASE)?;
+    let record = passed(&pair(&root, "rustc 1", "")?);
+    std::fs::write(
+        root.join("Cargo.lock"),
+        "name = \"png\"\nversion = \"0.18.2\"\n",
+    )?;
+    let now = pair(&root, "rustc 1", "")?;
+    assert!(!images_enabled(true, "linux", &now, &[record]));
+    Ok(())
+}
+
+#[test]
+fn a_gate_that_passed_for_only_one_identity_shows_alt_text() -> R {
+    // The decoder is as the gate saw it; the image path changed since.
+    let root = tree(&BASE)?;
+    let record = passed(&pair(&root, "rustc 1", "")?);
+    std::fs::write(root.join("crates/lumen-decoder/src/runner.rs"), "changed")?;
+    let now = pair(&root, "rustc 1", "")?;
+    assert_eq!(now.decoder_build, record.decoder_build);
+    assert_ne!(now.image_path_build, record.image_path_build);
+    assert!(!images_enabled(true, "linux", &now, &[record]));
     Ok(())
 }
