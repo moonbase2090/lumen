@@ -28,7 +28,7 @@ Lumen is in **Phase 0.5**: a comparison of two candidate designs before v0 is ch
   - forbidden items over the red-team corpora (rt-1, rt-2): 0 for each arm, which checks byte-pipeline output only, not what a terminal draws;
   - sealed frames: 261 test-key sealed frames from the rt-2 corpus opened on each sealed arm. They were sealed under public test keys, not real keys, so this exercises the upgrade path only;
   - flood: within budget for a 30 s run. Peak memory is a sampled value, and the longest call into the layer is a proxy for a UI stall, not a measured stall.
-- **Not measured yet:** the human spoofing study (2.2a), the simulated-reader proxy (2.2b), trust-margin pixels (2.3), authority leakage (2.4), decoder robustness (2.5), the red-team review (2.7), the cost metric (2.8), side-channel parity (2.9), the UI stall and lying-decoder parts of 2.6, and multiplexer placement (section 7). The modes for 2.4 to 2.9 and for section 7 exist, but no result for them is recorded yet. 2.4 in particular needs every effect sink reached before it can read zero, and the sinks are a test model of a terminal, not a terminal. No outcome under the decision rule is possible until these are measured. The macOS gate experiments are not yet proven on macOS.
+- **Not measured yet:** the human spoofing study (2.2a), the simulated-reader proxy (2.2b), trust-margin pixels (2.3), authority leakage (2.4), decoder robustness (2.5), the red-team review (2.7), the cost metric (2.8), side-channel parity (2.9), the UI stall and lying-decoder parts of 2.6, and multiplexer placement (section 7). The modes for 2.4 to 2.9 and for section 7 exist, but no result for them is recorded yet. 2.4 has all six effect sinks in a test model of a terminal, not a terminal, and two user confirmations (a clipboard write and a link open) are simulated because the harness has no user; a run over the four red-team corpora reads zero on the sealed arms only with those caveats, and no result is recorded yet. No outcome under the decision rule is possible until these are measured. The macOS gate experiments are not yet proven on macOS.
 
 ### Running the comparison
 
@@ -37,7 +37,8 @@ The evidence driver is a test-only crate, `lumen-evidence`. Each mode writes `ru
 ```sh
 # Replay a red-team corpus through one arm (b, a-sealed or a-unsealed).
 # rt-1 is docs/phase-0.5/corpus; rt-2 (sealed frames) is docs/phase-0.5/corpus-rt-2;
-# rt-3 (notification cases) is docs/phase-0.5/corpus-rt-3.
+# rt-3 (notification cases) is docs/phase-0.5/corpus-rt-3; rt-4 (sealed frames of every
+# type) is docs/phase-0.5/corpus-rt-4.
 cargo run -p lumen-evidence -- --corpus docs/phase-0.5/corpus --commit "$(git rev-parse HEAD)" --out out/rt1 --arm b
 
 # Reach over the 14-session matrix (b or a)
@@ -52,8 +53,10 @@ cargo run -p lumen-evidence -- --cost --root . --base <base-sha> --commit "$(git
 # Declared channels against the PTY baseline (2.9)
 cargo run -p lumen-evidence -- --parity --channels docs/phase-0.5/channels.json --commit "$(git rev-parse HEAD)" --out out/parity
 
-# Authority leakage (2.4): the OSC notification cases, with the terminal model's sinks
-cargo run -p lumen-evidence -- --corpus docs/phase-0.5/corpus-rt-3 --commit "$(git rev-parse HEAD)" --out out/rt3 --arm b
+# Authority leakage (2.4): give --corpus more than once to run corpora as one, so one
+# verdict covers them. rt-3 is the OSC notification cases and rt-4 is real sealed
+# frames. The report lists the simulated user actions the run used.
+cargo run -p lumen-evidence -- --corpus docs/phase-0.5/corpus --corpus docs/phase-0.5/corpus-rt-2 --corpus docs/phase-0.5/corpus-rt-3 --corpus docs/phase-0.5/corpus-rt-4 --commit "$(git rev-parse HEAD)" --out out/authority --arm b
 
 # Decoder fuzzing ledger against the 2.5 threshold (not measured without a ledger)
 cargo run -p lumen-evidence -- --decoder --ledger <ledger.json> --commit "$(git rev-parse HEAD)" --out out/decoder
