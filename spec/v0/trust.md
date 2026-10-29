@@ -52,6 +52,14 @@ Each unauthenticated producer gets a smaller share than any sealed layer: **25% 
 
 "Verified" means that this command ran and exited with this status. It never means that the command's content is trustworthy, and the UI says so. Output of a sealed command that arrives as Track 0 is still unverified output. Copying across producers shows the split in its confirmation. Link open and paste-as-command never take text from an unverified container without the visible confirmation.
 
+## Notifications {#trust.notifications}
+
+The terminal intercepts OSC 9, OSC 777 and OSC 99 in a layer before any emulator sees them. This holds on every path: grid output, and Track 0 output with or without an open container. Each one is routed to the terminal's notification handling and is never passed to the grid as a sequence.
+
+- **Default for unsigned output: deny.** Notifications from unsigned output raise no OS notification. The attempt is counted in the chrome count of dropped items ([Track 0](@/spec/v0/trust.md#trust.track0-scope)).
+- **A sealed frame with a notification grant** may raise at most one notification per sealed frame. Any further notification from that frame is dropped and counted in the chrome count. The grant is per sealed layer, as [Grants](@/spec/v0/capabilities.md#caps.grants) describes, and it is not in the default grant for a remote layer. The sealed frame type that carries the grant is reserved in the frame-type table of the transport spec, which is pending, and is not testable in this revision.
+- **Opt-in for unsigned output.** The policy key `notifications.allow-unsigned` (default `false`, set only in the user's policy file, [Policy](@/spec/v0/capabilities.md#caps.policy)) lets unsigned grid output on a local layer raise notifications, at most one per layer per second. Unsigned grid output is a byte stream with no frame boundary, so the unit is time: any notification after the first in the same second on that layer is dropped and counted in the chrome count. It never applies to possibly-remote layers, SSH sessions or multiplexer panes, which follows the same limits as `track0.treat_unsealed_as_local`. This is an explicit exception to [No authority from unsealed input](@/spec/v0/conformance.md#gate.no-authority), which covers all other unsealed input unchanged.
+
 ## Unverified boundaries {#trust.unverified-boundaries}
 
 Without a sealed layer, the terminal MAY infer command boundaries from its own process tracking, such as foreground process-group changes and alternate-screen exit. It draws them in the trust margin itself, clearly labelled **unverified boundary**, and never claims an exit status for them. Output bytes cannot create or move them, although a program can cause one through job control. A sealed layer replaces them with verified boundaries and exit status.
