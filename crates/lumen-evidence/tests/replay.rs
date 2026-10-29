@@ -151,3 +151,66 @@ fn both_arms_name_their_counters_the_same_way() {
     assert_eq!(names(&a.cases[0].counters), names(&b.cases[0].counters));
     assert!(names(&a.cases[0].counters).len() >= 17);
 }
+
+fn rt2_dir() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/phase-0.5/corpus-rt-2")
+}
+
+#[test]
+fn the_committed_rt2_corpus_is_what_the_generator_prints() {
+    let committed = std::fs::read_to_string(rt2_dir().join("red-team-2.json"));
+    assert_eq!(committed.ok(), Some(lumen_evidence::rt2::rt2_json()));
+}
+
+fn rt2_counters(arm: Arm, id: &str) -> String {
+    let Ok(corpus) = load_corpus(&rt2_dir()) else {
+        unreachable!("rt-2 loads")
+    };
+    let Ok((report, _)) = run_arm(&corpus, "testsha", arm, Vec::new()) else {
+        unreachable!("writing to a Vec succeeds")
+    };
+    assert_eq!(report.violations(), 0);
+    let Some(c) = report.cases.iter().find(|c| c.id == id) else {
+        unreachable!("case {id} present")
+    };
+    c.counters.clone()
+}
+
+#[test]
+fn rt2_real_sealed_frames_are_opened_by_both_arms_on_a_sealed_layer() {
+    for arm in [Arm::B, Arm::ASealed] {
+        assert!(rt2_counters(arm, "sealed-valid").contains("sealed_opened: 1,"));
+        assert!(rt2_counters(arm, "sealed-valid-two-in-order").contains("sealed_opened: 2,"));
+        assert!(rt2_counters(arm, "sealed-valid-split-across-reads").contains("sealed_opened: 1,"));
+        assert!(
+            rt2_counters(arm, "sealed-over-body-cap-in-one-second").contains("sealed_opened: 256,")
+        );
+    }
+}
+
+#[test]
+fn rt2_refused_frames_are_counted_and_never_opened() {
+    for arm in [Arm::B, Arm::ASealed] {
+        let c = rt2_counters(arm, "sealed-tampered-body");
+        assert!(c.contains("body_aead_failures: 1,") && c.contains("sealed_opened: 0,"));
+        assert!(rt2_counters(arm, "sealed-replayed-frame").contains("refused_replay: 1,"));
+        assert!(
+            rt2_counters(arm, "sealed-over-body-cap-in-one-second")
+                .contains("refused_over_body_cap: 44,")
+        );
+        assert!(rt2_counters(arm, "sealed-aborts-pin-the-layer").contains("pinned_notices: 1,"));
+        assert!(rt2_counters(arm, "sealed-abort-mid-body").contains("truncated: 1,"));
+        assert!(rt2_counters(arm, "sealed-wrong-keys").contains("sealed_opened: 0,"));
+    }
+}
+
+#[test]
+fn rt2_opens_nothing_on_an_unsealed_layer() {
+    for id in [
+        "sealed-valid",
+        "sealed-valid-two-in-order",
+        "sealed-over-body-cap-in-one-second",
+    ] {
+        assert!(rt2_counters(Arm::AUnsealed, id).contains("sealed_opened: 0,"));
+    }
+}
