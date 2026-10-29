@@ -174,6 +174,16 @@ fn main() -> ExitCode {
             out(&ok_header(1, 1, 4, 4));
             out(&[0, 0, 0, 255]);
         }
+        // A complete, valid reply followed by a failing exit status.
+        "image-then-fail" => {
+            out(&ok_header(1, 1, 4, 4));
+            out(&[1, 2, 3, 255]);
+            return ExitCode::from(3);
+        }
+        "reject-then-fail" => {
+            out(&Reply::status_only(Status::Corrupt).encode());
+            return ExitCode::from(3);
+        }
         "raw-exit-nonzero" => return ExitCode::from(3),
         _ => return ExitCode::from(64),
     }
