@@ -77,6 +77,8 @@ The worker may decode an image whose true size differs from the hint. It is fine
 | Network | none | sandbox profile |
 | Stderr | at most 4 KiB kept, the rest discarded | terminal; a flood is read and dropped, never buffered, and does not block the worker |
 
+**Hang thresholds.** The gate counts a hang over 2 s as a crash, and the fuzz run applies that 2 s to the decode itself. The 4 s wall-clock timeout in the terminal is only a backstop for a worker that stalls without using CPU (blocked on a read, say); it is not the hang threshold, and a worker that is merely slow is stopped by the 2 s CPU limit first.
+
 The sandbox is entered **before the worker reads a byte of input**:
 
 - **Linux:** resource limits, `no_new_privs`, then a seccomp-bpf filter that allows only the system calls the decoder needs (read, write, memory mapping, exit, futex, clock, signal return) and kills the process on anything else. It does not allow `open`, `socket`, `execve` or `fork`/`clone` of a process.
