@@ -9,7 +9,7 @@
         "unfocused": true
       },
       "id": "unsigned-never-os-with-every-setting-on",
-      "note": "allow-unsigned, os, os-text and an unfocused window are all on: an unsigned notification is a toast, never an OS notification",
+      "note": "allow_unsigned, os_notifications, os_text and an unfocused window are all on: an unsigned notification is a toast, never an OS notification",
       "reads": [
         {
           "hex": "1b5d393b7807",
@@ -310,7 +310,7 @@
         "unfocused": true
       },
       "id": "os-setting-off-sealed-and-unsigned-are-toasts",
-      "note": "notifications.os is off: both are toasts",
+      "note": "os_notifications is off: both are toasts",
       "reads": [
         {
           "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
@@ -390,6 +390,6 @@
       }
     }
   ],
-  "note": "notification cases that carry sealed 0x22 frames beside unsigned OSC sequences: an OS notification comes only from a sealed frame with the capability, behind notifications.os; unsigned, SSH, multiplexer and orphan output only ever produce a toast or nothing",
+  "note": "notification cases that carry sealed 0x22 frames beside unsigned OSC sequences: an OS notification comes only from a sealed frame with the capability, behind os_notifications; unsigned, SSH, multiplexer and orphan output only ever produce a toast or nothing",
   "revision": "rt-3"
 }

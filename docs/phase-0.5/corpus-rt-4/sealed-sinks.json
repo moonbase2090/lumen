@@ -576,7 +576,7 @@
         "unfocused": true
       },
       "id": "notification-os-setting-off",
-      "note": "notifications.os is off: a toast",
+      "note": "os_notifications is off: a toast",
       "reads": [
         {
           "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
@@ -649,7 +649,7 @@
         "unfocused": true
       },
       "id": "notification-os-text-opt-in",
-      "note": "with notifications.os-text the program's text follows the fixed prefix",
+      "note": "with os_text the program's text follows the fixed prefix",
       "reads": [
         {
           "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",

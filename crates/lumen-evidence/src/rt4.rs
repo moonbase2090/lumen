@@ -306,7 +306,7 @@ pub fn rt4_json() -> String {
         (
             "notification-os-setting-off",
             json!({"unfocused": true}),
-            "notifications.os is off: a toast",
+            "os_notifications is off: a toast",
         ),
     ] {
         let mut f = Frames::new();
@@ -347,7 +347,7 @@ pub fn rt4_json() -> String {
             "effects": {"grant": 1, "notification": 1}, "os_notifications": 1,
             "os_texts": ["Program in pane 1 says: build done"]
         }),
-        "with notifications.os-text the program's text follows the fixed prefix",
+        "with os_text the program's text follows the fixed prefix",
     ));
     let mut f = Frames::new();
     let long = "x".repeat(300);
@@ -502,7 +502,7 @@ pub fn rt3_sealed_json() -> String {
         &all_on,
         &json!({"effects": {}, "os_notifications": 0, "toasts": 1, "denied_notifications": 0, "notification_attempts": 0}),
         &json!({"effects": {}, "os_notifications": 0, "toasts": 1, "denied_notifications": 0, "notification_attempts": 0}),
-        "allow-unsigned, os, os-text and an unfocused window are all on: an unsigned notification is a toast, never an OS notification",
+        "allow_unsigned, os_notifications, os_text and an unfocused window are all on: an unsigned notification is a toast, never an OS notification",
     ));
 
     let mut f = Frames::new();
@@ -599,7 +599,7 @@ pub fn rt3_sealed_json() -> String {
         &off,
         &json!({"effects": {"grant": 1}, "os_notifications": 0, "toasts": 2}),
         &json!({"effects": {}, "os_notifications": 0, "toasts": 1}),
-        "notifications.os is off: both are toasts",
+        "os_notifications is off: both are toasts",
     ));
 
     let mut f = Frames::new();
@@ -621,7 +621,7 @@ pub fn rt3_sealed_json() -> String {
 
     let mut out = serde_json::to_string_pretty(&json!({
         "revision": "rt-3",
-        "note": "notification cases that carry sealed 0x22 frames beside unsigned OSC sequences: an OS notification comes only from a sealed frame with the capability, behind notifications.os; unsigned, SSH, multiplexer and orphan output only ever produce a toast or nothing",
+        "note": "notification cases that carry sealed 0x22 frames beside unsigned OSC sequences: an OS notification comes only from a sealed frame with the capability, behind os_notifications; unsigned, SSH, multiplexer and orphan output only ever produce a toast or nothing",
         "cases": cases
     }))
     .unwrap_or_default();
