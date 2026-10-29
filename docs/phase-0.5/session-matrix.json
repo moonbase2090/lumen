@@ -54,7 +54,8 @@
      "output",
      "text"
     ]
-   }
+   },
+   "note": "expects a block in arm B by trust.md (render by default over SSH); the ssh.track0 policy default is not defined at this revision, so this expectation cannot yet be checked against it; the layer is unsealed (not a local session)"
   },
   {
    "id": "linux-serial",
@@ -88,7 +89,7 @@
    "category": "reach",
    "session": "nested-shell",
    "platform": "linux",
-   "sealed": true,
+   "sealed": false,
    "reads": [
     {
      "hex": "6c730a",
@@ -106,16 +107,17 @@
     ],
     "a": [
      "output",
-     "block"
+     "text"
     ]
-   }
+   },
+   "note": "nested shells get no keys (sealed-layers, layer lifetime), so the layer is unsealed"
   },
   {
    "id": "linux-plain-multiplexer",
    "category": "reach",
    "session": "plain-multiplexer",
    "platform": "linux",
-   "sealed": true,
+   "sealed": false,
    "reads": [
     {
      "hex": "6c730a",
@@ -138,7 +140,8 @@
    },
    "context": {
     "tmux_or_screen": true
-   }
+   },
+   "note": "plain multiplexers get no keys (sealed-layers, layer lifetime), so the layer is unsealed; TMUX or STY is set, so Track 0 is escaped text in both arms"
   },
   {
    "id": "linux-lumen-multiplexer",
@@ -165,7 +168,8 @@
      "output",
      "block"
     ]
-   }
+   },
+   "note": "the scripted run is a shell line in the multiplexer's own sealed layer, not a pane; the rich-pane setting and the multiplexer gate do not apply to it, so unsealed Track 0 follows the default rule"
   },
   {
    "id": "linux-alt-screen-app",
@@ -249,7 +253,8 @@
      "output",
      "text"
     ]
-   }
+   },
+   "note": "expects a block in arm B by trust.md (render by default over SSH); the ssh.track0 policy default is not defined at this revision, so this expectation cannot yet be checked against it; the layer is unsealed (not a local session)"
   },
   {
    "id": "macos-serial",
@@ -283,7 +288,7 @@
    "category": "reach",
    "session": "nested-shell",
    "platform": "macos",
-   "sealed": true,
+   "sealed": false,
    "reads": [
     {
      "hex": "6c730a",
@@ -301,16 +306,17 @@
     ],
     "a": [
      "output",
-     "block"
+     "text"
     ]
-   }
+   },
+   "note": "nested shells get no keys (sealed-layers, layer lifetime), so the layer is unsealed"
   },
   {
    "id": "macos-plain-multiplexer",
    "category": "reach",
    "session": "plain-multiplexer",
    "platform": "macos",
-   "sealed": true,
+   "sealed": false,
    "reads": [
     {
      "hex": "6c730a",
@@ -333,7 +339,8 @@
    },
    "context": {
     "tmux_or_screen": true
-   }
+   },
+   "note": "plain multiplexers get no keys (sealed-layers, layer lifetime), so the layer is unsealed; TMUX or STY is set, so Track 0 is escaped text in both arms"
   },
   {
    "id": "macos-lumen-multiplexer",
@@ -360,7 +367,8 @@
      "output",
      "block"
     ]
-   }
+   },
+   "note": "the scripted run is a shell line in the multiplexer's own sealed layer, not a pane; the rich-pane setting and the multiplexer gate do not apply to it, so unsealed Track 0 follows the default rule"
   },
   {
    "id": "macos-alt-screen-app",
