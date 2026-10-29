@@ -1,0 +1,2 @@
+==78680==ERROR: AddressSanitizer: heap-use-after-free on address 0x602000000a73 at pc 0x00010463dde0 bp 0x00016b7c14b0 sp 0x00016b7c14a8
+SUMMARY: AddressSanitizer: heap-use-after-free canary.rs:13 in _RNvNvCskzva1kg3mWm_6canarys_1__19___libfuzzer_sys_run

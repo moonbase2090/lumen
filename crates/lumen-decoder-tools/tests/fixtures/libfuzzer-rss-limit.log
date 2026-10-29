@@ -1,0 +1,3 @@
+#5	INITED cov: 1124 ft: 1969 corp: 4/6503b exec/s: 0 rss: 39Mb
+==73860== ERROR: libFuzzer: out-of-memory (used: 676Mb; limit: 512Mb)
+SUMMARY: libFuzzer: out-of-memory
