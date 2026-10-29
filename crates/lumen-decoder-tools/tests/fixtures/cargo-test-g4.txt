@@ -1,0 +1,2 @@
+     Running tests/g4_sandbox.rs (target/debug/deps/g4_sandbox-6103fbf94fa92ac8)
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.00s

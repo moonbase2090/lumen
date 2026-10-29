@@ -830,6 +830,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumen-decoder-tools"
+version = "0.0.0"
+dependencies = [
+ "image-webp",
+ "jpeg-encoder",
+ "lumen-decoder",
+ "lumen-evidence",
+ "png 0.18.1",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "lumen-detector"
 version = "0.0.0"
 dependencies = [

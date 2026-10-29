@@ -85,6 +85,14 @@ impl Runner {
         self
     }
 
+    /// Replaces the wall-clock limit. The default is the contract's 4 s; the
+    /// test suite lengthens it for decodes that must succeed on a loaded host.
+    #[must_use]
+    pub fn with_wall(mut self, wall: Duration) -> Self {
+        self.wall = wall;
+        self
+    }
+
     /// The worker path.
     #[must_use]
     pub fn worker(&self) -> &Path {
@@ -188,7 +196,12 @@ impl Runner {
     }
 }
 
-fn validate(out: &[u8], exited_ok: bool, reserved: u64, cap: u64) -> Outcome {
+/// Judges everything a worker wrote. `out` is stdout as read (at most `cap + 1`
+/// bytes), `exited_ok` is whether it exited with status 0, `reserved` the pixel
+/// bytes reserved for the image and `cap` the read cap. Public so the fuzz
+/// target can drive it with arbitrary bytes.
+#[must_use]
+pub fn validate(out: &[u8], exited_ok: bool, reserved: u64, cap: u64) -> Outcome {
     if out.len() as u64 > cap {
         return Outcome::Crash(Crash::Overflow);
     }
