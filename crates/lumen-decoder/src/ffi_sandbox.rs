@@ -4,20 +4,25 @@
 //! This is the only place in the worker that uses `unsafe`: resource limits,
 //! `no_new_privs` and the seccomp filter on Linux, and the Seatbelt profile on
 //! macOS are system calls with no safe wrapper in the standard library.
-// The type of `RLIMIT_*` differs between libc targets, so the casts are needed on some.
-#![allow(unsafe_code, clippy::unnecessary_cast)]
+#![allow(unsafe_code)]
 
 use std::io;
 
 use crate::limits::CPU_SECONDS;
 
-fn set_limit(resource: i32, soft: u64, hard: u64) -> io::Result<()> {
+/// The type `setrlimit` takes for a resource: it differs between libc targets.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+type Resource = libc::__rlimit_resource_t;
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+type Resource = libc::c_int;
+
+fn set_limit(resource: Resource, soft: u64, hard: u64) -> io::Result<()> {
     let lim = libc::rlimit {
         rlim_cur: soft as libc::rlim_t,
         rlim_max: hard as libc::rlim_t,
     };
     // SAFETY: `lim` is a valid, initialised rlimit that lives across the call.
-    if unsafe { libc::setrlimit(resource as _, &raw const lim) } == 0 {
+    if unsafe { libc::setrlimit(resource, &raw const lim) } == 0 {
         Ok(())
     } else {
         Err(io::Error::last_os_error())
@@ -40,9 +45,9 @@ fn close_extra_fds() {
 /// Any step that fails. There is no partial sandbox.
 pub fn enter() -> io::Result<()> {
     close_extra_fds();
-    set_limit(libc::RLIMIT_CORE as i32, 0, 0)?;
-    set_limit(libc::RLIMIT_CPU as i32, CPU_SECONDS, CPU_SECONDS + 1)?;
-    set_limit(libc::RLIMIT_NOFILE as i32, 3, 3)?;
+    set_limit(libc::RLIMIT_CORE, 0, 0)?;
+    set_limit(libc::RLIMIT_CPU, CPU_SECONDS, CPU_SECONDS + 1)?;
+    set_limit(libc::RLIMIT_NOFILE, 3, 3)?;
     platform::limits()?;
     platform::profile()
 }
@@ -141,8 +146,8 @@ mod platform {
     }
 
     pub fn limits() -> io::Result<()> {
-        set_limit(libc::RLIMIT_AS as i32, MEMORY_BYTES, MEMORY_BYTES)?;
-        set_limit(libc::RLIMIT_NPROC as i32, 0, 0)
+        set_limit(libc::RLIMIT_AS, MEMORY_BYTES, MEMORY_BYTES)?;
+        set_limit(libc::RLIMIT_NPROC, 0, 0)
     }
 
     pub fn profile() -> io::Result<()> {
@@ -187,9 +192,9 @@ mod platform {
     pub fn limits() -> io::Result<()> {
         // The kernel here refuses to set a memory limit, so these are best
         // effort; the worker's capped allocator is what holds the 512 MiB line.
-        let _ = set_limit(libc::RLIMIT_AS as i32, MEMORY_BYTES, MEMORY_BYTES);
-        let _ = set_limit(libc::RLIMIT_DATA as i32, MEMORY_BYTES, MEMORY_BYTES);
-        set_limit(libc::RLIMIT_NPROC as i32, 0, 0)
+        let _ = set_limit(libc::RLIMIT_AS, MEMORY_BYTES, MEMORY_BYTES);
+        let _ = set_limit(libc::RLIMIT_DATA, MEMORY_BYTES, MEMORY_BYTES);
+        set_limit(libc::RLIMIT_NPROC, 0, 0)
     }
 
     pub fn profile() -> io::Result<()> {

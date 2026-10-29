@@ -446,7 +446,7 @@ dependencies = [
  "lumen-detector",
  "lumen-term",
  "lumen-track0",
- "png",
+ "png 0.17.16",
  "prismattyc-core",
  "prismattyc-emulator",
  "sha2",
