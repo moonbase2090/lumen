@@ -103,7 +103,7 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 
 - **Unit:** count of Lumen channels that accept an action a PTY write could not already perform.
 - **Method:** the [side-channel parity](../../spec/v0/conformance.md#gate.parity) test: for each channel, enumerate the actions it accepts and check each against the actions a plain PTY writer can already trigger.
-- **Harness:** comparison harness, parity mode.
+- **Harness:** comparison harness, parity mode (section 5.5).
 - **Threshold:** **zero** channels that accept more than a PTY write could. Any failure in arm B fails the decision rule.
 
 ## 3. Hard gates and preconditions
@@ -164,6 +164,12 @@ The session matrix is one file, `docs/phase-0.5/session-matrix.json`: `{"revisio
 The run log header (format 2) records `commit`, `features`, `harness` (the harness version), `corpus` (the corpus revision, or `none`), `session_matrix` (the matrix revision, or `none`) and `sinks`. A reach run has `corpus` `none`; a corpus replay has `session_matrix` `none`.
 
 The first matrix (`sm-1`) has one Track 0 paragraph after a shell command in each session. It has no sealed frames yet, so Arm A's sealed rendering is not exercised by it; the sealed-frame sessions arrive with the sealed-frame corpus.
+
+### 5.5 Parity mode
+
+`lumen-evidence --parity --channels FILE --commit SHA --out DIR` counts the Lumen channels that accept an action a PTY write could not already perform (2.9). The harness cannot discover channels, so the arm's author declares them in the channel catalogue, `docs/phase-0.5/channels.json`: `{"revision": "...", "channels": [...]}`, where a channel is `{"id": "...", "actions": [...]}` and an action is `{"id": "...", "pty_equivalent": "..."}`. `pty_equivalent` says in a sentence which PTY write already performs the same action, or is `null` when none does. A `null` makes its channel one that accepts more than a PTY write could. Channel ids are unique, and action ids are unique within a channel.
+
+The count is only as complete as the catalogue, so a result must say that the catalogue was checked against the channel code at the measured commit, and by whom. The run exits 1 when the count is not zero. A catalogue with no channel is reported as `2.9=not measured`, not as zero: a count over nothing says nothing about the gate. The committed catalogue (`ch-1`) declares no channel, because no channel (Track B, the seal channel) has code in the arms yet. `run.jsonl` holds only the header.
 
 ## 6. Results format
 
