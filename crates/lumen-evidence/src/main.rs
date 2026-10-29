@@ -17,8 +17,8 @@
 //! `lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR`
 //!
 //! Decoder robustness mode (criteria 2.5): judges a decoder fuzzing ledger
-//! against the threshold. With no ledger it reports `not measured`. Exits 1
-//! when a ledger was judged and the gate does not hold.
+//! against the threshold. Exits 0 when the gate holds, 1 when it does not and
+//! 3 when nothing was measured (no ledger, or a ledger with no format).
 //!
 //! `lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]`
 //!
@@ -132,13 +132,11 @@ fn decoder(ledger: Option<&str>, commit: &str, out: &std::path::Path) -> Result<
     let (report, header) =
         lumen_evidence::decoder::run_decoder(ledger.map(std::path::Path::new), commit, log)?;
     finish(out, &report.summary(&header))?;
-    Ok(
-        if matches!(report, lumen_evidence::decoder::Report::Judged { .. }) && !report.passes() {
-            ExitCode::from(1)
-        } else {
-            ExitCode::SUCCESS
-        },
-    )
+    Ok(match report {
+        lumen_evidence::decoder::Report::NotMeasured(_) => ExitCode::from(3),
+        _ if report.passes() => ExitCode::SUCCESS,
+        lumen_evidence::decoder::Report::Judged { .. } => ExitCode::from(1),
+    })
 }
 
 fn reach(matrix: &str, commit: &str, out: &std::path::Path, arm: &str) -> Result<ExitCode, String> {

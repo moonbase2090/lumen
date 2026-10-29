@@ -192,7 +192,7 @@ The summary, with its per-file counts, is the raw log; `run.jsonl` holds only th
 
 ### 5.5 Decoder mode
 
-`lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR` judges a decoder fuzzing ledger against the threshold of 2.5. The driver does not fuzz: there is no image decoder in this repository and images are off. With no ledger the summary says `2.5=not measured`, and the run exits 0. With a ledger it exits 1 when the gate does not hold.
+`lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR` judges a decoder fuzzing ledger against the threshold of 2.5. The driver does not fuzz: there is no image decoder in this repository and images are off. With no ledger the summary says `2.5=not measured`. The run exits 0 when the gate holds, 1 when it does not and 3 when nothing was measured: no ledger, or a ledger that enables no format. Exit 0 is therefore never printed for a run that measured nothing.
 
 The ledger is a JSON object with `revision`, `decoder_build` and `image_path_build` (the gate covers both identities), one entry per enabled format and the sandbox escape result:
 
