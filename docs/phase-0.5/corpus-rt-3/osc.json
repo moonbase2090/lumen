@@ -369,10 +369,10 @@
    ],
    "sinks": {
     "notification_attempts": 0,
-    "denied_notifications": 0,
-    "toasts": 1
+    "denied_notifications": 1,
+    "toasts": 0
    },
-   "note": "allow-unsigned on, orphan output",
+   "note": "allow-unsigned on, orphan output: the opt-in covers unsigned grid output only, so the notification is denied, with no toast and no OS notification",
    "context": {
     "container": false,
     "allow_unsigned": true

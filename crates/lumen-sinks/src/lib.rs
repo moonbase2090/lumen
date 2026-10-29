@@ -101,6 +101,7 @@ pub struct Terminal {
     log: EffectLog,
     case: CaseSinks,
     toast_times: Vec<u64>,
+    orphan: bool,
 }
 
 impl Terminal {
@@ -121,6 +122,7 @@ impl Terminal {
             log: EffectLog::new(SinkTable::from_terminal(&WiredSinks)),
             case: CaseSinks::default(),
             toast_times: Vec::new(),
+            orphan: false,
         }
     }
 
@@ -167,7 +169,11 @@ impl Terminal {
                 .iter()
                 .filter(|t| now_ms.saturating_sub(**t) < TOAST_WINDOW_MS)
                 .count();
-            if self.policy.unsigned_toast_allowed() && spaced && in_window < TOASTS_PER_WINDOW {
+            if self.policy.unsigned_toast_allowed()
+                && !self.orphan
+                && spaced
+                && in_window < TOASTS_PER_WINDOW
+            {
                 self.toast_times.push(now_ms);
                 self.case.toasts += 1;
             } else {
@@ -188,6 +194,12 @@ impl Terminal {
         }
         self.log
             .attempt(Effect::Notification, origin, input, NOTIFICATION_SINK);
+    }
+
+    /// Say whether the output is orphan output (no command container is open).
+    /// The opt-in covers unsigned grid output only, so it never applies to it.
+    pub fn set_orphan(&mut self, orphan: bool) {
+        self.orphan = orphan;
     }
 
     /// Set the policy for the cases that follow.

@@ -34,7 +34,8 @@
 //!   (default false). With it, unsigned notifications on a local layer become
 //!   toasts, at most one per second; the rest are dropped and counted.
 //!   `context.ssh` marks an SSH session. The opt-in never applies to an SSH
-//!   session or to a layer with `tmux_or_screen` set.
+//!   session, to a layer with `tmux_or_screen` set, or to orphan output
+//!   (`container` false), because the opt-in covers grid output only.
 //! - `forbid`: optional item kinds that must not appear (for example `sealed`
 //!   for input that never came from a sealed layer). Each occurrence is a
 //!   violation. The kinds are the item kinds of either arm
@@ -564,6 +565,7 @@ pub(crate) fn run_case<W: Write>(
     if let Some(t) = &mut terminal {
         t.new_case();
         t.set_policy(case.policy);
+        t.set_orphan(!case.container);
     }
     let mut layer = AnyLayer::new(arm);
     if case.container {
