@@ -54,11 +54,11 @@ Each unauthenticated producer gets a smaller share than any sealed layer: **25% 
 
 ## Notifications {#trust.notifications}
 
-The terminal intercepts OSC 9, OSC 777 and OSC 99 in a layer before any emulator sees them. This holds on every path: grid output, Track 0 output and orphan output. Each one is routed to the terminal's notification handling and is never passed to the grid as a sequence.
+The terminal intercepts OSC 9, OSC 777 and OSC 99 in a layer before any emulator sees them. This holds on every path: grid output, and Track 0 output with or without an open container. Each one is routed to the terminal's notification handling and is never passed to the grid as a sequence.
 
 - **Default for unsigned output: deny.** Notifications from unsigned output raise no OS notification. The attempt is counted in the chrome count of dropped items ([Track 0](@/spec/v0/trust.md#trust.track0-scope)).
-- **A sealed frame with a notification grant** may raise one notification by default. The grant is per sealed layer, as [Grants](@/spec/v0/capabilities.md#caps.grants) describes, and it is not in the default grant for a remote layer.
-- **Opt-in for unsigned output.** The user may set `allow-unsigned` in the policy file ([Policy](@/spec/v0/capabilities.md#caps.policy)) to let unsigned grid output raise notifications. It is off by default, and it is the only way to enable it.
+- **A sealed frame with a notification grant** may raise at most one notification per frame. Any further notification from the same frame is dropped and counted in the chrome count. The grant is per sealed layer, as [Grants](@/spec/v0/capabilities.md#caps.grants) describes, and it is not in the default grant for a remote layer. The sealed frame type that carries the grant is reserved in [Frame types](@/spec/v0/transport.md#transport.types) and is not testable in this revision.
+- **Opt-in for unsigned output.** The policy key `notifications.allow-unsigned` (default `false`, set only in the user's policy file, [Policy](@/spec/v0/capabilities.md#caps.policy)) lets unsigned grid output on a local layer raise notifications, at most one per frame, as above. It never applies to possibly-remote layers, SSH sessions or multiplexer panes, which follows the same limits as `track0.treat_unsealed_as_local`. This is an explicit exception to [No authority from unsealed input](@/spec/v0/conformance.md#gate.no-authority), which covers all other unsealed input unchanged.
 
 ## Unverified boundaries {#trust.unverified-boundaries}
 
