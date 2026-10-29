@@ -31,6 +31,7 @@
 #![forbid(unsafe_code)]
 
 pub mod matrix;
+pub mod parity;
 
 use lumen_arm_a::pipeline::ITEM_KINDS as ARM_A_KINDS;
 use lumen_arm_b::ITEM_KINDS as ARM_B_KINDS;

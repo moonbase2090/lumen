@@ -4,6 +4,11 @@
 //! `summary.txt` to the output directory and prints the summary. Exits 1 when
 //! a case produced a forbidden item.
 //!
+//! `lumen-evidence --parity --channels FILE --commit SHA --out DIR`
+//!
+//! Parity mode (criteria 2.9): counts the declared channels that accept more
+//! than a PTY write could. Exits 1 when the count is not zero.
+//!
 //! `lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]`
 //!
 //! Reach mode (criteria 2.1): replays the session matrix and reports how many
@@ -20,7 +25,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]";
+const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --parity --channels FILE --commit SHA --out DIR";
 
 /// Write the log and summary for a finished run and print the summary.
 fn finish(out: &std::path::Path, summary: &str) -> Result<(), String> {
@@ -63,6 +68,19 @@ fn replay(
     })
 }
 
+fn parity(channels: &str, commit: &str, out: &std::path::Path) -> Result<ExitCode, String> {
+    let catalogue = lumen_evidence::parity::load_catalogue(&PathBuf::from(channels))?;
+    let log = open_log(out)?;
+    let (report, header) =
+        lumen_evidence::parity::run_parity(&catalogue, commit, log).map_err(|e| e.to_string())?;
+    finish(out, &report.summary(&header))?;
+    Ok(if report.count() == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
 fn reach(matrix: &str, commit: &str, out: &std::path::Path, arm: &str) -> Result<ExitCode, String> {
     let arm = match arm {
         "b" => lumen_evidence::matrix::ReachArm::B,
@@ -86,6 +104,10 @@ fn main() -> ExitCode {
     let out = PathBuf::from(out);
     let arm = arg(&args, "--arm").unwrap_or_else(|| "b".to_owned());
     let result = match (arg(&args, "--corpus"), arg(&args, "--matrix")) {
+        (None, None) if args.iter().any(|a| a == "--parity") => match arg(&args, "--channels") {
+            Some(f) => parity(&f, &commit, &out),
+            None => Err("--parity needs --channels".to_owned()),
+        },
         (Some(corpus), None) => replay(&corpus, &commit, &out, &arm),
         (None, Some(matrix)) => reach(&matrix, &commit, &out, &arm),
         _ => {
