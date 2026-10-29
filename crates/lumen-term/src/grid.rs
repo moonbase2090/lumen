@@ -96,6 +96,12 @@ impl GridBlock {
         (screen.columns(), screen.rows())
     }
 
+    /// The screen, for a renderer.
+    #[must_use]
+    pub fn screen(&self) -> &prismattyc_core::Screen {
+        self.emulator.screen()
+    }
+
     /// Give the emulator bytes, as if the program had written them.
     pub fn feed(&mut self, bytes: &[u8]) {
         self.emulator.feed(bytes);

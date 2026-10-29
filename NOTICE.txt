@@ -1,0 +1,10 @@
+Third-party material bundled in this repository
+
+IBM Plex Mono Regular
+  Copyright (c) 2017 IBM Corp. with Reserved Font Name "Plex".
+  Licensed under the SIL Open Font License, Version 1.1. The license text is
+  in crates/lumen-term/assets/fonts/OFL.txt.
+  Source: https://github.com/IBM/plex, revision 71f558992315a12ca1f06a2215d57962a1992162
+  File: crates/lumen-term/assets/fonts/IBMPlexMono-Regular.ttf, unmodified
+  SHA-256: 7c6fbddca4b700be918f5f6183d9bd4464fa427fe435f0b480d77fe2bb8c5a43
+  Use: the pinned face of the headless rasteriser and the pixel oracle.
