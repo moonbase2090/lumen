@@ -349,6 +349,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumen-term"
+version = "0.0.0"
+dependencies = [
+ "lumen-arm-a",
+ "lumen-arm-b",
+ "lumen-detector",
+ "lumen-term",
+ "lumen-track0",
+ "prismattyc-core",
+ "prismattyc-emulator",
+]
+
+[[package]]
 name = "lumen-track0"
 version = "0.0.0"
 

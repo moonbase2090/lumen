@@ -1,0 +1,30 @@
+[package]
+name = "lumen-term"
+description = "The Lumen terminal: blocks on the upstream VT core, with the arm layer between the PTY and the grid"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# The arm the layer is built from. Both may be on at once, for the tests.
+arm-a = ["dep:lumen-arm-a"]
+arm-b = ["dep:lumen-arm-b"]
+
+[dependencies]
+prismattyc-core.workspace = true
+prismattyc-emulator.workspace = true
+lumen-track0 = { path = "../lumen-track0" }
+lumen-arm-a = { path = "../lumen-arm-a", optional = true }
+lumen-arm-b = { path = "../lumen-arm-b", optional = true }
+
+[dev-dependencies]
+# The tests run both arms: a self-dependency turns the features on for them.
+lumen-term = { path = ".", features = ["arm-a", "arm-b"] }
+lumen-detector = { path = "../lumen-detector" }
+
+[lints]
+workspace = true
