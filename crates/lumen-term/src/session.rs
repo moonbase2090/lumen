@@ -66,6 +66,17 @@ impl Session {
         &self.document
     }
 
+    /// Take the events the document raised since the last call, oldest first.
+    pub fn take_events(&mut self) -> Vec<crate::document::Event> {
+        self.document.take_events()
+    }
+
+    /// Milliseconds since the session started: the clock the notifier uses.
+    #[must_use]
+    pub fn now_ms(&self) -> u64 {
+        u64::try_from(self.clock.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
     fn context(&self) -> Context {
         let alt_screen =
             matches!(self.document.blocks().last(), Some(Block::Grid(g)) if g.alt_active());

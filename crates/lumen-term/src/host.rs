@@ -103,6 +103,8 @@ pub struct Config {
     pub scale: Option<u32>,
     /// Close the window after this long.
     pub exit_after: Option<Duration>,
+    /// What the user allowed for notifications.
+    pub notifications: crate::notify::Settings,
 }
 
 struct Running {
@@ -193,7 +195,8 @@ impl ApplicationHandler for Host {
             size.width,
             size.height,
         ) {
-            Ok(app) => {
+            Ok(mut app) => {
+                app.use_settings(self.config.notifications);
                 window.request_redraw();
                 self.state = Some(Running {
                     window,
@@ -230,6 +233,11 @@ impl ApplicationHandler for Host {
                     let _ = run.app.text(text);
                 }
             }
+            WindowEvent::Focused(focused) => {
+                if let Some(run) = &mut self.state {
+                    run.app.set_focused(focused);
+                }
+            }
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {}
         }
@@ -243,7 +251,8 @@ impl ApplicationHandler for Host {
             return;
         }
         if let Some(run) = &mut self.state {
-            if run.app.pump() > 0 {
+            let expired = run.app.tick();
+            if run.app.pump() > 0 || expired {
                 run.window.request_redraw();
             }
             if run.app.has_exited() {
