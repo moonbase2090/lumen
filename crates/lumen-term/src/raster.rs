@@ -146,6 +146,23 @@ impl Frame {
         }
     }
 
+    /// A `width` by `height` window onto this frame: when the frame is taller
+    /// than the window, the bottom of it (the newest blocks), otherwise the
+    /// frame at the top; the rest, and any width beyond the frame, is `colour`.
+    #[must_use]
+    pub fn viewport(&self, width: u32, height: u32, colour: Rgb) -> Frame {
+        let mut out = Frame::new(width, height, colour);
+        let skip = self.height.saturating_sub(height);
+        let rows = self.height - skip;
+        let copy = self.width.min(width) as usize * 4;
+        for y in 0..rows.min(height) {
+            let from = (((y + skip) as usize) * self.width as usize) * 4;
+            let to = ((y as usize) * width as usize) * 4;
+            out.rgba[to..to + copy].copy_from_slice(&self.rgba[from..from + copy]);
+        }
+        out
+    }
+
     /// The frame as a PNG.
     ///
     /// # Errors

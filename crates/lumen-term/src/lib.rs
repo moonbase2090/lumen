@@ -12,15 +12,19 @@
 
 #![forbid(unsafe_code)]
 
+pub mod app;
 pub mod document;
 pub mod grid;
+pub mod keys;
 pub mod layer;
 mod pty;
 pub mod raster;
 pub mod session;
 
+pub use app::App;
 pub use document::{Block, Document, RichBlock};
 pub use grid::GridBlock;
+pub use keys::{Key, Mods};
 pub use layer::{Context, Layer, Notice, Passthrough, Piece};
 pub use pty::SpawnError;
 pub use raster::{Frame, Renderer, Theme};

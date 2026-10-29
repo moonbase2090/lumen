@@ -28,6 +28,7 @@ pub struct Pty {
     input: Box<dyn Write + Send>,
     output: Receiver<Vec<u8>>,
     reader: Option<JoinHandle<()>>,
+    exited: bool,
 }
 
 impl Pty {
@@ -65,6 +66,7 @@ impl Pty {
             input,
             output,
             reader: Some(handle),
+            exited: false,
         })
     }
 
@@ -108,9 +110,13 @@ impl Pty {
             .map_err(|e| SpawnError(e.to_string()))
     }
 
-    /// Whether the program has exited.
+    /// Whether the program has exited. Once it has, this stays true: the
+    /// status is read once, and asking again would find nothing to reap.
     pub fn has_exited(&mut self) -> bool {
-        self.session.try_wait().ok().flatten().is_some()
+        if !self.exited {
+            self.exited = self.session.try_wait().ok().flatten().is_some();
+        }
+        self.exited
     }
 }
 
