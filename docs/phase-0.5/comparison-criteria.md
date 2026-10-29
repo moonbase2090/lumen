@@ -192,7 +192,7 @@ Three things are reported as `not measured`, with the reason, because the driver
 
 The summary, with its per-file counts, is the raw log; `run.jsonl` holds only the header. Cost is reported and not gated (2.8).
 
-**Cost base.** The base for comparison runs is commit `5549359`. At that commit the shared crates exist and no arm crate does, and it is an ancestor of main. Every cost result states the REF it used, and results are compared like for like only when they use this base.
+**Cost base.** The base for comparison runs is commit `5549359`. At that commit only the `lumen` and `lumen-detector` crates exist, and no arm crate does. It is an ancestor of main. Every cost result states the REF it used, and results are compared like for like only when they use this base.
 
 ### 5.5 Parity mode
 
