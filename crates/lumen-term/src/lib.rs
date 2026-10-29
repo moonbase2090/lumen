@@ -30,7 +30,7 @@ pub use document::{Block, Document, Event, RichBlock};
 pub use grid::GridBlock;
 pub use keys::{Key, Mods};
 pub use layer::{Context, Layer, Notice, Passthrough, Piece};
-pub use layout::{Layout, Rect, StripPlacement, layout};
+pub use layout::{Layout, Rect, StripPlacement, layout, notification_area};
 pub use pty::SpawnError;
 pub use raster::{Frame, Renderer, Theme, Window};
 pub use session::Session;

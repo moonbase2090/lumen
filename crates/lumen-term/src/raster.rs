@@ -12,7 +12,8 @@
 
 use crate::document::{Block, Document, RichBlock};
 use crate::grid::GridBlock;
-use crate::layout::{GUTTER_COLUMNS, Rect, StripPlacement, layout};
+use crate::layout::{GUTTER_COLUMNS, Rect, StripPlacement, layout, notification_area};
+use crate::notify::Toast;
 use lumen_track0::Block as Track0Block;
 use prismattyc_core::{Color, Style, grapheme_display_width};
 use std::cell::RefCell;
@@ -27,6 +28,8 @@ const FACE: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf");
 pub const BASE_PX: f32 = 14.0;
 /// The label every rich block's container carries.
 pub const CONTAINER_LABEL: &str = "unverified output";
+/// The most lines of text in a toast; the rest is cut.
+pub const TOAST_MAX_LINES: usize = 3;
 /// The terminal's own text in the header strip of the trust margin.
 pub const MARGIN_LABEL: &str = "lumen";
 
@@ -58,6 +61,10 @@ pub struct Theme {
     pub margin_text: Rgb,
     /// The input editor.
     pub editor: Rgb,
+    /// A toast's box.
+    pub toast: Rgb,
+    /// A toast's border.
+    pub toast_border: Rgb,
 }
 
 impl Theme {
@@ -93,6 +100,8 @@ impl Theme {
             margin: [226, 230, 238],
             margin_text: [60, 70, 90],
             editor: [250, 250, 250],
+            toast: [255, 250, 230],
+            toast_border: [190, 150, 60],
         }
     }
 }
@@ -502,6 +511,20 @@ impl Renderer {
     /// the content flow.
     #[must_use]
     pub fn render_window(&self, doc: &Document, win: &Window) -> Frame {
+        self.render_window_with(doc, win, &[])
+    }
+
+    /// Paint a window with the toasts the notifier is showing.
+    ///
+    /// Toasts are drawn only in the notification area, top down, newest last.
+    /// Each is painted into a frame of its own box size and copied in, so no
+    /// glyph overflows into neighbouring chrome, and a toast that does not
+    /// fit in what is left of the area is not drawn. An unsigned toast carries
+    /// the unverified-output label above its text. The text is what the
+    /// notifier composed: the fixed prefix, the pane label and the program's
+    /// cleaned text.
+    #[must_use]
+    pub fn render_window_with(&self, doc: &Document, win: &Window, toasts: &[Toast]) -> Frame {
         let t = &self.theme;
         let strips = doc.strips();
         let newest = strips.last();
@@ -554,6 +577,10 @@ impl Renderer {
             Self::blit(&mut frame, &region, ax, ay);
         }
 
+        // Toasts: in the notification area only.
+        let note = notification_area(&lay);
+        self.paint_toasts(&mut frame, px(&note), note.w, toasts);
+
         // Editor: a fixed box with a prompt.
         let (ex, ey, ew, eh) = px(&lay.editor);
         frame.fill(ex, ey, ew, eh, t.border);
@@ -602,6 +629,49 @@ impl Renderer {
             t.margin_text,
         );
         frame
+    }
+
+    /// Paint `toasts` top down into the notification area `(x, y, w, h)` in
+    /// pixels, `columns` cells wide. A toast that does not fit in what is left
+    /// is not drawn, and neither is any after it.
+    fn paint_toasts(
+        &self,
+        frame: &mut Frame,
+        (nx, ny, nw, nh): (u32, u32, u32, u32),
+        columns: u32,
+        toasts: &[Toast],
+    ) {
+        let t = &self.theme;
+        let inner = usize::try_from(columns)
+            .unwrap_or(1)
+            .saturating_sub(2)
+            .max(1);
+        let mut used = 0;
+        for toast in toasts {
+            let mut lines = wrap(&toast.text, inner);
+            lines.truncate(TOAST_MAX_LINES);
+            let rows = u32::try_from(lines.len()).unwrap_or(0) + u32::from(toast.unsigned);
+            let height = rows * self.cell_h + 2 * self.scale;
+            if used + height > nh {
+                break;
+            }
+            let mut box_frame = Frame::new(nw, height, t.toast);
+            box_frame.fill(0, 0, nw, self.scale, t.toast_border);
+            box_frame.fill(0, height - self.scale, nw, self.scale, t.toast_border);
+            box_frame.fill(0, 0, self.scale, height, t.toast_border);
+            box_frame.fill(nw - self.scale, 0, self.scale, height, t.toast_border);
+            let mut y = self.scale;
+            if toast.unsigned {
+                self.text_line(&mut box_frame, self.cell_w, y, CONTAINER_LABEL, t.label);
+                y += self.cell_h;
+            }
+            for line in &lines {
+                self.text_line(&mut box_frame, self.cell_w, y, line, t.foreground);
+                y += self.cell_h;
+            }
+            Self::blit(frame, &box_frame, nx, ny + used);
+            used += height;
+        }
     }
 
     /// Paint a whole document, blocks stacked top to bottom.
