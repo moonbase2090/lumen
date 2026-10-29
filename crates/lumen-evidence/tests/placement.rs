@@ -221,3 +221,29 @@ fn both_placements_see_the_new_cross_pane_cases_without_a_violation() {
         assert_eq!(seen("forged-layout-from-a-pane-replayed"), 1, "{p:?}");
     }
 }
+
+#[test]
+fn the_option_b_summary_states_what_its_counts_do_not_show() {
+    let Ok(corpus) = load_panes(&dir()) else {
+        unreachable!("pane corpus loads")
+    };
+    for (p, expect) in [(Placement::A, false), (Placement::B, true)] {
+        let Ok((report, header)) = run_placement(&corpus, "testsha", p, Vec::new()) else {
+            unreachable!("writing to a Vec succeeds")
+        };
+        let text = report.summary(&header);
+        assert_eq!(
+            text.contains("option_b_limit: panes hold no keys"),
+            expect,
+            "{p:?}"
+        );
+        if expect {
+            // The limit sits right after the counts it qualifies.
+            let counts = text
+                .find("forged_passthrough_opened=")
+                .unwrap_or(usize::MAX);
+            let limit = text.find("option_b_limit").unwrap_or(0);
+            assert!(limit > counts && limit - counts < 400, "{text}");
+        }
+    }
+}

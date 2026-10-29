@@ -149,6 +149,12 @@ impl Report {
             self.sum(|c| c.passthrough_opened),
             self.sum(|c| c.forged_seen)
         );
+        if self.placement == Placement::B {
+            let _ = writeln!(
+                out,
+                "option_b_limit: panes hold no keys under B, so the replay and forged-frame counts above come from unauthenticated bytes being refused by an outer pipeline that holds keys no pane knows. They are not a replay check or a forgery check, and they say nothing about an attacker who holds genuine frames."
+            );
+        }
         for (k, why) in [
             (
                 "key_reuse",
