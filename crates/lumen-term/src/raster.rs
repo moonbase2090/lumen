@@ -438,6 +438,75 @@ impl Renderer {
         }
     }
 
+    /// Paint the content region: foreground blocks top down. The newest cycle's
+    /// strip is below the editor; the strip of an older cycle sits where that
+    /// cycle's output ended, in the flow: one row, collapsed, with the count and
+    /// nothing the producer wrote.
+    fn paint_content(
+        &self,
+        region: &mut Frame,
+        doc: &Document,
+        columns: usize,
+        strips: &[crate::strip::Strip<'_>],
+        newest_cycle: Option<u32>,
+    ) {
+        let mut y = 0;
+        let mut placed: Vec<u32> = Vec::new();
+        for b in doc.blocks() {
+            match b {
+                Block::Grid(g) => {
+                    self.paint_grid(region, 0, y, g);
+                    y += u32::try_from(g.size().1).unwrap_or(0) * self.cell_h;
+                }
+                Block::Rich(r) if !r.background => {
+                    self.paint_rich(region, 0, y, columns, r);
+                    y += self.rich_height(r, columns);
+                }
+                Block::Rich(r) => {
+                    if Some(r.cycle) == newest_cycle || placed.contains(&r.cycle) {
+                        continue;
+                    }
+                    if let Some(strip) = strips.iter().find(|s| s.cycle == r.cycle) {
+                        placed.push(r.cycle);
+                        y += self.paint_flow_strip(region, y, columns, strip);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Paint the strip of an older prompt cycle at row `y` of the content
+    /// region, `columns` cells wide, and return its height in pixels: one row
+    /// when collapsed, a header and a row per block when the user opened it.
+    fn paint_flow_strip(
+        &self,
+        region: &mut Frame,
+        y: u32,
+        columns: usize,
+        strip: &crate::strip::Strip<'_>,
+    ) -> u32 {
+        let t = &self.theme;
+        let rows = if strip.open {
+            1 + strip.blocks.len()
+        } else {
+            1
+        };
+        let height = u32::try_from(rows).unwrap_or(u32::MAX) * self.cell_h;
+        let width = u32::try_from(columns).unwrap_or(1) * self.cell_w;
+        region.fill(0, y, width, height, t.container);
+        let inner = columns.saturating_sub(2).max(1);
+        self.text_line(region, self.cell_w, y, &strip.label(), t.label);
+        if strip.open {
+            for (i, block) in strip.blocks.iter().enumerate() {
+                let (lines, _) = Self::body(&block.content, inner);
+                let first = lines.first().map_or("", String::as_str);
+                let row = y + u32::try_from(i + 1).unwrap_or(u32::MAX) * self.cell_h;
+                self.text_line(region, self.cell_w, row, &clip(first, inner), t.foreground);
+            }
+        }
+        height
+    }
+
     /// The height in pixels of a rich block's container.
     #[must_use]
     pub fn rich_height(&self, block: &RichBlock, columns: usize) -> u32 {
@@ -560,20 +629,7 @@ impl Renderer {
         if aw > 0 && ah > 0 {
             let mut region = Frame::new(aw, ah, t.background);
             let columns = usize::try_from(area.w).unwrap_or(1);
-            let mut y = 0;
-            for b in doc.blocks() {
-                match b {
-                    Block::Grid(g) => {
-                        self.paint_grid(&mut region, 0, y, g);
-                        y += u32::try_from(g.size().1).unwrap_or(0) * self.cell_h;
-                    }
-                    Block::Rich(r) if !r.background => {
-                        self.paint_rich(&mut region, 0, y, columns, r);
-                        y += self.rich_height(r, columns);
-                    }
-                    Block::Rich(_) => {}
-                }
-            }
+            self.paint_content(&mut region, doc, columns, &strips, newest.map(|s| s.cycle));
             Self::blit(&mut frame, &region, ax, ay);
         }
 
