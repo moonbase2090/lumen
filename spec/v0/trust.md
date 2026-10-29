@@ -52,6 +52,14 @@ Each unauthenticated producer gets a smaller share than any sealed layer: **25% 
 
 "Verified" means that this command ran and exited with this status. It never means that the command's content is trustworthy, and the UI says so. Output of a sealed command that arrives as Track 0 is still unverified output. Copying across producers shows the split in its confirmation. Link open and paste-as-command never take text from an unverified container without the visible confirmation.
 
+## Notifications {#trust.notifications}
+
+The terminal intercepts OSC 9, OSC 777 and OSC 99 in a layer before any emulator sees them. This holds on every path: grid output, Track 0 output and orphan output. Each one is routed to the terminal's notification handling and is never passed to the grid as a sequence.
+
+- **Default for unsigned output: deny.** Notifications from unsigned output raise no OS notification. The attempt is counted in the chrome count of dropped items ([Track 0](@/spec/v0/trust.md#trust.track0-scope)).
+- **A sealed frame with a notification grant** may raise one notification by default. The grant is per sealed layer, as [Grants](@/spec/v0/capabilities.md#caps.grants) describes, and it is not in the default grant for a remote layer.
+- **Opt-in for unsigned output.** The user may set `allow-unsigned` in the policy file ([Policy](@/spec/v0/capabilities.md#caps.policy)) to let unsigned grid output raise notifications. It is off by default, and it is the only way to enable it.
+
 ## Unverified boundaries {#trust.unverified-boundaries}
 
 Without a sealed layer, the terminal MAY infer command boundaries from its own process tracking, such as foreground process-group changes and alternate-screen exit. It draws them in the trust margin itself, clearly labelled **unverified boundary**, and never claims an exit status for them. Output bytes cannot create or move them, although a program can cause one through job control. A sealed layer replaces them with verified boundaries and exit status.
