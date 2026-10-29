@@ -1,0 +1,404 @@
+{
+ "revision": "sm-1",
+ "note": "first session matrix: one Track 0 paragraph after a shell command in each session; sealed frames are not in it yet",
+ "sessions": [
+  {
+   "id": "linux-local-shell",
+   "category": "reach",
+   "session": "local-shell",
+   "platform": "linux",
+   "sealed": true,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3800000001600146c6f63616c2d7368656c6c206f6e206c696e7578",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "block"
+    ],
+    "a": [
+     "output",
+     "block"
+    ]
+   }
+  },
+  {
+   "id": "linux-ssh",
+   "category": "reach",
+   "session": "ssh",
+   "platform": "linux",
+   "sealed": false,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3800000000e000c737368206f6e206c696e7578",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "block"
+    ],
+    "a": [
+     "output",
+     "text"
+    ]
+   },
+   "note": "expects a block in arm B by trust.md (render by default over SSH); the ssh.track0 policy default is not defined at this revision, so this expectation cannot yet be checked against it; the layer is unsealed (not a local session)"
+  },
+  {
+   "id": "linux-serial",
+   "category": "reach",
+   "session": "serial",
+   "platform": "linux",
+   "sealed": false,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f38000000011000f73657269616c206f6e206c696e7578",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "block"
+    ],
+    "a": [
+     "output",
+     "text"
+    ]
+   }
+  },
+  {
+   "id": "linux-nested-shell",
+   "category": "reach",
+   "session": "nested-shell",
+   "platform": "linux",
+   "sealed": false,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3800000001700156e65737465642d7368656c6c206f6e206c696e7578",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "block"
+    ],
+    "a": [
+     "output",
+     "text"
+    ]
+   },
+   "note": "nested shells get no keys (sealed-layers, layer lifetime), so the layer is unsealed"
+  },
+  {
+   "id": "linux-plain-multiplexer",
+   "category": "reach",
+   "session": "plain-multiplexer",
+   "platform": "linux",
+   "sealed": false,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3800000001c001a706c61696e2d6d756c7469706c65786572206f6e206c696e7578",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "text"
+    ],
+    "a": [
+     "output",
+     "text"
+    ]
+   },
+   "context": {
+    "tmux_or_screen": true
+   },
+   "note": "plain multiplexers get no keys (sealed-layers, layer lifetime), so the layer is unsealed; TMUX or STY is set, so Track 0 is escaped text in both arms"
+  },
+  {
+   "id": "linux-lumen-multiplexer",
+   "category": "reach",
+   "session": "lumen-multiplexer",
+   "platform": "linux",
+   "sealed": true,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3800000001c001a6c756d656e2d6d756c7469706c65786572206f6e206c696e7578",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "block"
+    ],
+    "a": [
+     "output",
+     "block"
+    ]
+   },
+   "note": "the scripted run is a shell line in the multiplexer's own sealed layer, not a pane; the rich-pane setting and the multiplexer gate do not apply to it, so unsealed Track 0 follows the default rule"
+  },
+  {
+   "id": "linux-alt-screen-app",
+   "category": "reach",
+   "session": "alt-screen-app",
+   "platform": "linux",
+   "sealed": true,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f380000000190017616c742d73637265656e2d617070206f6e206c696e7578",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "text"
+    ],
+    "a": [
+     "output",
+     "text"
+    ]
+   },
+   "context": {
+    "alt_screen": true
+   }
+  },
+  {
+   "id": "macos-local-shell",
+   "category": "reach",
+   "session": "local-shell",
+   "platform": "macos",
+   "sealed": true,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3800000001600146c6f63616c2d7368656c6c206f6e206d61636f73",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "block"
+    ],
+    "a": [
+     "output",
+     "block"
+    ]
+   }
+  },
+  {
+   "id": "macos-ssh",
+   "category": "reach",
+   "session": "ssh",
+   "platform": "macos",
+   "sealed": false,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3800000000e000c737368206f6e206d61636f73",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "block"
+    ],
+    "a": [
+     "output",
+     "text"
+    ]
+   },
+   "note": "expects a block in arm B by trust.md (render by default over SSH); the ssh.track0 policy default is not defined at this revision, so this expectation cannot yet be checked against it; the layer is unsealed (not a local session)"
+  },
+  {
+   "id": "macos-serial",
+   "category": "reach",
+   "session": "serial",
+   "platform": "macos",
+   "sealed": false,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f38000000011000f73657269616c206f6e206d61636f73",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "block"
+    ],
+    "a": [
+     "output",
+     "text"
+    ]
+   }
+  },
+  {
+   "id": "macos-nested-shell",
+   "category": "reach",
+   "session": "nested-shell",
+   "platform": "macos",
+   "sealed": false,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3800000001700156e65737465642d7368656c6c206f6e206d61636f73",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "block"
+    ],
+    "a": [
+     "output",
+     "text"
+    ]
+   },
+   "note": "nested shells get no keys (sealed-layers, layer lifetime), so the layer is unsealed"
+  },
+  {
+   "id": "macos-plain-multiplexer",
+   "category": "reach",
+   "session": "plain-multiplexer",
+   "platform": "macos",
+   "sealed": false,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3800000001c001a706c61696e2d6d756c7469706c65786572206f6e206d61636f73",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "text"
+    ],
+    "a": [
+     "output",
+     "text"
+    ]
+   },
+   "context": {
+    "tmux_or_screen": true
+   },
+   "note": "plain multiplexers get no keys (sealed-layers, layer lifetime), so the layer is unsealed; TMUX or STY is set, so Track 0 is escaped text in both arms"
+  },
+  {
+   "id": "macos-lumen-multiplexer",
+   "category": "reach",
+   "session": "lumen-multiplexer",
+   "platform": "macos",
+   "sealed": true,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3800000001c001a6c756d656e2d6d756c7469706c65786572206f6e206d61636f73",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "block"
+    ],
+    "a": [
+     "output",
+     "block"
+    ]
+   },
+   "note": "the scripted run is a shell line in the multiplexer's own sealed layer, not a pane; the rich-pane setting and the multiplexer gate do not apply to it, so unsealed Track 0 follows the default rule"
+  },
+  {
+   "id": "macos-alt-screen-app",
+   "category": "reach",
+   "session": "alt-screen-app",
+   "platform": "macos",
+   "sealed": true,
+   "reads": [
+    {
+     "hex": "6c730a",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f380000000190017616c742d73637265656e2d617070206f6e206d61636f73",
+     "t_ms": 5
+    }
+   ],
+   "expect": {
+    "b": [
+     "output",
+     "text"
+    ],
+    "a": [
+     "output",
+     "text"
+    ]
+   },
+   "context": {
+    "alt_screen": true
+   }
+  }
+ ]
+}

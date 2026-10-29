@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 use std::io::{self, Write};
 
 /// Version of this recording format. Written into the header line.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// Facts about a run that every log starts with.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,8 +28,12 @@ pub struct HeaderInfo {
     pub commit: String,
     /// The cargo features the build used.
     pub features: String,
-    /// The corpus revision the run replays.
+    /// The version of the harness that produced the run.
+    pub harness: String,
+    /// The corpus revision the run replays, or `none`.
     pub corpus: String,
+    /// The session matrix revision the run replays, or `none`.
+    pub session_matrix: String,
     /// Where the effect-sink table came from: [`EffectLog::table_source`].
     pub sinks: String,
 }
@@ -71,7 +75,9 @@ impl<W: Write> Recorder<W> {
         for (key, value) in [
             ("commit", &header.commit),
             ("features", &header.features),
+            ("harness", &header.harness),
             ("corpus", &header.corpus),
+            ("session_matrix", &header.session_matrix),
             ("sinks", &header.sinks),
         ] {
             line.push_str(",\"");

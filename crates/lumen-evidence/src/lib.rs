@@ -17,6 +17,10 @@
 //!   "container": bool}`. `container` is whether a command's container is
 //!   open; it defaults to true, as while a command runs. With false, Track 0
 //!   goes to the background strip.
+//! - `expect`: optional `{"b": [..], "a": [..]}`, the item kinds the arm must
+//!   produce, in order, once adjacent `output` items and adjacent `text` items
+//!   are each joined (a read boundary can split them). Used by the reach mode
+//!   ([`matrix`]); the corpus replay ignores it.
 //! - `forbid`: optional item kinds that must not appear (for example `sealed`
 //!   for input that never came from a sealed layer). Each occurrence is a
 //!   violation. The kinds are the item kinds of either arm
@@ -30,6 +34,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod matrix;
 pub mod rt2;
 
 use lumen_arm_a::pipeline::ITEM_KINDS as ARM_A_KINDS;
@@ -44,6 +49,10 @@ use std::path::Path;
 /// Frames and bytes a producer may use per second in a full budget.
 const FULL_FRAMES: usize = 2000;
 const FULL_BYTES: usize = 8 << 20;
+
+/// The version of this harness, written into every run log header. Bump it
+/// when a change can alter a recorded number.
+pub const HARNESS_VERSION: &str = "lumen-evidence-2";
 
 /// One PTY read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +80,8 @@ pub struct Case {
     pub container: bool,
     /// Item kinds that must not appear.
     pub forbid: Vec<String>,
+    /// The kinds each arm must produce: key `b` for Arm B, `a` for Arm A.
+    pub expect: BTreeMap<String, Vec<String>>,
 }
 
 /// A loaded corpus.
@@ -111,7 +122,49 @@ fn read_of(v: &Value) -> Result<Read, String> {
     })
 }
 
-fn case_of(v: &Value) -> Result<Case, String> {
+fn kinds_of(id: &str, what: &str, v: &Value) -> Result<Vec<String>, String> {
+    let Some(a) = v.as_array() else {
+        return if v.is_null() {
+            Ok(Vec::new())
+        } else {
+            Err(format!("{id}: {what} must be a list"))
+        };
+    };
+    let known = |k: &str| ARM_B_KINDS.contains(&k) || ARM_A_KINDS.contains(&k);
+    a.iter()
+        .map(|k| {
+            let k = k
+                .as_str()
+                .ok_or_else(|| format!("{id}: {what} entries must be strings"))?;
+            if known(k) {
+                Ok(k.to_owned())
+            } else {
+                Err(format!(
+                    "{id}: unknown {what} kind {k:?}; known kinds are {ARM_B_KINDS:?} and {ARM_A_KINDS:?}"
+                ))
+            }
+        })
+        .collect()
+}
+
+fn expect_of(id: &str, v: &Value) -> Result<BTreeMap<String, Vec<String>>, String> {
+    let mut out = BTreeMap::new();
+    if v.is_null() {
+        return Ok(out);
+    }
+    let obj = v
+        .as_object()
+        .ok_or_else(|| format!("{id}: expect must be an object with keys b and a"))?;
+    for (arm, kinds) in obj {
+        if arm != "b" && arm != "a" {
+            return Err(format!("{id}: unknown expect key {arm:?}; use b or a"));
+        }
+        out.insert(arm.clone(), kinds_of(id, "expect", kinds)?);
+    }
+    Ok(out)
+}
+
+pub(crate) fn case_of(v: &Value) -> Result<Case, String> {
     let id = v["id"].as_str().ok_or("case without id")?.to_owned();
     let reads = v["reads"]
         .as_array()
@@ -120,30 +173,15 @@ fn case_of(v: &Value) -> Result<Case, String> {
         .map(read_of)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("{id}: {e}"))?;
-    let forbid: Vec<String> = v["forbid"].as_array().map_or_else(Vec::new, |a| {
-        a.iter()
-            .filter_map(|k| k.as_str().map(str::to_owned))
-            .collect()
-    });
-    if forbid.len() != v["forbid"].as_array().map_or(0, Vec::len) {
-        return Err(format!("{id}: forbid entries must be strings"));
-    }
-    let known = |k: &str| ARM_B_KINDS.contains(&k) || ARM_A_KINDS.contains(&k);
-    if let Some(bad) = forbid.iter().find(|k| !known(k)) {
-        return Err(format!(
-            "{id}: unknown forbid kind {bad:?}; known kinds are {ARM_B_KINDS:?} and {ARM_A_KINDS:?}"
-        ));
-    }
+    let forbid = kinds_of(&id, "forbid", &v["forbid"])?;
+    let expect = expect_of(&id, &v["expect"])?;
     Ok(Case {
         category: v["category"].as_str().unwrap_or_default().to_owned(),
         alt_screen: v["context"]["alt_screen"].as_bool().unwrap_or(false),
         tmux_or_screen: v["context"]["tmux_or_screen"].as_bool().unwrap_or(false),
         container: v["context"]["container"].as_bool().unwrap_or(true),
-        forbid: v["forbid"].as_array().map_or_else(Vec::new, |a| {
-            a.iter()
-                .filter_map(|k| k.as_str().map(str::to_owned))
-                .collect()
-        }),
+        forbid,
+        expect,
         reads,
         id,
     })
@@ -203,6 +241,9 @@ pub struct CaseResult {
     pub counters: String,
     /// How many forbidden items appeared.
     pub violations: usize,
+    /// Every item kind in order, with adjacent `output` and adjacent `text`
+    /// items each joined.
+    pub sequence: Vec<&'static str>,
 }
 
 /// The result of a whole run.
@@ -227,8 +268,13 @@ impl Report {
         let mut out = String::new();
         let _ = writeln!(
             out,
-            "commit={} features={} corpus={} sinks={}",
-            header.commit, header.features, header.corpus, header.sinks
+            "commit={} features={} harness={} corpus={} session_matrix={} sinks={}",
+            header.commit,
+            header.features,
+            header.harness,
+            header.corpus,
+            header.session_matrix,
+            header.sinks
         );
         let _ = writeln!(
             out,
@@ -385,7 +431,11 @@ impl AnyLayer {
     }
 }
 
-fn run_case<W: Write>(case: &Case, arm: Arm, rec: &mut Recorder<W>) -> std::io::Result<CaseResult> {
+pub(crate) fn run_case<W: Write>(
+    case: &Case,
+    arm: Arm,
+    rec: &mut Recorder<W>,
+) -> std::io::Result<CaseResult> {
     let mut layer = AnyLayer::new(arm);
     if case.container {
         layer.open_container();
@@ -393,11 +443,16 @@ fn run_case<W: Write>(case: &Case, arm: Arm, rec: &mut Recorder<W>) -> std::io::
     rec.case(&case.id)?;
     let mut kinds: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut violations = 0;
+    let mut sequence: Vec<&'static str> = Vec::new();
     let mut last_t = 0;
     let mut record =
         |t: u64, bytes_in: usize, summary: &[(&'static str, usize)], rec: &mut Recorder<W>| {
             for (kind, _) in summary {
                 *kinds.entry(kind).or_insert(0) += 1;
+                let joins = matches!(*kind, "output" | "text") && sequence.last() == Some(kind);
+                if !joins {
+                    sequence.push(kind);
+                }
                 if case.forbid.iter().any(|f| f == kind) {
                     violations += 1;
                 }
@@ -416,6 +471,7 @@ fn run_case<W: Write>(case: &Case, arm: Arm, rec: &mut Recorder<W>) -> std::io::
         kinds,
         counters: layer.counters(),
         violations,
+        sequence,
     })
 }
 
@@ -447,7 +503,9 @@ pub fn run_arm<W: Write>(
     let header = HeaderInfo {
         commit: commit.to_owned(),
         features: arm.features().to_owned(),
+        harness: HARNESS_VERSION.to_owned(),
         corpus: corpus.revision.clone(),
+        session_matrix: "none".to_owned(),
         sinks: effects.table_source().to_owned(),
     };
     let mut rec = Recorder::new(log, &header)?;

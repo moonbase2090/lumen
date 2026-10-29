@@ -6,7 +6,7 @@ Normative terms follow [spec/v0](../../spec/v0/_index.md). The arms are describe
 
 ## 1. The two arms
 
-Both arms are built in this repository behind Cargo features `arm-a` and `arm-b`, both off by default. They share the same renderer and the same red-team corpus. Each arm is built from a single commit, and every result records that commit SHA.
+Both arms are built in this repository as separate crates, `lumen-arm-a` and `lumen-arm-b`. The Cargo features `arm-a` and `arm-b` of the `lumen` crate, both off by default, select which crate is linked, and the comparison driver picks one with `--arm`. They share the same renderer and the same red-team corpus. Each arm is built from a single commit, and every result records that commit SHA.
 
 **Arm A: sealed-only rich.** Rich blocks render only on a sealed layer. Track 0 output on an unsealed layer renders as escaped text. The spec only states this for the alternate-screen and multiplexer cases ([trust](../../spec/v0/trust.md), [multiplexers](../../spec/v0/multiplexers.md#mux.alt-screen)). Applying it to every unsealed layer under arm A is a proposal of this document, not a spec rule.
 
@@ -25,7 +25,7 @@ Each metric has a unit, a measurement method, the harness that produces it and a
 - **Unit:** percent of sessions in the session matrix that show the rendering the arm specifies for that session's platform and state. A gate-off state counts as the arm's specified state, so it is not a miss.
 - **Session matrix:** fixed at 14 sessions, unweighted. It is seven session types on two platforms (Linux and macOS): local shell, SSH, serial, nested shell, plain multiplexer, Lumen-aware multiplexer and an alternate-screen application. The matrix file, with one scripted run per session, is committed with the harness, and its revision is recorded in each result.
 - **Method:** each session plays its scripted run. A session is reached when the screenshot-diff oracle (section 2.3, with the same render conditions) matches the arm's specified rendering for every block in it.
-- **Harness:** comparison harness, session replay mode.
+- **Harness:** comparison harness, session replay mode (section 5.2).
 - **Threshold:** arm B must reach at least **80%**, which is at least 12 of the 14 sessions. Arm A's reach is reported but is not gated. This threshold is part of the decision rule in section 4.
 
 ### 2.2 Spoof success
@@ -108,7 +108,7 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 
 ## 3. Hard gates and preconditions
 
-An arm's feature is off on a target OS until the gate that protects it passes there. A gate failure is not a comparison result. It means the feature is measured with that feature off, and the result says so.
+An arm's rich rendering is off on a target OS until the gate that protects it passes there. A gate failure is not a comparison result. It means the arm is measured with that rendering off, and the result says so.
 
 The preconditions below come from the sealing and Track 0 gates in the [conformance gates](../../spec/v0/conformance.md). They apply to the default sealing path that both arms use.
 
@@ -121,7 +121,7 @@ Hardened-mode checks are not preconditions here. The [hardened mode](../../spec/
 
 ## 4. Decision rule
 
-1. Each arm must pass every precondition in section 3 on the OS where its feature is on. An arm that fails a precondition on an OS is measured with that feature off there, and the result says so.
+1. Each arm must pass every precondition in section 3 on the OS where its rich rendering is on. An arm that fails a precondition on an OS is measured with that rendering off there, and the result says so.
 2. **Arm B is chosen** unless one of these holds:
    - the trust-area-pixel count (section 2.3) is non-zero in arm B;
    - the authority-leak count (section 2.4) is non-zero in arm B;
@@ -151,9 +151,19 @@ The shared red-team and replay corpus is a directory of JSON files, read in name
 - `context`: optional `alt_screen` and `tmux_or_screen` booleans, and `container` (default true).
 - `forbid`: optional item kinds that must not appear. Each entry must be one of the item kinds the layer reports. An unknown kind fails the load with the case id, so a typo cannot pass silently.
 
-Positive expectations (`expect`) are not part of this format yet. The red-team corpus is covered by `forbid`. The reach metric (2.1) will add an `expect` field when it is measured, with its own revision.
+- `expect`: optional positive expectation, `{"b": [...], "a": [...]}`, the item kinds Arm B and Arm A must produce, in order. Adjacent `output` items and adjacent `text` items are each joined first, because a read boundary can split them. Kinds are checked like `forbid`, and a key other than `b` and `a` fails the load. The red-team corpus does not use `expect`; the corpus replay ignores it. The reach mode (2.1) requires it on every session of the matrix.
 
 The format is defined in `crates/lumen-evidence/src/lib.rs`. A change to it is a change to the corpus revision and needs both arms' agreement.
+
+### 5.2 Session matrix format and reach mode
+
+The session matrix is one file, `docs/phase-0.5/session-matrix.json`: `{"revision": "...", "sessions": [...]}`. A session is a case as in 5.1 with three more fields: `session` (one of `local-shell`, `ssh`, `serial`, `nested-shell`, `plain-multiplexer`, `lumen-multiplexer`, `alt-screen-app`), `platform` (`linux` or `macos`) and `sealed` (whether the layer's sealing requirements hold in that session; only Arm A reads it). It must hold exactly one session for each type on each platform, 14 in all, and every session must have an `expect` for both arms. A file that does not fit fails the load with the reason, so a missing or doubled cell cannot be counted. The format is defined in `crates/lumen-evidence/src/matrix.rs`; a change to it is a change to the matrix revision.
+
+`lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]` plays each session through the arm and writes `run.jsonl` and `summary.txt`. A session is reached when the item kinds the arm produced equal the session's `expect`. This is the item-level oracle: it checks what the byte pipeline hands to the renderer. It is not the screenshot-diff oracle that 2.1 names, so the summary says `oracle=item-kinds (screenshot oracle not run)` and a result must not present the count as the screenshot-based reach. The scripted bytes name the platform, but the platform does not change the expected item kinds, so the Linux and macOS rows of the committed matrix have equal expectations at this level; they differ once the screenshot mode runs.
+
+The run log header (format 2) records `commit`, `features`, `harness` (the harness version), `corpus` (the corpus revision, or `none`), `session_matrix` (the matrix revision, or `none`) and `sinks`. A reach run has `corpus` `none`; a corpus replay has `session_matrix` `none`.
+
+The first matrix (`sm-1`) has one Track 0 paragraph after a shell command in each session. It has no sealed frames yet, so Arm A's sealed rendering is not exercised by it; the sealed-frame sessions arrive with the sealed-frame corpus.
 
 ## 6. Results format
 
