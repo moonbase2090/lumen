@@ -19,22 +19,94 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
     Ok(())
 }
 
-/// The files that make up the decoder build: its sources (not the test-only
-/// worker), its manifest, and the workspace lockfile.
+/// Which build identity: the gate covers both ([images.unlock] in the spec).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// The decoder: what runs in the sandboxed worker.
+    Decoder,
+    /// The terminal's image path: what the terminal does around the worker.
+    ImagePath,
+}
+
+/// Worker side, relative to `crates/lumen-decoder/src`: decoding, the sandbox,
+/// the heap cap, the wire format, the limits and the worker binary.
+const DECODER_SOURCES: &[&str] = &[
+    "decode.rs",
+    "ffi_sandbox.rs",
+    "ffi_alloc.rs",
+    "limits.rs",
+    "protocol.rs",
+    "bin/lumen-decoder-worker.rs",
+];
+
+/// Terminal side, relative to `crates/lumen-decoder/src`: running a worker,
+/// bounding what it may write, validating the reply, and the crate root. The
+/// wire format and the limits are shared with the worker, so they are in both.
+///
+/// **This is the host half only.** The image-frame parser, multi-frame
+/// reassembly and the upload step do not exist yet; their sources join this
+/// list when they do, and until then an identity of this list does not cover
+/// the whole image path.
+const IMAGE_PATH_SOURCES: &[&str] = &[
+    "runner.rs",
+    "ffi_process.rs",
+    "limits.rs",
+    "protocol.rs",
+    "unlock.rs",
+    "lib.rs",
+];
+
+fn sources(kind: Kind) -> &'static [&'static str] {
+    match kind {
+        Kind::Decoder => DECODER_SOURCES,
+        Kind::ImagePath => IMAGE_PATH_SOURCES,
+    }
+}
+
+/// The files that make up one build identity: its sources, the crate manifest
+/// and the workspace lockfile (the dependency closure, with versions and hashes).
+///
+/// # Errors
+/// If a listed file is missing, so that renaming a source cannot quietly shrink
+/// an identity.
+pub fn files(root: &Path, kind: Kind) -> io::Result<Vec<PathBuf>> {
+    let src = root.join("crates/lumen-decoder/src");
+    let mut files: Vec<PathBuf> = sources(kind).iter().map(|f| src.join(f)).collect();
+    files.push(root.join("crates/lumen-decoder/Cargo.toml"));
+    files.push(root.join("Cargo.lock"));
+    for f in &files {
+        if !f.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("{} is not a file", f.display()),
+            ));
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// Source files of the crate that are in neither identity (the test-only worker
+/// is left out on purpose). A new file must be added to a list, or an edit to it
+/// would not change any identity.
 ///
 /// # Errors
 /// If a directory cannot be read.
-pub fn decoder_files(root: &Path) -> io::Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    walk(&root.join("crates/lumen-decoder/src"), &mut files)?;
-    files.retain(|p| {
-        p.file_name()
-            .is_none_or(|n| n != "lumen-decoder-hostile.rs")
+pub fn uncovered(root: &Path) -> io::Result<Vec<PathBuf>> {
+    let src = root.join("crates/lumen-decoder/src");
+    let mut all = Vec::new();
+    walk(&src, &mut all)?;
+    let covered: Vec<PathBuf> = [Kind::Decoder, Kind::ImagePath]
+        .iter()
+        .flat_map(|k| sources(*k).iter().map(|f| src.join(f)))
+        .collect();
+    all.retain(|p| {
+        !covered.contains(p)
+            && p.file_name()
+                .is_none_or(|n| n != "lumen-decoder-hostile.rs")
     });
-    files.push(root.join("crates/lumen-decoder/Cargo.toml"));
-    files.push(root.join("Cargo.lock"));
-    files.sort();
-    Ok(files)
+    all.sort();
+    Ok(all)
 }
 
 /// Hashes `files` (path relative to `root`, then contents), then the compiler
