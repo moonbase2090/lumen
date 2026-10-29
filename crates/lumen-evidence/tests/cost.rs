@@ -88,7 +88,12 @@ fn the_repository_has_no_unsafe_and_both_arms_are_measured() {
 fn git(dir: &Path, args: &[&str]) {
     let ok = std::process::Command::new("git")
         .current_dir(dir)
-        .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=322824348+mb2090@users.noreply.github.com",
+        ])
         .args(args)
         .status()
         .is_ok_and(|s| s.success());
