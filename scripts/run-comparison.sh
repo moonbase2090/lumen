@@ -8,7 +8,7 @@
 # It builds the evidence driver once, runs the tests through capture-tests.sh,
 # then runs every mode in turn: the red-team corpora (rt-1 to rt-4) through
 # each arm, reach, flood, cost, parity, the decoder ledger, the render log and
-# the pane corpus under both placements. The render log is the one given with
+# the pixel corpus (2.3) and the pane corpus under both placements. The render log is the one given with
 # --render-log (written by a terminal) or, by default, the pipeline-basis log
 # each flood wrote, judged as render-log-<arm>. It waits for each mode, never puts one
 # in the background, and quotes every path, so a directory with a space in it
@@ -163,6 +163,9 @@ else
     fi
   done
 fi
+
+# 2.3: changed pixels in the trust margin and the editor, over the pixel corpus.
+run_mode pixels "$BIN" --screenshots --corpus "$ROOT/docs/phase-0.5/corpus-pixel" --scale 2 --commit "$commit" --out "$out/pixels"
 
 for placement in a b; do
   run_mode "panes-$placement" "$BIN" --panes "$ROOT/docs/phase-0.5/corpus-panes" --placement "$placement" --commit "$commit" --out "$out/panes-$placement"

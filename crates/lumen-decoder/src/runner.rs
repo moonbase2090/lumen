@@ -1,5 +1,7 @@
-//! Host side: starts one worker per image, bounds everything it reads and
-//! validates the reply before anything is allocated or uploaded.
+//! Host side: starts one worker per image and bounds everything it reads. The
+//! reader holds at most the reserved pixel bytes plus 4 KiB, which the caller
+//! has already reserved from the budget; the reply is validated before the
+//! image is handed on or uploaded.
 //!
 //! The worker is hostile by assumption. A status other than `Ok` is a
 //! rejection; anything else that is not a valid reply is a crash.

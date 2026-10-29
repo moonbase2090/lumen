@@ -35,15 +35,6 @@ fn b_layer(budget_frames: usize, as_text: bool) -> lumen_arm_b::Layer {
     })
 }
 
-fn a_layer() -> lumen_arm_a::pipeline::Layer {
-    lumen_arm_a::pipeline::Layer::new(
-        lumen_arm_a::pipeline::Config {
-            budget: lumen_arm_a::pipeline::Budget::quarter_of(2000, 8 << 20),
-        },
-        lumen_arm_a::LayerState::Sealed,
-    )
-}
-
 #[test]
 fn background_output_is_one_collapsed_strip_per_cycle_with_a_count_label() {
     let mut doc = Document::new(40, 4);
@@ -94,14 +85,6 @@ fn only_a_user_action_opens_a_strip() {
     assert!(doc.strips()[0].open && !doc.strips()[1].open);
     doc.user_closes_strip(0);
     assert!(doc.strips().iter().all(|s| !s.open));
-}
-
-#[test]
-fn arm_a_has_no_strip_and_shows_orphan_output_as_text() {
-    let mut doc = Document::new(40, 6);
-    let mut layer = a_layer();
-    doc.receive(&mut layer, &paragraph("orphan"), at(0));
-    assert_eq!(doc.strips().len(), 0);
 }
 
 #[test]

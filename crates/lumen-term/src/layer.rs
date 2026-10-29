@@ -86,63 +86,6 @@ impl Layer for Passthrough {
     }
 }
 
-#[cfg(feature = "arm-a")]
-mod arm_a {
-    use super::{Context, Layer, Notice, Piece};
-    use lumen_arm_a::pipeline as a;
-
-    impl Layer for a::Layer {
-        fn feed(&mut self, bytes: &[u8], ctx: Context) -> Vec<Piece> {
-            a::Layer::feed(
-                self,
-                bytes,
-                a::Context {
-                    alt_screen: ctx.alt_screen,
-                    tmux_or_screen: ctx.tmux_or_screen,
-                    now_ms: ctx.now_ms,
-                },
-            )
-            .into_iter()
-            .map(piece)
-            .collect()
-        }
-
-        fn finish(&mut self) -> Vec<Piece> {
-            a::Layer::finish(self).into_iter().map(piece).collect()
-        }
-
-        fn open_container(&mut self) {
-            a::Layer::open_container(self);
-        }
-
-        fn close_container(&mut self) {
-            a::Layer::close_container(self);
-        }
-
-        fn sealed_abort(&mut self, now_ms: u64) -> Vec<Piece> {
-            a::Layer::sealed_abort(self, now_ms)
-                .into_iter()
-                .map(piece)
-                .collect()
-        }
-    }
-
-    fn piece(item: a::Item) -> Piece {
-        match item {
-            a::Item::Output(bytes) => Piece::Bytes(bytes),
-            a::Item::Block(block) => Piece::Rich(block),
-            a::Item::Text(text) => Piece::Text(text),
-            a::Item::Degraded => Piece::Notice(Notice::Degraded),
-            a::Item::Pinned => Piece::Notice(Notice::Pinned),
-            a::Item::Sealed { header, body } => Piece::Sealed {
-                kind: header.kind,
-                body,
-            },
-        }
-    }
-}
-
-#[cfg(feature = "arm-b")]
 mod arm_b {
     use super::{Context, Layer, Notice, Piece};
     use lumen_arm_b as b;

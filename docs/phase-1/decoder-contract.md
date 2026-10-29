@@ -50,7 +50,7 @@ On any non-zero status, `width`, `height`, `stride` and `data_len` are zero and 
 | 4 | corrupt image |
 | 5 | internal failure |
 
-Statuses 1 to 5 are not crashes: the terminal shows the alt text. A crash is anything else: death by signal, a nonzero exit without a reply, a timeout, an over-limit stdout or a reply that fails validation. A crash puts that producer's images on alt text for the rest of the command ([concurrency](../../spec/v0/images.md#images.concurrency)).
+Statuses 1 to 5 are not crashes: the terminal shows the alt text. That holds only for a well-formed reply from a worker that exits with status 0; the exit status is part of validation, so a worker that sends a rejection (or an image) and then exits non-zero or by signal is a crash. A crash is anything else: death by signal, a nonzero exit without a reply, a timeout, an over-limit stdout or a reply that fails validation. A crash puts that producer's images on alt text for the rest of the command ([concurrency](../../spec/v0/images.md#images.concurrency)).
 
 ## What the terminal does with a reply
 

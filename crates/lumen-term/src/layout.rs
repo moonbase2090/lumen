@@ -143,3 +143,20 @@ pub fn layout(
         strip,
     }
 }
+
+/// Columns of the notification area, at most.
+pub const TOAST_COLUMNS: u32 = 36;
+
+/// The notification area: the top right of the content area, down to the top
+/// of the editor. Toasts are drawn only here. It lies inside the content
+/// area, so it can never reach the trust margin, the editor or the strip.
+#[must_use]
+pub fn notification_area(l: &Layout) -> Rect {
+    let w = TOAST_COLUMNS.min(l.content.w);
+    Rect {
+        x: l.content.x + l.content.w - w,
+        y: l.content.y,
+        w,
+        h: l.editor.y.saturating_sub(l.content.y),
+    }
+}

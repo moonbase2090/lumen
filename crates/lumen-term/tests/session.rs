@@ -41,20 +41,6 @@ fn pump_until(s: &mut Session, done: impl Fn(&Session) -> bool) -> bool {
     false
 }
 
-fn a_layer(sealed: bool) -> Box<dyn Layer + Send> {
-    let state = if sealed {
-        lumen_arm_a::LayerState::Sealed
-    } else {
-        lumen_arm_a::LayerState::Unsealed
-    };
-    Box::new(lumen_arm_a::pipeline::Layer::new(
-        lumen_arm_a::pipeline::Config {
-            budget: lumen_arm_a::pipeline::Budget::quarter_of(2000, 8 << 20),
-        },
-        state,
-    ))
-}
-
 fn b_layer() -> Box<dyn Layer + Send> {
     Box::new(lumen_arm_b::Layer::new(lumen_arm_b::Config {
         budget: lumen_arm_b::Budget::quarter_of(2000, 8 << 20),
@@ -98,37 +84,23 @@ fn a_programs_output_reaches_the_grid_through_the_layer() {
 }
 
 #[test]
-fn the_same_bytes_from_a_real_program_make_a_block_in_arm_b_and_on_a_sealed_arm_a_layer() {
+fn the_bytes_of_a_real_program_make_a_rich_block_between_two_grid_blocks() {
     let f = file("frame-block.bin", &paragraph("hello"));
-    for (name, layer) in [("arm B", b_layer()), ("arm A sealed", a_layer(true))] {
-        let mut s = start(layer, 30, 5, &format!("echo before; cat {f}; echo after"));
-        assert!(
-            pump_until(&mut s, |s| grid_text(s).contains("after")),
-            "{name}"
-        );
-        s.finish();
-        assert_eq!(kinds(&s), ["grid", "rich", "grid"], "{name}");
-    }
-}
-
-#[test]
-fn arm_a_on_an_unsealed_layer_shows_the_same_bytes_as_text_and_makes_no_block() {
-    let f = file("frame-unsealed.bin", &paragraph("hello"));
     let mut s = start(
-        a_layer(false),
-        60,
+        b_layer(),
+        30,
         5,
         &format!("echo before; cat {f}; echo after"),
     );
     assert!(pump_until(&mut s, |s| grid_text(s).contains("after")));
     s.finish();
-    assert_eq!(kinds(&s), ["grid"]);
+    assert_eq!(kinds(&s), ["grid", "rich", "grid"]);
 }
 
 #[test]
 fn the_alternate_screen_of_the_real_program_reaches_the_layer() {
     let f = file("frame-alt.bin", &paragraph("hello"));
-    for (name, layer) in [("arm B", b_layer()), ("arm A sealed", a_layer(true))] {
+    for (name, layer) in [("arm B", b_layer())] {
         // The switch is a separate read from the frame, so the layer has seen
         // the alternate screen before the frame arrives.
         let mut s = start(

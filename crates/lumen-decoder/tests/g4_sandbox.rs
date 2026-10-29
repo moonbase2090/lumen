@@ -312,6 +312,13 @@ mod hostile {
     }
 
     #[test]
+    fn exit_status_is_part_of_validation() {
+        // A good image, or a rejection, from a worker that then fails is a crash.
+        assert_eq!(run("image-then-fail"), Outcome::Crash(Crash::Exit));
+        assert_eq!(run("reject-then-fail"), Outcome::Crash(Crash::Exit));
+    }
+
+    #[test]
     fn a_stdout_flood_is_cut_off_at_the_reservation() {
         let t = Instant::now();
         // A worker that blocked on a full pipe would time out instead.

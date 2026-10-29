@@ -65,17 +65,6 @@ fn b_layer(container: bool) -> lumen_arm_b::Layer {
     l
 }
 
-fn a_layer() -> lumen_arm_a::pipeline::Layer {
-    let mut l = lumen_arm_a::pipeline::Layer::new(
-        lumen_arm_a::pipeline::Config {
-            budget: lumen_arm_a::pipeline::Budget::quarter_of(2000, 8 << 20),
-        },
-        lumen_arm_a::LayerState::Sealed,
-    );
-    Layer::open_container(&mut l);
-    l
-}
-
 fn doc() -> Document {
     Document::new(76, 18)
 }
@@ -194,18 +183,8 @@ fn no_producer_output_changes_a_margin_or_editor_pixel() {
             );
             runs += 1;
         }
-        // Arm A, on a sealed layer with a container.
-        let mut d = doc();
-        let mut a = a_layer();
-        d.receive(&mut a, &bytes, Context::default());
-        let f = r.render_window(&d, &WIN);
-        for m in &l.margin {
-            assert_eq!(changed(&r, &base, &f, m), 0, "{name} arm A: margin");
-        }
-        assert_eq!(changed(&r, &base, &f, &l.editor), 0, "{name} arm A: editor");
-        runs += 1;
     }
-    assert_eq!(runs, 30);
+    assert_eq!(runs, 20);
 }
 
 #[test]
@@ -328,31 +307,5 @@ fn foreground_blocks_stay_above_the_editor() {
         changed(&r, &base, &f, &below),
         0,
         "nothing at or below the editor"
-    );
-}
-
-#[test]
-fn arm_a_draws_no_strip() {
-    let r = renderer();
-    let base = baseline();
-    let mut d = doc();
-    let mut a = lumen_arm_a::pipeline::Layer::new(
-        lumen_arm_a::pipeline::Config {
-            budget: lumen_arm_a::pipeline::Budget::quarter_of(2000, 8 << 20),
-        },
-        lumen_arm_a::LayerState::Sealed,
-    );
-    d.receive(&mut a, &paragraph("orphan"), Context::default());
-    let f = r.render_window(&d, &WIN);
-    let below = Rect {
-        x: 0,
-        y: WIN.editor_row,
-        w: WIN.cols,
-        h: WIN.rows - WIN.editor_row,
-    };
-    assert_eq!(
-        changed(&r, &base, &f, &below),
-        0,
-        "no strip below the editor"
     );
 }
