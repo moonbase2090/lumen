@@ -60,11 +60,30 @@ fn case(id: &str, category: &str, script: &[Value], forbid: &[&str]) -> Value {
     c
 }
 
-const ALL: [&str; 4] = [
+fn body(text: &str) -> Vec<u8> {
+    let mut v = u16::try_from(text.len())
+        .unwrap_or(0)
+        .to_be_bytes()
+        .to_vec();
+    v.extend_from_slice(text.as_bytes());
+    v
+}
+
+/// A pane container the multiplexer sends as given, whatever the layout says.
+fn container(pane: u32, generation: u32, rect: [i64; 4], kind: u8, content: &[u8]) -> Value {
+    json!({
+        "op": "container", "pane": pane, "generation": generation,
+        "rect": {"x": rect[0], "y": rect[1], "w": rect[2], "h": rect[3]},
+        "kind": kind, "hex": hex(content)
+    })
+}
+
+const ALL: [&str; 5] = [
     "draw_outside_rect",
     "draw_hidden_pane",
     "stale_generation_drawn",
     "forged_container_drawn",
+    "replayed_frame_accepted",
 ];
 
 /// The corpus as pretty-printed JSON with a trailing newline.
@@ -214,6 +233,85 @@ pub fn pc1_json() -> String {
             mixed.extend(paragraph("real again"));
             [layout(1, &two), output(1, &mixed)]
         },
+        &ALL,
+    ));
+
+    // A hostile or buggy multiplexer: these are the cases that can fail,
+    // because the honest relay above never sends them.
+    cases.push(case(
+        "hostile-stale-and-early-containers",
+        "hostile",
+        &[
+            layout(2, &two),
+            container(1, 1, [0, 0, 40, 24], 0x80, &body("stale")),
+            container(1, 3, [0, 0, 40, 24], 0x80, &body("early")),
+            container(1, 2, [0, 0, 40, 24], 0x80, &body("current")),
+        ],
+        &ALL,
+    ));
+
+    cases.push(case(
+        "hostile-wrong-rectangle",
+        "hostile",
+        &[
+            layout(1, &two),
+            container(1, 1, [0, 0, 41, 24], 0x80, &body("too wide")),
+            container(
+                1,
+                1,
+                [40, 0, 40, 24],
+                0x80,
+                &body("another pane's rectangle"),
+            ),
+            container(1, 1, [70, 0, 20, 24], 0x80, &body("past the edge")),
+            container(1, 1, [-5, 0, 40, 24], 0x80, &body("negative origin")),
+        ],
+        &ALL,
+    ));
+
+    cases.push(case(
+        "hostile-container-for-unlisted-pane",
+        "hostile",
+        &[
+            layout(1, &[pane(1, 0, 0, 80, 24)]),
+            container(2, 1, [0, 0, 80, 24], 0x80, &body("hidden pane")),
+            container(99, 1, [0, 0, 80, 24], 0x80, &body("unknown pane")),
+        ],
+        &ALL,
+    ));
+
+    cases.push(case(
+        "hostile-container-with-a-sealed-content-type",
+        "hostile",
+        &[
+            layout(1, &two),
+            container(1, 1, [0, 0, 40, 24], 0x20, &body("sealed type inside")),
+            container(1, 1, [0, 0, 40, 24], 0x80, &[0xff]),
+        ],
+        &ALL,
+    ));
+
+    cases.push(case(
+        "hostile-replayed-container",
+        "hostile",
+        &[
+            layout(1, &two),
+            container(1, 1, [0, 0, 40, 24], 0x80, &body("once")),
+            json!({"op": "replay"}),
+            json!({"op": "replay"}),
+        ],
+        &ALL,
+    ));
+
+    cases.push(case(
+        "hostile-frame-type-outside-the-keys",
+        "hostile",
+        &[
+            layout(1, &two),
+            json!({"op": "foreign", "kind": 16}),
+            container(1, 1, [0, 0, 40, 24], 0x80, &body("after desync")),
+            output(2, &paragraph("pane text after desync")),
+        ],
         &ALL,
     ));
 

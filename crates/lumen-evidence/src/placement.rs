@@ -12,7 +12,7 @@ use crate::HARNESS_VERSION;
 use crate::panes::{Case, Event, PaneCorpus, PaneRect};
 use lumen_detector::{DEFAULT_MAX_PAYLOAD, Detector, Event as Found};
 use lumen_harness::{EffectLog, HeaderInfo, Recorder, SinkTable};
-use lumen_panes::{Multiplexer, PaneTerminal, Rect};
+use lumen_panes::{Multiplexer, Outcome, PaneTerminal, Rect};
 use lumen_sealed::{Direction, DirectionKeys, LayerId, LayerRoot, Receiver};
 use lumen_track0::UNSEALED_MIN;
 use std::collections::BTreeMap;
@@ -42,11 +42,12 @@ impl Placement {
 }
 
 /// The gated counts of 7.2 this mode measures.
-pub const MEASURED: [&str; 4] = [
+pub const MEASURED: [&str; 5] = [
     "draw_outside_rect",
     "draw_hidden_pane",
     "stale_generation_drawn",
     "forged_container_drawn",
+    "replayed_frame_accepted",
 ];
 
 /// Counts for one case.
@@ -62,6 +63,18 @@ pub struct CaseResult {
     pub forbidden: u32,
     /// Pane-written sealed-looking frames the multiplexer saw.
     pub forged_seen: u32,
+    /// Containers the multiplexer sent with a generation other than the
+    /// terminal's current one.
+    pub out_of_generation_sent: u32,
+    /// Of those, the ones the terminal dropped.
+    pub out_of_generation_dropped: u32,
+    /// Replayed frames sent.
+    pub replays_sent: u32,
+    /// Of those, the ones refused.
+    pub replays_refused: u32,
+    /// Pane-written sealed-looking frames passed through to the outer
+    /// terminal's pipeline in the worst case, and how many it opened.
+    pub passthrough_opened: u32,
     /// Terminal-side counters, for the log.
     pub terminal: String,
 }
@@ -80,6 +93,10 @@ impl Report {
     #[must_use]
     pub fn violations(&self) -> u32 {
         self.cases.iter().map(|c| c.forbidden).sum()
+    }
+
+    fn sum(&self, f: impl Fn(&CaseResult) -> u32) -> u32 {
+        self.cases.iter().map(f).sum()
     }
 
     /// The total of one measured kind over all cases.
@@ -114,6 +131,24 @@ impl Report {
         for k in MEASURED {
             let _ = writeln!(out, "{k}={}", self.total(k));
         }
+        let sent = self.sum(|c| c.out_of_generation_sent);
+        let dropped = self.sum(|c| c.out_of_generation_dropped);
+        let _ = writeln!(
+            out,
+            "stale_generation_drop={dropped}/{sent} out-of-generation containers dropped (need all)"
+        );
+        let _ = writeln!(
+            out,
+            "replay_refused={}/{} replayed frames refused (need all)",
+            self.sum(|c| c.replays_refused),
+            self.sum(|c| c.replays_sent)
+        );
+        let _ = writeln!(
+            out,
+            "forged_passthrough_opened={} of {} pane-written sealed-looking frames, fed to the outer pipeline",
+            self.sum(|c| c.passthrough_opened),
+            self.sum(|c| c.forged_seen)
+        );
         for (k, why) in [
             (
                 "key_reuse",
@@ -154,6 +189,30 @@ fn root(n: u8) -> LayerRoot {
     LayerRoot::new([n; 32])
 }
 
+/// The outer terminal's layer for the multiplexer's stream, holding keys no
+/// pane knows. Anything a pane writes that opens as a sealed item here is a
+/// forged frame drawn.
+fn outer_pipeline() -> lumen_arm_b::Layer {
+    let keys = DirectionKeys::derive(&root(77), LAYER, Direction::ToTerminal);
+    let mut layer = lumen_arm_b::Layer::new(lumen_arm_b::Config {
+        budget: lumen_arm_b::Budget::quarter_of(2000, 8 << 20),
+        background_as_text: false,
+    });
+    layer.attach_sealed(Receiver::new(keys, LAYER, Direction::ToTerminal), |_| 2);
+    layer.open_container();
+    layer
+}
+
+/// Items of kind `sealed` among `items`.
+fn sealed_count(items: &[lumen_arm_b::Item]) -> u32 {
+    items
+        .iter()
+        .filter(|i| lumen_arm_b::item_summary(i).0 == "sealed")
+        .count()
+        .try_into()
+        .unwrap_or(u32::MAX)
+}
+
 /// Option A for one case.
 struct PlayerA<'a> {
     case: &'a Case,
@@ -168,6 +227,8 @@ struct PlayerA<'a> {
     unzoomed: Option<Vec<(u32, Rect)>>,
     detached: bool,
     seen: usize,
+    last_frame: Vec<u8>,
+    leak: lumen_arm_b::Layer,
     result: CaseResult,
 }
 
@@ -186,6 +247,8 @@ impl<'a> PlayerA<'a> {
             unzoomed: None,
             detached: false,
             seen: 0,
+            last_frame: Vec::new(),
+            leak: outer_pipeline(),
             result: CaseResult {
                 id: case.id.clone(),
                 ..CaseResult::default()
@@ -207,7 +270,7 @@ impl<'a> PlayerA<'a> {
         for d in fresh {
             self.result.drawn += 1;
             let listed = self.term.rect_of(d.pane);
-            if listed.is_none() || self.detached {
+            if listed.is_none() || self.detached || self.term.is_desynchronised() {
                 self.bump("draw_hidden_pane");
             } else if listed != Some(d.rect) || !d.rect.is_valid(self.cols, self.rows) {
                 self.bump("draw_outside_rect");
@@ -218,12 +281,20 @@ impl<'a> PlayerA<'a> {
         }
     }
 
-    fn send_layout(&mut self, generation: u32, panes: &[(u32, Rect)]) {
-        let frame = self.mux.layout_at(generation, panes);
-        let _ = self.term.receive(&frame);
+    /// Deliver one sealed frame from the multiplexer and check what it drew.
+    fn deliver(&mut self, frame: Vec<u8>) -> Outcome {
+        let outcome = self.term.receive(&frame);
+        self.last_frame = frame;
         self.check_draws();
+        outcome
     }
 
+    fn send_layout(&mut self, generation: u32, panes: &[(u32, Rect)]) {
+        let frame = self.mux.layout_at(generation, panes);
+        self.deliver(frame);
+    }
+
+    #[allow(clippy::too_many_lines, reason = "one arm per script step")]
     fn step(&mut self, ev: &Event) {
         match ev {
             Event::Layout { generation, panes } => {
@@ -245,7 +316,50 @@ impl<'a> PlayerA<'a> {
                 if self.detached {
                     return;
                 }
-                self.output(*pane, &read.bytes);
+                self.output(*pane, &read.bytes, read.t_ms);
+            }
+            Event::Container {
+                pane,
+                generation,
+                rect,
+                kind,
+                content,
+            } => {
+                if self.detached {
+                    return;
+                }
+                let frame =
+                    self.mux
+                        .container_at(*generation, *pane, clamp_rect(rect), *kind, content);
+                let out_of_generation = self.term.generation() != Some(*generation);
+                let outcome = self.deliver(frame);
+                if out_of_generation {
+                    self.result.out_of_generation_sent += 1;
+                    if outcome != Outcome::Drawn {
+                        self.result.out_of_generation_dropped += 1;
+                    }
+                }
+            }
+            Event::Replay => {
+                if self.detached || self.last_frame.is_empty() {
+                    return;
+                }
+                self.result.replays_sent += 1;
+                let again = self.last_frame.clone();
+                let outcome = self.term.receive(&again);
+                self.check_draws();
+                if outcome == Outcome::Refused {
+                    self.result.replays_refused += 1;
+                } else {
+                    self.bump("replayed_frame_accepted");
+                }
+            }
+            Event::Foreign { kind } => {
+                if self.detached {
+                    return;
+                }
+                let frame = self.mux.raw(*kind, b"x");
+                self.deliver(frame);
             }
             Event::Resize { cols, rows } => {
                 self.cols = *cols;
@@ -300,7 +414,19 @@ impl<'a> PlayerA<'a> {
     /// A pane wrote bytes. The multiplexer parses its Track 0, relays each
     /// unsealed frame as a container, and treats a sealed-looking frame from
     /// a pane as pane text.
-    fn output(&mut self, pane: u32, bytes: &[u8]) {
+    fn output(&mut self, pane: u32, bytes: &[u8], t_ms: u64) {
+        let leaked = self.leak.feed(
+            bytes,
+            lumen_arm_b::Context {
+                now_ms: t_ms,
+                ..lumen_arm_b::Context::default()
+            },
+        );
+        let opened = sealed_count(&leaked);
+        for _ in 0..opened {
+            self.bump("forged_container_drawn");
+        }
+        self.result.passthrough_opened += opened;
         let mut found = Vec::new();
         self.detectors
             .entry(pane)
@@ -320,7 +446,7 @@ impl<'a> PlayerA<'a> {
             let frame = self
                 .mux
                 .container_at(self.mux_gen, pane, rect, kind, &payload);
-            let _ = self.term.receive(&frame);
+            self.deliver(frame);
         }
         self.check_draws();
     }
@@ -334,13 +460,7 @@ impl<'a> PlayerA<'a> {
 
 /// Option B for one case: the panes' bytes are one unsealed producer's output.
 fn play_b(case: &Case) -> CaseResult {
-    let keys = DirectionKeys::derive(&root(77), LAYER, Direction::ToTerminal);
-    let mut layer = lumen_arm_b::Layer::new(lumen_arm_b::Config {
-        budget: lumen_arm_b::Budget::quarter_of(2000, 8 << 20),
-        background_as_text: false,
-    });
-    layer.attach_sealed(Receiver::new(keys, LAYER, Direction::ToTerminal), |_| 2);
-    layer.open_container();
+    let mut layer = outer_pipeline();
     let mut result = CaseResult {
         id: case.id.clone(),
         ..CaseResult::default()
@@ -359,12 +479,7 @@ fn play_b(case: &Case) -> CaseResult {
                         ..lumen_arm_b::Context::default()
                     },
                 );
-                sealed_items += items
-                    .iter()
-                    .filter(|i| lumen_arm_b::item_summary(i).0 == "sealed")
-                    .count()
-                    .try_into()
-                    .unwrap_or(u32::MAX);
+                sealed_items += sealed_count(&items);
             }
             _ => {}
         }

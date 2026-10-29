@@ -49,6 +49,12 @@ fn option_a_draws_what_the_rules_allow_and_nothing_else() {
         ("detach-and-reattach", 2),
         ("pane-writes-sealed-looking-frame", 0),
         ("forged-frame-among-real-ones", 2),
+        ("hostile-stale-and-early-containers", 1),
+        ("hostile-wrong-rectangle", 0),
+        ("hostile-container-for-unlisted-pane", 0),
+        ("hostile-container-with-a-sealed-content-type", 0),
+        ("hostile-replayed-container", 1),
+        ("hostile-frame-type-outside-the-keys", 0),
     ];
     assert_eq!(cases.len(), want.len());
     for (id, n) in want {
@@ -83,7 +89,7 @@ fn option_a_counts_the_malformed_layouts_as_failed_frames() {
 #[test]
 fn option_b_has_no_per_pane_containers_and_no_forged_container() {
     let cases = run(Placement::B);
-    assert_eq!(cases.len(), 12);
+    assert_eq!(cases.len(), 18);
     for c in &cases {
         assert_eq!(c.drawn, 0, "{}", c.id);
         assert!(c.violations.is_empty(), "{}", c.id);
@@ -127,4 +133,49 @@ fn a_reattach_starts_a_new_layer_with_no_generation() {
     assert!(c.contains("layouts_stale: 0"), "{c}");
     assert!(c.contains("refused: 0"), "fresh keys on both sides: {c}");
     assert!(c.contains("failed_frames: 0"), "{c}");
+}
+
+fn total(cases: &[CaseResult], f: impl Fn(&CaseResult) -> u32) -> u32 {
+    cases.iter().map(f).sum()
+}
+
+#[test]
+fn a_hostile_multiplexer_cannot_get_an_out_of_generation_container_drawn() {
+    let cases = run(Placement::A);
+    assert_eq!(total(&cases, |c| c.out_of_generation_sent), 3);
+    assert_eq!(total(&cases, |c| c.out_of_generation_dropped), 3);
+}
+
+#[test]
+fn a_replayed_frame_is_refused_every_time() {
+    let cases = run(Placement::A);
+    assert_eq!(total(&cases, |c| c.replays_sent), 2);
+    assert_eq!(total(&cases, |c| c.replays_refused), 2);
+}
+
+#[test]
+fn pane_written_sealed_looking_frames_do_not_open_even_if_passed_through() {
+    let cases = run(Placement::A);
+    assert_eq!(total(&cases, |c| c.forged_seen), 4);
+    assert_eq!(total(&cases, |c| c.passthrough_opened), 0);
+}
+
+#[test]
+fn the_hostile_cases_exercise_the_terminal_counters_they_are_for() {
+    let cases = run(Placement::A);
+    let stale = counters(&cases, "hostile-stale-and-early-containers");
+    assert!(stale.contains("containers_stale: 1"), "{stale}");
+    assert!(stale.contains("containers_early: 1"), "{stale}");
+    let rect = counters(&cases, "hostile-wrong-rectangle");
+    assert!(rect.contains("containers_dropped: 2"), "{rect}");
+    assert!(rect.contains("malformed: 2"), "{rect}");
+    let foreign = counters(&cases, "hostile-frame-type-outside-the-keys");
+    assert!(foreign.contains("other_type: 1"), "{foreign}");
+    assert!(
+        foreign.contains("containers_early: 0"),
+        "ignored once desynchronised: {foreign}"
+    );
+    let kind = counters(&cases, "hostile-container-with-a-sealed-content-type");
+    assert!(kind.contains("malformed: 1"), "{kind}");
+    assert!(kind.contains("containers_unparsed: 1"), "{kind}");
 }
