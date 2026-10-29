@@ -41,6 +41,10 @@ impl Placement {
     }
 }
 
+/// Why a case about a pane's process is not played.
+const NOT_RUN_PROCESS: &str =
+    "the model has no pane process state: the terminal's process-state API does not exist yet";
+
 /// The gated counts of 7.2 this mode measures.
 pub const MEASURED: [&str; 5] = [
     "draw_outside_rect",
@@ -77,6 +81,8 @@ pub struct CaseResult {
     pub passthrough_opened: u32,
     /// Terminal-side counters, for the log.
     pub terminal: String,
+    /// Why the case was not played, if it was not.
+    pub not_run: Option<&'static str>,
 }
 
 /// A whole run.
@@ -97,6 +103,12 @@ impl Report {
 
     fn sum(&self, f: impl Fn(&CaseResult) -> u32) -> u32 {
         self.cases.iter().map(f).sum()
+    }
+
+    /// Cases that were not played.
+    #[must_use]
+    pub fn not_run(&self) -> usize {
+        self.cases.iter().filter(|c| c.not_run.is_some()).count()
     }
 
     /// The total of one measured kind over all cases.
@@ -124,8 +136,9 @@ impl Report {
         );
         let _ = writeln!(
             out,
-            "7.2 model level, cases={} violations={}",
+            "7.2 model level, cases={} not_run={} violations={}",
             self.cases.len(),
+            self.not_run(),
             self.violations()
         );
         for k in MEASURED {
@@ -170,7 +183,18 @@ impl Report {
         ] {
             let _ = writeln!(out, "{k}=not measured ({why})");
         }
+        let skipped = self.not_run();
+        if skipped > 0 {
+            let _ = writeln!(
+                out,
+                "pane_process_trust=not measured ({skipped} cases not run: {NOT_RUN_PROCESS})"
+            );
+        }
         for c in &self.cases {
+            if let Some(why) = c.not_run {
+                let _ = writeln!(out, "{} not run ({why})", c.id);
+                continue;
+            }
             let _ = writeln!(
                 out,
                 "{} drawn={} forged_seen={} violations={} {}",
@@ -403,6 +427,7 @@ impl<'a> PlayerA<'a> {
                     self.send_layout(g, &r);
                 }
             }
+            Event::Process { .. } | Event::Expect { .. } => {}
             Event::Detach => self.detached = true,
             Event::Reattach => {
                 self.detached = false;
@@ -553,6 +578,14 @@ pub fn run_placement<W: Write>(
     let mut cases = Vec::new();
     for case in &corpus.cases {
         rec.case(&case.id)?;
+        if case.script.iter().any(Event::is_process_trust) {
+            cases.push(CaseResult {
+                id: case.id.clone(),
+                not_run: Some(NOT_RUN_PROCESS),
+                ..CaseResult::default()
+            });
+            continue;
+        }
         let result = match placement {
             Placement::A => {
                 let mut p = PlayerA::new(case);
