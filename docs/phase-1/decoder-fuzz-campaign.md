@@ -22,6 +22,18 @@ cargo run -p lumen-evidence -- --decoder --ledger OUT/ledger.json --commit "$(gi
 
 CPU-hours are wall seconds times workers, summed over slices; that is an approximation of CPU time, not a measurement of it. A longer run is the same command with larger `--slice-seconds` and `--slices`; the output directory resumes.
 
+## Running it on a one-time spot VM
+
+`scripts/decoder-fuzz-vm.sh` installs the toolchain on a fresh Debian or Ubuntu VM, checks out `COMMIT` and runs the campaign. The campaign is built to survive the VM disappearing:
+
+- **State lives off the VM.** `--sync-cmd` copies the output directory (corpora, samples, crashes, crash inputs, replays, logs, ledger) somewhere durable after every slice, on SIGTERM and at the end. `--restore-cmd` brings it back on a replacement VM, and `--target-cpu-hours H` makes the same command continue until each format has H CPU-hours, however many VMs that takes.
+- **A slice is the unit of loss.** A VM that vanishes without a signal loses the slice in progress, so slices are 900 s by default. A SIGTERM (the spot notice, a shutdown) stops the fuzzers, records the part of the slice libFuzzer reports, records any crash found, syncs, and exits 143.
+- **A different build is refused.** A restored directory whose commit or build identity differs from this checkout is refused (exit 3): its CPU-hours would not count for this build. The nightly is pinned in the VM script for the same reason.
+- **The VM ends itself only with the results safe.** `--finish-cmd` (for example `sudo shutdown -h now`, with the instance set to terminate on shutdown) runs after the ledger is written and a final sync has succeeded. If the final sync fails three times it does not run, the script exits 4, and the VM stays up with the results on it; that costs money, and it is the better failure.
+- **One run per directory** (exit 5 if the lock is held).
+
+`scripts/test-decoder-fuzz-spot.sh` tests these with real short fuzz runs: sync and finish on a normal run, a failing sync that blocks the finish command, a SIGTERM mid-slice, resume on a replacement directory from the synced copy, a refusal to resume a different build, and the lock. What it cannot test is the part that talks to AWS: the bootstrap's package and toolchain installation, and the real sync and shutdown commands. A short dry run on a throwaway VM (`TARGET_CPU_HOURS=0.02 SLICE_SECONDS=30`, with the real sync, restore and finish commands) would cover that for little money.
+
 ## The limits the fuzzer applies
 
 - **Hang:** libFuzzer `-timeout=2`, the gate's 2 s.
