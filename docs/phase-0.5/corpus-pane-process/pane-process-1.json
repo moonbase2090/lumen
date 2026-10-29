@@ -1,0 +1,445 @@
+{
+  "cases": [
+    {
+      "category": "process-trust",
+      "id": "first-command-not-a-listed-shell",
+      "note": "A pane whose first command is not a listed shell is never local.",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 80,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "listed": false,
+          "op": "process",
+          "pane": 1,
+          "program": "/usr/bin/vim",
+          "what": "spawn"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f38000000010000e66726f6d20616e20656469746f72",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "expect",
+          "pane": 1,
+          "track0": "possibly_remote"
+        }
+      ]
+    },
+    {
+      "category": "process-trust",
+      "id": "listed-shell-with-every-condition-holding",
+      "note": "No process state makes a pane local in v0: even the clean case is possibly remote.",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 80,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "listed": true,
+          "op": "process",
+          "pane": 1,
+          "program": "/bin/zsh",
+          "what": "spawn"
+        },
+        {
+          "on": true,
+          "op": "process",
+          "pane": 1,
+          "what": "job_control"
+        },
+        {
+          "members": 1,
+          "op": "process",
+          "pane": 1,
+          "what": "group"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f38000000014001266726f6d206120636c65616e207368656c6c",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "expect",
+          "pane": 1,
+          "track0": "possibly_remote"
+        }
+      ]
+    },
+    {
+      "category": "process-trust",
+      "id": "exec-in-the-pane-shell",
+      "note": "An exec by the foreground leader does not make the pane local, and exec-ing back does not undo it.",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 80,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "listed": true,
+          "op": "process",
+          "pane": 1,
+          "program": "/bin/zsh",
+          "what": "spawn"
+        },
+        {
+          "op": "process",
+          "pane": 1,
+          "program": "/usr/bin/ssh",
+          "what": "exec"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f38000000010000e6166746572207468652065786563",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "expect",
+          "pane": 1,
+          "track0": "possibly_remote"
+        },
+        {
+          "op": "process",
+          "pane": 1,
+          "program": "/bin/zsh",
+          "what": "exec"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f380000000150013616674657220657865632d696e67206261636b",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "expect",
+          "pane": 1,
+          "track0": "possibly_remote"
+        }
+      ]
+    },
+    {
+      "category": "process-trust",
+      "id": "recorded-pid-reused-by-another-process",
+      "note": "A pid or start-time mismatch with what was recorded at spawn leaves the pane possibly remote.",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 80,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "listed": true,
+          "op": "process",
+          "pane": 1,
+          "program": "/bin/zsh",
+          "what": "spawn"
+        },
+        {
+          "op": "process",
+          "pane": 1,
+          "what": "pid_reuse"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000001f001d66726f6d20746865206e6577206f776e6572206f662074686520706964",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "expect",
+          "pane": 1,
+          "track0": "possibly_remote"
+        }
+      ]
+    },
+    {
+      "category": "process-trust",
+      "id": "job-control-off",
+      "note": "Turning job control off leaves the pane possibly remote, and turning it on again does not change that.",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 80,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "listed": true,
+          "op": "process",
+          "pane": 1,
+          "program": "/bin/zsh",
+          "what": "spawn"
+        },
+        {
+          "on": false,
+          "op": "process",
+          "pane": 1,
+          "what": "job_control"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f38000000016001477697468206a6f6220636f6e74726f6c206f6666",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "expect",
+          "pane": 1,
+          "track0": "possibly_remote"
+        },
+        {
+          "on": true,
+          "op": "process",
+          "pane": 1,
+          "what": "job_control"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000001a001877697468206a6f6220636f6e74726f6c206261636b206f6e",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "expect",
+          "pane": 1,
+          "track0": "possibly_remote"
+        }
+      ]
+    },
+    {
+      "category": "process-trust",
+      "id": "second-process-in-the-foreground-group",
+      "note": "A second process in the foreground group leaves the pane possibly remote, also after it leaves.",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 80,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "listed": true,
+          "op": "process",
+          "pane": 1,
+          "program": "/bin/zsh",
+          "what": "spawn"
+        },
+        {
+          "members": 2,
+          "op": "process",
+          "pane": 1,
+          "what": "group"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000001e001c73686172656420776974682061207365636f6e642070726f63657373",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "expect",
+          "pane": 1,
+          "track0": "possibly_remote"
+        },
+        {
+          "members": 1,
+          "op": "process",
+          "pane": 1,
+          "what": "group"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000f000d6166746572206974206c656674",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "expect",
+          "pane": 1,
+          "track0": "possibly_remote"
+        }
+      ]
+    },
+    {
+      "category": "process-trust",
+      "id": "frame-read-while-ssh-was-in-the-foreground",
+      "note": "A frame read while ssh was in the foreground stays possibly remote after the shell returns.",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 80,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "listed": true,
+          "op": "process",
+          "pane": 1,
+          "program": "/bin/zsh",
+          "what": "spawn"
+        },
+        {
+          "op": "process",
+          "pane": 1,
+          "program": "/usr/bin/ssh",
+          "what": "foreground"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000001a00187479706564206279207468652072656d6f74652073696465",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "process",
+          "pane": 1,
+          "program": "/bin/zsh",
+          "what": "foreground"
+        },
+        {
+          "op": "expect",
+          "pane": 1,
+          "scope": "frames_read_earlier",
+          "track0": "possibly_remote"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f38000000016001466726f6d20746865207368656c6c20616761696e",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "expect",
+          "pane": 1,
+          "track0": "possibly_remote"
+        }
+      ]
+    },
+    {
+      "category": "process-trust",
+      "id": "track-0-printed-by-the-shell-itself",
+      "note": "Anything the shell itself prints is possibly remote.",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 80,
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "listed": true,
+          "op": "process",
+          "pane": 1,
+          "program": "/bin/zsh",
+          "what": "spawn"
+        },
+        {
+          "members": 1,
+          "op": "process",
+          "pane": 1,
+          "what": "group"
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000001600147072696e74656420627920746865207368656c6c",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "expect",
+          "pane": 1,
+          "track0": "possibly_remote"
+        }
+      ]
+    }
+  ],
+  "revision": "pp-1"
+}
