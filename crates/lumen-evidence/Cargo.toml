@@ -16,7 +16,7 @@ lumen-harness = { path = "../lumen-harness" }
 lumen-panes = { path = "../lumen-panes" }
 lumen-sinks = { path = "../lumen-sinks" }
 lumen-sealed = { path = "../lumen-sealed" }
-lumen-term = { path = "../lumen-term", features = ["arm-b"] }
+lumen-term = { path = "../lumen-term" }
 lumen-track0 = { path = "../lumen-track0" }
 serde_json = "1"
 sha2 = "0.10"
