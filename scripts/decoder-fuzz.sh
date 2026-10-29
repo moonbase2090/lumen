@@ -136,6 +136,6 @@ cat > "$OUT/ubsan.json" <<'JSON'
 JSON
 NOTES=("past_cve_seeds=$ROOT/crates/lumen-decoder/fuzz/seeds-regression/PAST_CVES.json" "build=$OUT/build.json" "ubsan=$OUT/ubsan.json")
 [ -n "$MIRI_RECORD" ] || MIRI_RECORD="$ROOT/crates/lumen-decoder/fuzz/miri-record.json"
-[ ! -f "$MIRI_RECORD" ] || NOTES+=("miri=$MIRI_RECORD")
+[ ! -f "$MIRI_RECORD" ] || NOTES+=("miri=$MIRI_RECORD" "miri_gaps=$ROOT/crates/lumen-decoder/fuzz/miri-gaps.json")
 "${TOOLS[@]}" annotate "$OUT/ledger.plain.json" "${NOTES[@]}" > "$OUT/ledger.json"
 echo "ledger: $OUT/ledger.json"
