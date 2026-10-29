@@ -320,3 +320,22 @@ fn the_committed_rt4_corpus_is_what_the_generator_prints() {
     let committed = std::fs::read_to_string(rt4_dir().join("sealed-sinks.json"));
     assert_eq!(committed.ok(), Some(lumen_evidence::rt4::rt4_json()));
 }
+
+fn rt3_dir() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/phase-0.5/corpus-rt-3")
+}
+
+#[test]
+fn the_committed_rt3_sealed_cases_are_what_the_generator_prints() {
+    if std::env::var_os("LUMEN_REGENERATE_RT4").is_some() {
+        assert!(
+            std::fs::write(
+                rt3_dir().join("osc-sealed.json"),
+                lumen_evidence::rt4::rt3_sealed_json()
+            )
+            .is_ok()
+        );
+    }
+    let committed = std::fs::read_to_string(rt3_dir().join("osc-sealed.json"));
+    assert_eq!(committed.ok(), Some(lumen_evidence::rt4::rt3_sealed_json()));
+}

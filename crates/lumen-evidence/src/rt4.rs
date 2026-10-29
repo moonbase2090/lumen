@@ -455,3 +455,176 @@ pub fn rt4_json() -> String {
     out.push('\n');
     out
 }
+
+/// A case that mixes unsigned notification sequences with sealed notification
+/// frames. `sealed` is what a layer that holds the keys must show and
+/// `unsealed` is what an Arm A layer without keys must show.
+fn mixed(
+    id: &str,
+    reads: &[Value],
+    context: &Value,
+    sealed: &Value,
+    unsealed: &Value,
+    note: &str,
+) -> Value {
+    json!({
+        "id": id,
+        "category": "authority",
+        "reads": reads,
+        "context": context,
+        "sinks": sealed,
+        "sinks_unsealed_layer": unsealed,
+        "note": note,
+    })
+}
+
+/// The notification cases of `rt-3` that carry sealed frames, as pretty-printed
+/// JSON with a trailing newline. They are the `rt-3` revision: they sit beside
+/// the cases of unsigned output and show that a sealed `0x22` frame with the
+/// capability is the only way to an OS notification, whatever else is on.
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn rt3_sealed_json() -> String {
+    const OSC9: &[u8] = b"\x1b]9;x\x07";
+    let all_on = json!({"allow_unsigned": true, "os_notifications": true, "os_text": true, "unfocused": true});
+    let sealed_os = |extra: &str| -> Value {
+        let mut c = all_on.clone();
+        if !extra.is_empty() {
+            c[extra] = json!(true);
+        }
+        c
+    };
+    let mut cases = Vec::new();
+
+    cases.push(mixed(
+        "unsigned-never-os-with-every-setting-on",
+        &[read(OSC9, 0)],
+        &all_on,
+        &json!({"effects": {}, "os_notifications": 0, "toasts": 1, "denied_notifications": 0, "notification_attempts": 0}),
+        &json!({"effects": {}, "os_notifications": 0, "toasts": 1, "denied_notifications": 0, "notification_attempts": 0}),
+        "allow-unsigned, os, os-text and an unfocused window are all on: an unsigned notification is a toast, never an OS notification",
+    ));
+
+    let mut f = Frames::new();
+    cases.push(mixed(
+        "sealed-0x22-reaches-the-os-sink",
+        &[read(&f.frame(KIND_GRANT, &grant(8)), 0), read(&f.frame(KIND_NOTIFICATION, &string("build done")), 10)],
+        &all_on,
+        &json!({"effects": {"grant": 1, "notification": 1}, "os_notifications": 1, "toasts": 0,
+                "os_texts": ["Program in pane 1 says: build done"]}),
+        &json!({"effects": {}, "os_notifications": 0, "toasts": 0, "refused": 0}),
+        "a sealed 0x22 frame with the capability, setting on, unfocused, local: the one way to an OS notification",
+    ));
+
+    let mut f = Frames::new();
+    cases.push(mixed(
+        "unsigned-toast-then-sealed-os",
+        &[read(OSC9, 0), read(&f.frame(KIND_GRANT, &grant(8)), 5), read(&f.frame(KIND_NOTIFICATION, &string("done")), 1000)],
+        &all_on,
+        &json!({"effects": {"grant": 1, "notification": 1}, "os_notifications": 1, "toasts": 1}),
+        &json!({"effects": {}, "os_notifications": 0, "toasts": 1}),
+        "the unsigned sequence is a toast and the sealed frame a second later is an OS notification",
+    ));
+
+    let mut f = Frames::new();
+    cases.push(mixed(
+        "sealed-os-then-unsigned-within-a-second",
+        &[read(&f.frame(KIND_GRANT, &grant(8)), 0), read(&f.frame(KIND_NOTIFICATION, &string("done")), 10), read(OSC9, 500)],
+        &all_on,
+        &json!({"effects": {"grant": 1, "notification": 1}, "os_notifications": 1, "toasts": 0, "denied_notifications": 1}),
+        &json!({"effects": {}, "os_notifications": 0, "toasts": 1, "denied_notifications": 0}),
+        "the layer's one notification per second is spent by the sealed frame, so the unsigned sequence 490 ms later is dropped and counted",
+    ));
+
+    for (id_, ctx_key, note) in [
+        (
+            "ssh-sealed-and-unsigned-are-toast-or-nothing",
+            "ssh",
+            "an SSH session: the sealed frame is a toast, never an OS notification, and the unsigned opt-in does not apply",
+        ),
+        (
+            "multiplexer-sealed-and-unsigned-are-toast-or-nothing",
+            "tmux_or_screen",
+            "a multiplexer pane: the same",
+        ),
+    ] {
+        let mut f = Frames::new();
+        cases.push(mixed(
+            id_,
+            &[read(&f.frame(KIND_GRANT, &grant(8)), 0), read(&f.frame(KIND_NOTIFICATION, &string("done")), 10), read(OSC9, 1010)],
+            &sealed_os(ctx_key),
+            &json!({"effects": {"grant": 1}, "os_notifications": 0, "toasts": 1, "denied_notifications": 1}),
+            &json!({"effects": {}, "os_notifications": 0, "toasts": 0, "denied_notifications": 1}),
+            note,
+        ));
+    }
+
+    let mut f = Frames::new();
+    let mut orphan = all_on.clone();
+    orphan["container"] = json!(false);
+    cases.push(mixed(
+        "orphan-output-unsigned-denied-sealed-os",
+        &[read(&f.frame(KIND_GRANT, &grant(8)), 0), read(&f.frame(KIND_NOTIFICATION, &string("done")), 10), read(OSC9, 1010)],
+        &orphan,
+        &json!({"effects": {"grant": 1, "notification": 1}, "os_notifications": 1, "toasts": 0, "denied_notifications": 1}),
+        &json!({"effects": {}, "os_notifications": 0, "toasts": 0, "denied_notifications": 1}),
+        "orphan output: the opt-in covers grid output only, so the unsigned sequence is denied; the sealed frame is still an OS notification",
+    ));
+
+    let mut f = Frames::new();
+    let mut focused = all_on.clone();
+    focused["unfocused"] = json!(false);
+    cases.push(mixed(
+        "focused-window-sealed-is-a-toast",
+        &[
+            read(&f.frame(KIND_GRANT, &grant(8)), 0),
+            read(&f.frame(KIND_NOTIFICATION, &string("done")), 10),
+        ],
+        &focused,
+        &json!({"effects": {"grant": 1}, "os_notifications": 0, "toasts": 1}),
+        &json!({"effects": {}, "os_notifications": 0, "toasts": 0}),
+        "a focused window shows a toast instead",
+    ));
+
+    let mut f = Frames::new();
+    let mut off = all_on.clone();
+    off["os_notifications"] = json!(false);
+    cases.push(mixed(
+        "os-setting-off-sealed-and-unsigned-are-toasts",
+        &[
+            read(&f.frame(KIND_GRANT, &grant(8)), 0),
+            read(&f.frame(KIND_NOTIFICATION, &string("done")), 10),
+            read(OSC9, 1010),
+        ],
+        &off,
+        &json!({"effects": {"grant": 1}, "os_notifications": 0, "toasts": 2}),
+        &json!({"effects": {}, "os_notifications": 0, "toasts": 1}),
+        "notifications.os is off: both are toasts",
+    ));
+
+    let mut f = Frames::new();
+    cases.push(mixed(
+        "fifth-toast-in-ten-seconds-is-dropped",
+        &[
+            read(OSC9, 0),
+            read(&f.frame(KIND_GRANT, &grant(8)), 5),
+            read(&f.frame(KIND_NOTIFICATION, &string("a")), 1000),
+            read(OSC9, 2000),
+            read(&f.frame(KIND_NOTIFICATION, &string("b")), 3000),
+            read(OSC9, 4000),
+        ],
+        &off,
+        &json!({"effects": {"grant": 1}, "os_notifications": 0, "toasts": 4, "denied_notifications": 1}),
+        &json!({"effects": {}, "os_notifications": 0, "toasts": 3, "denied_notifications": 0}),
+        "four toasts in ten seconds from a layer, mixing both sources; the fifth is dropped and counted",
+    ));
+
+    let mut out = serde_json::to_string_pretty(&json!({
+        "revision": "rt-3",
+        "note": "notification cases that carry sealed 0x22 frames beside unsigned OSC sequences: an OS notification comes only from a sealed frame with the capability, behind notifications.os; unsigned, SSH, multiplexer and orphan output only ever produce a toast or nothing",
+        "cases": cases
+    }))
+    .unwrap_or_default();
+    out.push('\n');
+    out
+}
