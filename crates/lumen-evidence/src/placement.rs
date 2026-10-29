@@ -136,10 +136,11 @@ impl Report {
         );
         let _ = writeln!(
             out,
-            "7.2 model level, cases={} not_run={} violations={}",
+            "7.2 model level, cases={} not_run={} violations={} of {} run",
             self.cases.len(),
             self.not_run(),
-            self.violations()
+            self.violations(),
+            self.cases.len() - self.not_run()
         );
         for k in MEASURED {
             let _ = writeln!(out, "{k}={}", self.total(k));

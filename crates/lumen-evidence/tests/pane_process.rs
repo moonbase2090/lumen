@@ -115,7 +115,10 @@ fn placement_mode_does_not_play_them_and_says_so_for_both_placements() {
         assert_eq!(report.not_run(), 8);
         assert_eq!(report.violations(), 0);
         let text = report.summary(&header);
-        assert!(text.contains("cases=8 not_run=8"), "{text}");
+        assert!(
+            text.contains("cases=8 not_run=8 violations=0 of 0 run"),
+            "{text}"
+        );
         assert!(
             text.contains("pane_process_trust=not measured (8 cases not run"),
             "{text}"
