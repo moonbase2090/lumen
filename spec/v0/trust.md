@@ -71,9 +71,9 @@ Each unauthenticated producer gets a smaller share than any sealed layer: **25% 
 
 A notification that fails the OS conditions is shown as a toast if the toast limits allow, and otherwise dropped and counted.
 
-**Exposure.** Enabling `notifications.os` sends the program's plain text to the operating system's notification service. That service may show it on a lock screen, keep it in a history, sync it to other devices, and expose it to other apps with notification access. Sealed output can contain secrets. The setting's description must state this.
+**Exposure of program text.** By default an OS notification carries only the fixed prefix and the pane label. The program's text is never sent to the operating system unless the separate policy key `notifications.os-text` is set (default `false`, set only in the user's policy file). Enabling it sends the program's plain text to the operating system's notification service. That service may show it on a lock screen, keep it in a history, sync it to other devices, and expose it to other apps with notification access. Sealed output can contain secrets. The setting's description must state this, next to the setting itself.
 
-**Text.** The terminal composes the text of every OS notification and every toast from three parts:
+**Text.** The terminal composes the text of every toast from three parts, and of every OS notification from the first two, plus the third only when `notifications.os-text` is set:
 
 1. a fixed prefix, `Program in <pane label> says:`, which the program cannot remove;
 2. the pane label, as defined below;
@@ -81,7 +81,7 @@ A notification that fails the OS conditions is shown as a toast if the toast lim
 
 **Pane label.** The pane label is the layer's position in the terminal's own layout (window, tab or pane index), with the colour and glyph derived from its opaque id, as [Pane identity](@/spec/v0/multiplexers.md#mux.pane-identity) describes for panes. It is never program text: no title, working directory or pane text.
 
-**Rate limits.** Measured on a monotonic clock, and applied to toasts from `allow-unsigned` and to every sealed notification alike:
+**Rate limits.** The numbers below are provisional proposals, to be tuned by measurement. Measured on a monotonic clock, and applied to toasts from `allow-unsigned` and to every sealed notification alike:
 
 - at least 1000 ms must pass between two notifications accepted from the same layer;
 - each layer has a queue of at most 8 toasts, and at most 4 toasts from a layer are shown in any 10 seconds;
