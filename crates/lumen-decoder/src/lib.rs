@@ -21,3 +21,4 @@ pub mod protocol;
 pub mod images;
 #[cfg(unix)]
 pub mod runner;
+pub mod unlock;
