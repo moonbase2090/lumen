@@ -33,7 +33,7 @@ This run measures parts of 2.1, 2.2 and 2.6 and nothing else. Section 4 of the [
 | 2.4 Authority leakage | events | n/a | 0 | not measured: no terminal sinks are registered. | n/a |
 | 2.5 Decoder robustness | CPU-hours per format | n/a | section 2.5 | not measured: there is no decoder fuzzing harness. | n/a |
 | 2.6 Denial of service, flood budget | budget violations | within budget, 500 of 500 blocks drawn | within the 25% unauthenticated share | pass for the byte pipeline over a 30 s flood. The criterion proposes 10 minutes, so this is a shorter run | results tarball `7b46bd7fb24e…` |
-| 2.6 Denial of service, peak memory | MiB | 3 MiB | under 512 MiB | pass for the driver process, not a terminal | results tarball `7b46bd7fb24e…` |
+| 2.6 Denial of service, peak memory | MiB | 3 MiB in the report | under 512 MiB | pass for the driver process, not a terminal. The run report gives 3 MiB for each run. This is a sampled peak, so it varies between runs (a re-run of the flood measured a higher value, 6 MiB), and every value seen is far under the limit | results tarball `7b46bd7fb24e…` |
 | 2.6 Denial of service, longest feed | ms | 6.07 ms | UI stall under 2 s (proposed) | reported only: the longest single call into the layer is a proxy, not the UI stall | results tarball `7b46bd7fb24e…` |
 | 2.6 Denial of service, UI stall, frame rate, lying decoder | n/a | n/a | section 2.6 | not measured: the driver has no UI or decoder. | n/a |
 | 2.7 Red-team findings | open findings at Medium or above | n/a | 0 | not measured: this is a manual independent review. | n/a |
