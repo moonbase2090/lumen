@@ -1,8 +1,11 @@
 //! Replays a corpus through an arm's layer and writes the comparison run log.
 //!
 //! This crate is test-only: nothing shipped depends on it. It measures what an
-//! arm's byte pipeline can show on its own. It draws nothing and has no
-//! terminal, so the authority-leak count is reported as not measured.
+//! arm's byte pipeline can show on its own, and it draws nothing. The ordinary
+//! output a layer passes on is fed to the upstream emulator through
+//! `lumen-sinks`, so the authority-leak count is read from the effects that
+//! emulator raises. Sinks that have no code in this tree are never exercised,
+//! and the count stays "not measured" until every sink is.
 //!
 //! # Corpus format
 //!
@@ -44,7 +47,7 @@ pub mod rt2;
 
 use lumen_arm_a::pipeline::ITEM_KINDS as ARM_A_KINDS;
 use lumen_arm_b::ITEM_KINDS as ARM_B_KINDS;
-use lumen_harness::{EffectLog, HeaderInfo, Recorder, SinkTable};
+use lumen_harness::{HeaderInfo, Origin, Recorder};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -322,6 +325,44 @@ impl Arm {
     }
 }
 
+/// The items one call produced, from either arm.
+enum Items {
+    A(Vec<lumen_arm_a::pipeline::Item>),
+    B(Vec<lumen_arm_b::Item>),
+}
+
+impl Items {
+    /// The `(kind, len)` summary of the items.
+    fn summary(&self) -> Vec<(&'static str, usize)> {
+        match self {
+            Items::A(v) => v.iter().map(lumen_arm_a::pipeline::item_summary).collect(),
+            Items::B(v) => v.iter().map(lumen_arm_b::item_summary).collect(),
+        }
+    }
+
+    /// The ordinary output the layer passes on to the terminal's VT parser.
+    fn output(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        match self {
+            Items::A(v) => {
+                for i in v {
+                    if let lumen_arm_a::pipeline::Item::Output(b) = i {
+                        out.extend_from_slice(b);
+                    }
+                }
+            }
+            Items::B(v) => {
+                for i in v {
+                    if let lumen_arm_b::Item::Output(b) = i {
+                        out.extend_from_slice(b);
+                    }
+                }
+            }
+        }
+        out
+    }
+}
+
 /// One arm's layer behind the calls the driver needs.
 enum AnyLayer {
     A(lumen_arm_a::pipeline::Layer),
@@ -386,11 +427,6 @@ impl AnyLayer {
         }
     }
 
-    /// Feed one read and return the `(kind, len)` summary of what came out.
-    fn feed(&mut self, bytes: &[u8], read: &Read, case: &Case) -> Vec<(&'static str, usize)> {
-        self.feed_raw(bytes, case.alt_screen, case.tmux_or_screen, read.t_ms)
-    }
-
     fn feed_raw(
         &mut self,
         bytes: &[u8],
@@ -398,42 +434,45 @@ impl AnyLayer {
         tmux_or_screen: bool,
         now_ms: u64,
     ) -> Vec<(&'static str, usize)> {
+        self.feed_items(bytes, alt_screen, tmux_or_screen, now_ms)
+            .summary()
+    }
+
+    fn feed_items(
+        &mut self,
+        bytes: &[u8],
+        alt_screen: bool,
+        tmux_or_screen: bool,
+        now_ms: u64,
+    ) -> Items {
         match self {
-            AnyLayer::A(l) => l
-                .feed(
-                    bytes,
-                    lumen_arm_a::pipeline::Context {
-                        alt_screen,
-                        tmux_or_screen,
-                        now_ms,
-                    },
-                )
-                .iter()
-                .map(lumen_arm_a::pipeline::item_summary)
-                .collect(),
-            AnyLayer::B(l) => l
-                .feed(
-                    bytes,
-                    lumen_arm_b::Context {
-                        alt_screen,
-                        tmux_or_screen,
-                        now_ms,
-                    },
-                )
-                .iter()
-                .map(lumen_arm_b::item_summary)
-                .collect(),
+            AnyLayer::A(l) => Items::A(l.feed(
+                bytes,
+                lumen_arm_a::pipeline::Context {
+                    alt_screen,
+                    tmux_or_screen,
+                    now_ms,
+                },
+            )),
+            AnyLayer::B(l) => Items::B(l.feed(
+                bytes,
+                lumen_arm_b::Context {
+                    alt_screen,
+                    tmux_or_screen,
+                    now_ms,
+                },
+            )),
         }
     }
 
     fn finish(&mut self) -> Vec<(&'static str, usize)> {
+        self.finish_items().summary()
+    }
+
+    fn finish_items(&mut self) -> Items {
         match self {
-            AnyLayer::A(l) => l
-                .finish()
-                .iter()
-                .map(lumen_arm_a::pipeline::item_summary)
-                .collect(),
-            AnyLayer::B(l) => l.finish().iter().map(lumen_arm_b::item_summary).collect(),
+            AnyLayer::A(l) => Items::A(l.finish()),
+            AnyLayer::B(l) => Items::B(l.finish()),
         }
     }
 
@@ -450,7 +489,11 @@ pub(crate) fn run_case<W: Write>(
     case: &Case,
     arm: Arm,
     rec: &mut Recorder<W>,
+    mut terminal: Option<&mut lumen_sinks::Terminal>,
 ) -> std::io::Result<CaseResult> {
+    if let Some(t) = &mut terminal {
+        t.new_case();
+    }
     let mut layer = AnyLayer::new(arm);
     if case.container {
         layer.open_container();
@@ -476,11 +519,17 @@ pub(crate) fn run_case<W: Write>(
         };
     for r in &case.reads {
         last_t = r.t_ms;
-        let summary = layer.feed(&r.bytes, r, case);
-        record(r.t_ms, r.bytes.len(), &summary, rec)?;
+        let items = layer.feed_items(&r.bytes, case.alt_screen, case.tmux_or_screen, r.t_ms);
+        if let Some(t) = &mut terminal {
+            t.feed(&items.output(), Origin::Unsealed, &case.id);
+        }
+        record(r.t_ms, r.bytes.len(), &items.summary(), rec)?;
     }
-    let summary = layer.finish();
-    record(last_t, 0, &summary, rec)?;
+    let items = layer.finish_items();
+    if let Some(t) = &mut terminal {
+        t.feed(&items.output(), Origin::Unsealed, &case.id);
+    }
+    record(last_t, 0, &items.summary(), rec)?;
     Ok(CaseResult {
         id: case.id.clone(),
         kinds,
@@ -514,25 +563,25 @@ pub fn run_arm<W: Write>(
     arm: Arm,
     log: W,
 ) -> std::io::Result<(Report, HeaderInfo)> {
-    let effects = EffectLog::new(SinkTable::none());
+    let mut terminal = lumen_sinks::Terminal::new();
     let header = HeaderInfo {
         commit: commit.to_owned(),
         features: arm.features().to_owned(),
         harness: HARNESS_VERSION.to_owned(),
         corpus: corpus.revision.clone(),
         session_matrix: "none".to_owned(),
-        sinks: effects.table_source().to_owned(),
+        sinks: terminal.log().table_source().to_owned(),
     };
     let mut rec = Recorder::new(log, &header)?;
     let mut cases = Vec::new();
     for case in &corpus.cases {
-        cases.push(run_case(case, arm, &mut rec)?);
+        cases.push(run_case(case, arm, &mut rec, Some(&mut terminal))?);
     }
     rec.finish()?;
     Ok((
         Report {
             cases,
-            authority: effects.report(),
+            authority: terminal.log().report(),
         },
         header,
     ))

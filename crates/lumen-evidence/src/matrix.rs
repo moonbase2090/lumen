@@ -282,7 +282,7 @@ pub fn run_reach<W: Write>(
             (ReachArm::A, true) => Arm::ASealed,
             (ReachArm::A, false) => Arm::AUnsealed,
         };
-        let result = run_case(&s.case, layer_arm, &mut rec)?;
+        let result = run_case(&s.case, layer_arm, &mut rec, None)?;
         sessions.push(SessionResult {
             id: s.case.id.clone(),
             session: s.session.clone(),

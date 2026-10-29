@@ -38,7 +38,7 @@ fn the_fixture_corpus_replays_with_the_expected_items() {
     assert_eq!(split.kinds.get("block"), Some(&1));
     // The one case that forbids what it produces is the only violation.
     assert_eq!(report.violations(), 1);
-    assert_eq!(header.sinks, "none");
+    assert_eq!(header.sinks, "lumen-sinks");
     assert!(report.authority.starts_with("2.4=not measured"));
 }
 
@@ -213,4 +213,35 @@ fn rt2_opens_nothing_on_an_unsealed_layer() {
     ] {
         assert!(rt2_counters(Arm::AUnsealed, id).contains("sealed_opened: 0,"));
     }
+}
+
+#[test]
+fn a_notification_in_ordinary_output_reaches_the_terminal_sink_in_both_arms() {
+    let dir = std::env::temp_dir().join(format!("lumen-evidence-osc-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    // "ls\n", then OSC 9, then a notification inside a Track 0 frame's payload text.
+    let doc = r#"{"revision":"t","cases":[
+        {"id":"osc9-plain","reads":[{"hex":"6c730a1b5d393b6275696c6420646f6e6507"}]},
+        {"id":"nothing","reads":[{"hex":"6c730a"}]}]}"#;
+    assert!(std::fs::write(dir.join("c.json"), doc).is_ok());
+    let Ok(corpus) = load_corpus(&dir) else {
+        unreachable!("the corpus loads")
+    };
+    for arm in [Arm::B, Arm::ASealed, Arm::AUnsealed] {
+        let Ok((report, header)) = run_arm(&corpus, "testsha", arm, Vec::new()) else {
+            unreachable!("writing to a Vec succeeds")
+        };
+        assert_eq!(header.sinks, "lumen-sinks");
+        assert!(
+            report.authority.starts_with("2.4=non-zero (1)"),
+            "{arm:?}: {}",
+            report.authority
+        );
+        assert!(
+            report
+                .authority
+                .contains("notification exercised=1 unsealed=1 foreign=0")
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }
