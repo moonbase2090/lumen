@@ -28,15 +28,51 @@ fn each_notification_form_is_denied_before_the_sink_by_default() {
     }
 }
 
-#[test]
-fn allow_unsigned_lets_a_notification_reach_the_sink_as_an_unsealed_attempt() {
-    let mut t = Terminal::with_policy(Policy {
+fn allowing() -> Policy {
+    Policy {
         allow_unsigned: true,
-    });
-    t.feed(b"\x1b]9;build done\x07", Origin::Unsealed, "osc9");
-    assert_eq!(notifications(&t), 1);
-    assert_eq!(t.log().leak_count(), 1);
-    assert_eq!(t.case_sinks().denied_notifications, 0);
+        ..Policy::default()
+    }
+}
+
+#[test]
+fn allow_unsigned_shows_one_toast_a_second_and_never_reaches_the_os_sink() {
+    let mut t = Terminal::with_policy(allowing());
+    t.feed_at(
+        b"\x1b]9;a\x07\x1b]777;notify;t;b\x07\x1b]99;i=1;x\x07",
+        Origin::Unsealed,
+        "burst",
+        0,
+    );
+    t.feed_at(b"\x1b]9;b\x07", Origin::Unsealed, "soon", 999);
+    t.feed_at(b"\x1b]9;c\x07", Origin::Unsealed, "later", 1000);
+    assert_eq!(notifications(&t), 0);
+    assert_eq!(t.log().leak_count(), 0);
+    let c = t.case_sinks();
+    assert_eq!(
+        (c.toasts, c.denied_notifications, c.notification_attempts),
+        (2, 3, 0)
+    );
+}
+
+#[test]
+fn the_opt_in_never_applies_to_ssh_or_a_multiplexer_pane() {
+    for policy in [
+        Policy {
+            ssh: true,
+            ..allowing()
+        },
+        Policy {
+            multiplexer_pane: true,
+            ..allowing()
+        },
+    ] {
+        let mut t = Terminal::with_policy(policy);
+        t.feed_at(b"\x1b]9;a\x07", Origin::Unsealed, "x", 0);
+        let c = t.case_sinks();
+        assert_eq!((c.toasts, c.denied_notifications), (0, 1), "{policy:?}");
+        assert_eq!(notifications(&t), 0);
+    }
 }
 
 #[test]
