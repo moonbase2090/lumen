@@ -1,5 +1,5 @@
-//! A deliberately misbehaving worker for the sandbox suite. Built only with
-//! the `test-hostile` feature and never shipped. The first argument selects
+//! A deliberately misbehaving worker for the sandbox suite. Test-only and
+//! never shipped. The first argument selects
 //! the behaviour; modes starting with `raw-` skip the sandbox so the host's own
 //! limits can be tested without the worker's.
 

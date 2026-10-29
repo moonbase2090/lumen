@@ -1,5 +1,5 @@
 //! G4 sandbox suite: the real worker and the real host runner, plus a hostile
-//! worker (feature `test-hostile`) that lies, floods, hangs and tries to escape.
+//! worker that lies, floods, hangs and tries to escape.
 
 #![cfg(unix)]
 #![allow(missing_docs)]
@@ -234,7 +234,6 @@ fn corrupt_and_truncated_images_are_rejected_not_crashes() -> R {
 
 // ---- a hostile worker --------------------------------------------------
 
-#[cfg(feature = "test-hostile")]
 mod hostile {
     use super::*;
 
