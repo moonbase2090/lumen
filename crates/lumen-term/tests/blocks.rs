@@ -1,7 +1,7 @@
 //! Blocks and the arm layer in front of them. Programs on PTYs are in `session.rs`.
 
 use lumen_detector::TAG;
-use lumen_term::{Block, Context, Document, Layer, Notice, Passthrough, Piece};
+use lumen_term::{Block, Context, Document, GridBlock, Layer, Notice, Passthrough, Piece};
 use lumen_track0::Block as Track0Block;
 
 #[test]
