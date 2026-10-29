@@ -64,7 +64,7 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 ### 2.4 Authority leakage
 
 - **Unit:** count of unsealed inputs that cause a clipboard write, notification, link open, grant, exit status or boundary change.
-- **Method:** the output-adversary corpus, at a stated corpus revision, is run against each arm with the terminal's authority-effect log enabled. Each event is recorded with the input that produced it.
+- **Method:** the output-adversary corpus, at a stated corpus revision, is run against each arm with the terminal's authority-effect log enabled. Each event is recorded with the input that produced it. A count under this criterion counts only once the rt-3 cases, including the OS notification cases, actually reach the sinks (section 5.7); until they do, the verdict stays not measured.
 - **Harness:** comparison harness, authority-log mode (section 5.7).
 - **Threshold:** **zero** events. Any non-zero count in arm B fails the decision rule.
 
@@ -81,7 +81,7 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 
 - **Unit:** peak resident memory of the terminal under a hostile decoder, budget violations under a Track 0 flood, and the longest UI stall. Sustained frame rate is reported only.
 - **Flood parameters (proposed):** one run per platform, lasting 10 minutes, with an unauthenticated producer writing Track 0 at the maximum rate it can sustain. The total bytes and frame count are recorded in the log.
-- **Method:** run the flood alongside a lying decoder stream, and record peak memory, budget counters, the longest interval without a frame being drawn and the sustained frame rate.
+- **Method:** run the flood alongside a lying decoder stream, and record peak memory, budget counters, the longest interval without a frame being drawn and the sustained frame rate. The next comparison rerun uses the full 10-minute flood, not the 30 s run of the second comparison.
 - **Harness:** comparison harness, flood mode (section 5.3), and the decoder memory test.
 - **Threshold:** the terminal stays within its budgets and reservations (the [decoder memory gate](../../spec/v0/conformance.md#gate.decoder-memory)). Peak memory stays under the 512 MiB decoder limit. The unauthenticated producer gets no more than its 25% share of each budget. No UI stall longer than 2 s (proposed; the spec's 2 s limit applies to decoder hangs, not UI stalls). Frame rate is not gated.
 
@@ -191,6 +191,8 @@ Three things are reported as `not measured`, with the reason, because the driver
 - `conformance vectors`: the number of vectors in each file under `conformance/vectors`. They gate both arms equally, so one count is given for both and none is attributed to an arm; each arm's own test functions are the per-arm count of tests that hold its gates.
 
 The summary, with its per-file counts, is the raw log; `run.jsonl` holds only the header. Cost is reported and not gated (2.8).
+
+**Cost base.** The base for comparison runs is commit `5549359`. At that commit only the `lumen` and `lumen-detector` crates exist, and no arm crate does. It is an ancestor of main. Every cost result states the REF it used, and results are compared like for like only when they use this base.
 
 ### 5.5 Parity mode
 
