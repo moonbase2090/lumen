@@ -11,7 +11,9 @@
 //! # Catalogue format
 //!
 //! One JSON file, `{"revision": "..", "channels": [..]}`. A channel is
-//! `{"id": "..", "actions": [..]}`. An action is `{"id": "..",
+//! `{"id": "..", "source": "..", "code": "..", "actions": [..]}`, where `source` says
+//! where the spec defines the channel and `code` is the path of the code that
+//! implements it, or absent when this repository has none. An action is `{"id": "..",
 //! "pty_equivalent": ".."}`, where `pty_equivalent` says in a sentence which
 //! PTY write already performs the same action, or is `null` when none does.
 //! A `null` makes the channel one that accepts more than a PTY write could.
@@ -47,6 +49,11 @@ pub struct Action {
 pub struct Channel {
     /// Channel id.
     pub id: String,
+    /// Where the spec defines the channel.
+    pub source: Option<String>,
+    /// The path of the code that implements the channel, if this repository
+    /// has any. A channel with no code is declared from the spec only.
+    pub code: Option<String>,
     /// The actions it accepts.
     pub actions: Vec<Action>,
 }
@@ -94,7 +101,13 @@ fn channel_of(v: &Value) -> Result<Channel, String> {
     if let Some(dup) = actions.iter().find(|a| !seen.insert(a.id.as_str())) {
         return Err(format!("{id}: duplicate action id {}", dup.id));
     }
-    Ok(Channel { id, actions })
+    let text = |key: &str| v[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+    Ok(Channel {
+        id,
+        source: text("source"),
+        code: text("code"),
+        actions,
+    })
 }
 
 /// Load and check a channel catalogue.
@@ -135,6 +148,8 @@ pub struct ParityReport {
     pub actions: usize,
     /// Channels with at least one action that has no PTY equivalent, with those actions.
     pub accepting_more: Vec<(String, Vec<String>)>,
+    /// Channels declared with no code behind them in this repository.
+    pub without_code: Vec<String>,
 }
 
 impl ParityReport {
@@ -185,6 +200,15 @@ impl ParityReport {
                 "2.9 channels_accepting_more_than_pty={} (threshold 0; the catalogue is a declaration checked by the reviewer)",
                 self.count()
             );
+            if !self.without_code.is_empty() {
+                let _ = writeln!(
+                    out,
+                    "2.9 declaration_level: {} of {} channels have no code in this repository ({}); the count applies the spec's rule to their declared actions and is not a test of an implementation",
+                    self.without_code.len(),
+                    self.channels,
+                    self.without_code.join(", ")
+                );
+            }
         } else {
             let _ = writeln!(
                 out,
@@ -237,6 +261,12 @@ pub fn run_parity<W: Write>(
             channels: catalogue.channels.len(),
             actions: catalogue.channels.iter().map(|c| c.actions.len()).sum(),
             accepting_more,
+            without_code: catalogue
+                .channels
+                .iter()
+                .filter(|c| c.code.is_none())
+                .map(|c| c.id.clone())
+                .collect(),
         },
         header,
     ))
