@@ -64,12 +64,12 @@ A notification is either a **terminal toast**, drawn in the terminal's own chrom
 
 **OS notifications** are off by default. The policy key `notifications.os` (default `false`, set only in the user's policy file) allows them. When it is on, a sealed 0x22 notification with the `notifications` capability raises an OS notification only if all of these hold:
 
-- the layer is not possibly-remote, not an SSH session and not a multiplexer pane (none of these in v0);
+- the layer is not possibly-remote, not an SSH session and not a multiplexer pane. No OS notification can come from those layers in v0;
 - the terminal is unfocused. A focused terminal shows a toast instead;
 - the pane is not muted. Each pane can be muted by the user;
 - the layer is within its rate limit, at most one OS notification per layer per second.
 
-The terminal composes the OS notification text itself from a fixed terminal name, the pane label and the program's plain text only. The text is length-capped and escaped. No program icon, URL, action button or sound is passed to the operating system. Clicking an OS notification only focuses the pane. It never executes anything.
+The terminal composes the OS notification text itself from a fixed terminal name, the pane label and the program's plain text only. The pane label is the layer's position in the terminal's own layout (window, tab or pane index) and its colour, as [Pane identity](@/spec/v0/multiplexers.md#mux.pane-identity) describes for panes. It is never a program-supplied title, working directory or pane text. The text is length-capped and escaped. No program icon, URL, action button or sound is passed to the operating system. Clicking an OS notification only focuses the pane. It never executes anything.
 
 **Accepted residual risk.** A signed program can write phishing-style wording into the plain text of its notification. The pane label and the `notifications` capability are the mitigations. The wording itself is not checked, and this risk is accepted.
 
