@@ -66,7 +66,7 @@ Each unauthenticated producer gets a smaller share than any sealed layer: **25% 
 
 **OS path.** OS notifications are off by default. The policy key `notifications.os` (default `false`, set only in the user's policy file) allows them. When it is on, a sealed 0x22 notification with the `notifications` capability raises an OS notification only if all of these hold, evaluated when the notification arrives:
 
-- the layer is not possibly-remote, not an SSH session and not a multiplexer pane. A notification from any of those layers is never an OS notification in v0. the layer is local (see Local layers above);
+- the layer is not possibly-remote, not an SSH session and not a multiplexer pane. A notification from any of those layers is never an OS notification in v0. The layer must also be local (see Local layers above);
 - the terminal is unfocused. A focused terminal shows a toast instead;
 - the pane is not muted, and neither is the layer;
 - the layer is within the OS budget: at most one OS notification per layer per second, at most 3 per layer per minute, and at most 8 per minute across all layers.
