@@ -10,10 +10,30 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::{ElementState, WindowEvent};
+use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
+
+/// A pointer position in physical pixels as whole pixels: negative and
+/// non-finite positions are the edge, and nothing is larger than the window.
+#[must_use]
+pub fn pointer_pixels(x: f64, y: f64) -> (u32, u32) {
+    let whole = |v: f64| {
+        if v.is_finite() && v > 0.0 {
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "positive and clamped to u32 range"
+            )]
+            let n = v.min(f64::from(u32::MAX)) as u32;
+            n
+        } else {
+            0
+        }
+    };
+    (whole(x), whole(y))
+}
 
 /// A window key to the key the program gets, with its modifiers. `None` for a
 /// key that sends nothing, or that belongs to the operating system (Super).
@@ -119,6 +139,8 @@ struct Host {
     modifiers: ModifiersState,
     started: Instant,
     error: Option<String>,
+    /// The pointer's last position in pixels.
+    pointer: (u32, u32),
 }
 
 impl Host {
@@ -233,6 +255,20 @@ impl ApplicationHandler for Host {
                     let _ = run.app.text(text);
                 }
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.pointer = pointer_pixels(position.x, position.y);
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => {
+                if let Some(run) = &mut self.state
+                    && run.app.click(self.pointer.0, self.pointer.1)
+                {
+                    run.window.request_redraw();
+                }
+            }
             WindowEvent::Focused(focused) => {
                 if let Some(run) = &mut self.state {
                     run.app.set_focused(focused);
@@ -286,6 +322,7 @@ pub fn run(config: Config) -> Result<(), String> {
         modifiers: ModifiersState::default(),
         started: Instant::now(),
         error: None,
+        pointer: (0, 0),
     };
     event_loop
         .run_app(&mut host)

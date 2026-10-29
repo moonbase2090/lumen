@@ -279,3 +279,92 @@ fn a_session_started_with_the_settings_on_is_not_local_so_it_shows_no_unsigned_t
         "no evidence of a local layer, no toast"
     );
 }
+
+#[test]
+fn a_click_on_a_toast_dismisses_that_toast_and_a_click_elsewhere_does_nothing() {
+    let (r, a, l) = area();
+    let (cw, ch) = r.cell();
+    let mut app = start(NOTIFY);
+    app.configure_notifications(unsigned_on(), Place::Local, Box::new(Shared::default()));
+    assert!(pump_until(&mut app, |x| x.notifier().shown().len() == 1));
+    let on_toast = (a.x * cw + 2 * cw, a.y * ch + ch);
+    let before = app.view();
+
+    // Elsewhere: the margin, the editor, the content outside the area.
+    for (x, y) in [
+        (1, 1),
+        (l.editor.x * cw + 4, l.editor.y * ch + 4),
+        (l.content.x * cw + 2, l.content.y * ch + 2),
+        (a.x * cw + 2, 0),
+    ] {
+        assert!(!app.click(x, y), "{x},{y}");
+    }
+    assert_eq!(app.notifier().shown().len(), 1);
+    assert_eq!(app.view(), before, "nothing changed");
+
+    // On the toast: it goes, and the view changes in the area only.
+    assert!(app.click(on_toast.0, on_toast.1));
+    assert_eq!(app.notifier().shown().len(), 0);
+    let after = app.view();
+    assert!(
+        changed(&r, &before, &after, &a) > 0,
+        "the toast is gone from the view"
+    );
+    for m in &l.margin {
+        assert_eq!(changed(&r, &before, &after, m), 0);
+    }
+    assert_eq!(changed(&r, &before, &after, &l.editor), 0);
+    assert!(!app.click(on_toast.0, on_toast.1), "nothing left to hit");
+}
+
+#[test]
+fn a_program_cannot_dismiss_a_toast_by_output() {
+    let mut app = start(
+        "printf '\\033]9;hello\\007'; sleep 1; printf 'x\\033[2Jy\\033[3J\\033[H\\033c'; sleep 30",
+    );
+    app.configure_notifications(unsigned_on(), Place::Local, Box::new(Shared::default()));
+    assert!(pump_until(&mut app, |x| x.notifier().shown().len() == 1));
+    let end = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < end {
+        app.pump();
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(
+        app.notifier().shown().len(),
+        1,
+        "clear and reset sequences leave the toast"
+    );
+}
+
+#[test]
+fn a_click_dismisses_the_toast_it_hit_not_another() {
+    let (r, a, _) = area();
+    let (cw, ch) = r.cell();
+    let mut app = start("sleep 30");
+    app.configure_notifications(
+        Settings::default(),
+        Place::Local,
+        Box::new(Shared::default()),
+    );
+    app.route(&[grant(), notification("first")]);
+    std::thread::sleep(Duration::from_millis(1200));
+    app.route(&[notification("second")]);
+    assert_eq!(app.notifier().shown().len(), 2);
+    // The second toast is drawn below the first: find a point on it.
+    let first_height = (0..a.h * ch)
+        .find(|dy| app.click_would_hit(a.x * cw + 2 * cw, a.y * ch + dy) == Some(1))
+        .unwrap_or(0);
+    assert!(first_height > 0, "the second toast is below the first");
+    assert!(app.click(a.x * cw + 2 * cw, a.y * ch + first_height));
+    let left: Vec<String> = app
+        .notifier()
+        .shown()
+        .iter()
+        .map(|t| t.text.clone())
+        .collect();
+    assert_eq!(left.len(), 1);
+    assert!(
+        left[0].contains("first") && !left[0].contains("second"),
+        "{left:?}"
+    );
+}
