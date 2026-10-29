@@ -58,6 +58,23 @@ impl Document {
         self.columns
     }
 
+    /// The height, in rows, of every grid block.
+    #[must_use]
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    /// Resize every grid block, and the size new ones are made at.
+    pub fn resize(&mut self, columns: usize, rows: usize) {
+        self.columns = columns;
+        self.rows = rows;
+        for block in &mut self.blocks {
+            if let Block::Grid(g) = block {
+                g.resize(columns, rows);
+            }
+        }
+    }
+
     /// The blocks, oldest first.
     #[must_use]
     pub fn blocks(&self) -> &[Block] {
