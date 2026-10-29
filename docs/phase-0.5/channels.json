@@ -1,0 +1,5 @@
+{
+ "revision": "ch-1",
+ "note": "no Lumen channel is implemented at this revision: Track B and the seal channel have no code in the arms yet, so there is nothing to declare and parity (2.9) is not measured",
+ "channels": []
+}
