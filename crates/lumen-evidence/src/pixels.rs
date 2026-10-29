@@ -98,6 +98,16 @@ impl PixelReport {
     /// The summary text.
     #[must_use]
     pub fn summary(&self, header: &HeaderInfo, rects: &str) -> String {
+        self.summary_of(
+            header,
+            rects,
+            "2.3 is a count over this drawing code, not an operating-system window",
+        )
+    }
+
+    /// The summary text with `basis` stating what was measured.
+    #[must_use]
+    pub fn summary_of(&self, header: &HeaderInfo, rects: &str, basis: &str) -> String {
         let mut out = String::new();
         let _ = writeln!(
             out,

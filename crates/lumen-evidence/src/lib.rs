@@ -56,6 +56,7 @@ pub mod matrix;
 pub mod panes;
 pub mod parity;
 pub mod pixels;
+pub mod pixels_terminal;
 
 pub use lumen_term::Renderer;
 pub mod pc1;
