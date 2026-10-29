@@ -14,6 +14,12 @@
 //! Cost mode (criteria 2.8): counts what each arm crate adds to the shared
 //! baseline in the source tree at DIR. Reported only; exits 0 when it ran.
 //!
+//! `lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR`
+//!
+//! Decoder robustness mode (criteria 2.5): judges a decoder fuzzing ledger
+//! against the threshold. With no ledger it reports `not measured`. Exits 1
+//! when a ledger was judged and the gate does not hold.
+//!
 //! `lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]`
 //!
 //! Reach mode (criteria 2.1): replays the session matrix and reports how many
@@ -30,7 +36,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR";
+const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR\n       lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR";
 
 /// Write the log and summary for a finished run and print the summary.
 fn finish(out: &std::path::Path, summary: &str) -> Result<(), String> {
@@ -121,6 +127,20 @@ fn parse_arm(arm: &str) -> Result<lumen_evidence::Arm, String> {
     }
 }
 
+fn decoder(ledger: Option<&str>, commit: &str, out: &std::path::Path) -> Result<ExitCode, String> {
+    let log = open_log(out)?;
+    let (report, header) =
+        lumen_evidence::decoder::run_decoder(ledger.map(std::path::Path::new), commit, log)?;
+    finish(out, &report.summary(&header))?;
+    Ok(
+        if matches!(report, lumen_evidence::decoder::Report::Judged { .. }) && !report.passes() {
+            ExitCode::from(1)
+        } else {
+            ExitCode::SUCCESS
+        },
+    )
+}
+
 fn reach(matrix: &str, commit: &str, out: &std::path::Path, arm: &str) -> Result<ExitCode, String> {
     let arm = match arm {
         "b" => lumen_evidence::matrix::ReachArm::B,
@@ -148,6 +168,9 @@ fn main() -> ExitCode {
             Some(n) => flood(&n, &commit, &out, &arm),
             None => Err("--flood needs --seconds".to_owned()),
         },
+        (None, None) if args.iter().any(|a| a == "--decoder") => {
+            decoder(arg(&args, "--ledger").as_deref(), &commit, &out)
+        }
         (None, None) if args.iter().any(|a| a == "--cost") => {
             match (arg(&args, "--root"), arg(&args, "--base")) {
                 (Some(root), Some(base)) => cost(&root, &base, &commit, &out),

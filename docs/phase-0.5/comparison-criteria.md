@@ -190,6 +190,17 @@ Three things are reported as `not measured`, with the reason, because the driver
 
 The summary, with its per-file counts, is the raw log; `run.jsonl` holds only the header. Cost is reported and not gated (2.8).
 
+### 5.5 Decoder mode
+
+`lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR` judges a decoder fuzzing ledger against the threshold of 2.5. The driver does not fuzz: there is no image decoder in this repository and images are off. With no ledger the summary says `2.5=not measured`, and the run exits 0. With a ledger it exits 1 when the gate does not hold.
+
+The ledger is a JSON object with `revision`, `decoder_build` and `image_path_build` (the gate covers both identities), one entry per enabled format and the sandbox escape result:
+
+- a format has `name`, `cpu_hours`, `crashes` (each `at_cpu_hour` and `kind`) and `coverage` (each `at_cpu_hour` and the cumulative `edges`);
+- `sandbox_escape` has the test set `revision` and the `passed` and `total` counts.
+
+A format passes when it has at least 1000 CPU-hours, no crash after the last 168 CPU-hours' start (a crash exactly 168 CPU-hours before the end is older), and a plateau: the most coverage seen over the whole run was already seen at or before that point. A coverage reading from before the window is needed, so a ledger without one has no plateau. The gate passes when every format passes and the sandbox escape set passed in full and is not empty. A ledger that enables no format is `not measured`.
+
 ## 6. Results format
 
 A result is a docs PR that adds `docs/phase-0.5/results-<arm>.md` for each arm at a stated commit SHA. It contains:
