@@ -10,7 +10,7 @@ Both arms are built in this repository as separate crates, `lumen-arm-a` and `lu
 
 **Arm A: sealed-only rich.** Rich blocks render only on a sealed layer. Track 0 output on an unsealed layer renders as escaped text. The spec only states this for the alternate-screen and multiplexer cases ([trust](../../spec/v0/trust.md), [multiplexers](../../spec/v0/multiplexers.md#mux.alt-screen)). Applying it to every unsealed layer under arm A is a proposal of this document, not a spec rule.
 
-**Arm B: decoupled.** Track 0 renders on every layer, subject to the Track 0 rules. The sealed upgrade applies on the default model: a layer that meets the [default sealing requirements](../../spec/v0/sealed-layers.md#sealed.requirements) gets sealed authority on top of Track 0. This is the expected default.
+**Arm B: decoupled.** Track 0 renders on every layer, subject to the Track 0 rules. The sealed upgrade applies on the default model: a layer that meets the [default sealing requirements](../../spec/v0/sealed-layers.md#sealed.requirements) gets sealed authority on top of Track 0. This is the expected default. The `ssh.track0` default of `rich` ([possibly remote](../../spec/v0/trust.md#trust.possibly-remote)) describes arm B. Arm A's unsealed-layer rule (escaped text, no rich blocks) overrides that default for arm A.
 
 Where rich panes are placed in a Lumen-aware multiplexer is compared separately, in section 7.
 
@@ -163,7 +163,7 @@ The session matrix is one file, `docs/phase-0.5/session-matrix.json`: `{"revisio
 
 The run log header (format 2) records `commit`, `features`, `harness` (the harness version), `corpus` (the corpus revision, or `none`), `session_matrix` (the matrix revision, or `none`) and `sinks`. A reach run has `corpus` `none`; a corpus replay has `session_matrix` `none`.
 
-The first matrix (`sm-1`) has one Track 0 paragraph after a shell command in each session. It has no sealed frames yet, so Arm A's sealed rendering is not exercised by it; the sealed-frame sessions arrive with the sealed-frame corpus.
+The first matrix (`sm-1`) has one Track 0 paragraph after a shell command in each session. It has no sealed frames yet, so Arm A's sealed rendering is not exercised by it; the sealed-frame sessions arrive with the sealed-frame corpus. An SSH image reach case changes the existing SSH session's `expect` once the arms' Track 0 parser has an image kind. It does not add a fifteenth session cell, so the 14-cell denominator and the 80% threshold stay as they are.
 
 ### 5.3 Flood mode
 
