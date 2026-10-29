@@ -233,12 +233,12 @@ fn the_notification_corpus_is_denied_before_the_sink_in_every_arm() {
         let attempts: u64 = report
             .cases
             .iter()
-            .filter_map(|c| c.sinks.map(|s| s.notification_attempts))
+            .filter_map(|c| c.sinks.as_ref().map(|s| s.notification_attempts))
             .sum();
         let denied: u64 = report
             .cases
             .iter()
-            .filter_map(|c| c.sinks.map(|s| s.denied_notifications))
+            .filter_map(|c| c.sinks.as_ref().map(|s| s.denied_notifications))
             .sum();
         assert_eq!(
             attempts, 0,
@@ -299,4 +299,24 @@ fn a_bad_sinks_object_fails_the_load_with_the_case_id() {
         assert!(e.contains("case-x") && e.contains("sinks"), "{bad}: {e}");
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+fn rt4_dir() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/phase-0.5/corpus-rt-4")
+}
+
+#[test]
+fn the_committed_rt4_corpus_is_what_the_generator_prints() {
+    if std::env::var_os("LUMEN_REGENERATE_RT4").is_some() {
+        let _ = std::fs::create_dir_all(rt4_dir());
+        assert!(
+            std::fs::write(
+                rt4_dir().join("sealed-sinks.json"),
+                lumen_evidence::rt4::rt4_json()
+            )
+            .is_ok()
+        );
+    }
+    let committed = std::fs::read_to_string(rt4_dir().join("sealed-sinks.json"));
+    assert_eq!(committed.ok(), Some(lumen_evidence::rt4::rt4_json()));
 }

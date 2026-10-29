@@ -20,6 +20,7 @@
 #![forbid(unsafe_code)]
 
 mod payload;
+pub mod types;
 
 pub use payload::{PayloadError, Sender, TAG_BYTES};
 

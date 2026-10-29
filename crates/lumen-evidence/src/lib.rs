@@ -55,6 +55,7 @@ pub mod flood;
 pub mod matrix;
 pub mod parity;
 pub mod rt2;
+pub mod rt4;
 
 use lumen_arm_a::pipeline::ITEM_KINDS as ARM_A_KINDS;
 use lumen_arm_b::ITEM_KINDS as ARM_B_KINDS;
@@ -99,16 +100,26 @@ pub struct Case {
     pub container: bool,
     /// The terminal policy for this case.
     pub policy: lumen_sinks::Policy,
+    /// What kind of layer the case runs on.
+    pub layer: lumen_sinks::Layer,
+    /// The window and simulated user for this case.
+    pub desk: lumen_sinks::Desk,
+    /// Simulated user actions after the reads: `open_link_confirmed` or
+    /// `open_link_unconfirmed`.
+    pub user_actions: Vec<String>,
     /// Item kinds that must not appear.
     pub forbid: Vec<String>,
     /// The kinds each arm must produce: key `b` for Arm B, `a` for Arm A.
     pub expect: BTreeMap<String, Vec<String>>,
-    /// The notification-sink counts the case must produce.
+    /// The sink counts the case must produce.
     pub sinks: SinkExpect,
+    /// The sink counts for an Arm A layer that holds no keys, where sealed
+    /// frames cannot be opened. The same counts as `sinks` if left out.
+    pub sinks_unsealed_layer: Option<SinkExpect>,
 }
 
-/// Expected counts at the notification sink. `None` is not checked.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Expected counts at the sinks. `None` and an empty list are not checked.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SinkExpect {
     /// Notifications that unsigned output raised at the sink.
     pub notification_attempts: Option<u64>,
@@ -116,6 +127,14 @@ pub struct SinkExpect {
     pub denied_notifications: Option<u64>,
     /// Notification sequences shown as a terminal-drawn toast.
     pub toasts: Option<u64>,
+    /// OS notifications raised from sealed frames.
+    pub os_notifications: Option<u64>,
+    /// Sealed frames the terminal refused.
+    pub refused: Option<u64>,
+    /// Attempts at each sink by effect name, from any origin.
+    pub effects: Option<BTreeMap<String, u64>>,
+    /// The exact text of each OS notification, in order.
+    pub os_texts: Option<Vec<String>>,
 }
 
 fn sinks_of(id: &str, v: &Value) -> Result<SinkExpect, String> {
@@ -127,6 +146,34 @@ fn sinks_of(id: &str, v: &Value) -> Result<SinkExpect, String> {
         .as_object()
         .ok_or_else(|| format!("{id}: sinks must be an object"))?;
     for (key, n) in obj {
+        if key == "os_texts" {
+            let list = n
+                .as_array()
+                .ok_or_else(|| format!("{id}: sinks.os_texts must be a list of strings"))?
+                .iter()
+                .map(|t| t.as_str().map(str::to_owned))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| format!("{id}: sinks.os_texts must be a list of strings"))?;
+            out.os_texts = Some(list);
+            continue;
+        }
+        if key == "effects" {
+            let map = n
+                .as_object()
+                .ok_or_else(|| format!("{id}: sinks.effects must be an object"))?;
+            let mut effects = BTreeMap::new();
+            for (name, count) in map {
+                if !lumen_harness::Effect::ALL.iter().any(|e| e.name() == name) {
+                    return Err(format!("{id}: unknown effect {name:?} in sinks.effects"));
+                }
+                let count = count
+                    .as_u64()
+                    .ok_or_else(|| format!("{id}: sinks.effects.{name} must be a whole number"))?;
+                effects.insert(name.clone(), count);
+            }
+            out.effects = Some(effects);
+            continue;
+        }
         let n = n
             .as_u64()
             .ok_or_else(|| format!("{id}: sinks.{key} must be a whole number"))?;
@@ -134,9 +181,11 @@ fn sinks_of(id: &str, v: &Value) -> Result<SinkExpect, String> {
             "notification_attempts" => out.notification_attempts = Some(n),
             "denied_notifications" => out.denied_notifications = Some(n),
             "toasts" => out.toasts = Some(n),
+            "os_notifications" => out.os_notifications = Some(n),
+            "refused" => out.refused = Some(n),
             other => {
                 return Err(format!(
-                    "{id}: unknown sinks key {other:?}; use notification_attempts, denied_notifications or toasts"
+                    "{id}: unknown sinks key {other:?}; use notification_attempts, denied_notifications, toasts, os_notifications, refused, effects or os_texts"
                 ));
             }
         }
@@ -236,6 +285,24 @@ pub(crate) fn case_of(v: &Value) -> Result<Case, String> {
     let forbid = kinds_of(&id, "forbid", &v["forbid"])?;
     let expect = expect_of(&id, &v["expect"])?;
     let sinks = sinks_of(&id, &v["sinks"])?;
+    let sinks_unsealed_layer = if v["sinks_unsealed_layer"].is_null() {
+        None
+    } else {
+        Some(sinks_of(&id, &v["sinks_unsealed_layer"])?)
+    };
+    let user_actions = match &v["user_actions"] {
+        Value::Null => Vec::new(),
+        Value::Array(a) => a
+            .iter()
+            .map(|x| match x.as_str() {
+                Some(k @ ("open_link_confirmed" | "open_link_unconfirmed")) => Ok(k.to_owned()),
+                _ => Err(format!(
+                    "{id}: user_actions entries are open_link_confirmed or open_link_unconfirmed"
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        _ => return Err(format!("{id}: user_actions must be a list")),
+    };
     Ok(Case {
         category: v["category"].as_str().unwrap_or_default().to_owned(),
         alt_screen: v["context"]["alt_screen"].as_bool().unwrap_or(false),
@@ -243,12 +310,23 @@ pub(crate) fn case_of(v: &Value) -> Result<Case, String> {
         container: v["context"]["container"].as_bool().unwrap_or(true),
         policy: lumen_sinks::Policy {
             allow_unsigned: v["context"]["allow_unsigned"].as_bool().unwrap_or(false),
+            os_notifications: v["context"]["os_notifications"].as_bool().unwrap_or(false),
+            os_text: v["context"]["os_text"].as_bool().unwrap_or(false),
+        },
+        layer: lumen_sinks::Layer {
             ssh: v["context"]["ssh"].as_bool().unwrap_or(false),
             multiplexer_pane: v["context"]["tmux_or_screen"].as_bool().unwrap_or(false),
         },
+        desk: lumen_sinks::Desk {
+            unfocused: v["context"]["unfocused"].as_bool().unwrap_or(false),
+            muted: v["context"]["muted"].as_bool().unwrap_or(false),
+            confirm_clipboard: v["context"]["confirm_clipboard"].as_bool().unwrap_or(false),
+        },
+        user_actions,
         forbid,
         expect,
         sinks,
+        sinks_unsealed_layer,
         reads,
         id,
     })
@@ -295,6 +373,33 @@ pub fn load_corpus(dir: &Path) -> Result<Corpus, String> {
         return Err("corpus has no cases".into());
     }
     Ok(Corpus { revision, cases })
+}
+
+/// Load several corpus directories as one corpus. The revision is the
+/// revisions joined with `+`, in the order given, and case ids stay unique
+/// across all of them.
+///
+/// # Errors
+///
+/// Returns a message for any directory that fails to load, or a case id that
+/// two directories share.
+pub fn load_corpora(dirs: &[&Path]) -> Result<Corpus, String> {
+    let mut revision = Vec::new();
+    let mut cases: Vec<Case> = Vec::new();
+    for dir in dirs {
+        let c = load_corpus(dir)?;
+        revision.push(c.revision);
+        for case in c.cases {
+            if cases.iter().any(|x| x.id == case.id) {
+                return Err(format!("duplicate case id {}", case.id));
+            }
+            cases.push(case);
+        }
+    }
+    Ok(Corpus {
+        revision: revision.join("+"),
+        cases,
+    })
 }
 
 /// What one case produced.
@@ -359,7 +464,7 @@ impl Report {
                 c.id,
                 c.kinds,
                 c.violations,
-                c.sinks.map_or_else(
+                c.sinks.as_ref().map_or_else(
                     || "n/a".to_owned(),
                     |s| format!(
                         "{}/{}/{}",
@@ -411,6 +516,28 @@ impl Items {
         }
     }
 
+    /// The verified sealed frames, as `(type, payload)`.
+    fn sealed(&self) -> Vec<(u8, Vec<u8>)> {
+        match self {
+            Items::A(v) => v
+                .iter()
+                .filter_map(|i| match i {
+                    lumen_arm_a::pipeline::Item::Sealed { header, body } => {
+                        Some((header.kind, body.clone()))
+                    }
+                    _ => None,
+                })
+                .collect(),
+            Items::B(v) => v
+                .iter()
+                .filter_map(|i| match i {
+                    lumen_arm_b::Item::Sealed { header, body } => Some((header.kind, body.clone())),
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
+
     /// The ordinary output the layer passes on to the terminal's VT parser.
     fn output(&self) -> Vec<u8> {
         let mut out = Vec::new();
@@ -447,8 +574,15 @@ pub const TEST_CAP: u8 = 2;
 /// The root secret of the fixed test keys. It is public test data, not a secret.
 pub const TEST_ROOT: [u8; 32] = [9; 32];
 
-fn test_cap_of(_kind: u8) -> u8 {
-    TEST_CAP
+/// The capability a replayed frame is sealed under: the one the frame type
+/// table fixes for the shell-integration, clipboard, notification and marker
+/// types. The earlier rt-2 frames use the layout type under the test
+/// capability, and they keep it until that corpus moves to table-valid pairs.
+fn test_cap_of(kind: u8) -> u8 {
+    match kind {
+        lumen_sealed::types::KIND_LAYOUT | lumen_sealed::types::KIND_PANE_CONTAINER => TEST_CAP,
+        other => lumen_sealed::types::capability_of(other).unwrap_or(TEST_CAP),
+    }
 }
 
 fn test_receiver() -> lumen_sealed::Receiver {
@@ -556,6 +690,27 @@ impl AnyLayer {
     }
 }
 
+/// Whether the counts a case produced are the ones it expects.
+fn sinks_hold(want: &SinkExpect, got: &lumen_sinks::CaseSinks) -> bool {
+    want.notification_attempts
+        .is_none_or(|n| n == got.notification_attempts)
+        && want
+            .denied_notifications
+            .is_none_or(|n| n == got.denied_notifications)
+        && want.toasts.is_none_or(|n| n == got.toasts)
+        && want
+            .os_notifications
+            .is_none_or(|n| n == got.os_notifications)
+        && want.refused.is_none_or(|n| n == got.refused)
+        && want.effects.as_ref().is_none_or(|e| {
+            lumen_harness::Effect::ALL.iter().all(|f| {
+                e.get(f.name()).copied().unwrap_or(0)
+                    == got.effects.get(f.name()).copied().unwrap_or(0)
+            })
+        })
+        && want.os_texts.as_ref().is_none_or(|t| *t == got.os_texts)
+}
+
 pub(crate) fn run_case<W: Write>(
     case: &Case,
     arm: Arm,
@@ -565,6 +720,8 @@ pub(crate) fn run_case<W: Write>(
     if let Some(t) = &mut terminal {
         t.new_case();
         t.set_policy(case.policy);
+        t.set_layer(case.layer);
+        t.set_desk(case.desk);
         t.set_orphan(!case.container);
     }
     let mut layer = AnyLayer::new(arm);
@@ -595,6 +752,9 @@ pub(crate) fn run_case<W: Write>(
         let items = layer.feed_items(&r.bytes, case.alt_screen, case.tmux_or_screen, r.t_ms);
         if let Some(t) = &mut terminal {
             t.feed_at(&items.output(), Origin::Unsealed, &case.id, r.t_ms);
+            for (kind, body) in items.sealed() {
+                t.sealed(kind, &body, r.t_ms, &case.id);
+            }
         }
         record(r.t_ms, r.bytes.len(), &items.summary(), rec)?;
     }
@@ -603,17 +763,19 @@ pub(crate) fn run_case<W: Write>(
     let mut sink_violation = 0;
     if let Some(t) = &mut terminal {
         t.feed_at(&items.output(), Origin::Unsealed, &case.id, last_t);
+        for (kind, body) in items.sealed() {
+            t.sealed(kind, &body, last_t, &case.id);
+        }
         t.finish(Origin::Unsealed, &case.id, last_t);
-        let got = t.case_sinks();
-        let want = case.sinks;
-        if want
-            .notification_attempts
-            .is_some_and(|n| n != got.notification_attempts)
-            || want
-                .denied_notifications
-                .is_some_and(|n| n != got.denied_notifications)
-            || want.toasts.is_some_and(|n| n != got.toasts)
-        {
+        for action in &case.user_actions {
+            t.user_opens_link(action == "open_link_confirmed", &case.id);
+        }
+        let got = t.case_sinks().clone();
+        let want = match (arm, &case.sinks_unsealed_layer) {
+            (Arm::AUnsealed, Some(w)) => w,
+            _ => &case.sinks,
+        };
+        if !sinks_hold(want, &got) {
             sink_violation = 1;
         }
         sinks = Some(got);
@@ -627,6 +789,19 @@ pub(crate) fn run_case<W: Write>(
         sequence,
         sinks,
     })
+}
+
+/// The harness report, plus the user actions the terminal simulated.
+fn authority_report(terminal: &lumen_sinks::Terminal) -> String {
+    let mut out = terminal.log().report();
+    if !terminal.simulated().is_empty() {
+        let _ = writeln!(
+            out,
+            "simulated user actions (the harness has no user): {}",
+            terminal.simulated().join(", ")
+        );
+    }
+    out
 }
 
 /// Replay the corpus, writing the run log to `log`.
@@ -671,7 +846,7 @@ pub fn run_arm<W: Write>(
     Ok((
         Report {
             cases,
-            authority: terminal.log().report(),
+            authority: authority_report(&terminal),
         },
         header,
     ))

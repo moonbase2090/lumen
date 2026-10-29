@@ -335,6 +335,7 @@ name = "lumen-sinks"
 version = "0.0.0"
 dependencies = [
  "lumen-harness",
+ "lumen-sealed",
  "prismattyc-emulator",
 ]
 
