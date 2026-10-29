@@ -117,7 +117,7 @@ fn tree(files: &[(&str, &str)]) -> Result<std::path::PathBuf, Box<dyn Error>> {
     Ok(root)
 }
 
-const BASE: [(&str, &str); 14] = [
+const BASE: [(&str, &str); 15] = [
     ("crates/lumen-decoder/src/decode.rs", "d"),
     ("crates/lumen-decoder/src/ffi_sandbox.rs", "s"),
     ("crates/lumen-decoder/src/ffi_alloc.rs", "a"),
@@ -127,6 +127,7 @@ const BASE: [(&str, &str); 14] = [
     ("crates/lumen-decoder/src/runner.rs", "r"),
     ("crates/lumen-decoder/src/ffi_process.rs", "f"),
     ("crates/lumen-decoder/src/unlock.rs", "u"),
+    ("crates/lumen-decoder/src/images.rs", "g"),
     ("crates/lumen-decoder/src/lib.rs", "i"),
     ("crates/lumen-decoder/src/bin/lumen-decoder-hostile.rs", "h"),
     ("crates/lumen-decoder/Cargo.toml", "m"),

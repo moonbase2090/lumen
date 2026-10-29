@@ -131,3 +131,13 @@ fn a_frame_becomes_xrgb_words() {
     f.fill(1, 0, 1, 1, [255, 128, 0]);
     assert_eq!(to_xrgb(&f), [0x0001_0203, 0x00ff_8000]);
 }
+
+#[test]
+fn the_pointer_position_is_whole_pixels_and_never_negative_or_huge() {
+    use lumen_term::host::pointer_pixels;
+    assert_eq!(pointer_pixels(10.9, 20.2), (10, 20));
+    assert_eq!(pointer_pixels(-5.0, -0.1), (0, 0));
+    assert_eq!(pointer_pixels(f64::NAN, f64::INFINITY), (0, 0));
+    assert_eq!(pointer_pixels(1e30, 1e30), (u32::MAX, u32::MAX));
+    assert_eq!(pointer_pixels(0.0, 0.0), (0, 0));
+}

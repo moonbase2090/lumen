@@ -15,6 +15,8 @@ pub mod ffi_alloc;
 pub mod ffi_process;
 #[cfg(unix)]
 pub mod ffi_sandbox;
+#[cfg(unix)]
+pub mod images;
 pub mod limits;
 pub mod protocol;
 #[cfg(unix)]

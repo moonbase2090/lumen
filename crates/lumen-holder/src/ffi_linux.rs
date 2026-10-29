@@ -15,6 +15,7 @@
 use crate::principal::Creds;
 use std::io;
 use std::os::fd::{FromRawFd, OwnedFd, RawFd};
+use zeroize::Zeroizing;
 
 fn check(result: libc::c_int) -> io::Result<libc::c_int> {
     if result < 0 {
@@ -299,8 +300,9 @@ pub enum Received {
     Empty,
     /// One datagram.
     Message {
-        /// The bytes that fit in the buffer.
-        bytes: Vec<u8>,
+        /// The bytes that fit in the buffer. Zeroized when dropped, since the
+        /// spawn socketpair carries the key.
+        bytes: Zeroizing<Vec<u8>>,
         /// The datagram was longer than the buffer and was cut.
         truncated: bool,
         /// The sender the kernel recorded for it, if any.
@@ -338,7 +340,7 @@ pub fn enable_passcred(fd: RawFd) -> io::Result<()> {
 ///
 /// Returns the error `recvmsg` reports other than "would block".
 pub fn receive(fd: RawFd, capacity: usize) -> io::Result<Received> {
-    let mut buffer = vec![0u8; capacity];
+    let mut buffer = Zeroizing::new(vec![0u8; capacity]);
     let mut iov = libc::iovec {
         iov_base: buffer.as_mut_ptr().cast(),
         iov_len: buffer.len(),

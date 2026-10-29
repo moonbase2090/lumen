@@ -175,6 +175,28 @@ impl App {
         self.notifier.route(now, LAYER, events, self.sink.as_mut());
     }
 
+    /// The user pressed the primary button at pixel `(x, y)`. A press on a toast
+    /// dismisses it and returns `true` (the window draws again); a press
+    /// anywhere else does nothing here. Only the user's own action dismisses a
+    /// toast before its time is up: no output from the program does.
+    pub fn click(&mut self, x: u32, y: u32) -> bool {
+        match self.click_would_hit(x, y) {
+            Some(index) => {
+                self.notifier.dismiss(index);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Which toast a press at pixel `(x, y)` would dismiss, without dismissing it.
+    #[must_use]
+    pub fn click_would_hit(&self, x: u32, y: u32) -> Option<usize> {
+        let (columns, rows) = cells_for(self.width, self.height, self.renderer.cell());
+        let win = window_for(columns, rows);
+        self.renderer.toast_at(&win, self.notifier.shown(), x, y)
+    }
+
     /// Remove the toasts whose time is up. Returns whether any was removed, so
     /// the window knows to draw again.
     pub fn tick(&mut self) -> bool {

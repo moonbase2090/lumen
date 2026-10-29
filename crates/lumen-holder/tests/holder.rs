@@ -334,3 +334,123 @@ fn a_holder_whose_shell_start_time_was_wrong_refuses_even_the_real_shell() {
         "{out}"
     );
 }
+
+const ROOT: [u8; 32] = [0x5a; 32];
+
+/// `printf` arguments that write `bytes` exactly, as octal escapes.
+fn printf_octal(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::from("printf '"), |mut s, b| {
+        let _ = write!(s, "\\{b:03o}");
+        s
+    }) + "'"
+}
+
+#[test]
+fn the_terminal_delivers_the_key_once_and_a_second_is_refused() {
+    let s = launch_with_this_process_as_the_shell();
+    assert!(lumen_holder::spawn::deliver_key(&s, 1, 7, &ROOT).is_ok());
+    assert!(lumen_holder::spawn::deliver_key(&s, 2, 8, &[0x11; 32]).is_ok());
+    let (code, out) = finish(s);
+    assert_eq!(code, Some(12), "{out}");
+    assert!(
+        out.contains("key=1 second_key=1 refused_spawn=0 malformed_spawn=0"),
+        "{out}"
+    );
+    assert!(
+        !out.contains("90"),
+        "the key's bytes are not in the report: {out}"
+    );
+}
+
+#[test]
+fn a_child_holding_the_spawn_end_cannot_deliver_a_key() {
+    let s = launch_with_this_process_as_the_shell();
+    let child_end = s.spawn.try_clone().unwrap_or_else(|e| unreachable!("{e}"));
+    let message = lumen_holder::protocol::key_message(1, 7, &ROOT);
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(printf_octal(&message[..]))
+        .stdout(Stdio::from(child_end))
+        .status();
+    assert!(status.is_ok_and(|s| s.success()));
+    let (code, out) = finish(s);
+    assert_eq!(code, Some(12), "{out}");
+    assert!(
+        out.contains("key=0 second_key=0 refused_spawn=1 malformed_spawn=0"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_refused_sender_does_not_use_up_the_key_and_the_terminal_can_still_deliver() {
+    let s = launch_with_this_process_as_the_shell();
+    let child_end = s.spawn.try_clone().unwrap_or_else(|e| unreachable!("{e}"));
+    let message = lumen_holder::protocol::key_message(1, 7, &[0x22; 32]);
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(printf_octal(&message[..]))
+        .stdout(Stdio::from(child_end))
+        .status();
+    assert!(status.is_ok_and(|s| s.success()));
+    assert!(lumen_holder::spawn::deliver_key(&s, 2, 7, &ROOT).is_ok());
+    let (code, out) = finish(s);
+    assert_eq!(code, Some(12), "{out}");
+    assert!(
+        out.contains("key=1 second_key=0 refused_spawn=1 malformed_spawn=0"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_malformed_key_from_the_terminal_is_counted_and_the_real_one_still_lands() {
+    let s = launch_with_this_process_as_the_shell();
+    send(&s.spawn, &[1, 2, 3]);
+    send(&s.spawn, &[2; 42]);
+    assert!(lumen_holder::spawn::deliver_key(&s, 1, 7, &ROOT).is_ok());
+    let (code, out) = finish(s);
+    assert_eq!(code, Some(12), "{out}");
+    assert!(
+        out.contains("key=1 second_key=0 refused_spawn=0 malformed_spawn=2"),
+        "{out}"
+    );
+}
+
+#[test]
+fn the_terminal_closing_its_spawn_end_after_the_key_does_not_end_the_holder() {
+    let s = launch_with_this_process_as_the_shell();
+    assert!(lumen_holder::spawn::deliver_key(&s, 1, 7, &ROOT).is_ok());
+    let Started {
+        mut child,
+        seal,
+        spawn,
+        eof_write: _eof,
+    } = s;
+    drop(spawn);
+    send(&seal, &lumen_holder::protocol::ready(1));
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(child.try_wait().is_ok_and(|w| w.is_none()), "still running");
+    let stdout = child.stdout.take();
+    drop(seal);
+    assert_eq!(exit_code(&mut child), Some(12));
+    let mut out = String::new();
+    if let Some(mut stdout) = stdout {
+        let _ = stdout.read_to_string(&mut out);
+    }
+    assert!(out.contains("ready=1"), "{out}");
+    assert!(out.contains("key=1"), "{out}");
+}
+
+#[test]
+fn a_key_sent_on_the_seal_channel_is_just_a_malformed_message() {
+    let s = launch_with_this_process_as_the_shell();
+    let message = lumen_holder::protocol::key_message(1, 7, &ROOT);
+    send(&s.seal, &message[..]);
+    let (code, out) = finish(s);
+    assert_eq!(code, Some(12), "{out}");
+    assert!(
+        out.contains("ready=0 second_ready=0 refused=0 malformed=1"),
+        "{out}"
+    );
+    assert!(out.contains("key=0"), "{out}");
+}

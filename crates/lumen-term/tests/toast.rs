@@ -282,3 +282,81 @@ fn a_wide_character_in_a_narrow_rich_block_does_not_panic_either() {
         let _ = r.render(&d);
     }
 }
+
+#[test]
+fn a_point_hits_a_toast_exactly_where_one_was_drawn() {
+    let r = renderer();
+    let base = r.render_window(&doc(), &WIN);
+    for shown in [
+        toasts(&["one"], false),
+        toasts(&["one", "two", "three"], false),
+        toasts(&["one", "two"], true),
+    ] {
+        let f = r.render_window_with(&doc(), &WIN, &shown);
+        let mut hits = 0;
+        for y in 0..f.height {
+            for x in 0..f.width {
+                let drawn = f.pixel(x, y) != base.pixel(x, y);
+                let hit = r.toast_at(&WIN, &shown, x, y);
+                assert_eq!(hit.is_some(), drawn, "pixel {x},{y}");
+                hits += usize::from(hit.is_some());
+            }
+        }
+        assert!(hits > 0);
+    }
+}
+
+#[test]
+fn the_toast_index_follows_the_stacking_order_and_never_exceeds_what_was_drawn() {
+    let r = renderer();
+    let area = notification_area(&lay());
+    let (cw, ch) = r.cell();
+    let shown = toasts(&["one", "two", "three"], false);
+    let x = area.x * cw + 2 * cw;
+    let mut last = None;
+    let mut seen = Vec::new();
+    for y in area.y * ch..(area.y + area.h) * ch {
+        let hit = r.toast_at(&WIN, &shown, x, y);
+        if hit.is_some() && hit != last {
+            seen.push(hit);
+        }
+        if hit.is_some() {
+            last = hit;
+        }
+    }
+    assert_eq!(seen, [Some(0), Some(1), Some(2)], "top down, in order");
+    // Sixteen toasts overflow the area; only the ones drawn can be hit.
+    let many: Vec<String> = (0..16)
+        .map(|i| format!("message number {i} with some longer text"))
+        .collect();
+    let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+    let shown = toasts(&refs, false);
+    let drawn = r.render_window_with(&doc(), &WIN, &shown);
+    let mut top = 0;
+    for y in 0..drawn.height {
+        for px in 0..drawn.width {
+            if let Some(i) = r.toast_at(&WIN, &shown, px, y) {
+                top = top.max(i);
+            }
+        }
+    }
+    assert!(top < 16 && top > 0, "{top}");
+}
+
+#[test]
+fn a_point_outside_the_notification_area_hits_nothing() {
+    let r = renderer();
+    let shown = toasts(&["one", "two"], false);
+    let area = notification_area(&lay());
+    let (cw, ch) = r.cell();
+    for (x, y) in [
+        (0, 0),
+        (area.x * cw - 1, area.y * ch + 2),
+        ((area.x + area.w) * cw, area.y * ch + 2),
+        (area.x * cw + 2, 0),
+        (u32::MAX, u32::MAX),
+        (area.x * cw + 2, u32::MAX),
+    ] {
+        assert_eq!(r.toast_at(&WIN, &shown, x, y), None, "{x},{y}");
+    }
+}

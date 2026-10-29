@@ -6,6 +6,7 @@
 
 use lumen_term::App;
 use lumen_term::cli::{Options, USAGE};
+use lumen_term::policy::Policy;
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -29,7 +30,7 @@ fn command(o: &Options) -> (String, Vec<String>) {
     }
 }
 
-fn snapshot(o: &Options, path: &str) -> Result<(), String> {
+fn snapshot(o: &Options, policy: &Policy, path: &str) -> Result<(), String> {
     let (program, arguments) = command(o);
     let mut app = App::start(
         layer(),
@@ -40,7 +41,7 @@ fn snapshot(o: &Options, path: &str) -> Result<(), String> {
         o.size.1,
     )
     .map_err(|e| e.to_string())?;
-    app.use_settings(o.notifications);
+    app.use_settings(policy.settings());
     let end = Instant::now() + o.wait;
     while Instant::now() < end && !app.has_exited() {
         app.pump();
@@ -59,20 +60,34 @@ fn snapshot(o: &Options, path: &str) -> Result<(), String> {
 }
 
 #[cfg(feature = "window")]
-fn window(o: &Options) -> Result<(), String> {
+fn window(o: &Options, policy: &Policy) -> Result<(), String> {
     lumen_term::host::run(lumen_term::host::Config {
         layer: Box::new(layer),
         command: o.command.clone(),
         size: o.size,
         scale: o.scale,
         exit_after: o.exit_after,
-        notifications: o.notifications,
+        notifications: policy.settings(),
     })
 }
 
 #[cfg(not(feature = "window"))]
-fn window(_: &Options) -> Result<(), String> {
+fn window(_: &Options, _: &Policy) -> Result<(), String> {
     Err("this build has no window: build with --features window, or use --snapshot".into())
+}
+
+fn describe(policy: &Policy) -> String {
+    match policy {
+        Policy::Defaults => "policy: no file; every setting is at its default (all off)".to_owned(),
+        Policy::Loaded { path, settings } => format!(
+            "policy: {} allow_unsigned={} os_notifications={} os_text={}",
+            path.display(),
+            settings.allow_unsigned,
+            settings.os_notifications,
+            settings.os_text
+        ),
+        Policy::Ignored { .. } => format!("policy: {}", policy.notice().unwrap_or_default()),
+    }
 }
 
 fn main() -> ExitCode {
@@ -84,9 +99,19 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    let policy = lumen_term::policy::load();
+    if options.show_policy {
+        println!("{}", describe(&policy));
+        return ExitCode::SUCCESS;
+    }
+    // The terminal's own notice: it is not from the program and a program
+    // cannot reach it. A window will show it as chrome once chrome notices are drawn.
+    if let Some(notice) = policy.notice() {
+        eprintln!("lumen-term: {notice}");
+    }
     let result = match &options.snapshot {
-        Some(path) => snapshot(&options, path),
-        None => window(&options),
+        Some(path) => snapshot(&options, &policy, path),
+        None => window(&options, &policy),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

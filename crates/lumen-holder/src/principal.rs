@@ -103,3 +103,29 @@ pub fn start_time_in(proc: &Path, pid: u32) -> Option<u64> {
 pub fn start_time(pid: u32) -> Option<u64> {
     start_time_in(Path::new("/proc"), pid)
 }
+
+/// The terminal, which alone may deliver the key. It is named by pid and user;
+/// the holder was started by it and is killed when it dies, so the pid cannot
+/// be reused while the holder runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Terminal {
+    /// The terminal's pid.
+    pub pid: u32,
+    /// Its user.
+    pub uid: u32,
+}
+
+/// Judge the sender of a message on the spawn socketpair.
+#[must_use]
+pub fn judge_terminal(terminal: &Terminal, creds: Option<Creds>) -> Verdict {
+    let Some(creds) = creds else {
+        return Verdict::NoCredentials;
+    };
+    if u32::try_from(creds.pid).ok() != Some(terminal.pid) {
+        Verdict::WrongProcess
+    } else if creds.uid != terminal.uid {
+        Verdict::WrongUser
+    } else {
+        Verdict::Accept
+    }
+}

@@ -7,7 +7,10 @@
 //! size limit is dropped and counted; the holder never evaluates or expands
 //! anything in it.
 //!
-//! Only `ready` exists so far. Seal and open requests come with the key.
+//! On the seal channel only `ready` exists so far; seal and open requests come
+//! later. The spawn socketpair carries one message, the key, from the terminal.
+
+use zeroize::Zeroizing;
 
 /// The most bytes a message may have; a longer datagram is truncated and refused.
 pub const MAX_MESSAGE: usize = 128;
@@ -74,4 +77,73 @@ pub fn parse(bytes: &[u8], truncated: bool) -> Result<Message, Malformed> {
 pub fn ready(number: u32) -> [u8; READY_LEN] {
     let n = number.to_be_bytes();
     [VERSION, READY, n[0], n[1], n[2], n[3]]
+}
+
+/// Type 2: the layer's key, sent by the terminal on the spawn socketpair.
+pub const KEY: u8 = 2;
+/// A `key` message is exactly this long: version, type, number, layer, 32 bytes.
+pub const KEY_LEN: usize = 42;
+
+/// The key message. The root is secret: it is zeroized when dropped and never
+/// printed.
+pub struct KeyMessage {
+    /// The message number.
+    pub number: u32,
+    /// The layer the key is for.
+    pub layer: u32,
+    /// The layer's root key.
+    pub root: Zeroizing<[u8; 32]>,
+}
+
+impl std::fmt::Debug for KeyMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyMessage")
+            .field("number", &self.number)
+            .field("layer", &self.layer)
+            .field("root", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Read a key message from the spawn socketpair.
+///
+/// # Errors
+///
+/// Returns why the message is dropped.
+pub fn parse_key(bytes: &[u8], truncated: bool) -> Result<KeyMessage, Malformed> {
+    if truncated || bytes.len() > MAX_MESSAGE {
+        return Err(Malformed::Truncated);
+    }
+    let [version, kind, rest @ ..] = bytes else {
+        return Err(Malformed::TooShort);
+    };
+    if *version != VERSION {
+        return Err(Malformed::Version);
+    }
+    if *kind != KEY {
+        return Err(Malformed::Type);
+    }
+    let fields: &[u8; KEY_LEN - 2] = rest.try_into().map_err(|_| Malformed::Length)?;
+    let (number, rest) = fields.split_at(4);
+    let (layer, root) = rest.split_at(4);
+    let mut key = Zeroizing::new([0u8; 32]);
+    key.copy_from_slice(root);
+    Ok(KeyMessage {
+        number: u32::from_be_bytes(number.try_into().map_err(|_| Malformed::Length)?),
+        layer: u32::from_be_bytes(layer.try_into().map_err(|_| Malformed::Length)?),
+        root: key,
+    })
+}
+
+/// The bytes of a `key` message, for the terminal's side and for tests. The
+/// buffer is zeroized when dropped.
+#[must_use]
+pub fn key_message(number: u32, layer: u32, root: &[u8; 32]) -> Zeroizing<[u8; KEY_LEN]> {
+    let mut m = Zeroizing::new([0u8; KEY_LEN]);
+    m[0] = VERSION;
+    m[1] = KEY;
+    m[2..6].copy_from_slice(&number.to_be_bytes());
+    m[6..10].copy_from_slice(&layer.to_be_bytes());
+    m[10..].copy_from_slice(root);
+    m
 }
