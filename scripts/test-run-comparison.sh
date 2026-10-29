@@ -26,6 +26,15 @@ if [[ "$1" == "--panes" ]]; then
     fi
   done
 fi
+if [[ "$1" == "--flood" && -z "${FAKE_NO_RENDER:-}" ]]; then
+  for ((i = 1; i <= $#; i++)); do
+    if [[ "${!i}" == "--out" ]]; then
+      j=$((i + 1))
+      mkdir -p "${!j}"
+      echo '{}' >"${!j}/render.json"
+    fi
+  done
+fi
 echo "args: $*"
 exit "${!var:-0}"
 FAKE
@@ -84,6 +93,42 @@ if grep -q -- "--out $out/panes-a" "$out/panes-a.out" && grep -q -- "--placement
   echo "ok   paths with a space, both placements and the flood length reach the driver"
 else
   echo "FAIL arguments reaching the driver"
+  FAILED=1
+fi
+
+# By default each flood's own render log is judged, one mode per arm.
+out="$WORK/out default render"
+LUMEN_EVIDENCE_BIN="$WORK/fake-evidence" FAKE_STATUS_render_log=3 \
+  bash "$SCRIPT" --commit abc123 --out "$out" --flood-seconds 5 --skip-tests >/dev/null 2>&1
+if grep -q -- "--log $out/flood-b/render.json" "$out/render-log-b.out" \
+  && grep -q -- "--log $out/flood-a-sealed/render.json" "$out/render-log-a-sealed.out" \
+  && grep -q -- "--log $out/flood-a-unsealed/render.json" "$out/render-log-a-unsealed.out" \
+  && grep -q $'render-log-b\t3\tnot measured' "$out/modes.tsv"; then
+  echo "ok   the default render logs are the floods' own, one mode per arm"
+else
+  echo "FAIL default render logs"
+  FAILED=1
+fi
+
+# A log given with --render-log replaces them with one render-log mode.
+out="$WORK/out given render"
+LUMEN_EVIDENCE_BIN="$WORK/fake-evidence" \
+  bash "$SCRIPT" --commit abc123 --out "$out" --flood-seconds 5 --skip-tests --render-log "$WORK/ui.json" >/dev/null 2>&1
+if grep -q -- "--log $WORK/ui.json" "$out/render-log.out" && ! grep -q "render-log-b" "$out/modes.tsv"; then
+  echo "ok   a given render log is judged as the single render-log mode"
+else
+  echo "FAIL given render log"
+  FAILED=1
+fi
+
+# A flood that wrote no log leaves the mode to run with none.
+out="$WORK/out no flood log"
+LUMEN_EVIDENCE_BIN="$WORK/fake-evidence" FAKE_NO_RENDER=1 \
+  bash "$SCRIPT" --commit abc123 --out "$out" --flood-seconds 5 --skip-tests >/dev/null 2>&1
+if ! grep -q -- "--log" "$out/render-log-b.out" && grep -q -- "--render-log" "$out/render-log-b.out"; then
+  echo "ok   a flood without a render log leaves the mode to run with none"
+else
+  echo "FAIL no flood log"
   FAILED=1
 fi
 

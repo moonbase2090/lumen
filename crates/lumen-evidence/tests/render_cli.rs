@@ -70,3 +70,62 @@ fn a_list_of_streams_is_refused_with_exit_2_not_read_as_zero() {
     );
     assert_eq!(run(Some(&l), &tmp("rl-list")), Some(2));
 }
+
+#[test]
+fn a_flood_writes_a_pipeline_log_that_the_judge_reads_as_a_proxy() {
+    let out = tmp("rl-flood");
+    let _ = std::fs::remove_dir_all(&out);
+    let flood = Command::new(env!("CARGO_BIN_EXE_lumen-evidence"))
+        .args([
+            "--flood",
+            "--seconds",
+            "1",
+            "--commit",
+            "t",
+            "--arm",
+            "b",
+            "--out",
+        ])
+        .arg(&out)
+        .status()
+        .ok()
+        .and_then(|s| s.code());
+    assert_eq!(flood, Some(0));
+    let log = out.join("render.json");
+    let text = std::fs::read_to_string(&log).unwrap_or_default();
+    assert!(text.contains("\"basis\":\"pipeline\""), "{text:.200}");
+    assert!(!text.contains("lying_decoder"));
+    let entries = text.matches(',').count();
+    assert!(
+        entries >= 20,
+        "a second of returns kept at 10 ms is dozens of entries: {entries}"
+    );
+    let judged = tmp("rl-flood-judged");
+    let shown = Command::new(env!("CARGO_BIN_EXE_lumen-evidence"))
+        .args(["--render-log", "--commit", "t", "--out"])
+        .arg(&judged)
+        .arg("--log")
+        .arg(&log)
+        .output();
+    let Ok(shown) = shown else {
+        unreachable!("the driver runs")
+    };
+    assert_eq!(shown.status.code(), Some(3));
+    let text = String::from_utf8_lossy(&shown.stdout);
+    assert!(text.contains("longest_return_gap_ms="), "{text}");
+    assert!(text.contains("the UI stall is not measured"), "{text}");
+}
+
+#[test]
+fn a_pipeline_log_with_a_gap_over_the_limit_exits_1() {
+    let log = write(
+        "rl-pipe-over.json",
+        r#"{"revision":"rl-1","basis":"pipeline","build":"t","duration_ms":3000,"frames_ms":[0,10,2900]}"#,
+    );
+    assert_eq!(run(Some(&log), &tmp("rl-pipe-over")), Some(1));
+    let within = write(
+        "rl-pipe-ok.json",
+        r#"{"revision":"rl-1","basis":"pipeline","build":"t","duration_ms":3000,"frames_ms":[0,1000,2000]}"#,
+    );
+    assert_eq!(run(Some(&within), &tmp("rl-pipe-ok")), Some(3));
+}

@@ -8,7 +8,9 @@
 # It builds the evidence driver once, runs the tests through capture-tests.sh,
 # then runs every mode in turn: the red-team corpora (rt-1 to rt-4) through
 # each arm, reach, flood, cost, parity, the decoder ledger, the render log and
-# the pane corpus under both placements. It waits for each mode, never puts one
+# the pane corpus under both placements. The render log is the one given with
+# --render-log (written by a terminal) or, by default, the pipeline-basis log
+# each flood wrote, judged as render-log-<arm>. It waits for each mode, never puts one
 # in the background, and quotes every path, so a directory with a space in it
 # works.
 #
@@ -147,9 +149,19 @@ else
   run_mode decoder "$BIN" --decoder --commit "$commit" --out "$out/decoder"
 fi
 if [[ -n "$renderlog" ]]; then
+  # A log written by a terminal: the UI stall, frame rate and lying decoder.
   run_mode render-log "$BIN" --render-log --log "$renderlog" --commit "$commit" --out "$out/render-log"
 else
-  run_mode render-log "$BIN" --render-log --commit "$commit" --out "$out/render-log"
+  # Without one, judge the log each flood wrote. It is on the pipeline basis (a
+  # return from the layer, not a drawn frame), so it gives a proxy for the
+  # stall and the mode still exits 3: the UI stall is not measured.
+  for arm in b a-sealed a-unsealed; do
+    if [[ -f "$out/flood-$arm/render.json" ]]; then
+      run_mode "render-log-$arm" "$BIN" --render-log --log "$out/flood-$arm/render.json" --commit "$commit" --out "$out/render-log-$arm"
+    else
+      run_mode "render-log-$arm" "$BIN" --render-log --commit "$commit" --out "$out/render-log-$arm"
+    fi
+  done
 fi
 
 for placement in a b; do

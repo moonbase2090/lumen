@@ -103,7 +103,35 @@ pub struct FloodReport {
     pub longest_feed_us: u64,
     /// Peak resident memory in KiB, with its source, if it could be read.
     pub peak_rss: Option<(u64, &'static str)>,
+    /// The time, in milliseconds from the start, at which a call into the layer
+    /// returned, kept when at least [`RETURN_RESOLUTION_MS`] after the previous
+    /// kept one. A gap read from these times is never shorter than the real
+    /// gap, and is at most [`RETURN_RESOLUTION_MS`] longer.
+    pub returns_ms: Vec<u64>,
 }
+
+impl FloodReport {
+    /// The render log of this run (criteria 5.8) on the `pipeline` basis.
+    ///
+    /// The driver has no UI, so a "frame" here is a return from the layer, not
+    /// a drawn frame. The log says so in `basis`, carries no `lying_decoder`
+    /// (there is no decoder) and the judge reports its stall as a proxy.
+    #[must_use]
+    pub fn render_log(&self, build: &str) -> String {
+        let frames: Vec<String> = self.returns_ms.iter().map(u64::to_string).collect();
+        format!(
+            "{{\"revision\":\"rl-1\",\"basis\":\"pipeline\",\"build\":\"{build}\",\"duration_ms\":{},\"frames_ms\":[{}]}}\n",
+            self.elapsed_ms
+                .max(self.returns_ms.last().copied().unwrap_or(0))
+                .max(1),
+            frames.join(",")
+        )
+    }
+}
+
+/// The smallest spacing, in milliseconds, between two return times kept for
+/// the render log. It keeps a 600-second run to tens of thousands of entries.
+pub const RETURN_RESOLUTION_MS: u64 = 10;
 
 /// Blocks (or their bytes) the layer drew, in the container or the strip.
 fn drawn(table: &BTreeMap<&'static str, u64>) -> u64 {
@@ -230,6 +258,7 @@ pub fn run_flood<W: Write>(
         max_block_bytes: (FULL_BYTES / 4) as u64,
         longest_feed_us: 0,
         peak_rss: None,
+        returns_ms: Vec::new(),
     };
     let (start, mut last_flush, mut last_rss) = (Instant::now(), Instant::now(), Instant::now());
     let mut window_in = 0usize;
@@ -249,6 +278,14 @@ pub fn run_flood<W: Write>(
         report.longest_feed_us = report
             .longest_feed_us
             .max(u64::try_from(t.elapsed().as_micros()).unwrap_or(u64::MAX));
+        let returned = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        if report
+            .returns_ms
+            .last()
+            .is_none_or(|last| returned >= last + RETURN_RESOLUTION_MS)
+        {
+            report.returns_ms.push(returned);
+        }
         take(items, &mut report, &mut window);
         r += 1;
         window_in += bytes.len();
