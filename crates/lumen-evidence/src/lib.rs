@@ -34,6 +34,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod cost;
 pub mod flood;
 pub mod matrix;
 pub mod parity;

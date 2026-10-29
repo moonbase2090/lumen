@@ -95,8 +95,8 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 ### 2.8 Cost
 
 - **Unit:** lines of code added in each arm relative to the shared baseline, new dependencies, new `unsafe` or FFI modules (each justified), and number of new fuzz targets and test vectors required to hold the arm's gates.
-- **Method:** a diff measurement at each arm's build commit against the common base, plus a count of the test vectors that gate it.
-- **Harness:** comparison harness, cost mode.
+- **Method:** a diff measurement at each arm's build commit against the common base (section 5.4), plus a count of the test vectors that gate it. The arms are separate crates over shared crates, so lines added to the shared crates are reported apart and belong to neither arm; the conformance vectors gate both arms and are counted once.
+- **Harness:** comparison harness, cost mode (section 5.4).
 - **Threshold:** **reported only**. Cost does not enter the decision rule. It is a tie-breaker only if the decision rule above leaves both arms eligible, and it must be stated in the result if it is used.
 
 ### 2.9 Parity
@@ -176,6 +176,19 @@ The summary reports:
 - `longest_feed_ms`: the longest single call into the layer. It is a proxy for how long a caller would be held up. It is not the UI stall of 2.6.
 
 Three things are reported as `not measured`, with the reason, because the driver has no UI or decoder: the longest UI stall, the sustained frame rate and the lying-decoder stream. The 10-minute duration of 2.6 is the caller's choice of N. A shorter run is a shorter run and its result says so.
+
+### 5.4 Cost mode
+
+`lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR` measures the repository at DIR, which must be checked out at the stated commit and contain REF. The arms are separate crates over the same shared crates (detector, Track 0 parser, sealed layer). The run reports:
+
+- `lines_added_vs_base`: the lines added between REF (the common base) and the measured commit, from `git diff --numstat`, for the `.rs` files of each arm crate. The same count is given for the shared crates and for `conformance/vectors`; edits there belong to neither arm and are not added to an arm's figure. The result states which REF it used.
+- Per arm, from the tree: `src_lines` and `test_lines` (code lines, meaning lines that are neither blank nor start with `//`; block comments are not recognised, so a line inside one counts; lines after a top-level `#[cfg(test)]` in a source file are test lines, as is everything under `tests`), and `test_fns` (`#[test]` attributes).
+- `new_deps`: external (non-path) dependencies, with dev-dependencies, that none of the shared crates already has. Path dependencies are not counted.
+- `unsafe_uses` and `forbids_unsafe`: lines with the word `unsafe` or `extern` outside a trailing `//` comment and outside a string literal (raw strings and block comments are not recognised), and whether the crate root or the workspace lints forbid unsafe code. A non-zero count needs its module named and justified in the result.
+- `fuzz_targets`: `.rs` files under the crate's `fuzz` directory.
+- `conformance vectors`: the number of vectors in each file under `conformance/vectors`. They gate both arms equally, so one count is given for both and none is attributed to an arm; each arm's own test functions are the per-arm count of tests that hold its gates.
+
+The summary, with its per-file counts, is the raw log; `run.jsonl` holds only the header. Cost is reported and not gated (2.8).
 
 ### 5.5 Parity mode
 
