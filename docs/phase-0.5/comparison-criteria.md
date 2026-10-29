@@ -140,6 +140,7 @@ Steps 2 and 3 restate the phase 0.5 comparison in [spec/v0](../../spec/v0/_index
 - Each result states the build commit SHA it was measured at. A new commit needs a new run.
 - Screenshots used for the trust-area pixel diff are committed with their baseline, the trust-margin rectangles and the diff output.
 - A metric that was not run is reported as "not measured" with the reason. It is not reported as a pass.
+- A test run is recorded with `scripts/capture-tests.sh OUT_FILE`, which writes cargo's output straight to the file and fails (exit 3) if the file does not hold one `test NAME ... ok|FAILED|ignored` line for every test the `test result:` lines count. A test pass is reported from that log, not from an exit status alone.
 - Security findings are reported privately through the process in the [security policy](../../SECURITY.md). Results that describe a vulnerability are not written into a public result, commit message or PR text beyond what the public spec already says.
 
 ### 5.1 Corpus format

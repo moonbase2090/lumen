@@ -51,6 +51,8 @@ jobs:
           if [ -n "$bad" ]; then echo "$bad"; echo "CSS/JS asset links in base.html must use cachebust=true"; exit 1; fi
       - name: Release check tests
         run: scripts/test-check-public-text.sh
+      - name: Test capture check tests
+        run: scripts/test-capture-tests.sh
       - name: PII / secret scan (repo text and built site)
         env:
           PUBLIC_TEXT_DENYLIST: ${{ secrets.PUBLIC_TEXT_DENYLIST }}
