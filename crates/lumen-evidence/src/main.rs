@@ -4,7 +4,7 @@
 //! `summary.txt` to the output directory and prints the summary. Exits 1 when
 //! a case produced a forbidden item.
 //!
-//! `lumen-evidence --cost --root DIR --commit SHA --out DIR`
+//! `lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR`
 //!
 //! Cost mode (criteria 2.8): counts what each arm crate adds to the shared
 //! baseline in the source tree at DIR. Reported only; exits 0 when it ran.
@@ -25,7 +25,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --commit SHA --out DIR";
+const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR";
 
 /// Write the log and summary for a finished run and print the summary.
 fn finish(out: &std::path::Path, summary: &str) -> Result<(), String> {
@@ -68,11 +68,15 @@ fn replay(
     })
 }
 
-fn cost(root: &str, commit: &str, out: &std::path::Path) -> Result<ExitCode, String> {
+fn cost(root: &str, base: &str, commit: &str, out: &std::path::Path) -> Result<ExitCode, String> {
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
     let log = std::fs::File::create(out.join("run.jsonl")).map_err(|e| e.to_string())?;
-    let (report, header) =
-        lumen_evidence::cost::run_cost(&PathBuf::from(root), commit, std::io::BufWriter::new(log))?;
+    let (report, header) = lumen_evidence::cost::run_cost(
+        &PathBuf::from(root),
+        base,
+        commit,
+        std::io::BufWriter::new(log),
+    )?;
     finish(out, &report.summary(&header))?;
     Ok(ExitCode::SUCCESS)
 }
@@ -100,10 +104,12 @@ fn main() -> ExitCode {
     let out = PathBuf::from(out);
     let arm = arg(&args, "--arm").unwrap_or_else(|| "b".to_owned());
     let result = match (arg(&args, "--corpus"), arg(&args, "--matrix")) {
-        (None, None) if args.iter().any(|a| a == "--cost") => match arg(&args, "--root") {
-            Some(root) => cost(&root, &commit, &out),
-            None => Err("--cost needs --root".to_owned()),
-        },
+        (None, None) if args.iter().any(|a| a == "--cost") => {
+            match (arg(&args, "--root"), arg(&args, "--base")) {
+                (Some(root), Some(base)) => cost(&root, &base, &commit, &out),
+                _ => Err("--cost needs --root and --base".to_owned()),
+            }
+        }
         (Some(corpus), None) => replay(&corpus, &commit, &out, &arm),
         (None, Some(matrix)) => reach(&matrix, &commit, &out, &arm),
         _ => {

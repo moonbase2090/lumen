@@ -1,17 +1,21 @@
 //! Cost mode (criteria 2.8): what each arm adds to the shared baseline.
 //!
-//! The arms are separate crates over the same shared crates, so the cost of an
-//! arm is the size of its own crate. The run reads the source tree at the
-//! commit it is given and reports, per arm: lines of code in `src` and in
-//! `tests`, test functions, new dependencies, `unsafe` and FFI uses, and fuzz
-//! targets. Nothing is estimated: every number is a count over files, and the
+//! The arms are separate crates over the same shared crates. The run takes a
+//! base commit and the measured commit and reports, from a diff of the two
+//! (`git diff --numstat`), the lines added in each arm crate and, apart, in
+//! the shared crates, whose edits belong to neither arm. From the tree at the
+//! measured commit it reports, per arm: code lines in `src` and in `tests`,
+//! test functions, new dependencies, `unsafe` and FFI uses and fuzz targets.
+//! It also counts the conformance vectors, which gate both arms. Nothing is
+//! estimated: every number is a count over files or over the diff, and the
 //! per-file counts are in the summary.
 //!
 //! Counting rules: a code line is a line that is not blank and does not start
 //! with `//`. Block comments are not recognised, so a line inside one counts.
-//! Lines after a top-level `#[cfg(test)]` in a `src` file are test lines, not
-//! source lines. Test functions are `#[test]` attributes. The conformance vectors are shared
-//! by both arms and are not attributed to either.
+//! Lines after a top-level `#[cfg(test)]` in a `src` file are test lines.
+//! Test functions are `#[test]` attributes. A use of `unsafe` or `extern` is
+//! a line with either word outside a trailing `//` comment and outside a
+//! string literal; raw strings are not recognised.
 
 use lumen_harness::{EffectLog, HeaderInfo, Recorder, SinkTable};
 use std::collections::BTreeSet;
@@ -106,6 +110,35 @@ fn has_word(line: &str, word: &str) -> bool {
     })
 }
 
+/// The line without string literal contents and without a trailing `//` comment.
+fn code_only(line: &str) -> String {
+    let mut out = String::new();
+    let (mut in_str, mut escaped) = (false, false);
+    let mut prev = ' ';
+    for c in line.chars() {
+        if in_str {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_str = false;
+                out.push('"');
+            }
+        } else if c == '"' {
+            in_str = true;
+            out.push('"');
+        } else if c == '/' && prev == '/' {
+            out.pop();
+            break;
+        } else {
+            out.push(c);
+        }
+        prev = c;
+    }
+    out
+}
+
 /// Count one source text. A line that names `unsafe_code` (the lint) is not a use.
 #[must_use]
 pub fn count_source(path: &str, text: &str) -> FileCount {
@@ -127,7 +160,9 @@ pub fn count_source(path: &str, text: &str) -> FileCount {
         if line.trim_start().starts_with("#[test]") {
             c.tests += 1;
         }
-        if !line.contains("unsafe_code") && (has_word(line, "unsafe") || has_word(line, "extern")) {
+        let code = code_only(line);
+        if !code.contains("unsafe_code") && (has_word(&code, "unsafe") || has_word(&code, "extern"))
+        {
             c.unsafe_uses += 1;
         }
     }
@@ -222,11 +257,132 @@ pub fn measure(root: &Path, arm: &'static str, krate: &str) -> Result<ArmCost, S
     })
 }
 
+/// Lines added between the base and the measured commit, by `git diff --numstat`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Added {
+    /// The base the diff starts from.
+    pub base: String,
+    /// Lines added in each arm crate's `.rs` files, in [`ARMS`] order.
+    pub arms: Vec<usize>,
+    /// Lines added in the shared crates' `.rs` files. Neither arm owns them.
+    pub shared: usize,
+    /// Lines added in `conformance/vectors`.
+    pub vectors: usize,
+}
+
+/// The conformance vectors in the tree, which gate both arms.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Vectors {
+    /// `(file, vectors)` per suite file. Pending-table rows are not vectors.
+    pub files: Vec<(String, usize)>,
+}
+
+impl Vectors {
+    /// All vectors.
+    #[must_use]
+    pub fn total(&self) -> usize {
+        self.files.iter().map(|(_, n)| n).sum()
+    }
+}
+
 /// The result of a cost run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CostReport {
     /// One entry per arm.
     pub arms: Vec<ArmCost>,
+    /// The diff against the base.
+    pub added: Added,
+    /// The conformance vectors.
+    pub vectors: Vectors,
+}
+
+/// Parse `git diff --numstat` output into lines added per area.
+///
+/// # Errors
+///
+/// Returns a message for a line that is not `added<TAB>deleted<TAB>path`.
+pub fn parse_numstat(base: &str, numstat: &str) -> Result<Added, String> {
+    let mut added = Added {
+        base: base.to_owned(),
+        arms: vec![0; ARMS.len()],
+        shared: 0,
+        vectors: 0,
+    };
+    for line in numstat.lines().filter(|l| !l.is_empty()) {
+        let mut f = line.splitn(3, '\t');
+        let (Some(n), Some(_), Some(path)) = (f.next(), f.next(), f.next()) else {
+            return Err(format!("bad numstat line {line:?}"));
+        };
+        // A binary file shows `-`.
+        let n: usize = n.parse().unwrap_or(0);
+        let ext = Path::new(path).extension().and_then(|e| e.to_str());
+        if ext == Some("rs") {
+            if let Some(i) = ARMS
+                .iter()
+                .position(|(_, k)| path.starts_with(&format!("crates/{k}/")))
+            {
+                added.arms[i] += n;
+            } else if SHARED
+                .iter()
+                .any(|k| path.starts_with(&format!("crates/{k}/")))
+            {
+                added.shared += n;
+            }
+        } else if path.starts_with("conformance/vectors/") && ext == Some("json") {
+            added.vectors += n;
+        }
+    }
+    Ok(added)
+}
+
+/// Count the vectors in every suite file under `conformance/vectors`.
+///
+/// # Errors
+///
+/// Returns a message for an unreadable or malformed file.
+pub fn count_vectors(root: &Path) -> Result<Vectors, String> {
+    let dir = root.join("conformance/vectors");
+    let mut files = Vec::new();
+    let mut paths: Vec<_> = std::fs::read_dir(&dir)
+        .map_err(|e| format!("{}: {e}", dir.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
+        .collect();
+    paths.sort();
+    for p in paths {
+        let text = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+        let doc: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("{}: {e}", p.display()))?;
+        let n = [
+            "vectors",
+            "detector_vectors",
+            "track0_vectors",
+            "escaped_text_vectors",
+        ]
+        .iter()
+        .map(|k| doc[k].as_array().map_or(0, Vec::len))
+        .sum();
+        let name = p
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        files.push((name, n));
+    }
+    Ok(Vectors { files })
+}
+
+fn git_numstat(root: &Path, base: &str, commit: &str) -> Result<String, String> {
+    let out = std::process::Command::new("git")
+        .current_dir(root)
+        .args(["diff", "--numstat", base, commit])
+        .output()
+        .map_err(|e| format!("git: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "git diff {base} {commit} failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 impl CostReport {
@@ -240,6 +396,21 @@ impl CostReport {
             header.commit, header.harness, header.corpus, header.session_matrix, header.sinks
         );
         let _ = writeln!(out, "2.8 cost is reported only; it is not gated");
+        let _ = writeln!(out, "diff base={}", self.added.base);
+        for (a, n) in self.arms.iter().zip(&self.added.arms) {
+            let _ = writeln!(out, "{}: lines_added_vs_base={n}", a.arm);
+        }
+        let _ = writeln!(
+            out,
+            "shared crates: lines_added_vs_base={} (belong to neither arm); conformance vectors: lines_added_vs_base={}",
+            self.added.shared, self.added.vectors
+        );
+        let _ = writeln!(
+            out,
+            "conformance vectors={} {:?} (gate both arms)",
+            self.vectors.total(),
+            self.vectors.files
+        );
         for a in &self.arms {
             let _ = writeln!(
                 out,
@@ -274,6 +445,7 @@ impl CostReport {
 /// Returns a message for an unreadable file or a failed write.
 pub fn run_cost<W: Write>(
     root: &Path,
+    base: &str,
     commit: &str,
     log: W,
 ) -> Result<(CostReport, HeaderInfo), String> {
@@ -292,5 +464,14 @@ pub fn run_cost<W: Write>(
         .iter()
         .map(|(arm, krate)| measure(root, arm, krate))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok((CostReport { arms }, header))
+    let added = parse_numstat(base, &git_numstat(root, base, commit)?)?;
+    let vectors = count_vectors(root)?;
+    Ok((
+        CostReport {
+            arms,
+            added,
+            vectors,
+        },
+        header,
+    ))
 }
