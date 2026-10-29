@@ -6,7 +6,8 @@
 
 use lumen_panes::codec::{Layout, Malformed, PaneContainer};
 use lumen_panes::{Multiplexer, Outcome, PaneTerminal, Rect, TYPE_LAYOUT, TYPE_PANE};
-use lumen_sealed::{LayerId, LayerRoot};
+use lumen_sealed::types::{CAP_NOTIFICATIONS, KIND_CLIPBOARD_WRITE, KIND_NOTIFICATION};
+use lumen_sealed::{Direction, DirectionKeys, LayerId, LayerRoot, Sender};
 use lumen_track0::{Block, KIND_PARAGRAPH};
 
 const LAYER: LayerId = LayerId(9);
@@ -43,6 +44,15 @@ fn paragraph(text: &str) -> Vec<u8> {
         .to_vec();
     v.extend_from_slice(text.as_bytes());
     v
+}
+
+fn frame_with_capability(kind: u8, capability: u8, payload: &[u8]) -> Vec<u8> {
+    let root = root();
+    let keys = DirectionKeys::derive(&root, LAYER, Direction::ToTerminal);
+    let mut sender = Sender::new(keys, LAYER, Direction::ToTerminal, 3);
+    let frame = sender.seal(kind, capability, payload);
+    assert!(frame.is_ok(), "a short pane frame must seal");
+    frame.unwrap_or_default()
 }
 
 /// A mux and terminal with a two-pane layout already accepted.
@@ -254,6 +264,51 @@ fn a_type_the_keys_do_not_cover_desynchronises_the_layer() {
     assert_eq!(t.draws(), []);
     assert_eq!(t.counters().other_type, 1);
     assert_eq!(t.counters().failed_frames, 1);
+}
+
+#[test]
+fn non_pane_command_and_grant_types_force_text_fallback() {
+    for kind in [0x10, 0x11, 0x12, 0x20] {
+        let (mut m, mut t, a, _) = two_panes();
+        let frame = m.raw(kind, b"not a pane frame");
+        assert_eq!(t.receive(&frame), Outcome::OtherType, "type {kind:#04x}");
+        assert!(t.is_desynchronised(), "type {kind:#04x}");
+        assert_eq!(t.visible(), Vec::<u32>::new(), "type {kind:#04x}");
+
+        let pane = m.container(a, left(), KIND_PARAGRAPH, &paragraph("still text"));
+        assert_eq!(t.receive(&pane), Outcome::Ignored, "type {kind:#04x}");
+        assert_eq!(t.draws(), [], "type {kind:#04x}");
+    }
+}
+
+#[test]
+fn pane_content_cannot_send_osc52_or_change_the_outer_title() {
+    for escape in ["\u{1b}]52;c;secret\u{7}", "\u{1b}]0;pane title\u{7}"] {
+        let (mut m, mut t, a, _) = two_panes();
+        let frame = m.container(a, left(), KIND_PARAGRAPH, &paragraph(escape));
+        assert_eq!(t.receive(&frame), Outcome::UnparsedContent);
+        assert_eq!(t.draws(), []);
+        assert_eq!(t.counters().containers_unparsed, 1);
+    }
+}
+
+#[test]
+fn pane_clients_cannot_send_notification_or_clipboard_frames() {
+    let cases = [
+        (KIND_CLIPBOARD_WRITE, 7, b"clipboard".as_slice()),
+        (
+            KIND_NOTIFICATION,
+            CAP_NOTIFICATIONS,
+            b"\0\x0cnotification".as_slice(),
+        ),
+    ];
+    for (kind, capability, payload) in cases {
+        let (_, mut t, _, _) = two_panes();
+        let frame = frame_with_capability(kind, capability, payload);
+        assert_eq!(t.receive(&frame), Outcome::Refused, "type {kind:#04x}");
+        assert_eq!(t.draws(), [], "type {kind:#04x}");
+        assert_eq!(t.counters().refused, 1, "type {kind:#04x}");
+    }
 }
 
 #[test]

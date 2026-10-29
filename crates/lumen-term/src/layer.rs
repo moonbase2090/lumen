@@ -52,6 +52,9 @@ pub trait Layer {
     fn finish(&mut self) -> Vec<Piece>;
     /// The terminal opened the container for a new command.
     fn open_container(&mut self);
+    /// The terminal closed the container: the command ended. Track 0 that
+    /// arrives now has no container to go in.
+    fn close_container(&mut self);
     /// The terminal refused an authenticated sealed frame (a payload it could
     /// not use): count it toward the pin.
     fn sealed_abort(&mut self, now_ms: u64) -> Vec<Piece>;
@@ -75,6 +78,8 @@ impl Layer for Passthrough {
     }
 
     fn open_container(&mut self) {}
+
+    fn close_container(&mut self) {}
 
     fn sealed_abort(&mut self, _now_ms: u64) -> Vec<Piece> {
         Vec::new()
@@ -108,6 +113,10 @@ mod arm_a {
 
         fn open_container(&mut self) {
             a::Layer::open_container(self);
+        }
+
+        fn close_container(&mut self) {
+            a::Layer::close_container(self);
         }
 
         fn sealed_abort(&mut self, now_ms: u64) -> Vec<Piece> {
@@ -160,6 +169,10 @@ mod arm_b {
 
         fn open_container(&mut self) {
             b::Layer::open_container(self);
+        }
+
+        fn close_container(&mut self) {
+            b::Layer::close_container(self);
         }
 
         fn sealed_abort(&mut self, now_ms: u64) -> Vec<Piece> {
