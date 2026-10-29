@@ -15,8 +15,9 @@
 # For a one-time (spot) VM that can disappear:
 #   --target-cpu-hours H   run each format until it has H CPU-hours, however many
 #                          calls that takes (replaces --slices)
-#   --restore-cmd CMD      run once at the start, before anything else, to fetch
-#                          the state a previous VM synced off (OUT is exported)
+#   --restore-cmd CMD      run once at the start to fetch the state a previous VM
+#                          synced off. It sees a staging directory as OUT; the
+#                          build is checked there before anything reaches the real OUT
 #   --sync-cmd CMD         run after every slice, on SIGTERM/SIGINT and at the end,
 #                          to copy OUT somewhere that outlives the VM. A failure
 #                          is reported and retried at the next slice
@@ -85,10 +86,6 @@ INTERRUPTED=0
 trap on_signal TERM INT
 trap 'rmdir "$OUT/.lock" 2>/dev/null || true' EXIT
 
-if [ -n "$RESTORE_CMD" ]; then
-  echo "restoring previous state: $RESTORE_CMD" >&2
-  bash -c "$RESTORE_CMD" || { echo "restore failed" >&2; exit 6; }
-fi
 
 [ -n "$SEEDS" ] || { SEEDS="$OUT/seeds"; cargo run -q --locked -p lumen-decoder-tools --example seeds -- "$SEEDS"; }
 # The upstream projects' regression inputs, pinned in their manifest. They are
@@ -99,10 +96,28 @@ REGRESSION="$ROOT/crates/lumen-decoder/fuzz/seeds-regression"
 FUZZ_FLAGS="cargo-fuzz asan; overflow-checks+debug-assertions (no UBSan for Rust); libfuzzer -timeout=2 -rss_limit_mb=$RSS_MB; nightly=$NIGHTLY"
 DECODER_BUILD="$("${TOOLS[@]}" identity "$ROOT" "$FUZZ_FLAGS")"
 HEAD_COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
-# A restored run must be of this same build, or its CPU-hours do not count for it.
-if [ -f "$OUT/decoder_build" ] && { [ "$(cat "$OUT/decoder_build")" != "$DECODER_BUILD" ] || [ "$(cat "$OUT/commit" 2>/dev/null)" != "$HEAD_COMMIT" ]; }; then
-  echo "refusing to resume: $OUT holds a run of a different build (commit $(cat "$OUT/commit" 2>/dev/null), identity $(cat "$OUT/decoder_build"); this is $HEAD_COMMIT, $DECODER_BUILD)" >&2
-  exit 3
+# A resumed run must be of this same build, or its CPU-hours do not count for it.
+same_build() { # directory -> 0 if it holds no run, or a run of this build
+  [ -f "$1/decoder_build" ] || return 0
+  [ "$(cat "$1/decoder_build")" = "$DECODER_BUILD" ] && [ "$(cat "$1/commit" 2>/dev/null)" = "$HEAD_COMMIT" ]
+}
+refuse_msg() { # directory
+  echo "refusing to resume: $1 holds a run of a different build (commit $(cat "$1/commit" 2>/dev/null), identity $(cat "$1/decoder_build"); this is $HEAD_COMMIT, $DECODER_BUILD)" >&2
+}
+refuse() { refuse_msg "$1"; exit 3; }
+same_build "$OUT" || refuse "$OUT"
+
+# Restore into a staging directory first and look at it before it touches OUT:
+# a refused resume must leave OUT as it was. The restore command sees the staging
+# directory as OUT.
+if [ -n "$RESTORE_CMD" ]; then
+  STAGE="$(mktemp -d "$OUT.restore.XXXXXX")"
+  echo "restoring previous state into $STAGE: $RESTORE_CMD" >&2
+  OUT="$STAGE" bash -c "$RESTORE_CMD" || { echo "restore failed" >&2; rm -rf "$STAGE"; exit 6; }
+  same_build "$STAGE" || { refuse_msg "$STAGE"; rm -rf "$STAGE"; exit 3; }
+  rm -rf "$STAGE/.lock"                 # a lock synced from the old VM is not this run's
+  cp -a "$STAGE"/. "$OUT"/
+  rm -rf "$STAGE"
 fi
 echo "$DECODER_BUILD" > "$OUT/decoder_build"
 echo "$HEAD_COMMIT" > "$OUT/commit"
@@ -139,15 +154,30 @@ print(h)
 PY
 }
 
+ARTIFACT_POLL="${ARTIFACT_POLL:-30}"
+# Copies crash inputs the fuzzer has written into OUT, and syncs when there are
+# new ones, so a VM that vanishes mid-slice loses only the last few seconds.
+copy_new_artifacts() { # format, target
+  local art="$ROOT/crates/lumen-decoder/fuzz/artifacts/$2" dir="$OUT/$1" a new=0
+  [ -d "$art" ] || return 0
+  mkdir -p "$dir/artifacts"
+  for a in $(ls "$art"); do
+    [ -e "$dir/artifacts/$a" ] && continue
+    cp "$art/$a" "$dir/artifacts/$a" && new=1
+  done
+  [ "$new" = 0 ] || sync_out || true
+}
+
 # Records the crashes in artifacts that are not recorded yet, at CPU-hour $3.
 record_artifacts() { # format, target, cpu-hour
   local f="$1" target="$2" now_h="$3" art dir seen a k
   art="$ROOT/crates/lumen-decoder/fuzz/artifacts/$target"; dir="$OUT/$f"
   mkdir -p "$dir/artifacts"; touch "$dir/artifacts-seen.txt"
-  [ -d "$art" ] || return 0
+  # Inputs a previous VM synced off but did not get to record.
+  mkdir -p "$art"; cp -n "$dir"/artifacts/* "$art"/ 2>/dev/null || true
   for a in $(ls "$art" | sort); do
     grep -qxF "$a" "$dir/artifacts-seen.txt" && continue
-    cp "$art/$a" "$dir/artifacts/$a"            # kept in OUT so a sync carries it off the VM
+    cp -n "$art/$a" "$dir/artifacts/$a" 2>/dev/null || true   # kept in OUT so a sync carries it off the VM
     k="$(kind_of "$art/$a" "$target")"
     echo "$a" >> "$dir/artifacts-seen.txt"
     if [ "$k" = "asan-artifact" ]; then
@@ -160,7 +190,9 @@ record_artifacts() { # format, target, cpu-hour
 }
 
 run_slice() { # format -> 0 normal, 1 interrupted
-  local f="$1" target="decode_$1" dir="$OUT/$1" done_h edges used now_h
+  local f="$1" target="decode_$1" dir="$OUT/$1" done_h edges used now_h watch
+  # A signal that arrived between slices stops here, before a slice is started.
+  if [ "$INTERRUPTED" = 1 ]; then sync_out || true; return 1; fi
   done_h="$(cpu_hours_of "$dir/samples.jsonl")"
   # Crashes a previous VM found but did not get to record.
   record_artifacts "$f" "$target" "$done_h"
@@ -168,11 +200,16 @@ run_slice() { # format -> 0 normal, 1 interrupted
       -fork="$WORKERS" -ignore_crashes=1 -max_total_time="$SLICE" -timeout=2 \
       -rss_limit_mb="$RSS_MB" -max_len=65536 > "$dir/last.log" 2>&1) &
   CHILD=$!; CUR_TARGET="$target"
+  # A signal in the moment before CHILD was set found nothing to stop.
+  if [ "$INTERRUPTED" = 1 ]; then kill -TERM "$CHILD" 2>/dev/null || true; pkill -TERM -f "/release/$CUR_TARGET" 2>/dev/null || true; fi
+  ( while kill -0 "$CHILD" 2>/dev/null; do sleep "$ARTIFACT_POLL"; copy_new_artifacts "$f" "$target"; done ) &
+  watch=$!
   wait "$CHILD" || true
   # A signal makes `wait` return early; collect the fuzzer before reading its log.
   wait "$CHILD" 2>/dev/null || true
   # Give the fuzz processes a moment to exit and flush their log.
   for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -f "/release/$CUR_TARGET" >/dev/null 2>&1 || break; sleep 1; done
+  kill "$watch" 2>/dev/null || true; wait "$watch" 2>/dev/null || true
   CHILD=""; CUR_TARGET=""
   if [ "$INTERRUPTED" = 1 ]; then
     # Count the time libFuzzer says it ran, not the full slice.
