@@ -866,7 +866,7 @@ fn segments(paragraph: &str) -> Vec<(String, bool)> {
                 out.push((std::mem::take(&mut current), space_before));
                 space_before = true;
             }
-            '\u{200b}' => {
+            '\u{200b}' if cfg!(feature = "zero-width-text") => {
                 current.push(c);
                 out.push((std::mem::take(&mut current), space_before));
                 space_before = false;
@@ -884,6 +884,9 @@ fn segments(paragraph: &str) -> Vec<(String, bool)> {
 /// line to hold at all, the plain cut stands.
 fn cut_word(word: &str, width: usize) -> String {
     let head = clip(word, width);
+    if !cfg!(feature = "zero-width-text") {
+        return head;
+    }
     let mut chars: Vec<char> = head.chars().collect();
     let mut next = word[head.len()..].chars().next();
     while let Some(&last) = chars.last() {

@@ -124,6 +124,43 @@ pub fn escape_invisible(text: &str) -> String {
     out
 }
 
+/// Text outside code, the earlier rule: bidi controls are shown as `\u{..}`
+/// escapes, so they cannot reorder what the reader sees.
+fn visible(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if is_bidi(c) {
+            let _ =
+                std::fmt::Write::write_fmt(&mut out, format_args!("\\u{{{:04x}}}", u32::from(c)));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Paragraph and heading text: with the `zero-width-text` feature every code
+/// point is kept and open bidi controls are closed ([`close_bidi`]); without it
+/// the earlier rule applies ([`visible`]).
+fn text_outside_code(text: &str) -> String {
+    if cfg!(feature = "zero-width-text") {
+        close_bidi(text)
+    } else {
+        visible(text)
+    }
+}
+
+/// The language label of a code block: with the feature, default-ignorable and
+/// bidi code points are shown as escapes ([`escape_invisible`]); without it the
+/// earlier rule applies.
+fn label_text(text: &str) -> String {
+    if cfg!(feature = "zero-width-text") {
+        escape_invisible(text)
+    } else {
+        visible(text)
+    }
+}
+
 /// Text outside code keeps every code point, the zero-width and bidi controls
 /// included, so that joiners shape and copy returns what was sent. What is
 /// closed is bidirectional state: every embedding, override and isolate still
@@ -233,7 +270,7 @@ pub fn parse(kind: u8, payload: &[u8]) -> Result<Block, Error> {
     }
     let mut input = payload;
     let block = match kind {
-        KIND_PARAGRAPH => Block::Paragraph(close_bidi(take_string(&mut input)?)),
+        KIND_PARAGRAPH => Block::Paragraph(text_outside_code(take_string(&mut input)?)),
         KIND_HEADING => {
             let (level, rest) = input.split_first().ok_or(Error::Malformed)?;
             if !(1..=6).contains(level) {
@@ -242,11 +279,11 @@ pub fn parse(kind: u8, payload: &[u8]) -> Result<Block, Error> {
             input = rest;
             Block::Heading {
                 level: *level,
-                text: close_bidi(take_string(&mut input)?),
+                text: text_outside_code(take_string(&mut input)?),
             }
         }
         KIND_CODE => {
-            let lang = escape_invisible(take_string(&mut input)?);
+            let lang = label_text(take_string(&mut input)?);
             let (text, stripped) = strip_bidi(take_string(&mut input)?);
             Block::Code {
                 lang,

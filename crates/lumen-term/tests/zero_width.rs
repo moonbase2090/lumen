@@ -1,6 +1,7 @@
 //! Zero-width, joining and bidirectional characters in paragraph text, and the
 //! escapes that trust surfaces use instead.
 
+#![cfg(feature = "zero-width-text")]
 #![allow(clippy::many_single_char_names)]
 
 use lumen_detector::TAG;

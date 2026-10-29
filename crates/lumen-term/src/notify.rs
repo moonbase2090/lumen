@@ -551,7 +551,9 @@ pub fn clean(text: &str) -> String {
     for c in text.chars() {
         // A code point that draws nothing is shown as a visible escape, so the
         // reader can see it is there; whatever else is removed stays removed.
-        if lumen_track0::is_default_ignorable(c) || lumen_track0::is_bidi(c) {
+        if cfg!(feature = "zero-width-text")
+            && (lumen_track0::is_default_ignorable(c) || lumen_track0::is_bidi(c))
+        {
             kept.push_str(&lumen_track0::escape_invisible(c.encode_utf8(&mut [0; 4])));
             have_base = true;
             marks = 0;

@@ -128,9 +128,16 @@ fn program_text_reaches_the_os_only_with_os_text_and_is_cleaned_capped_and_escap
     let Outcome::Os(note) = sealed(&mut n, 0, "<b>a & b</b>\u{202e}x") else {
         unreachable!("every condition holds")
     };
+    // With the zero-width text rules an invisible code point is shown as an
+    // escape; without them it is removed, as before.
+    let shown = if cfg!(feature = "zero-width-text") {
+        "\u{27e8}U+202E\u{27e9}"
+    } else {
+        ""
+    };
     assert_eq!(
         note.text,
-        "Program in tab 1 says: &lt;b&gt;a &amp; b&lt;/b&gt;\u{27e8}U+202E\u{27e9}x"
+        format!("Program in tab 1 says: &lt;b&gt;a &amp; b&lt;/b&gt;{shown}x")
     );
     let mut n = notifier(all_on(), LOCAL);
     let Outcome::Os(plain) = sealed(&mut n, 0, "secret") else {
@@ -301,6 +308,7 @@ fn layer_ids_are_never_reused() {
     );
 }
 
+#[cfg(feature = "zero-width-text")]
 #[test]
 fn clean_removes_what_is_not_text_and_shows_what_draws_nothing_as_an_escape() {
     // Controls, line and paragraph separators, private use and unassigned
@@ -321,6 +329,20 @@ fn clean_removes_what_is_not_text_and_shows_what_draws_nothing_as_an_escape() {
         clean("\u{2062}g\u{feff}h\u{200d}i\u{fe0f}j"),
         "\u{27e8}U+2062\u{27e9}g\u{27e8}U+FEFF\u{27e9}h\u{27e8}U+200D\u{27e9}i\u{27e8}U+FE0F\u{27e9}j"
     );
+    // Other format characters (not default-ignorable, not bidi) stay removed.
+    assert_eq!(clean("a\u{600}b\u{6dd}c\u{70f}d"), "abcd");
+    assert_eq!(
+        clean("tab\there\nnow"),
+        "tabherenow",
+        "a control character is removed, not turned into a space"
+    );
+}
+
+#[cfg(not(feature = "zero-width-text"))]
+#[test]
+fn clean_removes_the_listed_categories_and_fillers() {
+    let nasty = "a\u{0}\u{7}b\u{202e}c\u{200b}d\u{2028}e\u{2029}f\u{e0041}g\u{e000}h\u{378}i\u{115f}\u{1160}\u{3164}\u{ffa0}j\u{ad}k\u{2062}l\u{feff}m";
+    assert_eq!(clean(nasty), "abcdefghijklm");
     assert_eq!(
         clean("tab\there\nnow"),
         "tabherenow",
@@ -367,7 +389,11 @@ fn compose_has_the_fixed_prefix_and_the_label_the_program_cannot_remove() {
     );
     assert_eq!(
         compose("tab 2", Some("\u{202e}hi")),
-        "Program in tab 2 says: \u{27e8}U+202E\u{27e9}hi"
+        if cfg!(feature = "zero-width-text") {
+            "Program in tab 2 says: \u{27e8}U+202E\u{27e9}hi"
+        } else {
+            "Program in tab 2 says: hi"
+        }
     );
     assert_eq!(
         escape_markup("<a href='x'>&\"</a>"),

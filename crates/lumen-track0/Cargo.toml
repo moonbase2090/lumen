@@ -8,5 +8,13 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+# The spec's rules for zero-width and bidi characters in paragraph and heading
+# text: every code point is kept and open bidi controls are closed at each line
+# and block end. Off by default, which keeps the earlier rule (bidi controls
+# shown as \\u{..} escapes); turning it on by default is its own change.
+zero-width-text = []
+
 [lints]
 workspace = true

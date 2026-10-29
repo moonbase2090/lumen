@@ -158,6 +158,7 @@ fn control_characters_are_refused_in_every_string() {
     assert!(parse(KIND_PARAGRAPH, &s("line one\n\tline two")).is_ok());
 }
 
+#[cfg(feature = "zero-width-text")]
 #[test]
 fn bidi_controls_are_stripped_and_counted_in_code_and_kept_and_closed_elsewhere() {
     let mut code = s("");
@@ -186,8 +187,37 @@ fn bidi_controls_are_stripped_and_counted_in_code_and_kept_and_closed_elsewhere(
     );
 }
 
+#[cfg(not(feature = "zero-width-text"))]
+#[test]
+fn bidi_controls_are_stripped_and_counted_in_code_and_visible_elsewhere() {
+    let mut code = s("");
+    code.extend(s("a\u{202e}b\u{2066}c\u{200f}"));
+    assert_eq!(
+        parse(KIND_CODE, &code),
+        Ok(Block::Code {
+            lang: String::new(),
+            text: "abc".into(),
+            stripped: 3
+        })
+    );
+    assert_eq!(
+        parse(KIND_PARAGRAPH, &s("a\u{202e}b")),
+        Ok(Block::Paragraph("a\\u{202e}b".into()))
+    );
+    let mut h = vec![1];
+    h.extend(s("\u{061c}x"));
+    assert_eq!(
+        parse(KIND_HEADING, &h),
+        Ok(Block::Heading {
+            level: 1,
+            text: "\\u{061c}x".into()
+        })
+    );
+}
+
 // ---- zero-width and bidi characters in paragraph and heading text ----
 
+#[cfg(feature = "zero-width-text")]
 fn paragraph(text: &str) -> String {
     match parse(KIND_PARAGRAPH, &s(text)) {
         Ok(Block::Paragraph(t)) => t,
@@ -195,6 +225,7 @@ fn paragraph(text: &str) -> String {
     }
 }
 
+#[cfg(feature = "zero-width-text")]
 fn heading(text: &str) -> String {
     let mut h = vec![1];
     h.extend(s(text));
@@ -204,6 +235,7 @@ fn heading(text: &str) -> String {
     }
 }
 
+#[cfg(feature = "zero-width-text")]
 #[test]
 fn an_emoji_zwj_sequence_arrives_whole() {
     let family = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}";
@@ -224,6 +256,7 @@ fn an_emoji_zwj_sequence_arrives_whole() {
     );
 }
 
+#[cfg(feature = "zero-width-text")]
 #[test]
 fn an_arabic_zwnj_word_arrives_whole() {
     let word = "\u{645}\u{6cc}\u{200c}\u{62e}\u{648}\u{627}\u{647}\u{645}";
@@ -237,6 +270,7 @@ fn an_arabic_zwnj_word_arrives_whole() {
     assert_eq!(paragraph(indic), indic);
 }
 
+#[cfg(feature = "zero-width-text")]
 #[test]
 fn zero_width_space_and_word_joiner_are_kept_in_the_text() {
     assert_eq!(
@@ -245,6 +279,7 @@ fn zero_width_space_and_word_joiner_are_kept_in_the_text() {
     );
 }
 
+#[cfg(feature = "zero-width-text")]
 #[test]
 fn a_right_to_left_override_cannot_leak_past_its_line_or_block() {
     assert_eq!(
@@ -279,6 +314,7 @@ fn a_right_to_left_override_cannot_leak_past_its_line_or_block() {
 }
 
 /// Every bidi control removed: what is left is only the text.
+#[cfg(feature = "zero-width-text")]
 fn without_bidi(text: &str) -> String {
     text.chars()
         .filter(|c| !lumen_track0::is_bidi(*c))
@@ -287,6 +323,7 @@ fn without_bidi(text: &str) -> String {
 
 /// The directional state at the end of each line: how many embeddings and
 /// isolates are open, by the rules of UAX #9 for the controls used here.
+#[cfg(feature = "zero-width-text")]
 fn open_at_line_ends(text: &str) -> Vec<usize> {
     let mut stack: Vec<bool> = Vec::new();
     let mut ends = Vec::new();
@@ -312,6 +349,7 @@ fn open_at_line_ends(text: &str) -> Vec<usize> {
     ends
 }
 
+#[cfg(feature = "zero-width-text")]
 #[test]
 fn for_any_text_nothing_is_lost_and_nothing_is_left_open_at_a_line_end() {
     let alphabet: Vec<char> = "ab \n\u{202a}\u{202b}\u{202c}\u{202d}\u{202e}\u{2066}\u{2067}\u{2068}\u{2069}\u{200e}\u{200f}\u{200b}\u{200d}\u{200c}\u{2060}\u{fe0f}\u{1f468}\u{645}"
