@@ -14,8 +14,11 @@
 #![forbid(unsafe_code)]
 
 pub mod app;
+pub mod cli;
 pub mod document;
 pub mod grid;
+#[cfg(feature = "window")]
+pub mod host;
 pub mod keys;
 pub mod layer;
 pub mod layout;
