@@ -5,7 +5,8 @@
 //! Track 0 block the arm layer let through. The [`Document`] turns the pieces
 //! a [`Layer`] yields for the bytes of a stream into a list of blocks.
 //!
-//! Nothing here opens a window or draws a pixel. The layer is chosen by cargo
+//! [`raster`] paints blocks to an RGBA frame with one bundled face. Nothing
+//! here opens a window. The layer is chosen by cargo
 //! feature (`arm-a`, `arm-b`), so one source builds either arm, and the plain
 //! [`Passthrough`] layer is for a stream with no arm in front of it.
 
@@ -14,7 +15,9 @@
 pub mod document;
 pub mod grid;
 pub mod layer;
+pub mod raster;
 
 pub use document::{Block, Document, RichBlock};
 pub use grid::GridBlock;
 pub use layer::{Context, Layer, Notice, Passthrough, Piece};
+pub use raster::{Frame, Renderer, Theme};
