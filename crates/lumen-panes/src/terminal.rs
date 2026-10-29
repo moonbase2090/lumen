@@ -113,7 +113,7 @@ impl PaneTerminal {
     /// derived from `root`. It has no layout and no generation.
     #[must_use]
     pub fn new(root: &LayerRoot, layer: LayerId, cols: u32, rows: u32) -> Self {
-        let keys = DirectionKeys::derive(root, layer, Direction::ToTerminal);
+        let keys = DirectionKeys::derive_multiplexer(root, layer, Direction::ToTerminal);
         Self {
             receiver: Receiver::new(keys, layer, Direction::ToTerminal),
             cols,
