@@ -18,12 +18,16 @@ pub mod guard;
 pub mod layer;
 pub mod layout;
 pub mod notify;
+mod pty;
 pub mod raster;
+pub mod session;
 pub mod strip;
 
 pub use document::{Block, Document, Event, RichBlock};
 pub use grid::GridBlock;
 pub use layer::{Context, Layer, Notice, Passthrough, Piece};
 pub use layout::{Layout, Rect, StripPlacement, layout};
+pub use pty::SpawnError;
 pub use raster::{Frame, Renderer, Theme};
+pub use session::Session;
 pub use strip::Strip;
