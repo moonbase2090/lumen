@@ -258,3 +258,19 @@ This is a selection rule: a result can select Option B on a platform, so it is a
 ### 7.4 Preconditions
 
 The Track 0 gates in section 3 and the [alternate-screen rule](../../spec/v0/multiplexers.md#mux.alt-screen), which applies per pane, must pass before any rich pane is measured.
+
+### 7.5 Pane corpus format
+
+The pane corpus is a directory of JSON files read in name order, with the rules of section 5.1: every file is `{"revision": "...", "cases": [...]}`, every file gives the same revision, and ids are unique across the corpus. A case has `id`, `category`, `screen` (`cols` and `rows` at the start), `script` and an optional `forbid`.
+
+A script is a list of steps, each an object with an `op`:
+
+- `layout`: `generation` and `panes`, a list of `{id, x, y, w, h, visible}` in cells. `visible` defaults to true. `x` and `y` may be negative and `w` and `h` may be zero, because a malformed rectangle is a test input. A layout may not name a pane id twice.
+- `output`: `pane` and the bytes the pane writes, as `hex` or as `fill` and `count` like the reads of 5.1, with an optional `t_ms`. The pane id may be one that no layout names. A forged pane-container frame is written this way.
+- `resize`: `cols` and `rows`. `zoom`: `pane`, or no `pane` to clear the zoom. `detach` and `reattach`.
+
+A script says what the multiplexer is told and what its panes write. It does not say how a layout or pane-container frame is encoded, so a case does not depend on the payload layout of those frames.
+
+`forbid` lists outcomes that must not happen, one per gated count in 7.2: `draw_outside_rect`, `draw_hidden_pane`, `forged_container_drawn`, `stale_generation_drawn`, `key_reuse` and `unmarked_replay`. An unknown kind fails the load with the case id, so a typo cannot pass silently.
+
+The format is defined in `crates/lumen-evidence/src/panes.rs`. A change to it is a change to the pane corpus revision and needs both arms' agreement.
