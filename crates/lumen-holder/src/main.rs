@@ -15,28 +15,33 @@ fn main() -> ExitCode {
 
 #[cfg(target_os = "linux")]
 fn main() -> ExitCode {
+    use lumen_holder::principal::Principal;
     use lumen_holder::run::{FAULT, harden, run};
+    const USAGE: &str = "usage: lumen-holder --terminal PID --shell-pid PID --shell-start TICKS [--report]\n       lumen-holder --terminal PID --check-hardening";
     let mut args = std::env::args().skip(1);
-    let mut terminal = None;
-    let mut check = false;
+    let (mut terminal, mut shell_pid, mut shell_start) = (None, None, None);
+    let (mut check, mut report) = (false, false);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--terminal" => terminal = args.next().and_then(|v| v.parse::<u32>().ok()),
+            "--shell-pid" => shell_pid = args.next().and_then(|v| v.parse::<u32>().ok()),
+            "--shell-start" => shell_start = args.next().and_then(|v| v.parse::<u64>().ok()),
             "--check-hardening" => check = true,
+            "--report" => report = true,
             _ => {
-                eprintln!("usage: lumen-holder --terminal PID [--check-hardening]");
+                eprintln!("{USAGE}");
                 return ExitCode::from(2);
             }
         }
     }
     let Some(terminal) = terminal else {
-        eprintln!("usage: lumen-holder --terminal PID [--check-hardening]");
+        eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
     if check {
         return match harden(terminal, &[1]) {
             Ok(()) => {
-                report();
+                report_hardening();
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -45,8 +50,25 @@ fn main() -> ExitCode {
             }
         };
     }
-    match run(terminal) {
-        Ok(end) => ExitCode::from(end.code()),
+    let (Some(pid), Some(start_time)) = (shell_pid, shell_start) else {
+        eprintln!("{USAGE}");
+        return ExitCode::from(2);
+    };
+    let shell = Principal {
+        pid,
+        start_time,
+        uid: lumen_holder::ffi_linux::effective_uid(),
+    };
+    match run(terminal, shell, report) {
+        Ok((end, counters)) => {
+            if report {
+                println!(
+                    "ready={} second_ready={} refused={} malformed={}",
+                    counters.ready, counters.second_ready, counters.refused, counters.malformed
+                );
+            }
+            ExitCode::from(end.code())
+        }
         Err(e) => {
             eprintln!("lumen-holder: {e}");
             ExitCode::from(FAULT)
@@ -58,7 +80,7 @@ fn main() -> ExitCode {
 /// The exec comes last: if it worked, the process would be replaced and the
 /// line would never be printed.
 #[cfg(target_os = "linux")]
-fn report() {
+fn report_hardening() {
     use std::io::Write as _;
     use std::os::unix::process::CommandExt as _;
     let describe = |r: std::io::Result<()>| match r {
