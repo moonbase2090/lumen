@@ -1,7 +1,7 @@
 //! Blocks, block-sized PTYs and the arm layer in front of them.
 
 use lumen_detector::TAG;
-use lumen_term::{Block, Document, GridBlock, Layer, Notice, Passthrough, Piece};
+use lumen_term::{Block, Context, Document, GridBlock, Layer, Notice, Passthrough, Piece};
 use lumen_track0::Block as Track0Block;
 use std::time::{Duration, Instant};
 
@@ -69,11 +69,18 @@ fn a_block_without_a_program_refuses_input() {
 #[test]
 fn passthrough_output_lands_in_one_grid_block() {
     let mut doc = Document::new(20, 4);
-    doc.receive(&mut Passthrough, b"hello\r\nworld", 0);
+    doc.receive(&mut Passthrough, b"hello\r\nworld", at(0));
     let [Block::Grid(g)] = doc.blocks() else {
         unreachable!("one grid block")
     };
     assert_eq!(g.text_rows(), ["hello", "world", "", ""]);
+}
+
+fn at(now_ms: u64) -> Context {
+    Context {
+        now_ms,
+        ..Context::default()
+    }
 }
 
 /// A Track 0 paragraph frame.
@@ -140,7 +147,7 @@ fn kinds(doc: &Document) -> Vec<&'static str> {
 fn arm_a_on_a_sealed_layer_makes_a_rich_block_between_two_grid_blocks() {
     let mut doc = Document::new(30, 6);
     let mut layer = a_layer(true);
-    doc.receive(&mut layer, &stream("hello"), 0);
+    doc.receive(&mut layer, &stream("hello"), at(0));
     doc.finish(&mut layer);
     assert_eq!(kinds(&doc), ["grid", "rich", "grid"]);
     let Block::Rich(r) = &doc.blocks()[1] else {
@@ -153,7 +160,7 @@ fn arm_a_on_a_sealed_layer_makes_a_rich_block_between_two_grid_blocks() {
 fn arm_a_on_an_unsealed_layer_shows_the_same_bytes_as_escaped_text_in_the_grid() {
     let mut doc = Document::new(80, 8);
     let mut layer = a_layer(false);
-    doc.receive(&mut layer, &stream("hello"), 0);
+    doc.receive(&mut layer, &stream("hello"), at(0));
     doc.finish(&mut layer);
     assert_eq!(kinds(&doc), ["grid"]);
 }
@@ -162,7 +169,7 @@ fn arm_a_on_an_unsealed_layer_shows_the_same_bytes_as_escaped_text_in_the_grid()
 fn arm_b_makes_a_rich_block_from_the_same_bytes_on_any_layer() {
     let mut doc = Document::new(30, 6);
     let mut layer = b_layer(true);
-    doc.receive(&mut layer, &stream("hello"), 0);
+    doc.receive(&mut layer, &stream("hello"), at(0));
     doc.finish(&mut layer);
     assert_eq!(kinds(&doc), ["grid", "rich", "grid"]);
 }
@@ -177,11 +184,11 @@ fn track_0_with_no_container_is_text_in_arm_a_and_the_background_strip_in_arm_b(
         },
         lumen_arm_a::LayerState::Sealed,
     );
-    a_doc.receive(&mut a, &bytes, 0);
+    a_doc.receive(&mut a, &bytes, at(0));
     assert_eq!(kinds(&a_doc), ["grid"]);
     let mut b_doc = Document::new(80, 8);
     let mut b = b_layer(false);
-    b_doc.receive(&mut b, &bytes, 0);
+    b_doc.receive(&mut b, &bytes, at(0));
     assert_eq!(kinds(&b_doc), ["background"]);
 }
 
@@ -197,7 +204,7 @@ fn a_notice_from_the_layer_is_kept_and_not_drawn() {
 fn output_after_a_rich_block_starts_a_new_grid_block() {
     let mut doc = Document::new(30, 4);
     let mut layer = b_layer(true);
-    doc.receive(&mut layer, &stream("x"), 0);
+    doc.receive(&mut layer, &stream("x"), at(0));
     let grids: Vec<Vec<String>> = doc
         .blocks()
         .iter()
@@ -239,7 +246,7 @@ fn a_spent_budget_raises_the_degraded_notice_in_either_arm() {
         lumen_arm_a::LayerState::Sealed,
     );
     Layer::open_container(&mut a);
-    a_doc.receive(&mut a, &many, 0);
+    a_doc.receive(&mut a, &many, at(0));
     let mut b_doc = Document::new(40, 4);
     let mut b = lumen_arm_b::Layer::new(lumen_arm_b::Config {
         budget: lumen_arm_b::Budget {
@@ -249,7 +256,7 @@ fn a_spent_budget_raises_the_degraded_notice_in_either_arm() {
         background_as_text: false,
     });
     Layer::open_container(&mut b);
-    b_doc.receive(&mut b, &many, 0);
+    b_doc.receive(&mut b, &many, at(0));
     assert_eq!(a_doc.notices(), [Notice::Degraded]);
     assert_eq!(b_doc.notices(), [Notice::Degraded]);
 }
@@ -258,7 +265,7 @@ fn a_spent_budget_raises_the_degraded_notice_in_either_arm() {
 fn escaped_text_takes_its_own_row_and_the_output_after_it_starts_a_new_one() {
     let mut doc = Document::new(80, 6);
     let mut layer = a_layer(false);
-    doc.receive(&mut layer, &stream("hi"), 0);
+    doc.receive(&mut layer, &stream("hi"), at(0));
     let [Block::Grid(g)] = doc.blocks() else {
         unreachable!("one grid block")
     };
@@ -266,4 +273,67 @@ fn escaped_text_takes_its_own_row_and_the_output_after_it_starts_a_new_one() {
     assert_eq!(rows[0], "before");
     assert!(rows[1].contains("hi"), "{rows:?}");
     assert_eq!(rows[2], "after", "{rows:?}");
+}
+
+#[test]
+fn the_alternate_screen_and_tmux_reach_the_layer_in_either_arm() {
+    for (alt_screen, tmux_or_screen) in [(true, false), (false, true)] {
+        let ctx = Context {
+            alt_screen,
+            tmux_or_screen,
+            now_ms: 0,
+        };
+        let mut a_doc = Document::new(80, 8);
+        a_doc.receive(&mut a_layer(true), &stream("x"), ctx);
+        assert_eq!(kinds(&a_doc), ["grid"], "arm A, {ctx:?}");
+        let mut b_doc = Document::new(80, 8);
+        b_doc.receive(&mut b_layer(true), &stream("x"), ctx);
+        assert_eq!(kinds(&b_doc), ["grid"], "arm B, {ctx:?}");
+    }
+}
+
+#[test]
+fn blocks_carry_the_prompt_cycle_they_arrived_in() {
+    let mut doc = Document::new(30, 6);
+    let mut layer = b_layer(true);
+    assert_eq!(doc.cycle(), 0);
+    doc.receive(&mut layer, &paragraph("one"), at(0));
+    doc.begin_prompt_cycle(&mut layer);
+    doc.receive(&mut layer, &paragraph("two"), at(1));
+    doc.begin_prompt_cycle(&mut layer);
+    doc.receive(&mut layer, &paragraph("three"), at(2));
+    let cycles: Vec<u32> = doc
+        .blocks()
+        .iter()
+        .filter_map(|b| match b {
+            Block::Rich(r) => Some(r.cycle),
+            Block::Grid(_) => None,
+        })
+        .collect();
+    assert_eq!(cycles, [0, 1, 2]);
+    assert_eq!(doc.cycle(), 2);
+}
+
+#[test]
+fn a_new_prompt_cycle_resets_the_producers_budget() {
+    let many: Vec<u8> = (0..5).flat_map(|i| paragraph(&format!("p{i}"))).collect();
+    let mut doc = Document::new(40, 4);
+    let mut layer = lumen_arm_b::Layer::new(lumen_arm_b::Config {
+        budget: lumen_arm_b::Budget {
+            max_frames: 2,
+            max_bytes: 100_000,
+        },
+        background_as_text: false,
+    });
+    Layer::open_container(&mut layer);
+    doc.receive(&mut layer, &many, at(0));
+    assert_eq!(doc.notices(), [Notice::Degraded]);
+    doc.begin_prompt_cycle(&mut layer);
+    let before = doc.blocks().len();
+    doc.receive(&mut layer, &paragraph("fresh"), at(1));
+    assert_eq!(
+        doc.blocks().len(),
+        before + 1,
+        "the new cycle has budget again"
+    );
 }

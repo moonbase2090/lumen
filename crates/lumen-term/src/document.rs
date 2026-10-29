@@ -1,7 +1,7 @@
 //! The list of blocks a stream makes, as the layer's pieces arrive.
 
 use crate::grid::GridBlock;
-use crate::layer::{Layer, Notice, Piece};
+use crate::layer::{Context, Layer, Notice, Piece};
 use lumen_track0::Block as Track0Block;
 
 /// A Track 0 block shown in the terminal's own container.
@@ -11,6 +11,9 @@ pub struct RichBlock {
     pub content: Track0Block,
     /// True for the collapsed background strip (Arm B only).
     pub background: bool,
+    /// The prompt cycle the block arrived in, so the strip can be one
+    /// aggregate per layer per cycle.
+    pub cycle: u32,
 }
 
 /// One block of the document.
@@ -28,6 +31,7 @@ pub struct Document {
     blocks: Vec<Block>,
     notices: Vec<Notice>,
     sealed: Vec<(u8, usize)>,
+    cycle: u32,
 }
 
 impl Document {
@@ -40,6 +44,7 @@ impl Document {
             blocks: Vec::new(),
             notices: Vec::new(),
             sealed: Vec::new(),
+            cycle: 0,
         }
     }
 
@@ -88,10 +93,12 @@ impl Document {
                 Piece::Rich(content) => self.blocks.push(Block::Rich(RichBlock {
                     content,
                     background: false,
+                    cycle: self.cycle,
                 })),
                 Piece::Background(content) => self.blocks.push(Block::Rich(RichBlock {
                     content,
                     background: true,
+                    cycle: self.cycle,
                 })),
                 Piece::Notice(n) => self.notices.push(n),
                 Piece::Sealed { kind, len } => self.sealed.push((kind, len)),
@@ -99,9 +106,24 @@ impl Document {
         }
     }
 
-    /// Read from `layer`: feed it `bytes`, and apply what it yields.
-    pub fn receive(&mut self, layer: &mut dyn Layer, bytes: &[u8], now_ms: u64) {
-        let pieces = layer.feed(bytes, now_ms);
+    /// The prompt cycle blocks are arriving in. It starts at 0.
+    #[must_use]
+    pub fn cycle(&self) -> u32 {
+        self.cycle
+    }
+
+    /// A new prompt cycle begins: the terminal opens the layer's container for
+    /// the next command, and blocks that arrive from now on belong to the new
+    /// cycle.
+    pub fn begin_prompt_cycle(&mut self, layer: &mut dyn Layer) {
+        self.cycle = self.cycle.saturating_add(1);
+        layer.open_container();
+    }
+
+    /// Read from `layer`: feed it `bytes` with what the terminal knows about
+    /// the layer, and apply what it yields.
+    pub fn receive(&mut self, layer: &mut dyn Layer, bytes: &[u8], ctx: Context) {
+        let pieces = layer.feed(bytes, ctx);
         self.apply(pieces);
     }
 
