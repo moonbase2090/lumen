@@ -4,10 +4,6 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
-# Reviewed 2026-10-29. Each entry names what it covers and when to look again.
-ignore = [
-    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained and has no safe upgrade. It is reached only through fontdue, which parses the one face compiled into lumen-term (IBM Plex Mono, pinned by hash in NOTICE.txt), never a file the user or a program supplies. Revisit before any system or user font is loaded, and when fontdue changes its parser." },
-]
 
 [licenses]
 version = 2

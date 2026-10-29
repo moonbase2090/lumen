@@ -12,11 +12,13 @@
 
 use crate::document::{Block, Document, RichBlock};
 use crate::grid::GridBlock;
-use fontdue::{Font, FontSettings};
 use lumen_track0::Block as Track0Block;
 use prismattyc_core::{Color, Style, grapheme_display_width};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use swash::FontRef;
+use swash::scale::{Render, ScaleContext, Source};
+use swash::zeno::Format;
 
 /// The bundled face.
 const FACE: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf");
@@ -191,7 +193,8 @@ struct Glyph {
 
 /// Turns blocks into pixels.
 pub struct Renderer {
-    font: Font,
+    font: FontRef<'static>,
+    scaler: RefCell<ScaleContext>,
     px: f32,
     scale: u32,
     cell_w: u32,
@@ -233,27 +236,30 @@ impl Renderer {
     /// Returns a message if the face cannot be read, which would be a broken
     /// build, since it is compiled in.
     pub fn new(scale: u32, theme: Theme) -> Result<Self, String> {
-        let font = Font::from_bytes(FACE, FontSettings::default()).map_err(str::to_owned)?;
+        let font = FontRef::from_index(FACE, 0).ok_or("the face could not be read")?;
         #[allow(
             clippy::cast_precision_loss,
             reason = "a scale is a small whole number"
         )]
         let px = BASE_PX * scale.max(1) as f32;
-        let lines = font
-            .horizontal_line_metrics(px)
-            .ok_or("the face has no line metrics")?;
+        let lines = font.metrics(&[]).scale(px);
+        let advance = font
+            .glyph_metrics(&[])
+            .scale(px)
+            .advance_width(font.charmap().map('M'));
         #[allow(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
             reason = "metrics of a 14 to 100 pixel face are small and positive"
         )]
         let (cell_w, cell_h, ascent) = (
-            font.metrics('M', px).advance_width.round().max(1.0) as u32,
-            (lines.ascent - lines.descent).ceil().max(1.0) as u32,
+            advance.round().max(1.0) as u32,
+            (lines.ascent + lines.descent).ceil().max(1.0) as u32,
             lines.ascent.round() as i32,
         );
         Ok(Self {
             font,
+            scaler: RefCell::new(ScaleContext::new()),
             px,
             scale: scale.max(1),
             cell_w,
@@ -286,18 +292,35 @@ impl Renderer {
     }
 
     fn draw_glyph(&self, frame: &mut Frame, ch: char, x: u32, y: u32, cells: u32, colour: Rgb) {
-        if ch == ' ' || ch == '\0' || self.font.lookup_glyph_index(ch) == 0 {
+        let glyph = self.font.charmap().map(ch);
+        if ch == ' ' || ch == '\0' || glyph == 0 {
             return;
         }
         let mut cache = self.cache.borrow_mut();
         let g = cache.entry(ch).or_insert_with(|| {
-            let (m, coverage) = self.font.rasterize(ch, self.px);
+            let mut context = self.scaler.borrow_mut();
+            let mut scaler = context.builder(self.font).size(self.px).hint(false).build();
+            let Some(image) = Render::new(&[Source::Outline])
+                .format(Format::Alpha)
+                .render(&mut scaler, glyph)
+            else {
+                return Glyph {
+                    xmin: 0,
+                    ymin: 0,
+                    width: 0,
+                    height: 0,
+                    coverage: Vec::new(),
+                };
+            };
+            let p = image.placement;
+            // The image's top row is `p.top` above the baseline, so its bottom
+            // is `p.top - height` above it: that is the glyph's `ymin`.
             Glyph {
-                xmin: m.xmin,
-                ymin: m.ymin,
-                width: m.width,
-                height: m.height,
-                coverage,
+                xmin: p.left,
+                ymin: p.top - i32::try_from(p.height).unwrap_or(0),
+                width: p.width as usize,
+                height: p.height as usize,
+                coverage: image.data,
             }
         });
         let rows = i64::try_from(g.height).unwrap_or(0);
