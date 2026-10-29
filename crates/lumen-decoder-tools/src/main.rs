@@ -9,6 +9,7 @@
 //! - `escape TESTLOG REVISION` prints `{revision, passed, total}` for the G4
 //!   suite from a `cargo test` log.
 //! - `miri-check RECORD [COMMITTED]` validates a Miri record, or compares two.
+//! - `gate-status SAMPLES CRASHES [MIN WINDOW]` prints where a format stands against the gate.
 //! - `annotate LEDGER NAME=FILE...` prints the ledger with a `notes` object.
 //! - `ledger REVISION DECODER_BUILD IMAGE_PATH_BUILD ESCAPE_JSON ENTRY_JSON...`
 //!   prints the ledger.
@@ -18,9 +19,10 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, ExitCode};
 
-use lumen_decoder_tools::{classify, escape, identity, ledger, miri};
+use lumen_decoder_tools::{classify, escape, gate, identity, ledger, miri};
 use serde_json::{Value, json};
 
+#[allow(clippy::too_many_lines, reason = "one arm per subcommand")]
 fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
     let arg = |i: usize| args.get(i).map(String::as_str).ok_or("missing argument");
     match arg(0)? {
@@ -77,6 +79,27 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
                 miri::validate(&fresh)?;
                 println!("the Miri record is well formed");
             }
+            Ok(ExitCode::SUCCESS)
+        }
+        "gate-status" => {
+            let samples = ledger::lines(&fs::read_to_string(arg(1)?)?)?;
+            let crashes = ledger::lines(&fs::read_to_string(arg(2)?)?)?;
+            let st = match (args.get(3), args.get(4)) {
+                (Some(min), Some(window)) => {
+                    gate::status_with(&samples, &crashes, min.parse()?, window.parse()?)?
+                }
+                _ => gate::status(&samples, &crashes)?,
+            };
+            println!(
+                "{}",
+                json!({
+                    "cpu_hours": st.cpu_hours, "edges": st.edges, "crashes": st.crashes,
+                    "recent_crashes": st.recent_crashes,
+                    "hours_since_new_crash": st.hours_since_new_crash,
+                    "hours_since_coverage_gain": st.hours_since_coverage_gain,
+                    "plateau": st.plateau, "holds": st.holds,
+                })
+            );
             Ok(ExitCode::SUCCESS)
         }
         "annotate" => {
