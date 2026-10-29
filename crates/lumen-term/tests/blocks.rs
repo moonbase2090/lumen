@@ -83,6 +83,15 @@ fn at(now_ms: u64) -> Context {
     }
 }
 
+#[test]
+fn pane_grid_osc_clipboard_title_and_notification_sequences_are_not_text() {
+    let mut block = GridBlock::new(40, 5);
+    block.feed(
+        b"before\x1b]52;c;c2VjcmV0\x07\x1b]0;pane title\x07\x1b]9;pane notification\x07after",
+    );
+    assert_eq!(block.text_rows(), ["beforeafter", "", "", "", ""]);
+}
+
 /// A Track 0 paragraph frame.
 fn paragraph(text: &str) -> Vec<u8> {
     let mut body = u16::try_from(text.len())
