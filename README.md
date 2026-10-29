@@ -65,6 +65,8 @@ cargo run -p lumen-evidence -- --decoder --ledger <ledger.json> --commit "$(git 
 cargo run -p lumen-evidence -- --render-log --log <render-log.json> --commit "$(git rev-parse HEAD)" --out out/render
 ```
 
+`scripts/run-comparison.sh --commit "$(git rev-parse HEAD)" --out out/all --flood-seconds 600` runs all of the modes below in turn and keeps every log.
+
 The modes for 2.5, 2.6 and 2.9 exit 3, not 0, when they measured nothing, so a script cannot read an empty run as a pass. The placement comparison has a pane corpus format (section 7.5 of the criteria) and test-only models of the multiplexer and the outer terminal in the `lumen-panes` crate; they draw nothing and keep a log of the rectangles they would draw.
 
 A result states the commit it was measured at, and the criteria say which revision it was judged against. Modes that cannot measure something report it as "not measured" rather than as a pass.

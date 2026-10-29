@@ -53,6 +53,8 @@ jobs:
         run: scripts/test-check-public-text.sh
       - name: Test capture check tests
         run: scripts/test-capture-tests.sh
+      - name: Comparison launcher tests
+        run: scripts/test-run-comparison.sh
       - name: PII / secret scan (repo text and built site)
         env:
           PUBLIC_TEXT_DENYLIST: ${{ secrets.PUBLIC_TEXT_DENYLIST }}
