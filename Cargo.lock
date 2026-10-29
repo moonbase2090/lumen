@@ -862,6 +862,7 @@ dependencies = [
  "lumen-sinks",
  "lumen-term",
  "lumen-track0",
+ "png 0.17.16",
  "serde_json",
  "sha2",
 ]
@@ -892,6 +893,13 @@ dependencies = [
  "lumen-sealed",
  "lumen-track0",
  "sha2",
+]
+
+[[package]]
+name = "lumen-seal"
+version = "0.0.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

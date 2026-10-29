@@ -2,14 +2,15 @@
 # Run the whole phase 0.5 comparison harness at one commit and keep every log.
 #
 # usage: scripts/run-comparison.sh --commit SHA --out DIR --flood-seconds N
-#          [--cost-base REF] [--ledger FILE] [--render-log FILE] [--skip-tests]
+#          [--cost-base REF] [--ledger FILE] [--render-log FILE] [--terminal FILE] [--skip-tests]
 #          [--strict]
 #
 # It builds the evidence driver once, runs the tests through capture-tests.sh,
 # then runs every mode in turn: the red-team corpora (rt-1 to rt-4) through
 # each arm, reach, flood, cost, parity, the decoder ledger, the render log and
 # the pixel corpus (2.3) and the pane corpus under both placements. The render log is the one given with
-# --render-log (written by a terminal) or, by default, the pipeline-basis log
+# --render-log (written by a terminal; --terminal FILE adds the pixel corpus
+# run through that terminal binary) or, by default, the pipeline-basis log
 # each flood wrote, judged as render-log-<arm>. It waits for each mode, never puts one
 # in the background, and quotes every path, so a directory with a space in it
 # works.
@@ -31,7 +32,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COST_BASE="5549359"
-commit="" out="" flood="" ledger="" renderlog="" skip_tests=0 strict=0
+commit="" out="" flood="" ledger="" renderlog="" terminal="" skip_tests=0 strict=0
 
 usage() {
   sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -46,6 +47,7 @@ while [[ $# -gt 0 ]]; do
     --cost-base) COST_BASE="${2:-}"; shift 2 ;;
     --ledger) ledger="${2:-}"; shift 2 ;;
     --render-log) renderlog="${2:-}"; shift 2 ;;
+    --terminal) terminal="${2:-}"; shift 2 ;;
     --skip-tests) skip_tests=1; shift ;;
     --strict) strict=1; shift ;;
     -h | --help) usage ;;
@@ -166,6 +168,10 @@ fi
 
 # 2.3: changed pixels in the trust margin and the editor, over the pixel corpus.
 run_mode pixels "$BIN" --screenshots --corpus "$ROOT/docs/phase-0.5/corpus-pixel" --scale 2 --commit "$commit" --out "$out/pixels"
+if [[ -n "$terminal" ]]; then
+  # The same corpus through the real terminal binary's headless snapshot.
+  run_mode pixels-terminal "$BIN" --screenshots --corpus "$ROOT/docs/phase-0.5/corpus-pixel" --scale 2 --terminal "$terminal" --commit "$commit" --out "$out/pixels-terminal"
+fi
 
 for placement in a b; do
   run_mode "panes-$placement" "$BIN" --panes "$ROOT/docs/phase-0.5/corpus-panes" --placement "$placement" --commit "$commit" --out "$out/panes-$placement"
