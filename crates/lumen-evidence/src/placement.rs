@@ -459,40 +459,67 @@ impl<'a> PlayerA<'a> {
 }
 
 /// Option B for one case: the panes' bytes are one unsealed producer's output.
+///
+/// Every byte a pane writes reaches the outer terminal's pipeline, which holds
+/// keys no pane knows. A sealed-looking frame from a pane is counted when a
+/// per-pane detector sees it, and it is a forged frame drawn only if the
+/// pipeline opens it. A replay writes the pane's last bytes again: it is
+/// refused if the pipeline opens nothing the second time.
 fn play_b(case: &Case) -> CaseResult {
     let mut layer = outer_pipeline();
     let mut result = CaseResult {
         id: case.id.clone(),
         ..CaseResult::default()
     };
+    let mut detectors: BTreeMap<u32, Detector> = BTreeMap::new();
     let mut detached = false;
-    let mut sealed_items = 0u32;
+    let mut last: Option<(Vec<u8>, u64)> = None;
+    let bump = |result: &mut CaseResult, kind: &'static str| {
+        *result.violations.entry(kind).or_insert(0) += 1;
+        if case.forbid.iter().any(|f| f == kind) {
+            result.forbidden += 1;
+        }
+    };
+    let ctx = |t_ms: u64| lumen_arm_b::Context {
+        now_ms: t_ms,
+        ..lumen_arm_b::Context::default()
+    };
     for ev in &case.script {
         match ev {
             Event::Detach => detached = true,
             Event::Reattach => detached = false,
-            Event::Output { read, .. } if !detached => {
-                let items = layer.feed(
-                    &read.bytes,
-                    lumen_arm_b::Context {
-                        now_ms: read.t_ms,
-                        ..lumen_arm_b::Context::default()
-                    },
-                );
-                sealed_items += sealed_count(&items);
+            Event::Output { pane, read } if !detached => {
+                let opened = sealed_count(&layer.feed(&read.bytes, ctx(read.t_ms)));
+                for _ in 0..opened {
+                    bump(&mut result, "forged_container_drawn");
+                }
+                result.passthrough_opened += opened;
+                let mut found = Vec::new();
+                detectors
+                    .entry(*pane)
+                    .or_insert_with(|| Detector::new(DEFAULT_MAX_PAYLOAD))
+                    .feed(&read.bytes, &mut found);
+                for f in found {
+                    if matches!(f, Found::Frame { kind, .. } if kind < UNSEALED_MIN) {
+                        result.forged_seen += 1;
+                    }
+                }
+                last = Some((read.bytes.clone(), read.t_ms));
+            }
+            Event::Replay if !detached => {
+                if let Some((bytes, t_ms)) = &last {
+                    result.replays_sent += 1;
+                    if sealed_count(&layer.feed(bytes, ctx(*t_ms))) == 0 {
+                        result.replays_refused += 1;
+                    } else {
+                        bump(&mut result, "replayed_frame_accepted");
+                    }
+                }
             }
             _ => {}
         }
     }
-    if sealed_items > 0 {
-        result
-            .violations
-            .insert("forged_container_drawn", sealed_items);
-        if case.forbid.iter().any(|f| f == "forged_container_drawn") {
-            result.forbidden += sealed_items;
-        }
-    }
-    "no per-pane containers".clone_into(&mut result.terminal);
+    result.terminal = format!("no per-pane containers; {:?}", layer.counters());
     result
 }
 
