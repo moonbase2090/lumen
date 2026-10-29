@@ -29,12 +29,22 @@ Copy is defined as the logical code-point sequence of visible runs, not the shap
 
 ## Bidi and invisible characters {#runs.bidi}
 
-In command and code blocks, and in pasted command text, the terminal MUST strip the following and show how many were stripped:
+**Command and code text.** In command and code blocks, and in pasted command text, the terminal MUST strip the following and show how many were stripped:
 
 - Bidi override, isolate and mark controls: U+202A–U+202E, U+2066–U+2069, U+200E, U+200F and U+061C.
 - In command text only: zero-width and invisible characters U+200B–U+200D, U+2060–U+2064 and U+FEFF, and tag characters U+E0000–U+E007F.
 
-Elsewhere these characters are rendered visibly as escapes. Command input is displayed in logical order, with bidi reordering disabled, so the command that is displayed is the one that runs.
+Command input is displayed in logical order, with bidi reordering disabled, so the command that is displayed is the one that runs.
+
+**Paragraph and heading text.** Text the producer sends as a paragraph or a heading does NOT have zero-width characters stripped:
+
+- ZWJ (U+200D), ZWNJ (U+200C) and the variation selectors are kept and shape as Unicode specifies; stripping them would break emoji sequences and the scripts that depend on them, such as Arabic and the Indic scripts.
+- ZWSP (U+200B) and WJ (U+2060) are line-break controls as UAX #14 defines them (a place a line may break, and a place it may not) and are never drawn as visible marks. A line is never broken next to a joiner, unless the joined run is wider than the whole line.
+- Bidi controls (U+202A–U+202E, U+2066–U+2069, and the marks U+200E, U+200F, U+061C) are content, not removed. The terminal MUST close every embedding, override and isolate still open at the end of each line and at the end of each block, as the isolation rules of UAX #9 require, so a control cannot affect the next line, the next block or the terminal's own text.
+
+**Terminal-composed trust surfaces.** In text the terminal composes into its own trust surfaces (sealed labels, link labels and targets, and the origin text of a toast or a notification) every default-ignorable code point (the Unicode `Default_Ignorable_Code_Point` property) and every bidi control is shown as a visible escape of the form `⟨U+200B⟩`, so nothing in them is invisible.
+
+**Copy and select** keep the original code points, as in [Copy semantics](#runs.copy).
 
 ## Visibility {#runs.visible}
 
