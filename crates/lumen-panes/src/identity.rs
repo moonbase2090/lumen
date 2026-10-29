@@ -22,11 +22,14 @@ use std::collections::BTreeMap;
 /// after the last one left.
 pub const REUSE_WINDOW_MS: u64 = 10_000;
 /// How long the "pane changed" marker stays up once a position is reused.
+/// Provisional: the spec says when the marker is shown, not for how long.
 pub const MARKER_MS: u64 = 10_000;
 /// Two colours are close when their hues are this many degrees apart or less.
 pub const CLOSE_HUE_DEG: u32 = 30;
 /// The glyphs a pane gets when its colour is close to another's. They are
-/// shapes, not letters, so they cannot spell anything.
+/// shapes, not letters, so they cannot spell anything. A group of more than
+/// eight close panes reuses them from the start, so past eight two panes of
+/// one group can share a glyph; the position still tells them apart.
 pub const GLYPHS: [char; 8] = [
     '\u{25b2}', '\u{25a0}', '\u{25cf}', '\u{25c6}', '\u{2605}', '\u{271a}', '\u{25bc}', '\u{25d0}',
 ];
