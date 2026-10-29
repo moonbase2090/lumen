@@ -100,6 +100,8 @@ for _ in $(seq 1 120); do grep -qE '^#[0-9]+: cov:' "$T/g/png/last.log" 2>/dev/n
 mkdir -p "$ART"; echo "not a real crash" > "$ART/crash-spot-test"
 sleep 8
 check "the crash input reached the synced copy before the slice ended" test -e "$T/dest-g/png/artifacts/crash-spot-test"
+check "the copy is complete" cmp -s "$ART/crash-spot-test" "$T/dest-g/png/artifacts/crash-spot-test"
+check "no temporary copy is left in the synced copy" test -z "$(ls -A "$T/dest-g/png/artifacts" | grep '\.tmp$')"
 check "...while the run was still going" kill -0 "$pid"
 kill -TERM "$pid"; wait "$pid"
 rm -f "$ART/crash-spot-test"
@@ -115,7 +117,13 @@ check "an early SIGTERM exits 143" test "$rc" -eq 143
 check "...well before a 120 s slice could have finished" test $(( $(date +%s) - start )) -lt 100
 check "...with no fuzz process left" test -z "$(pgrep -f '/release/decode_png')"
 
-# 10. A directory of the same commit and decoder but another image path is refused.
+# 9. A half-finished copy from a previous run is cleaned up, not trusted.
+mkdir -p "$T/i/png/artifacts" && echo partial > "$T/i/png/artifacts/.crash-half.tmp"
+"$RUN" --out "$T/i" "${COMMON[@]}" --slices 1 > "$T/i.log" 2>&1
+check "a leftover temporary copy is removed on the next run" test ! -e "$T/i/png/artifacts/.crash-half.tmp"
+check "...and was never recorded as a crash input" test -z "$(ls "$T/i/png/artifacts" | grep half)"
+
+# 11. A directory of the same commit and decoder but another image path is refused.
 cp -R "$T/a" "$T/j" && rm -rf "$T/j/.lock" && echo 0000 > "$T/j/image_path_build"
 "$RUN" --out "$T/j" "${COMMON[@]}" --slices 1 > "$T/j.log" 2>&1
 check "a different image-path identity is refused with exit 3" test $? -eq 3

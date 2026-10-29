@@ -162,15 +162,26 @@ PY
 }
 
 ARTIFACT_POLL="${ARTIFACT_POLL:-30}"
+# Copies a crash input under a temporary name, checks the copy, then renames it,
+# so a copy that is killed half way (or taken while the fuzzer is still writing)
+# never leaves a truncated input under its real name, where a later run would
+# skip it. Does nothing if the destination exists.
+copy_input() { # source, destination
+  local src="$1" dst="$2" tmp
+  [ -e "$dst" ] && return 0
+  tmp="$(dirname "$dst")/.$(basename "$dst").tmp"
+  if cp "$src" "$tmp" && cmp -s "$src" "$tmp"; then mv "$tmp" "$dst"; else rm -f "$tmp"; return 1; fi
+}
 # Copies crash inputs the fuzzer has written into OUT, and syncs when there are
 # new ones, so a VM that vanishes mid-slice loses only the last few seconds.
 copy_new_artifacts() { # format, target
   local art="$ROOT/crates/lumen-decoder/fuzz/artifacts/$2" dir="$OUT/$1" a new=0
   [ -d "$art" ] || return 0
   mkdir -p "$dir/artifacts"
+  rm -f "$dir"/artifacts/.*.tmp        # a copy a previous run did not finish
   for a in $(ls "$art"); do
     [ -e "$dir/artifacts/$a" ] && continue
-    cp "$art/$a" "$dir/artifacts/$a" && new=1
+    copy_input "$art/$a" "$dir/artifacts/$a" && new=1
   done
   [ "$new" = 0 ] || sync_out || true
 }
@@ -181,10 +192,12 @@ record_artifacts() { # format, target, cpu-hour
   art="$ROOT/crates/lumen-decoder/fuzz/artifacts/$target"; dir="$OUT/$f"
   mkdir -p "$dir/artifacts"; touch "$dir/artifacts-seen.txt"
   # Inputs a previous VM synced off but did not get to record.
-  mkdir -p "$art"; cp -n "$dir"/artifacts/* "$art"/ 2>/dev/null || true
+  rm -f "$dir"/artifacts/.*.tmp        # a copy a previous run did not finish
+  mkdir -p "$art"
+  for a in $(ls "$dir/artifacts" 2>/dev/null); do copy_input "$dir/artifacts/$a" "$art/$a" || true; done
   for a in $(ls "$art" | sort); do
     grep -qxF "$a" "$dir/artifacts-seen.txt" && continue
-    cp -n "$art/$a" "$dir/artifacts/$a" 2>/dev/null || true   # kept in OUT so a sync carries it off the VM
+    copy_input "$art/$a" "$dir/artifacts/$a" || true   # kept in OUT so a sync carries it off the VM
     k="$(kind_of "$art/$a" "$target")"
     echo "$a" >> "$dir/artifacts-seen.txt"
     if [ "$k" = "asan-artifact" ]; then
