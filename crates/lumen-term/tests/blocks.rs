@@ -52,22 +52,6 @@ fn stream(text: &str) -> Vec<u8> {
     v
 }
 
-fn a_layer(sealed: bool) -> lumen_arm_a::pipeline::Layer {
-    let state = if sealed {
-        lumen_arm_a::LayerState::Sealed
-    } else {
-        lumen_arm_a::LayerState::Unsealed
-    };
-    let mut l = lumen_arm_a::pipeline::Layer::new(
-        lumen_arm_a::pipeline::Config {
-            budget: lumen_arm_a::pipeline::Budget::quarter_of(2000, 8 << 20),
-        },
-        state,
-    );
-    Layer::open_container(&mut l);
-    l
-}
-
 fn b_layer(container: bool) -> lumen_arm_b::Layer {
     let mut l = lumen_arm_b::Layer::new(lumen_arm_b::Config {
         budget: lumen_arm_b::Budget::quarter_of(2000, 8 << 20),
@@ -88,28 +72,6 @@ fn kinds(doc: &Document) -> Vec<&'static str> {
             Block::Rich(_) => "rich",
         })
         .collect()
-}
-
-#[test]
-fn arm_a_on_a_sealed_layer_makes_a_rich_block_between_two_grid_blocks() {
-    let mut doc = Document::new(30, 6);
-    let mut layer = a_layer(true);
-    doc.receive(&mut layer, &stream("hello"), at(0));
-    doc.finish(&mut layer);
-    assert_eq!(kinds(&doc), ["grid", "rich", "grid"]);
-    let Block::Rich(r) = &doc.blocks()[1] else {
-        unreachable!("rich block")
-    };
-    assert_eq!(r.content, Track0Block::Paragraph("hello".into()));
-}
-
-#[test]
-fn arm_a_on_an_unsealed_layer_shows_the_same_bytes_as_escaped_text_in_the_grid() {
-    let mut doc = Document::new(80, 8);
-    let mut layer = a_layer(false);
-    doc.receive(&mut layer, &stream("hello"), at(0));
-    doc.finish(&mut layer);
-    assert_eq!(kinds(&doc), ["grid"]);
 }
 
 #[test]
@@ -147,21 +109,11 @@ fn an_unsealed_program_cannot_turn_a_sealed_power_frame_into_document_state() {
 }
 
 #[test]
-fn track_0_with_no_container_is_text_in_arm_a_and_the_background_strip_in_arm_b() {
-    let bytes = paragraph("orphan");
-    let mut a_doc = Document::new(80, 8);
-    let mut a = lumen_arm_a::pipeline::Layer::new(
-        lumen_arm_a::pipeline::Config {
-            budget: lumen_arm_a::pipeline::Budget::quarter_of(2000, 8 << 20),
-        },
-        lumen_arm_a::LayerState::Sealed,
-    );
-    a_doc.receive(&mut a, &bytes, at(0));
-    assert_eq!(kinds(&a_doc), ["grid"]);
-    let mut b_doc = Document::new(80, 8);
-    let mut b = b_layer(false);
-    b_doc.receive(&mut b, &bytes, at(0));
-    assert_eq!(kinds(&b_doc), ["background"]);
+fn track_0_with_no_container_goes_to_the_background_strip() {
+    let mut doc = Document::new(80, 8);
+    let mut layer = b_layer(false);
+    doc.receive(&mut layer, &paragraph("orphan"), at(0));
+    assert_eq!(kinds(&doc), ["background"]);
 }
 
 #[test]
@@ -191,53 +143,41 @@ fn output_after_a_rich_block_starts_a_new_grid_block() {
 }
 
 #[test]
-fn too_many_sealed_aborts_pin_the_layer_in_either_arm_and_the_notice_is_kept_once() {
-    let mut a_doc = Document::new(10, 2);
-    let mut a = a_layer(true);
-    let mut b_doc = Document::new(10, 2);
-    let mut b = b_layer(true);
+fn too_many_sealed_aborts_pin_the_layer_and_the_notice_is_kept_once() {
+    let mut doc = Document::new(10, 2);
+    let mut layer = b_layer(true);
     for t in 0..6 {
-        a_doc.sealed_abort(&mut a, t);
-        b_doc.sealed_abort(&mut b, t);
+        doc.sealed_abort(&mut layer, t);
     }
-    assert_eq!(a_doc.notices(), [Notice::Pinned]);
-    assert_eq!(b_doc.notices(), [Notice::Pinned]);
+    assert_eq!(doc.notices(), [Notice::Pinned]);
 }
 
 #[test]
-fn a_spent_budget_raises_the_degraded_notice_in_either_arm() {
+fn a_spent_budget_raises_the_degraded_notice() {
     let many: Vec<u8> = (0..5).flat_map(|i| paragraph(&format!("p{i}"))).collect();
-    let mut a_doc = Document::new(40, 4);
-    let mut a = lumen_arm_a::pipeline::Layer::new(
-        lumen_arm_a::pipeline::Config {
-            budget: lumen_arm_a::pipeline::Budget {
-                max_frames: 2,
-                max_bytes: 100_000,
-            },
-        },
-        lumen_arm_a::LayerState::Sealed,
-    );
-    Layer::open_container(&mut a);
-    a_doc.receive(&mut a, &many, at(0));
-    let mut b_doc = Document::new(40, 4);
-    let mut b = lumen_arm_b::Layer::new(lumen_arm_b::Config {
+    let mut doc = Document::new(40, 4);
+    let mut layer = lumen_arm_b::Layer::new(lumen_arm_b::Config {
         budget: lumen_arm_b::Budget {
             max_frames: 2,
             max_bytes: 100_000,
         },
         background_as_text: false,
     });
-    Layer::open_container(&mut b);
-    b_doc.receive(&mut b, &many, at(0));
-    assert_eq!(a_doc.notices(), [Notice::Degraded]);
-    assert_eq!(b_doc.notices(), [Notice::Degraded]);
+    Layer::open_container(&mut layer);
+    doc.receive(&mut layer, &many, at(0));
+    assert_eq!(doc.notices(), [Notice::Degraded]);
 }
 
 #[test]
 fn escaped_text_takes_its_own_row_and_the_output_after_it_starts_a_new_one() {
+    // On the alternate screen the same bytes are escaped text, not a block.
+    let on_alt_screen = Context {
+        alt_screen: true,
+        ..Context::default()
+    };
     let mut doc = Document::new(80, 6);
-    let mut layer = a_layer(false);
-    doc.receive(&mut layer, &stream("hi"), at(0));
+    let mut layer = b_layer(true);
+    doc.receive(&mut layer, &stream("hi"), on_alt_screen);
     let [Block::Grid(g)] = doc.blocks() else {
         unreachable!("one grid block")
     };
@@ -248,19 +188,16 @@ fn escaped_text_takes_its_own_row_and_the_output_after_it_starts_a_new_one() {
 }
 
 #[test]
-fn the_alternate_screen_and_tmux_reach_the_layer_in_either_arm() {
+fn the_alternate_screen_and_tmux_reach_the_layer() {
     for (alt_screen, tmux_or_screen) in [(true, false), (false, true)] {
         let ctx = Context {
             alt_screen,
             tmux_or_screen,
             now_ms: 0,
         };
-        let mut a_doc = Document::new(80, 8);
-        a_doc.receive(&mut a_layer(true), &stream("x"), ctx);
-        assert_eq!(kinds(&a_doc), ["grid"], "arm A, {ctx:?}");
-        let mut b_doc = Document::new(80, 8);
-        b_doc.receive(&mut b_layer(true), &stream("x"), ctx);
-        assert_eq!(kinds(&b_doc), ["grid"], "arm B, {ctx:?}");
+        let mut doc = Document::new(80, 8);
+        doc.receive(&mut b_layer(true), &stream("x"), ctx);
+        assert_eq!(kinds(&doc), ["grid"], "{ctx:?}");
     }
 }
 

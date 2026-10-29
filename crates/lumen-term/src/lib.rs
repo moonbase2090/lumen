@@ -6,9 +6,10 @@
 //! a [`Layer`] yields for the bytes of a stream into a list of blocks.
 //!
 //! [`raster`] paints blocks to an RGBA frame with one bundled face. Nothing
-//! here opens a window. The layer is chosen by cargo
-//! feature (`arm-a`, `arm-b`), so one source builds either arm, and the plain
-//! [`Passthrough`] layer is for a stream with no arm in front of it.
+//! here opens a window. The terminal is built on Arm B (Track 0 rich on every
+//! layer, with the sealed upgrade): [`Layer`] is implemented for its layer, and
+//! the plain [`Passthrough`] layer is for a stream with no arm in front of it.
+//! Arm A is kept as the evidence record in its own crate and is not used here.
 
 #![forbid(unsafe_code)]
 
