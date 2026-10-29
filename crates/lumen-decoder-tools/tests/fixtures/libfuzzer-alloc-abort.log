@@ -1,0 +1,3 @@
+memory allocation of 629145600 bytes failed
+==78542== ERROR: libFuzzer: deadly signal
+SUMMARY: libFuzzer: deadly signal

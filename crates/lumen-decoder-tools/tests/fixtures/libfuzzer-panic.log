@@ -1,0 +1,3 @@
+thread '<unnamed>' (147318651) panicked at fuzz_targets/canary.rs:11:170:
+==78411== ERROR: libFuzzer: deadly signal
+SUMMARY: libFuzzer: deadly signal
