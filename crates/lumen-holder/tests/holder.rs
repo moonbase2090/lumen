@@ -65,7 +65,7 @@ fn exit_code(child: &mut Child) -> Option<i32> {
 }
 
 #[test]
-fn a_running_holder_has_four_descriptors_no_new_privs_and_a_seccomp_filter() {
+fn a_running_holder_has_no_new_privs_and_a_seccomp_filter() {
     let (mut s, mut shell, _pidfd) = launch(&[]);
     let pid = s.child.id();
     // No-new-privs is set just before the filter, so wait for both; a
@@ -75,16 +75,9 @@ fn a_running_holder_has_four_descriptors_no_new_privs_and_a_seccomp_filter() {
         status_field(pid, "NoNewPrivs").as_deref() == Some("1")
             && status_field(pid, "Seccomp").as_deref() == Some("2")
     });
-    let mut fds: Vec<u32> = std::fs::read_dir(format!("/proc/{pid}/fd"))
-        .unwrap_or_else(|e| unreachable!("the holder's fds are listed: {e}"))
-        .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
-        .collect();
-    fds.sort_unstable();
-    assert_eq!(
-        fds,
-        [3, 4, 5, 6],
-        "exactly the seal channel, spawn socketpair, EOF pipe and pidfd"
-    );
+    // Its descriptors are not read from /proc/<pid>/fd: it is not dumpable, so
+    // the kernel refuses that to everyone but root. The check mode below has
+    // it list its own.
     assert!(
         s.child.try_wait().is_ok_and(|w| w.is_none()),
         "and it is still running"
@@ -112,16 +105,10 @@ fn the_hardened_process_cannot_fork_exec_or_start_a_thread_and_is_not_dumpable()
         .lines()
         .find_map(|l| l.strip_prefix("fds="))
         .unwrap_or("");
-    let fds: Vec<&str> = fds.split(',').collect();
-    for wanted in ["1", "3", "4", "5", "6"] {
-        assert!(fds.contains(&wanted), "{out}");
-    }
-    for closed in ["0", "2"] {
-        assert!(
-            !fds.contains(&closed),
-            "descriptor {closed} was closed: {out}"
-        );
-    }
+    assert_eq!(
+        fds, "1,3,4,5,6",
+        "the seal channel, spawn socketpair, EOF pipe and pidfd, and the report's own standard output: {out}"
+    );
     let _ = shell.kill();
 }
 
