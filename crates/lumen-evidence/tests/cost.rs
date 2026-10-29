@@ -70,7 +70,7 @@ fn a_dependency_the_baseline_lacks_is_new() {
 
 #[test]
 fn the_repository_has_no_unsafe_and_both_arms_are_measured() {
-    let Ok((report, header)) = run_cost(&root(), "0141262", "HEAD", Vec::new()) else {
+    let Ok((report, header)) = run_cost(&root(), "HEAD", "HEAD", Vec::new()) else {
         unreachable!("the repository is readable")
     };
     assert_eq!(report.arms.len(), 2);
@@ -81,9 +81,53 @@ fn the_repository_has_no_unsafe_and_both_arms_are_measured() {
     }
     let s = report.summary(&header);
     assert!(s.contains("2.8 cost is reported only"), "{s}");
-    assert!(s.contains("diff base=0141262"), "{s}");
-    assert!(report.added.arms.iter().all(|n| *n > 0), "{s}");
+    assert!(s.contains("diff base=HEAD"), "{s}");
     assert!(report.vectors.total() > 0);
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let ok = std::process::Command::new("git")
+        .current_dir(dir)
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+        .args(args)
+        .status()
+        .is_ok_and(|s| s.success());
+    assert!(ok, "git {args:?}");
+}
+
+#[test]
+fn lines_added_come_from_a_diff_between_two_commits() {
+    let dir = std::env::temp_dir().join(format!("lumen-cost-git-{}", std::process::id()));
+    for name in [
+        "lumen-detector",
+        "lumen-track0",
+        "lumen-sealed",
+        "lumen-arm-a",
+        "lumen-arm-b",
+    ] {
+        let d = dir.join("crates").join(name);
+        assert!(std::fs::create_dir_all(d.join("src")).is_ok());
+        assert!(std::fs::write(d.join("Cargo.toml"), "[dependencies]\n").is_ok());
+        assert!(std::fs::write(d.join("src/lib.rs"), "#![forbid(unsafe_code)]\n").is_ok());
+    }
+    let v = dir.join("conformance/vectors");
+    assert!(std::fs::create_dir_all(&v).is_ok());
+    assert!(std::fs::write(v.join("x.json"), "{\"vectors\": []}\n").is_ok());
+    git(&dir, &["init", "-q"]);
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "base"]);
+    let arm = dir.join("crates/lumen-arm-a/src/lib.rs");
+    assert!(std::fs::write(&arm, "#![forbid(unsafe_code)]\nfn a() {}\nfn b() {}\n").is_ok());
+    let det = dir.join("crates/lumen-detector/src/lib.rs");
+    assert!(std::fs::write(&det, "#![forbid(unsafe_code)]\nfn d() {}\n").is_ok());
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-q", "-m", "arm"]);
+    let Ok((report, _)) = run_cost(&dir, "HEAD~1", "HEAD", Vec::new()) else {
+        unreachable!("the temporary repository is readable")
+    };
+    assert_eq!(report.added.arms, [2, 0]);
+    assert_eq!(report.added.shared, 1);
+    assert_eq!(report.added.vectors, 0);
 }
 
 #[test]
