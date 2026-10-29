@@ -96,7 +96,7 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 
 - **Unit:** lines of code added in each arm relative to the shared baseline, new dependencies, new `unsafe` or FFI modules (each justified), and number of new fuzz targets and test vectors required to hold the arm's gates.
 - **Method:** a diff measurement at each arm's build commit against the common base, plus a count of the test vectors that gate it.
-- **Harness:** comparison harness, cost mode.
+- **Harness:** comparison harness, cost mode (section 5.4).
 - **Threshold:** **reported only**. Cost does not enter the decision rule. It is a tie-breaker only if the decision rule above leaves both arms eligible, and it must be stated in the result if it is used.
 
 ### 2.9 Parity
@@ -164,6 +164,18 @@ The session matrix is one file, `docs/phase-0.5/session-matrix.json`: `{"revisio
 The run log header (format 2) records `commit`, `features`, `harness` (the harness version), `corpus` (the corpus revision, or `none`), `session_matrix` (the matrix revision, or `none`) and `sinks`. A reach run has `corpus` `none`; a corpus replay has `session_matrix` `none`.
 
 The first matrix (`sm-1`) has one Track 0 paragraph after a shell command in each session. It has no sealed frames yet, so Arm A's sealed rendering is not exercised by it; the sealed-frame sessions arrive with the sealed-frame corpus.
+
+### 5.4 Cost mode
+
+`lumen-evidence --cost --root DIR --commit SHA --out DIR` measures the source tree at DIR, which must be checked out at the stated commit. The arms are separate crates over the same shared crates (detector, Track 0 parser, sealed layer), so an arm's cost is the size of its own crate and the shared baseline is not counted. Per arm the summary gives:
+
+- `src_lines` and `test_lines`: code lines, meaning lines that are neither blank nor start with `//`. Block comments are not recognised, so a line inside one counts. Lines after a top-level `#[cfg(test)]` in a source file are test lines. Test lines also include everything under the crate's `tests` directory.
+- `test_fns`: `#[test]` attributes in the crate. The conformance vectors are shared by both arms and are not attributed to either.
+- `new_deps`: external (non-path) dependencies, with dev-dependencies, that none of the shared crates already has. Path dependencies are not counted.
+- `unsafe_uses` and `forbids_unsafe`: uses of the words `unsafe` or `extern` outside comments, and whether the crate root or the workspace lints forbid unsafe code. A non-zero count needs its module named and justified in the result.
+- `fuzz_targets`: `.rs` files under the crate's `fuzz` directory.
+
+The per-file counts are in the summary, which is the raw log; `run.jsonl` holds only the header. Cost is reported and not gated (2.8).
 
 ## 6. Results format
 

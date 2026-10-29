@@ -30,6 +30,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod cost;
 pub mod matrix;
 
 use lumen_arm_a::pipeline::ITEM_KINDS as ARM_A_KINDS;
