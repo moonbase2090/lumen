@@ -5,6 +5,7 @@
 //! - [`identity`] hashes what makes up a build identity.
 //! - [`ledger`] builds the ledger `lumen-evidence --decoder` judges from the
 //!   records a campaign keeps.
+//! - [`miri`] checks the record `scripts/decoder-miri.sh` writes.
 //! - [`escape`] reads the sandbox escape result from a test run.
 //! - The `seeds` example writes seed images made by real encoders.
 //!
@@ -17,3 +18,4 @@ pub mod classify;
 pub mod escape;
 pub mod identity;
 pub mod ledger;
+pub mod miri;

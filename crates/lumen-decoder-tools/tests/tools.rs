@@ -229,3 +229,19 @@ fn a_replay_over_the_limit_or_aborted_by_the_cap_is_a_memory_crash() {
     assert_eq!(classify_replay(&aborted), Some(Kind::Memory));
     assert_eq!(classify_replay(&json!({"exit": 0})), None);
 }
+
+#[test]
+fn notes_travel_with_the_ledger_and_do_not_change_the_verdict() -> R {
+    let base = ledger::ledger("fz-1", "d", "p", &[entry(1200.0, None)?], "se", 33, 33);
+    let notes: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!(
+        "{}/../lumen-decoder/fuzz/seeds-regression/PAST_CVES.json",
+        env!("CARGO_MANIFEST_DIR")
+    ))?)?;
+    assert_eq!(notes["result"], "empty");
+    let annotated = ledger::with_notes(base.clone(), json!({"past_cve_seeds": notes}));
+    assert_eq!(annotated["notes"]["past_cve_seeds"]["result"], "empty");
+    let (a, b) = (judge(&base.to_string())?, judge(&annotated.to_string())?);
+    assert_eq!(a, b);
+    assert!(b.passes());
+    Ok(())
+}

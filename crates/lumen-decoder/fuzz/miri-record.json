@@ -1,0 +1,56 @@
+{
+  "toolchain": "rustc 1.101.0-nightly (ea137335b 2026-10-05)",
+  "miri": "miri 0.1.0 (ea137335b7 2026-10-05)",
+  "host": "Darwin 27.0.0 arm64",
+  "date": "2026-10-29",
+  "repo_commit": "278731b2a1459c775dcb06b1951e05de9b3d7abd",
+  "upstream_commit": "d22e2aa3fb4259943fe0dbe1b5fef47c7e72aab5",
+  "runs": [
+    {
+      "name": "upstream-x86-avx2-unit",
+      "status": "ok",
+      "command": "env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --lib --target x86_64-unknown-linux-gnu",
+      "results": [
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+      ],
+      "first_error": null
+    },
+    {
+      "name": "upstream-x86-avx2-integ",
+      "status": "ok",
+      "command": "env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --tests --target x86_64-unknown-linux-gnu",
+      "results": [
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+      ],
+      "first_error": null
+    },
+    {
+      "name": "upstream-x86-default",
+      "status": "ok",
+      "command": "cargo +nightly-2026-10-06 miri test --lib --target x86_64-unknown-linux-gnu",
+      "results": [
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+      ],
+      "first_error": null
+    },
+    {
+      "name": "seeds-x86-avx2",
+      "status": "ok",
+      "command": "env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test -p lumen-decoder-tools --test miri_jpeg --target x86_64-unknown-linux-gnu",
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+      ],
+      "first_error": null
+    },
+    {
+      "name": "seeds-host-neon",
+      "status": "FAILED",
+      "command": "cargo +nightly-2026-10-06 miri test -p lumen-decoder-tools --test miri_jpeg",
+      "results": [],
+      "first_error": "error: unsupported operation: can't call LLVM intrinsic `llvm.aarch64.neon.sqshrun.v4i16` on architecture `aarch64`"
+    }
+  ]
+}

@@ -62,3 +62,11 @@ pub fn ledger(
         },
     })
 }
+
+/// Adds a `notes` object to a ledger: facts a reader needs next to the numbers
+/// (what was checked, what could not be run). The judge ignores it.
+#[must_use]
+pub fn with_notes(mut ledger: Value, notes: Value) -> Value {
+    ledger["notes"] = notes;
+    ledger
+}

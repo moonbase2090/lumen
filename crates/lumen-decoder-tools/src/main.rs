@@ -8,6 +8,8 @@
 //! - `format NAME SAMPLES CRASHES` prints one format's ledger entry.
 //! - `escape TESTLOG REVISION` prints `{revision, passed, total}` for the G4
 //!   suite from a `cargo test` log.
+//! - `miri-check RECORD [COMMITTED]` validates a Miri record, or compares two.
+//! - `annotate LEDGER NAME=FILE...` prints the ledger with a `notes` object.
 //! - `ledger REVISION DECODER_BUILD IMAGE_PATH_BUILD ESCAPE_JSON ENTRY_JSON...`
 //!   prints the ledger.
 
@@ -16,7 +18,7 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, ExitCode};
 
-use lumen_decoder_tools::{classify, escape, identity, ledger};
+use lumen_decoder_tools::{classify, escape, identity, ledger, miri};
 use serde_json::{Value, json};
 
 fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
@@ -58,6 +60,32 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
                 "{}",
                 json!({"revision": arg(2)?, "passed": passed, "total": total})
             );
+            Ok(ExitCode::SUCCESS)
+        }
+        "miri-check" => {
+            let fresh: Value = serde_json::from_str(&fs::read_to_string(arg(1)?)?)?;
+            if let Some(committed) = args.get(2) {
+                let committed: Value = serde_json::from_str(&fs::read_to_string(committed)?)?;
+                miri::same_results(&fresh, &committed)?;
+                println!("the fresh Miri record matches the committed one");
+            } else {
+                miri::validate(&fresh)?;
+                println!("the Miri record is well formed");
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        "annotate" => {
+            let ledger: Value = serde_json::from_str(&fs::read_to_string(arg(1)?)?)?;
+            let mut notes = serde_json::Map::new();
+            // NAME=FILE pairs: each file's JSON becomes notes[NAME].
+            for pair in &args[2..] {
+                let (name, file) = pair.split_once('=').ok_or("expected NAME=FILE")?;
+                notes.insert(
+                    name.to_string(),
+                    serde_json::from_str(&fs::read_to_string(file)?)?,
+                );
+            }
+            println!("{}", ledger::with_notes(ledger, Value::Object(notes)));
             Ok(ExitCode::SUCCESS)
         }
         "ledger" => {
