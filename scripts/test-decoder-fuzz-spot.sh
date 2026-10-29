@@ -38,6 +38,14 @@ check "the synced copy has the ledger" test -s "$T/dest-a/ledger.json"
 check "the synced copy has both samples" test "$(wc -l < "$T/dest-a/png/samples.jsonl" | tr -d ' ')" -eq 2
 check "the finish command ran" test -f "$T/finished-a"
 check "the lock is released at exit" test ! -e "$T/a/.lock"
+check "the ledger carries a real image-path identity, not 'absent'" python3 -c "
+import json,sys
+l=json.load(open('$T/dest-a/ledger.json'))
+sys.exit(0 if len(l['image_path_build'])==64 and l['image_path_build']!=l['decoder_build'] else 1)"
+check "...and says that it covers the host half only" python3 -c "
+import json,sys
+l=json.load(open('$T/dest-a/ledger.json'))
+sys.exit(0 if l['notes']['image_path']['scope']=='partial' else 1)"
 
 # 2. A failing sync: the finish command must not run, and the exit says so.
 "$RUN" --out "$T/b" "${COMMON[@]}" --slices 1 --sync-cmd "false" --finish-cmd "date > \"$T/finished-b\"" > "$T/b.log" 2>&1
@@ -92,6 +100,8 @@ for _ in $(seq 1 120); do grep -qE '^#[0-9]+: cov:' "$T/g/png/last.log" 2>/dev/n
 mkdir -p "$ART"; echo "not a real crash" > "$ART/crash-spot-test"
 sleep 8
 check "the crash input reached the synced copy before the slice ended" test -e "$T/dest-g/png/artifacts/crash-spot-test"
+check "the copy is complete" cmp -s "$ART/crash-spot-test" "$T/dest-g/png/artifacts/crash-spot-test"
+check "no temporary copy is left in the synced copy" test -z "$(ls -A "$T/dest-g/png/artifacts" | grep '\.tmp$')"
 check "...while the run was still going" kill -0 "$pid"
 kill -TERM "$pid"; wait "$pid"
 rm -f "$ART/crash-spot-test"
@@ -106,6 +116,17 @@ kill -TERM "$pid"; wait "$pid"; rc=$?
 check "an early SIGTERM exits 143" test "$rc" -eq 143
 check "...well before a 120 s slice could have finished" test $(( $(date +%s) - start )) -lt 100
 check "...with no fuzz process left" test -z "$(pgrep -f '/release/decode_png')"
+
+# 9. A half-finished copy from a previous run is cleaned up, not trusted.
+mkdir -p "$T/i/png/artifacts" && echo partial > "$T/i/png/artifacts/.crash-half.tmp"
+"$RUN" --out "$T/i" "${COMMON[@]}" --slices 1 > "$T/i.log" 2>&1
+check "a leftover temporary copy is removed on the next run" test ! -e "$T/i/png/artifacts/.crash-half.tmp"
+check "...and was never recorded as a crash input" test -z "$(ls "$T/i/png/artifacts" | grep half)"
+
+# 10. A directory of the same commit and decoder but another image path is refused.
+cp -R "$T/a" "$T/j" && rm -rf "$T/j/.lock" && echo 0000 > "$T/j/image_path_build"
+"$RUN" --out "$T/j" "${COMMON[@]}" --slices 1 > "$T/j.log" 2>&1
+check "a different image-path identity is refused with exit 3" test $? -eq 3
 
 [ "$fail" -eq 0 ] && echo "all spot-VM checks passed" || { echo "some checks FAILED"; tail -5 "$T"/*.log; }
 exit "$fail"

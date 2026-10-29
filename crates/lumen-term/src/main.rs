@@ -40,6 +40,7 @@ fn snapshot(o: &Options, path: &str) -> Result<(), String> {
         o.size.1,
     )
     .map_err(|e| e.to_string())?;
+    app.use_settings(o.notifications);
     let end = Instant::now() + o.wait;
     while Instant::now() < end && !app.has_exited() {
         app.pump();
@@ -65,6 +66,7 @@ fn window(o: &Options) -> Result<(), String> {
         size: o.size,
         scale: o.scale,
         exit_after: o.exit_after,
+        notifications: o.notifications,
     })
 }
 

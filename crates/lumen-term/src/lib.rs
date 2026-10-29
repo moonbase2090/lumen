@@ -25,6 +25,7 @@ pub mod keys;
 pub mod layer;
 pub mod layout;
 pub mod notify;
+pub mod os_backend;
 mod pty;
 pub mod raster;
 pub mod session;
