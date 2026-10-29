@@ -105,6 +105,14 @@ else
   FAILED=1
 fi
 run_case "a failing pixel mode is named" 1 "pixels" FAKE_STATUS_screenshots=1
+out="$WORK/out terminal"
+LUMEN_EVIDENCE_BIN="$WORK/fake-evidence" bash "$SCRIPT" --commit abc --out "$out" --flood-seconds 1 --skip-tests --terminal "$WORK/a terminal" >/dev/null 2>&1
+if grep -q -- "--terminal $WORK/a terminal" "$out/pixels-terminal.out" && ! grep -q "terminal" "$WORK/o/modes.tsv" 2>/dev/null; then
+  echo "ok   --terminal adds the pixel-terminal mode with the path whole"
+else
+  echo "FAIL pixel-terminal mode"
+  FAILED=1
+fi
 
 # By default each flood's own render log is judged, one mode per arm.
 out="$WORK/out default render"
