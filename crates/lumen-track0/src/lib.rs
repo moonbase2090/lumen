@@ -71,22 +71,116 @@ pub enum Error {
 }
 
 /// Bidi override, isolate and mark controls (the spec's bidi list).
-fn is_bidi(c: char) -> bool {
+#[must_use]
+pub fn is_bidi(c: char) -> bool {
     matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200e}' | '\u{200f}' | '\u{061c}')
 }
 
-/// Text outside code: bidi controls are kept visible as `\u{..}` escapes, so
-/// they cannot reorder what the reader sees.
-fn visible(text: &str) -> String {
+/// Whether `c` has the Unicode property `Default_Ignorable_Code_Point` (Unicode
+/// 16): a code point that draws nothing of its own, such as the zero-width
+/// characters, the joiners, the variation selectors, the soft hyphen, the
+/// Hangul fillers and the tag characters.
+#[must_use]
+pub fn is_default_ignorable(c: char) -> bool {
+    matches!(
+        u32::from(c),
+        0x00ad
+            | 0x034f
+            | 0x061c
+            | 0x115f..=0x1160
+            | 0x17b4..=0x17b5
+            | 0x180b..=0x180f
+            | 0x200b..=0x200f
+            | 0x202a..=0x202e
+            | 0x2060..=0x206f
+            | 0x3164
+            | 0xfe00..=0xfe0f
+            | 0xfeff
+            | 0xffa0
+            | 0xfff0..=0xfff8
+            | 0x1bca0..=0x1bca3
+            | 0x1d173..=0x1d17a
+            | 0xe0000..=0xe0fff
+    )
+}
+
+/// Show every default-ignorable and bidi code point in `text` as a visible
+/// escape such as `⟨U+200B⟩`, for text the terminal composes into its own trust
+/// surfaces (labels, link targets, notification origin text) where nothing may
+/// be invisible. Every other character is kept as it is.
+#[must_use]
+pub fn escape_invisible(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
-        if is_bidi(c) {
-            let _ =
-                std::fmt::Write::write_fmt(&mut out, format_args!("\\u{{{:04x}}}", u32::from(c)));
+        if is_default_ignorable(c) || is_bidi(c) {
+            let _ = std::fmt::Write::write_fmt(
+                &mut out,
+                format_args!("\u{27e8}U+{:04X}\u{27e9}", u32::from(c)),
+            );
         } else {
             out.push(c);
         }
     }
+    out
+}
+
+/// Text outside code keeps every code point, the zero-width and bidi controls
+/// included, so that joiners shape and copy returns what was sent. What is
+/// closed is bidirectional state: every embedding, override and isolate still
+/// open at the end of a line (a paragraph boundary in UAX #9) or of the block
+/// is closed there with the matching PDF or PDI, so a control cannot reach
+/// into the next line, the next block or the terminal's own text.
+fn close_bidi(text: &str) -> String {
+    /// What an open control needs to close it.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Open {
+        Embedding,
+        Isolate,
+    }
+    fn close_all(out: &mut String, stack: &mut Vec<Open>) {
+        while let Some(open) = stack.pop() {
+            out.push(match open {
+                Open::Embedding => '\u{202c}',
+                Open::Isolate => '\u{2069}',
+            });
+        }
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut stack: Vec<Open> = Vec::new();
+    for c in text.chars() {
+        match c {
+            '\n' => {
+                close_all(&mut out, &mut stack);
+                out.push(c);
+            }
+            '\u{202a}'..='\u{202e}' if c != '\u{202c}' => {
+                stack.push(Open::Embedding);
+                out.push(c);
+            }
+            '\u{2066}'..='\u{2068}' => {
+                stack.push(Open::Isolate);
+                out.push(c);
+            }
+            '\u{202c}' => {
+                if stack.last() == Some(&Open::Embedding) {
+                    stack.pop();
+                }
+                out.push(c);
+            }
+            '\u{2069}' => {
+                if stack.contains(&Open::Isolate) {
+                    while let Some(open) = stack.pop() {
+                        if open == Open::Isolate {
+                            break;
+                        }
+                    }
+                }
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    close_all(&mut out, &mut stack);
     out
 }
 
@@ -139,7 +233,7 @@ pub fn parse(kind: u8, payload: &[u8]) -> Result<Block, Error> {
     }
     let mut input = payload;
     let block = match kind {
-        KIND_PARAGRAPH => Block::Paragraph(visible(take_string(&mut input)?)),
+        KIND_PARAGRAPH => Block::Paragraph(close_bidi(take_string(&mut input)?)),
         KIND_HEADING => {
             let (level, rest) = input.split_first().ok_or(Error::Malformed)?;
             if !(1..=6).contains(level) {
@@ -148,11 +242,11 @@ pub fn parse(kind: u8, payload: &[u8]) -> Result<Block, Error> {
             input = rest;
             Block::Heading {
                 level: *level,
-                text: visible(take_string(&mut input)?),
+                text: close_bidi(take_string(&mut input)?),
             }
         }
         KIND_CODE => {
-            let lang = visible(take_string(&mut input)?);
+            let lang = escape_invisible(take_string(&mut input)?);
             let (text, stripped) = strip_bidi(take_string(&mut input)?);
             Block::Code {
                 lang,

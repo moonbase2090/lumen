@@ -130,7 +130,7 @@ fn program_text_reaches_the_os_only_with_os_text_and_is_cleaned_capped_and_escap
     };
     assert_eq!(
         note.text,
-        "Program in tab 1 says: &lt;b&gt;a &amp; b&lt;/b&gt;x"
+        "Program in tab 1 says: &lt;b&gt;a &amp; b&lt;/b&gt;\u{27e8}U+202E\u{27e9}x"
     );
     let mut n = notifier(all_on(), LOCAL);
     let Outcome::Os(plain) = sealed(&mut n, 0, "secret") else {
@@ -302,9 +302,25 @@ fn layer_ids_are_never_reused() {
 }
 
 #[test]
-fn clean_removes_the_listed_categories_and_fillers() {
-    let nasty = "a\u{0}\u{7}b\u{202e}c\u{200b}d\u{2028}e\u{2029}f\u{e0041}g\u{e000}h\u{378}i\u{115f}\u{1160}\u{3164}\u{ffa0}j\u{ad}k\u{2062}l\u{feff}m";
-    assert_eq!(clean(nasty), "abcdefghijklm");
+fn clean_removes_what_is_not_text_and_shows_what_draws_nothing_as_an_escape() {
+    // Controls, line and paragraph separators, private use and unassigned
+    // code points are removed; every default-ignorable and bidi code point is
+    // shown as a visible escape, so nothing in a notification is invisible.
+    let nasty = "a\u{0}\u{7}b\u{2028}e\u{2029}f\u{e000}h\u{378}i";
+    assert_eq!(clean(nasty), "abefhi");
+    // Two short strings: every escape is nine bytes, and the cap still applies.
+    assert_eq!(
+        clean("a\u{202e}b\u{200b}c\u{e0041}d\u{ad}e"),
+        "a\u{27e8}U+202E\u{27e9}b\u{27e8}U+200B\u{27e9}c\u{27e8}U+E0041\u{27e9}d\u{27e8}U+00AD\u{27e9}e"
+    );
+    assert_eq!(
+        clean("\u{115f}\u{1160}\u{3164}\u{ffa0}f"),
+        "\u{27e8}U+115F\u{27e9}\u{27e8}U+1160\u{27e9}\u{27e8}U+3164\u{27e9}\u{27e8}U+FFA0\u{27e9}f"
+    );
+    assert_eq!(
+        clean("\u{2062}g\u{feff}h\u{200d}i\u{fe0f}j"),
+        "\u{27e8}U+2062\u{27e9}g\u{27e8}U+FEFF\u{27e9}h\u{27e8}U+200D\u{27e9}i\u{27e8}U+FE0F\u{27e9}j"
+    );
     assert_eq!(
         clean("tab\there\nnow"),
         "tabherenow",
@@ -351,7 +367,7 @@ fn compose_has_the_fixed_prefix_and_the_label_the_program_cannot_remove() {
     );
     assert_eq!(
         compose("tab 2", Some("\u{202e}hi")),
-        "Program in tab 2 says: hi"
+        "Program in tab 2 says: \u{27e8}U+202E\u{27e9}hi"
     );
     assert_eq!(
         escape_markup("<a href='x'>&\"</a>"),

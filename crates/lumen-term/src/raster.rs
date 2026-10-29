@@ -846,24 +846,88 @@ fn clip(s: &str, width: usize) -> String {
     out
 }
 
+/// A character that joins its neighbours: a line must not end after it or
+/// before it, or an emoji sequence or a no-break would be torn apart.
+fn is_joiner(c: char) -> bool {
+    matches!(c, '\u{200d}' | '\u{2060}')
+}
+
+/// `paragraph` as segments, each with whether a space comes before it. A space
+/// ends a segment and the next one has a space before it; a zero width space
+/// (U+200B) ends a segment too, and the next one has none, so it is a place a
+/// line may break and never draws anything.
+fn segments(paragraph: &str) -> Vec<(String, bool)> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut space_before = false;
+    for c in paragraph.chars() {
+        match c {
+            ' ' => {
+                out.push((std::mem::take(&mut current), space_before));
+                space_before = true;
+            }
+            '\u{200b}' => {
+                current.push(c);
+                out.push((std::mem::take(&mut current), space_before));
+                space_before = false;
+            }
+            _ => current.push(c),
+        }
+    }
+    out.push((current, space_before));
+    out
+}
+
+/// Cut `word` to `width` cells without leaving a joiner at either side of the
+/// cut: while the last character kept or the next one is a joiner, the last
+/// character kept goes to the next line. If the joined run is too long for the
+/// line to hold at all, the plain cut stands.
+fn cut_word(word: &str, width: usize) -> String {
+    let head = clip(word, width);
+    let mut chars: Vec<char> = head.chars().collect();
+    let mut next = word[head.len()..].chars().next();
+    while let Some(&last) = chars.last() {
+        if next.is_none() || !(is_joiner(last) || next.is_some_and(is_joiner)) {
+            break;
+        }
+        next = chars.pop();
+    }
+    if chars.is_empty() {
+        head
+    } else {
+        chars.into_iter().collect()
+    }
+}
+
+/// The lines `text` is wrapped to in `width` cells: at spaces, after a zero
+/// width space (a break opportunity that draws nothing), and, for a word longer
+/// than a line, between characters but never next to a joiner (U+200D, U+2060)
+/// unless the joined run is wider than the line. Every character is kept.
+#[must_use]
+pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    wrap(text, width)
+}
+
 /// Greedy word wrap to `width` cells, breaking a word that is longer than a line.
+/// Characters that draw nothing take no cells and are kept in the line.
 fn wrap(text: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     for paragraph in text.split('\n') {
         let mut line = String::new();
-        for word in paragraph.split(' ') {
-            let mut word = word.to_owned();
+        for (segment, space_before) in segments(paragraph) {
+            let mut word = segment;
+            let mut space = space_before;
             loop {
-                let need = width_of(&line) + usize::from(!line.is_empty()) + width_of(&word);
-                if need <= width {
-                    if !line.is_empty() {
+                let gap = usize::from(space && !line.is_empty());
+                if width_of(&line) + gap + width_of(&word) <= width {
+                    if gap == 1 {
                         line.push(' ');
                     }
                     line.push_str(&word);
                     break;
                 }
                 if line.is_empty() {
-                    let head = clip(&word, width.max(1));
+                    let head = cut_word(&word, width.max(1));
                     // A character wider than the line leaves `head` empty: drop
                     // that whole character, never part of it, so the cut stays on
                     // a character boundary and the loop still makes progress.
@@ -881,6 +945,7 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
                     }
                 } else {
                     lines.push(std::mem::take(&mut line));
+                    space = false;
                 }
             }
         }
