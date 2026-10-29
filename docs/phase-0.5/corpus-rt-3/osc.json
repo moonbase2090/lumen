@@ -1,6 +1,6 @@
 {
  "revision": "rt-3",
- "note": "notification cases: OSC 9, 777 and 99 are removed before the emulator. By default they are denied for unsigned output. With allow-unsigned they become terminal-drawn toasts on a local layer, at most one per layer per second, the rest dropped and counted; the opt-in never applies to an SSH session or a multiplexer pane. No unsigned case reaches the OS notification sink. Counts are in `sinks`. Sealed notifications are not in this revision.",
+ "note": "notification cases: OSC 9, 777 and 99 are removed before the emulator. By default they are denied for unsigned output. With allow_unsigned they become terminal-drawn toasts on a local layer, at most one per layer per second, the rest dropped and counted; the opt-in never applies to an SSH session or a multiplexer pane. No unsigned case reaches the OS notification sink. Counts are in `sinks`. Sealed notifications are not in this revision.",
  "cases": [
   {
    "id": "osc9-grid",
@@ -296,7 +296,7 @@
     "denied_notifications": 0,
     "toasts": 1
    },
-   "note": "allow-unsigned on: the notification becomes a terminal-drawn toast; no OS notification reaches the sink",
+   "note": "allow_unsigned on: the notification becomes a terminal-drawn toast; no OS notification reaches the sink",
    "context": {
     "allow_unsigned": true
    }
@@ -315,7 +315,7 @@
     "denied_notifications": 0,
     "toasts": 1
    },
-   "note": "allow-unsigned on, OSC 777",
+   "note": "allow_unsigned on, OSC 777",
    "context": {
     "allow_unsigned": true
    }
@@ -334,7 +334,7 @@
     "denied_notifications": 0,
     "toasts": 1
    },
-   "note": "allow-unsigned on, OSC 99",
+   "note": "allow_unsigned on, OSC 99",
    "context": {
     "allow_unsigned": true
    }
@@ -353,7 +353,7 @@
     "denied_notifications": 49,
     "toasts": 1
    },
-   "note": "allow-unsigned on: one toast per layer per second, so one toast and 49 dropped and counted; still no OS notification",
+   "note": "allow_unsigned on: one toast per layer per second, so one toast and 49 dropped and counted; still no OS notification",
    "context": {
     "allow_unsigned": true
    }
@@ -372,7 +372,7 @@
     "denied_notifications": 1,
     "toasts": 0
    },
-   "note": "allow-unsigned on, orphan output: the opt-in covers unsigned grid output only, so the notification is denied, with no toast and no OS notification",
+   "note": "allow_unsigned on, orphan output: the opt-in covers unsigned grid output only, so the notification is denied, with no toast and no OS notification",
    "context": {
     "container": false,
     "allow_unsigned": true
@@ -392,7 +392,7 @@
     "denied_notifications": 1,
     "toasts": 0
    },
-   "note": "allow-unsigned never applies to a multiplexer pane (TMUX or STY set): denied, no toast, no OS notification",
+   "note": "allow_unsigned never applies to a multiplexer pane (TMUX or STY set): denied, no toast, no OS notification",
    "context": {
     "tmux_or_screen": true,
     "allow_unsigned": true
@@ -412,7 +412,7 @@
     "denied_notifications": 0,
     "toasts": 1
    },
-   "note": "allow-unsigned on, alternate screen",
+   "note": "allow_unsigned on, alternate screen",
    "context": {
     "alt_screen": true,
     "allow_unsigned": true
@@ -432,7 +432,7 @@
     "denied_notifications": 0,
     "toasts": 0
    },
-   "note": "allow-unsigned on: a Track 0 string with an OSC is still escaped text, so there is no toast",
+   "note": "allow_unsigned on: a Track 0 string with an OSC is still escaped text, so there is no toast",
    "context": {
     "allow_unsigned": true
    }
@@ -455,7 +455,7 @@
     "allow_unsigned": true,
     "ssh": true
    },
-   "note": "allow-unsigned never applies to an SSH session: denied, no toast, no OS notification"
+   "note": "allow_unsigned never applies to an SSH session: denied, no toast, no OS notification"
   },
   {
    "id": "osc9-two-in-one-second-allow-unsigned",

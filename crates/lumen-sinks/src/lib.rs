@@ -82,12 +82,12 @@ impl TerminalSinks for WiredSinks {
 /// The terminal's policy file keys for notifications.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Policy {
-    /// `notifications.allow-unsigned`: let unsigned grid output draw a toast.
+    /// `allow_unsigned`: let unsigned grid output draw a toast.
     /// Off by default. It never raises an OS notification.
     pub allow_unsigned: bool,
-    /// `notifications.os`: allow OS notifications from sealed frames. Off by default.
+    /// `os_notifications`: allow OS notifications from sealed frames. Off by default.
     pub os_notifications: bool,
-    /// `notifications.os-text`: let an OS notification carry the program's text.
+    /// `os_text`: let an OS notification carry the program's text.
     /// Off by default.
     pub os_text: bool,
     /// Capabilities the policy does not allow a layer to be granted, as a bit

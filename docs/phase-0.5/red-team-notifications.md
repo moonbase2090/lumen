@@ -4,10 +4,12 @@ This is a second red-team pass on the Notifications section of `spec/v0/trust.md
 
 Reviewed commit: `e276673`. Status: the section should not count toward a gate until R1 to R5 are answered; R6 to R9 are recommended; the model notes (M1 to M5) belong to the sink model, not the spec.
 
+**Setting names.** This record uses the current names of the settings, `os_notifications`, `os_text` and `allow_unsigned`. At the reviewed commit the text called them `notifications.os`, `notifications.os-text` and `notifications.allow-unsigned`; they were renamed afterwards and no rule changed.
+
 ## Scope
 
-- OS notifications only from a sealed 0x22 frame that holds the `notifications` capability, with `notifications.os` false by default and `notifications.os-text` false by default.
-- Unsigned, possibly-remote, SSH and multiplexer-pane output only ever a toast, and a toast from unsigned output only with `notifications.allow-unsigned`.
+- OS notifications only from a sealed 0x22 frame that holds the `notifications` capability, with `os_notifications` false by default and `os_text` false by default.
+- Unsigned, possibly-remote, SSH and multiplexer-pane output only ever a toast, and a toast from unsigned output only with `allow_unsigned`.
 - Interception of OSC 9, 777 and 99, the text rules, the pane label, the rate limits, toast placement and click behaviour.
 
 ## What the earlier pass covered, and what it missed
@@ -25,7 +27,7 @@ The first pass (on the revisions up to `cd222ad`) found eight gaps, all since re
 | R5 | Toast eviction | 'Replaces the oldest toast from the layer with the most toasts shown' has no tie-break. It also lets a new toast from layer A displace layer B's toast when B has the most, so a noisy layer can push out a quiet layer's one real notification. | A layer at its own limit evicts its own oldest first. For the global cap, name the tie-break, and prefer evicting the sender's own oldest on a tie. |
 | R6 | Pane label | The label is a position (window, tab or pane index) plus a colour and glyph from the layer's opaque id. A toast queued from a layer that has since closed still shows that position, which a different layer may now hold. | Remove a closed layer's queued and shown toasts, and say layer ids are never reused, as pane ids are. |
 | R7 | Click token | 'An opaque token the terminal made for that notification' does not say how long it lives. A token from an OS history entry could be activated long after the pane or the terminal is gone. | Tokens are random, single-use, bound to one layer, and invalid after the layer closes or the terminal restarts. A stale token focuses nothing. |
-| R8 | Local layer | `allow-unsigned` excludes SSH sessions and possibly-remote layers. SSH is detected from the process tree; shells reached by other means (mosh, a container or cluster exec, a debug bridge, a serial or network console) are not named. | Extend the existing 'when the terminal cannot tell, treat it as one' rule: a layer is local only if its foreground process tree is shown to be local. |
+| R8 | Local layer | `allow_unsigned` excludes SSH sessions and possibly-remote layers. SSH is detected from the process tree; shells reached by other means (mosh, a container or cluster exec, a debug bridge, a serial or network console) are not named. | Extend the existing 'when the terminal cannot tell, treat it as one' rule: a layer is local only if its foreground process tree is shown to be local. |
 | R9 | User control | 'Muted by the user' is only a condition on the OS path. A toast flood has no stated user control. | Mute covers toasts as well. State a one-step mute and a way to revoke the `notifications` capability, both reachable from the keyboard. |
 
 ## Notes on the sink model
@@ -40,7 +42,7 @@ These are about `crates/lumen-sinks`, not the spec text.
 
 ## What held up
 
-Interception reads as complete (introducers, terminators, split reads, overflow ending at ESC, CAN or SUB, no reply to the PTY). The OS conditions are evaluated when the notification arrives. The fixed prefix, the pane label and the default of sending no program text to the operating system are the right mitigations for the accepted residual risk, and `notifications.os-text` being a separate key is a good call.
+Interception reads as complete (introducers, terminators, split reads, overflow ending at ESC, CAN or SUB, no reply to the PTY). The OS conditions are evaluated when the notification arrives. The fixed prefix, the pane label and the default of sending no program text to the operating system are the right mitigations for the accepted residual risk, and `os_text` being a separate key is a good call.
 
 ## Status at the re-check
 
@@ -55,7 +57,7 @@ The author answered R1 to R9 in the text. Re-checked at `9b35d4a`:
 | R5 | Answered: a toast never removes another layer's toast. Open as a choice: with four layers each holding four toasts a fifth layer's toast is dropped. |
 | R6 | Answered: layer ids are never reused and a closed layer's toasts are removed. |
 | R7 | Answered: the token is random, single-use, bound to one layer and invalid after the layer closes or the terminal restarts. |
-| R8 | Answered after one correction: 'local' is defined once and both the OS path and `allow-unsigned` use it. |
+| R8 | Answered after one correction: 'local' is defined once and both the OS path and `allow_unsigned` use it. |
 | R9 | Answered: mute covers toasts, with one-step mute and capability revocation from the keyboard. |
 
 M1 to M5 are about the sink model and stay open there. This is a read of the text, not a test of an implementation.
