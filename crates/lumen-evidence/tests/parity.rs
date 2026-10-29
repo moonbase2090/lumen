@@ -27,6 +27,17 @@ fn the_committed_catalogue_declares_the_spec_channels_and_says_they_have_no_code
     assert_eq!(ids, ["track-b", "seal-channel", "control-channel"]);
     for ch in &c.channels {
         assert!(ch.source.is_some(), "{}: names its spec section", ch.id);
+        // The seal channel is not the control socketpair: each cites its own section.
+        let want = match ch.id.as_str() {
+            "track-b" => "transport.md#transport.track-b",
+            "seal-channel" => "sealed-layers.md#sealed.requirements",
+            _ => "sealed-layers.md#sealed.control",
+        };
+        assert!(
+            ch.source.as_deref().is_some_and(|s| s.ends_with(want)),
+            "{}",
+            ch.id
+        );
         assert!(!ch.actions.is_empty(), "{}", ch.id);
         // A channel that names code must name code that exists.
         if let Some(code) = &ch.code {

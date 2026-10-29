@@ -14,7 +14,7 @@
   },
   {
    "id": "seal-channel",
-   "source": "spec/v0/sealed-layers.md#sealed.control",
+   "source": "spec/v0/sealed-layers.md#sealed.requirements",
    "actions": [
     {
      "id": "seal-granted-frame",
