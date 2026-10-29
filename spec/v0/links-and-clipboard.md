@@ -31,7 +31,7 @@ Only a sealed layer that holds the `clipboard-write` grant can write the clipboa
 ## Copy {#clip.copy}
 
 - Copy covers only [visible](@/spec/v0/text-runs.md#runs.visible) content and copies code points, not glyphs.
-- Command and code text has bidi and invisible characters stripped, as described in [Bidi](@/spec/v0/text-runs.md#runs.bidi), and the count is shown.
+- Command and code text has bidi and invisible characters stripped, as described in [Bidi](@/spec/v0/text-runs.md#runs.bidi), and the count is shown. A link label or target the terminal composes into its own surface shows default-ignorable and bidi code points as visible escapes (`⟨U+200B⟩`), so a zero-width character in a label is seen.
 - A copy that spans producers shows the split.
 
 ## Tables {#clip.tables}
