@@ -53,6 +53,7 @@ const IMAGE_PATH_SOURCES: &[&str] = &[
     "limits.rs",
     "protocol.rs",
     "unlock.rs",
+    "images.rs",
     "lib.rs",
 ];
 

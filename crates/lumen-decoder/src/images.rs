@@ -116,13 +116,17 @@ pub enum AltReason {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TextureId(pub u64);
 
+/// A sink could not take an upload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UploadFailed;
+
 /// Where decoded pixels go (the renderer, or a headless store).
 pub trait TextureSink {
     /// Takes `rgba` (`width * height * 4` bytes, premultiplied, top-down).
     ///
     /// # Errors
-    /// `Err(())` if the pixels cannot be taken.
-    fn upload(&mut self, width: u32, height: u32, rgba: &[u8]) -> Result<TextureId, ()>;
+    /// [`UploadFailed`] if the pixels cannot be taken.
+    fn upload(&mut self, width: u32, height: u32, rgba: &[u8]) -> Result<TextureId, UploadFailed>;
     /// Frees a texture.
     fn release(&mut self, texture: TextureId);
 }
@@ -154,7 +158,12 @@ pub struct Gate {
 
 impl Gate {
     fn open(&self) -> bool {
-        images_enabled(self.setting_on, &self.platform, &self.identities, &self.records)
+        images_enabled(
+            self.setting_on,
+            &self.platform,
+            &self.identities,
+            &self.records,
+        )
     }
 }
 
@@ -223,7 +232,6 @@ pub struct ImageManager<T: TextureSink> {
     sink: T,
     producers: HashMap<Producer, ProducerState>,
     queue: VecDeque<Job>,
-    reserved: HashMap<(Producer, ImageId), u64>,
     ready: HashMap<(Producer, ImageId), (TextureId, u64)>,
     in_flight_total: usize,
     textures_bytes: u64,
@@ -243,7 +251,6 @@ impl<T: TextureSink> ImageManager<T> {
             sink,
             producers: HashMap::new(),
             queue: VecDeque::new(),
-            reserved: HashMap::new(),
             ready: HashMap::new(),
             in_flight_total: 0,
             textures_bytes: 0,
@@ -286,13 +293,22 @@ impl<T: TextureSink> ImageManager<T> {
     fn share(&self, trust: Trust) -> u64 {
         match trust {
             Trust::Sealed => self.limits.session_bytes,
-            Trust::Unsigned { .. } => self.limits.session_bytes / 100 * self.limits.unsigned_percent,
+            Trust::Unsigned { .. } => {
+                self.limits.session_bytes / 100 * self.limits.unsigned_percent
+            }
         }
     }
 
     /// Submits an image whose bytes have arrived. Nothing is decoded or reserved
     /// unless every rule allows it.
-    pub fn submit(&mut self, producer: Producer, id: ImageId, format: Format, hint: (u32, u32), bytes: Vec<u8>) -> Submit {
+    pub fn submit(
+        &mut self,
+        producer: Producer,
+        id: ImageId,
+        format: Format,
+        hint: (u32, u32),
+        bytes: Vec<u8>,
+    ) -> Submit {
         let trust = self
             .producers
             .get(&producer)
@@ -304,6 +320,10 @@ impl<T: TextureSink> ImageManager<T> {
         if matches!(trust, Trust::Unsigned { ssh_session: true }) {
             return Submit::AltText(AltReason::SshSession);
         }
+        let share = self.share(trust);
+        let session_used = self.session_bytes();
+        let (session_limit, queued_limit) =
+            (self.limits.session_bytes, self.limits.queued_per_producer);
         let state = self.producers.entry(producer).or_default();
         if state.degraded {
             return Submit::AltText(AltReason::Degraded);
@@ -314,14 +334,13 @@ impl<T: TextureSink> ImageManager<T> {
         let Some(reserve) = limits::rgba_bytes(u64::from(hint.0), u64::from(hint.1)) else {
             return Submit::AltText(AltReason::InvalidHint);
         };
-        if state.waiting >= self.limits.queued_per_producer {
+        if state.waiting >= queued_limit {
             return Submit::AltText(AltReason::QueueFull);
         }
-        let share = self.share(trust);
         let producer_total = state.reserved.checked_add(reserve);
-        let session_total = self.session_bytes().checked_add(reserve);
-        let fits = producer_total.is_some_and(|t| t <= share) && session_total.is_some_and(|t| t <= self.limits.session_bytes);
-        let state = self.producers.entry(producer).or_default();
+        let session_total = session_used.checked_add(reserve);
+        let fits = producer_total.is_some_and(|t| t <= share)
+            && session_total.is_some_and(|t| t <= session_limit);
         if !fits {
             // Over budget: this producer is on plain text for the rest of the command.
             state.degraded = true;
@@ -330,8 +349,14 @@ impl<T: TextureSink> ImageManager<T> {
         state.reserved += reserve;
         state.waiting += 1;
         state.ids.insert(id);
-        self.reserved.insert((producer, id), reserve);
-        self.queue.push_back(Job { producer, id, format, hint, bytes, reserved: reserve });
+        self.queue.push_back(Job {
+            producer,
+            id,
+            format,
+            hint,
+            bytes,
+            reserved: reserve,
+        });
         self.start_ready();
         Submit::Queued
     }
@@ -341,12 +366,17 @@ impl<T: TextureSink> ImageManager<T> {
         let mut i = 0;
         while i < self.queue.len() && self.in_flight_total < self.limits.in_flight_total {
             let producer = self.queue[i].producer;
-            let busy = self.producers.get(&producer).is_some_and(|p| p.in_flight >= self.limits.in_flight_per_producer);
+            let busy = self
+                .producers
+                .get(&producer)
+                .is_some_and(|p| p.in_flight >= self.limits.in_flight_per_producer);
             if busy {
                 i += 1;
                 continue;
             }
-            let Some(job) = self.queue.remove(i) else { break };
+            let Some(job) = self.queue.remove(i) else {
+                break;
+            };
             if let Some(p) = self.producers.get_mut(&producer) {
                 p.waiting -= 1;
                 p.in_flight += 1;
@@ -357,22 +387,31 @@ impl<T: TextureSink> ImageManager<T> {
             self.jobs.insert((producer, id), job);
             std::thread::spawn(move || {
                 // A panic in the decoder call is a crash, not a lost image.
-                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| decoder.decode(format, hint, &bytes)))
-                    .unwrap_or(Outcome::Crash(Crash::Exit));
-                let _ = tx.send(Done { producer, id, outcome });
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    decoder.decode(format, hint, &bytes)
+                }))
+                .unwrap_or(Outcome::Crash(Crash::Exit));
+                let _ = tx.send(Done {
+                    producer,
+                    id,
+                    outcome,
+                });
             });
         }
     }
 
-    fn release(&mut self, producer: Producer, id: ImageId, bytes: u64) {
+    fn release(&mut self, producer: Producer, bytes: u64) {
         if let Some(p) = self.producers.get_mut(&producer) {
             p.reserved = p.reserved.saturating_sub(bytes);
         }
-        self.reserved.remove(&(producer, id));
     }
 
     fn finish(&mut self, done: Done) -> Finished {
-        let Done { producer, id, outcome } = done;
+        let Done {
+            producer,
+            id,
+            outcome,
+        } = done;
         let job = self.jobs.remove(&(producer, id));
         let reserved = job.as_ref().map_or(0, |j| j.reserved);
         self.in_flight_total = self.in_flight_total.saturating_sub(1);
@@ -380,11 +419,15 @@ impl<T: TextureSink> ImageManager<T> {
             p.in_flight = p.in_flight.saturating_sub(1);
         }
         let fail = |this: &mut Self, reason: AltReason| {
-            this.release(producer, id, reserved);
+            this.release(producer, reserved);
             if let Some(p) = this.producers.get_mut(&producer) {
                 p.ids.remove(&id);
             }
-            Finished { producer, id, result: Err(reason) }
+            Finished {
+                producer,
+                id,
+                result: Err(reason),
+            }
         };
         match outcome {
             Outcome::Refused => fail(self, AltReason::Refused),
@@ -397,21 +440,25 @@ impl<T: TextureSink> ImageManager<T> {
             }
             Outcome::Image(img) => {
                 let actual = (img.rgba.len() as u64).min(reserved);
-                // Keep only what the image really uses of the reservation.
-                if let Some(p) = self.producers.get_mut(&producer) {
-                    p.reserved = p.reserved.saturating_sub(reserved - actual);
-                }
-                self.reserved.insert((producer, id), actual);
                 if self.textures_bytes.saturating_add(actual) > self.limits.texture_bytes {
-                    return fail(self, AltReason::TextureBudget).with_reserved(actual, self);
+                    // Size-checked before the sink is touched.
+                    return fail(self, AltReason::TextureBudget);
                 }
-                match self.sink.upload(img.width, img.height, &img.rgba) {
-                    Ok(texture) => {
-                        self.textures_bytes += actual;
-                        self.ready.insert((producer, id), (texture, actual));
-                        Finished { producer, id, result: Ok(Ready { texture, width: img.width, height: img.height }) }
-                    }
-                    Err(()) => fail(self, AltReason::UploadFailed).with_reserved(actual, self),
+                let Ok(texture) = self.sink.upload(img.width, img.height, &img.rgba) else {
+                    return fail(self, AltReason::UploadFailed);
+                };
+                // Keep only what the image really uses of its reservation.
+                self.release(producer, reserved - actual);
+                self.textures_bytes += actual;
+                self.ready.insert((producer, id), (texture, actual));
+                Finished {
+                    producer,
+                    id,
+                    result: Ok(Ready {
+                        texture,
+                        width: img.width,
+                        height: img.height,
+                    }),
                 }
             }
         }
@@ -432,18 +479,10 @@ impl<T: TextureSink> ImageManager<T> {
         if let Some((texture, bytes)) = self.ready.remove(&(producer, id)) {
             self.sink.release(texture);
             self.textures_bytes = self.textures_bytes.saturating_sub(bytes);
-            self.release(producer, id, bytes);
+            self.release(producer, bytes);
             if let Some(p) = self.producers.get_mut(&producer) {
                 p.ids.remove(&id);
             }
         }
-    }
-}
-
-impl Finished {
-    /// After `fail` released the full reservation, nothing remains to release; this
-    /// keeps the signature uniform for the paths that had already shrunk it.
-    fn with_reserved<T: TextureSink>(self, _actual: u64, _m: &mut ImageManager<T>) -> Self {
-        self
     }
 }
