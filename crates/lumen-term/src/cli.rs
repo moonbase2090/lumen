@@ -15,6 +15,8 @@ pub struct Options {
     pub wait: Duration,
     /// Close the window after this long (for smoke tests).
     pub exit_after: Option<Duration>,
+    /// What the user allowed for notifications; everything is off by default.
+    pub notifications: crate::notify::Settings,
     /// The program and its arguments; empty means the user's shell.
     pub command: Vec<String>,
 }
@@ -27,13 +29,18 @@ impl Default for Options {
             snapshot: None,
             wait: Duration::from_millis(1500),
             exit_after: None,
+            notifications: crate::notify::Settings {
+                allow_unsigned: false,
+                os_notifications: false,
+                os_text: false,
+            },
             command: Vec::new(),
         }
     }
 }
 
 /// The usage text.
-pub const USAGE: &str = "usage: lumen-term [--scale N] [--size WxH] [--snapshot FILE [--wait MS]] [--exit-after MS] [--] [PROGRAM [ARGS...]]";
+pub const USAGE: &str = "usage: lumen-term [--scale N] [--size WxH] [--snapshot FILE [--wait MS]] [--exit-after MS] [--allow-unsigned] [--os-notifications [--os-text]] [--] [PROGRAM [ARGS...]]";
 
 fn number(flag: &str, value: Option<&String>) -> Result<u64, String> {
     value
@@ -80,6 +87,9 @@ impl Options {
                     options.size = (wide, high);
                     at += 1;
                 }
+                "--allow-unsigned" => options.notifications.allow_unsigned = true,
+                "--os-notifications" => options.notifications.os_notifications = true,
+                "--os-text" => options.notifications.os_text = true,
                 "--snapshot" => {
                     options.snapshot =
                         Some(args.get(at + 1).ok_or("--snapshot needs a path")?.clone());
@@ -101,6 +111,9 @@ impl Options {
                 }
             }
             at += 1;
+        }
+        if options.notifications.os_text && !options.notifications.os_notifications {
+            return Err("--os-text needs --os-notifications".into());
         }
         Ok(options)
     }
