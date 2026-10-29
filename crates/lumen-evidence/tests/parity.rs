@@ -26,6 +26,7 @@ fn the_committed_catalogue_declares_no_channel_so_parity_is_not_measured() {
         unreachable!("writing to a Vec succeeds")
     };
     assert!(!report.measured());
+    assert_eq!(report.exit_code(), 3, "an empty catalogue is not a pass");
     let s = report.summary(&header);
     assert!(s.contains("2.9=not measured"), "{s}");
     assert!(!s.contains("channels_accepting_more_than_pty"), "{s}");
@@ -46,6 +47,7 @@ fn a_channel_with_an_action_that_has_no_pty_equivalent_is_counted_once() {
         unreachable!("writing to a Vec succeeds")
     };
     assert!(report.measured());
+    assert_eq!(report.exit_code(), 1);
     assert_eq!((report.channels, report.actions, report.count()), (2, 4, 1));
     assert_eq!(report.accepting_more[0].0, "more");
     assert_eq!(report.accepting_more[0].1, ["x", "y"]);
@@ -82,4 +84,18 @@ fn a_catalogue_that_does_not_fit_is_refused_with_the_reason() {
             .unwrap_or_default();
         assert!(e.contains(want), "{want}: {e}");
     }
+}
+
+#[test]
+fn only_a_measured_zero_exits_zero() {
+    let text = r#"{"revision":"t","channels":[
+        {"id":"ok","actions":[{"id":"a","pty_equivalent":"write the same bytes"}]}]}"#;
+    let Ok(c) = load_text("zero", text) else {
+        unreachable!("well-formed")
+    };
+    let Ok((report, _)) = run_parity(&c, "testsha", Vec::new()) else {
+        unreachable!("writing to a Vec succeeds")
+    };
+    assert!(report.measured());
+    assert_eq!(report.exit_code(), 0);
 }

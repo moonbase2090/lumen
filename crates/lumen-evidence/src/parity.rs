@@ -25,6 +25,14 @@ use std::fmt::Write as _;
 use std::io::Write;
 use std::path::Path;
 
+/// Exit code: channels were declared and none accepts more than a PTY write.
+pub const EXIT_ZERO: u8 = 0;
+/// Exit code: at least one channel accepts more than a PTY write could.
+pub const EXIT_MORE: u8 = 1;
+/// Exit code: no channel was declared, so nothing was measured. Code 2 is
+/// left to usage and load errors.
+pub const EXIT_NOT_MEASURED: u8 = 3;
+
 /// One action a channel accepts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Action {
@@ -140,6 +148,21 @@ impl ParityReport {
     #[must_use]
     pub fn measured(&self) -> bool {
         self.channels > 0
+    }
+
+    /// The process exit code: [`EXIT_ZERO`] when channels were declared and
+    /// none accepts more than a PTY write, [`EXIT_MORE`] when one does, and
+    /// [`EXIT_NOT_MEASURED`] when no channel was declared. Only the first is
+    /// a pass, so a gate script cannot read an empty catalogue as one.
+    #[must_use]
+    pub fn exit_code(&self) -> u8 {
+        if !self.measured() {
+            EXIT_NOT_MEASURED
+        } else if self.count() == 0 {
+            EXIT_ZERO
+        } else {
+            EXIT_MORE
+        }
     }
 
     /// The summary text.

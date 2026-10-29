@@ -7,7 +7,8 @@
 //! `lumen-evidence --parity --channels FILE --commit SHA --out DIR`
 //!
 //! Parity mode (criteria 2.9): counts the declared channels that accept more
-//! than a PTY write could. Exits 1 when the count is not zero.
+//! than a PTY write could. Exits 0 for a measured zero, 1 for a non-zero
+//! count and 3 when no channel is declared (not measured).
 //!
 //! `lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]`
 //!
@@ -74,11 +75,7 @@ fn parity(channels: &str, commit: &str, out: &std::path::Path) -> Result<ExitCod
     let (report, header) =
         lumen_evidence::parity::run_parity(&catalogue, commit, log).map_err(|e| e.to_string())?;
     finish(out, &report.summary(&header))?;
-    Ok(if report.count() == 0 {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
-    })
+    Ok(ExitCode::from(report.exit_code()))
 }
 
 fn reach(matrix: &str, commit: &str, out: &std::path::Path, arm: &str) -> Result<ExitCode, String> {
