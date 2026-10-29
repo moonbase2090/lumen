@@ -30,7 +30,7 @@
 //!   and denied, and notification sequences shown as a terminal-drawn toast. A
 //!   count that differs is a violation of the case. A key that is left out is
 //!   not checked.
-//! - `context.allow_unsigned`: the policy `allow-unsigned` for the case
+//! - `context.allow_unsigned`: the policy `allow_unsigned` for the case
 //!   (default false). With it, unsigned notifications on a local layer become
 //!   toasts, at most one per second; the rest are dropped and counted.
 //!   `context.ssh` marks an SSH session. The opt-in never applies to an SSH
