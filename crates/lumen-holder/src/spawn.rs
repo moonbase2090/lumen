@@ -29,6 +29,10 @@ pub struct Started {
 /// [`crate::layout`]; the environment is empty and its standard streams are
 /// closed. Every descriptor the terminal keeps is close-on-exec.
 ///
+/// The holder is killed when the *thread* that called this exits (see
+/// [`crate::ffi_linux::die_with_parent`]), so call it from a thread that lives
+/// as long as the terminal.
+///
 /// # Errors
 ///
 /// Returns why a channel could not be made or the program could not start.

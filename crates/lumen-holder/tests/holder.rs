@@ -68,10 +68,13 @@ fn exit_code(child: &mut Child) -> Option<i32> {
 fn a_running_holder_has_four_descriptors_no_new_privs_and_a_seccomp_filter() {
     let (mut s, mut shell, _pidfd) = launch(&[]);
     let pid = s.child.id();
-    wait_until("the filter", || {
-        status_field(pid, "Seccomp").as_deref() == Some("2")
+    // No-new-privs is set just before the filter, so wait for both; a
+    // container may put its own filter on every process, so the filter alone
+    // shows nothing.
+    wait_until("no-new-privs and the filter", || {
+        status_field(pid, "NoNewPrivs").as_deref() == Some("1")
+            && status_field(pid, "Seccomp").as_deref() == Some("2")
     });
-    assert_eq!(status_field(pid, "NoNewPrivs").as_deref(), Some("1"));
     let mut fds: Vec<u32> = std::fs::read_dir(format!("/proc/{pid}/fd"))
         .unwrap_or_else(|e| unreachable!("the holder's fds are listed: {e}"))
         .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())

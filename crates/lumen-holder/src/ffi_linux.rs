@@ -47,6 +47,10 @@ pub fn dumpable() -> io::Result<bool> {
 /// Ask the kernel to kill this process when its parent dies, and fail if the
 /// parent is no longer `parent`, so a parent that died first is not missed.
 ///
+/// The kernel ties the signal to the parent *thread* that started the process,
+/// not to the parent process: it is sent when that thread exits. A terminal
+/// must start holders from a thread that lives as long as the terminal.
+///
 /// # Errors
 ///
 /// Returns the error `prctl` reports, or `BrokenPipe` if the parent is gone.
@@ -374,6 +378,8 @@ pub fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
 ///
 /// Returns the error of the call that failed.
 pub fn place_descriptors(sources: &[RawFd], targets: &[RawFd]) -> io::Result<()> {
+    debug_assert_eq!(sources.len(), targets.len(), "one target for each source");
+    debug_assert!(sources.len() <= 8, "at most eight descriptors are placed");
     let mut moved = [0 as RawFd; 8];
     let top = targets.iter().copied().max().unwrap_or(0) + 1;
     for (i, &source) in sources.iter().enumerate().take(moved.len()) {
