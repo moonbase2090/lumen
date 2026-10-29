@@ -1,0 +1,21 @@
+{
+  "result": "empty",
+  "meaning": "No registered advisory exists for the chosen libraries, so there are no past-CVE inputs to seed from. The upstream regression inputs in this directory are kept instead; they are not CVE reproducers. No C-library exploit proofs of concept are committed.",
+  "checked_on": "2026-10-29",
+  "libraries": ["png 0.18.1", "image-webp 0.2.4", "zune-jpeg 0.5.15", "zune-core 0.5.3"],
+  "sources": [
+    {
+      "name": "RustSec advisory database",
+      "where": "https://github.com/rustsec/advisory-db, directory crates/<name>",
+      "found": {"png": 0, "image-webp": 0, "zune-jpeg": 0, "zune-core": 0, "jpeg-decoder": 0},
+      "positive_control": "crates/image lists 2 advisories (RUSTSEC-2019-0014, RUSTSEC-2020-0073)"
+    },
+    {
+      "name": "GitHub Advisory Database",
+      "where": "GET /advisories?ecosystem=rust&affects=<name>",
+      "found": {"png": 0, "image-webp": 0, "zune-jpeg": 0, "zune-core": 0, "jpeg-decoder": 0},
+      "positive_control": "affects=image returns 2 advisories (GHSA-9wgh-vjj7-7433, GHSA-m2pf-hprp-3vqm)"
+    }
+  ],
+  "not_checked": ["the National Vulnerability Database by CPE", "advisories for the C libraries libpng, libjpeg-turbo and libwebp, which these crates do not use"]
+}

@@ -1,0 +1,45 @@
+[package]
+name = "lumen-decoder-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+lumen-decoder = { path = ".." }
+
+# Overflow checks and debug assertions stay on in the fuzz build. Rust has no
+# UBSan; an arithmetic overflow here is the nearest finding, and it panics.
+[profile.release]
+debug-assertions = true
+overflow-checks = true
+
+# Not part of the main workspace: fuzzing needs nightly and the sanitizers.
+[workspace]
+
+[[bin]]
+name = "decode_png"
+path = "fuzz_targets/decode_png.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "decode_jpeg"
+path = "fuzz_targets/decode_jpeg.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "decode_webp"
+path = "fuzz_targets/decode_webp.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "reply_validate"
+path = "fuzz_targets/reply_validate.rs"
+test = false
+doc = false

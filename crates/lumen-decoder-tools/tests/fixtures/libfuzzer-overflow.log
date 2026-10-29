@@ -1,0 +1,4 @@
+thread '<unnamed>' (148146113) panicked at fuzz_targets/canary.rs:7:30:
+attempt to add with overflow
+==87456== ERROR: libFuzzer: deadly signal
+SUMMARY: libFuzzer: deadly signal
