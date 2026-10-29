@@ -149,7 +149,7 @@ The shared red-team and replay corpus is a directory of JSON files, read in name
 
 - `id` and `category`, both strings. Ids are unique across the corpus.
 - `reads`: the PTY reads in order. Each read is `{"hex": "..."}` or `{"fill": "<hex byte>", "count": n}`, the same segment encoding as `conformance/vectors`, with an optional `t_ms` (default 0).
-- `context`: optional `alt_screen` and `tmux_or_screen` booleans, and `container` (default true).
+- `context`: optional `alt_screen`, `tmux_or_screen`, `allow_unsigned` and `ssh` booleans (default false), and `container` (default true).
 - `forbid`: optional item kinds that must not appear. Each entry must be one of the item kinds the layer reports. An unknown kind fails the load with the case id, so a typo cannot pass silently.
 
 - `expect`: optional positive expectation, `{"b": [...], "a": [...]}`, the item kinds Arm B and Arm A must produce, in order. Adjacent `output` items and adjacent `text` items are each joined first, because a read boundary can split them. Kinds are checked like `forbid`, and a key other than `b` and `a` fails the load. The red-team corpus does not use `expect`; the corpus replay ignores it. The reach mode (2.1) requires it on every session of the matrix.
