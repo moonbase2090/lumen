@@ -20,13 +20,14 @@ use std::path::Path;
 /// The outcomes a case may forbid. They cover five of the metrics of 7.2; the
 /// others (trust-margin pixels, introducer fuzzing, key custody, pane reach)
 /// are measured another way.
-pub const FORBID_KINDS: [&str; 6] = [
+pub const FORBID_KINDS: [&str; 7] = [
     "draw_outside_rect",
     "draw_hidden_pane",
     "forged_container_drawn",
     "stale_generation_drawn",
     "key_reuse",
     "unmarked_replay",
+    "replayed_frame_accepted",
 ];
 
 /// A pane's place in a layout, in cells.
@@ -72,6 +73,27 @@ pub enum Event {
     },
     /// A pane is zoomed, or the zoom is cleared with `None`.
     Zoom(Option<u32>),
+    /// The multiplexer sends a pane container exactly as given, to test the
+    /// terminal's checks (a wrong generation, rectangle or pane id).
+    Container {
+        /// The pane id in the frame.
+        pane: u32,
+        /// The generation in the frame.
+        generation: u32,
+        /// The rectangle in the frame.
+        rect: PaneRect,
+        /// The content type byte.
+        kind: u8,
+        /// The content payload.
+        content: Vec<u8>,
+    },
+    /// The multiplexer sends the previous sealed frame again, byte for byte.
+    Replay,
+    /// The multiplexer sends a sealed frame of a type its keys do not cover.
+    Foreign {
+        /// The sealed type byte.
+        kind: u8,
+    },
     /// The client detaches.
     Detach,
     /// The client reattaches and gets fresh keys.
@@ -164,10 +186,34 @@ fn event_of(v: &Value) -> Result<Event, String> {
             Value::Null => None,
             p => Some(whole(p, "a zoom's pane")?),
         })),
+        "container" => {
+            let mut fields = v["rect"].clone();
+            fields["id"] = v["pane"].clone();
+            let rect = rect_of(&fields)?;
+            let kind = u8::try_from(whole(&v["kind"], "a container's kind")?)
+                .map_err(|_| "a container's kind must fit one byte".to_owned())?;
+            let content = if v["hex"].is_null() {
+                Vec::new()
+            } else {
+                read_of(v)?.bytes
+            };
+            Ok(Event::Container {
+                pane: rect.id,
+                generation: whole(&v["generation"], "a container's generation")?,
+                rect,
+                kind,
+                content,
+            })
+        }
+        "replay" => Ok(Event::Replay),
+        "foreign" => Ok(Event::Foreign {
+            kind: u8::try_from(whole(&v["kind"], "a foreign frame's kind")?)
+                .map_err(|_| "a foreign frame's kind must fit one byte".to_owned())?,
+        }),
         "detach" => Ok(Event::Detach),
         "reattach" => Ok(Event::Reattach),
         other => Err(format!(
-            "unknown op {other:?}; use layout, output, resize, zoom, detach or reattach"
+            "unknown op {other:?}; use layout, output, container, replay, foreign, resize, zoom, detach or reattach"
         )),
     }
 }

@@ -146,6 +146,20 @@ impl PaneTerminal {
             .map_or_else(Vec::new, |l| l.panes.iter().map(|(id, _)| *id).collect())
     }
 
+    /// The generation of the current layout, if there is one.
+    #[must_use]
+    pub fn generation(&self) -> Option<u32> {
+        self.layout.as_ref().map(|l| l.generation)
+    }
+
+    /// The rectangle the current layout gives `pane`, if it lists it.
+    #[must_use]
+    pub fn rect_of(&self, pane: u32) -> Option<Rect> {
+        self.layout
+            .as_ref()
+            .and_then(|l| l.panes.iter().find(|(id, _)| *id == pane).map(|(_, r)| *r))
+    }
+
     /// Whether the layer is desynchronised (panes are text).
     #[must_use]
     pub fn is_desynchronised(&self) -> bool {

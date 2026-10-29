@@ -33,6 +33,12 @@
 //! lying-decoder memory a terminal logged. Exits 0 when every part is within
 //! its limit, 1 when a measured part is over, and 3 when a part is not measured.
 //!
+//! `lumen-evidence --panes DIR --placement a|b --commit SHA --out DIR`
+//!
+//! Placement mode (criteria 7.2): replays the pane corpus through Option A or
+//! Option B at the model level. Exits 1 when a case produced a forbidden
+//! outcome.
+//!
 //! `lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]`
 //!
 //! Reach mode (criteria 2.1): replays the session matrix and reports how many
@@ -49,7 +55,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR\n       lumen-evidence --parity --channels FILE --commit SHA --out DIR\n       lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR\n       lumen-evidence --render-log [--log FILE] --commit SHA --out DIR";
+const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR\n       lumen-evidence --parity --channels FILE --commit SHA --out DIR\n       lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR\n       lumen-evidence --render-log [--log FILE] --commit SHA --out DIR\n       lumen-evidence --panes DIR --placement a|b --commit SHA --out DIR";
 
 /// Write the log and summary for a finished run and print the summary.
 fn finish(out: &std::path::Path, summary: &str) -> Result<(), String> {
@@ -171,6 +177,29 @@ fn render_log(log: Option<&str>, commit: &str, out: &std::path::Path) -> Result<
     Ok(ExitCode::from(report.exit_code()))
 }
 
+fn placement(
+    dir: &str,
+    which: &str,
+    commit: &str,
+    out: &std::path::Path,
+) -> Result<ExitCode, String> {
+    let which = match which {
+        "a" => lumen_evidence::placement::Placement::A,
+        "b" => lumen_evidence::placement::Placement::B,
+        other => return Err(format!("unknown --placement {other:?}; use a or b")),
+    };
+    let corpus = lumen_evidence::panes::load_panes(&PathBuf::from(dir))?;
+    let log = open_log(out)?;
+    let (report, header) = lumen_evidence::placement::run_placement(&corpus, commit, which, log)
+        .map_err(|e| e.to_string())?;
+    finish(out, &report.summary(&header))?;
+    Ok(if report.violations() == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
 fn reach(matrix: &str, commit: &str, out: &std::path::Path, arm: &str) -> Result<ExitCode, String> {
     let arm = match arm {
         "b" => lumen_evidence::matrix::ReachArm::B,
@@ -214,6 +243,12 @@ fn main() -> ExitCode {
         }
         (None, None) if args.iter().any(|a| a == "--render-log") => {
             render_log(arg(&args, "--log").as_deref(), &commit, &out)
+        }
+        (None, None) if args.iter().any(|a| a == "--panes") => {
+            match (arg(&args, "--panes"), arg(&args, "--placement")) {
+                (Some(dir), Some(which)) => placement(&dir, &which, &commit, &out),
+                _ => Err("--panes needs a directory and --placement a|b".to_owned()),
+            }
         }
         (None, None) if args.iter().any(|a| a == "--parity") => match arg(&args, "--channels") {
             Some(f) => parity(&f, &commit, &out),
