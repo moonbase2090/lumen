@@ -3,6 +3,12 @@
 //! Replays the corpus through one arm's layer (default `b`). Writes `run.jsonl` and
 //! `summary.txt` to the output directory and prints the summary. Exits 1 when
 //! a case produced a forbidden item.
+//!
+//! `lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]`
+//!
+//! Reach mode (criteria 2.1): replays the session matrix and reports how many
+//! sessions show what the arm specifies. Exits 0 when the run completes,
+//! whatever the count; the count is the result.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -14,56 +20,81 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
+const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]";
+
+/// Write the log and summary for a finished run and print the summary.
+fn finish(out: &std::path::Path, summary: &str) -> Result<(), String> {
+    print!("{summary}");
+    std::fs::write(out.join("summary.txt"), summary).map_err(|e| format!("summary.txt: {e}"))
+}
+
+fn open_log(out: &std::path::Path) -> Result<std::io::BufWriter<std::fs::File>, String> {
+    std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    std::fs::File::create(out.join("run.jsonl"))
+        .map(std::io::BufWriter::new)
+        .map_err(|e| e.to_string())
+}
+
+fn replay(
+    corpus: &str,
+    commit: &str,
+    out: &std::path::Path,
+    arm: &str,
+) -> Result<ExitCode, String> {
+    let arm = match arm {
+        "b" => lumen_evidence::Arm::B,
+        "a-sealed" => lumen_evidence::Arm::ASealed,
+        "a-unsealed" => lumen_evidence::Arm::AUnsealed,
+        other => {
+            return Err(format!(
+                "unknown --arm {other:?}; use b, a-sealed or a-unsealed"
+            ));
+        }
+    };
+    let corpus = lumen_evidence::load_corpus(&PathBuf::from(corpus))?;
+    let log = open_log(out)?;
+    let (report, header) =
+        lumen_evidence::run_arm(&corpus, commit, arm, log).map_err(|e| e.to_string())?;
+    finish(out, &report.summary(&header))?;
+    Ok(if report.violations() == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
+fn reach(matrix: &str, commit: &str, out: &std::path::Path, arm: &str) -> Result<ExitCode, String> {
+    let arm = match arm {
+        "b" => lumen_evidence::matrix::ReachArm::B,
+        "a" => lumen_evidence::matrix::ReachArm::A,
+        other => return Err(format!("unknown --arm {other:?} for --matrix; use b or a")),
+    };
+    let matrix = lumen_evidence::matrix::load_matrix(&PathBuf::from(matrix))?;
+    let log = open_log(out)?;
+    let (report, header) =
+        lumen_evidence::matrix::run_reach(&matrix, commit, arm, log).map_err(|e| e.to_string())?;
+    finish(out, &report.summary(&header))?;
+    Ok(ExitCode::SUCCESS)
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
-    let (Some(corpus), Some(commit), Some(out)) = (
-        arg(&args, "--corpus"),
-        arg(&args, "--commit"),
-        arg(&args, "--out"),
-    ) else {
-        eprintln!(
-            "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]"
-        );
+    let (Some(commit), Some(out)) = (arg(&args, "--commit"), arg(&args, "--out")) else {
+        eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
-    let arm = match arg(&args, "--arm").as_deref() {
-        None | Some("b") => lumen_evidence::Arm::B,
-        Some("a-sealed") => lumen_evidence::Arm::ASealed,
-        Some("a-unsealed") => lumen_evidence::Arm::AUnsealed,
-        Some(other) => {
-            eprintln!("unknown --arm {other:?}; use b, a-sealed or a-unsealed");
+    let out = PathBuf::from(out);
+    let arm = arg(&args, "--arm").unwrap_or_else(|| "b".to_owned());
+    let result = match (arg(&args, "--corpus"), arg(&args, "--matrix")) {
+        (Some(corpus), None) => replay(&corpus, &commit, &out, &arm),
+        (None, Some(matrix)) => reach(&matrix, &commit, &out, &arm),
+        _ => {
+            eprintln!("{USAGE}");
             return ExitCode::from(2);
         }
     };
-    let out = PathBuf::from(out);
-    let result = lumen_evidence::load_corpus(&PathBuf::from(corpus))
-        .and_then(|c| {
-            std::fs::create_dir_all(&out)
-                .map(|()| c)
-                .map_err(|e| e.to_string())
-        })
-        .and_then(|c| {
-            let log = std::fs::File::create(out.join("run.jsonl")).map_err(|e| e.to_string())?;
-            lumen_evidence::run_arm(&c, &commit, arm, std::io::BufWriter::new(log))
-                .map_err(|e| e.to_string())
-        });
-    match result {
-        Ok((report, header)) => {
-            let summary = report.summary(&header);
-            print!("{summary}");
-            if let Err(e) = std::fs::write(out.join("summary.txt"), &summary) {
-                eprintln!("summary.txt: {e}");
-                return ExitCode::from(2);
-            }
-            if report.violations() == 0 {
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::from(1)
-            }
-        }
-        Err(e) => {
-            eprintln!("{e}");
-            ExitCode::from(2)
-        }
-    }
+    result.unwrap_or_else(|e| {
+        eprintln!("{e}");
+        ExitCode::from(2)
+    })
 }

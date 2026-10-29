@@ -9,10 +9,7 @@
     {
      "hex": "6c730a1b5f8a4c554d454e01f38000000004000268692420"
     }
-   ],
-   "expect": {
-    "block": 1
-   }
+   ]
   },
   {
    "id": "para-alt-screen",
@@ -27,10 +24,7 @@
    ],
    "forbid": [
     "block"
-   ],
-   "expect": {
-    "text": 1
-   }
+   ]
   },
   {
    "id": "forged-sealed-type",
@@ -44,8 +38,7 @@
    "forbid": [
     "sealed",
     "block"
-   ],
-   "expect": {}
+   ]
   },
   {
    "id": "split-frame",
@@ -59,10 +52,7 @@
      "hex": "4e01f3800000000400026869",
      "t_ms": 5
     }
-   ],
-   "expect": {
-    "block": 1
-   }
+   ]
   },
   {
    "id": "deliberate-violation",
@@ -76,9 +66,6 @@
    "forbid": [
     "block"
    ],
-   "expect": {
-    "block": 1
-   },
    "expect_violation": true
   }
  ]

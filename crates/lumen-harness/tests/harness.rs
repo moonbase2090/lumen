@@ -9,7 +9,9 @@ fn header() -> HeaderInfo {
     HeaderInfo {
         commit: "abc123".into(),
         features: "arm-b".into(),
+        harness: "h1".into(),
         corpus: "r1".into(),
+        session_matrix: "none".into(),
         sinks: "none".into(),
     }
 }
@@ -35,7 +37,7 @@ fn recorder_writes_a_header_then_one_line_per_read() {
     assert_eq!(
         lines(out),
         vec![
-            r#"{"header":{"format":1,"commit":"abc123","features":"arm-b","corpus":"r1","sinks":"none"}}"#,
+            r#"{"header":{"format":2,"commit":"abc123","features":"arm-b","harness":"h1","corpus":"r1","session_matrix":"none","sinks":"none"}}"#,
             r#"{"t_ms":5,"bytes_in":100,"items":[{"kind":"output","len":90},{"kind":"block","len":10}]}"#,
             r#"{"t_ms":9,"bytes_in":0,"items":[]}"#,
         ]
@@ -47,7 +49,9 @@ fn header_values_are_escaped_and_cannot_break_the_line() {
     let h = HeaderInfo {
         commit: "a\"b\\c\nd\u{1}".into(),
         features: String::new(),
+        harness: "h1".into(),
         corpus: "x".into(),
+        session_matrix: "none".into(),
         sinks: "none".into(),
     };
     let Ok(r) = Recorder::new(Vec::new(), &h) else {
