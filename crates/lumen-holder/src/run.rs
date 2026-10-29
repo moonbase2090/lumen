@@ -1,7 +1,10 @@
 //! What the holder does: harden itself, then wait to be told to end.
 
-use crate::ffi_linux::{self, Channel};
+use crate::ffi_linux::{self, Received};
+use crate::layer::{Counters, Layer};
 use crate::layout::{ALL, EOF_FD, PIDFD_FD, SEAL_FD};
+use crate::principal::{self, Principal};
+use crate::protocol::MAX_MESSAGE;
 use std::io;
 use std::os::fd::RawFd;
 use zeroize::Zeroizing;
@@ -15,8 +18,6 @@ pub enum End {
     ShellExited,
     /// The seal channel closed: nothing can ask for a seal any more.
     SealChannelClosed,
-    /// Something arrived on the seal channel, and no request is defined yet.
-    UnexpectedRequest,
 }
 
 impl End {
@@ -27,7 +28,6 @@ impl End {
             End::TerminalGone => 10,
             End::ShellExited => 11,
             End::SealChannelClosed => 12,
-            End::UnexpectedRequest => 13,
         }
     }
 }
@@ -63,13 +63,14 @@ pub fn harden(terminal: u32, also_keep: &[RawFd]) -> io::Result<()> {
     ffi_linux::deny_fork_and_exec()
 }
 
-/// Wait until the holder has to end, and say why.
+/// Wait until the holder has to end, and say why, taking and judging the
+/// messages that arrive on the seal channel meanwhile.
 ///
 /// # Errors
 ///
-/// Returns an error from `poll` or `recv`, or `InvalidInput` if one of the
+/// Returns an error from `poll` or `recvmsg`, or `InvalidInput` if one of the
 /// four descriptors is not open.
-pub fn wait_for_end() -> io::Result<End> {
+pub fn wait_for_end(layer: &mut Layer) -> io::Result<End> {
     loop {
         let events = ffi_linux::wait_readable(&[EOF_FD, PIDFD_FD, SEAL_FD])?;
         if events.iter().any(|e| e.invalid) {
@@ -85,10 +86,19 @@ pub fn wait_for_end() -> io::Result<End> {
             return Ok(End::ShellExited);
         }
         if events[2].readable || events[2].hangup {
-            match ffi_linux::peek_channel(SEAL_FD)? {
-                Channel::Closed => return Ok(End::SealChannelClosed),
-                Channel::Message => return Ok(End::UnexpectedRequest),
-                Channel::Idle => {}
+            // Everything queued is judged before the end of the channel is acted on.
+            loop {
+                match ffi_linux::receive(SEAL_FD, MAX_MESSAGE)? {
+                    Received::Closed => return Ok(End::SealChannelClosed),
+                    Received::Empty => break,
+                    Received::Message {
+                        bytes,
+                        truncated,
+                        creds,
+                    } => {
+                        layer.handle(creds, &bytes, truncated, &principal::start_time);
+                    }
+                }
             }
         }
     }
@@ -100,10 +110,12 @@ pub fn wait_for_end() -> io::Result<End> {
 /// # Errors
 ///
 /// Returns why the holder could not harden or wait.
-pub fn run(terminal: u32) -> io::Result<End> {
-    harden(terminal, &[])?;
+pub fn run(terminal: u32, shell: Principal, report: bool) -> io::Result<(End, Counters)> {
+    ffi_linux::enable_passcred(SEAL_FD)?;
+    harden(terminal, if report { &[1] } else { &[] })?;
+    let mut layer = Layer::new(shell);
     let key: Option<Key> = None;
-    let end = wait_for_end()?;
+    let end = wait_for_end(&mut layer)?;
     drop(key);
-    Ok(end)
+    Ok((end, layer.counters()))
 }

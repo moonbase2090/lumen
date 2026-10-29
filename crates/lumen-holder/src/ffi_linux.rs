@@ -12,6 +12,7 @@
     reason = "the system calls take C integer types of fixed, small values"
 )]
 
+use crate::principal::Creds;
 use std::io;
 use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 
@@ -251,6 +252,16 @@ pub struct Events {
 ///
 /// Returns the error `poll` reports, other than an interrupt, which is retried.
 pub fn wait_readable(fds: &[RawFd]) -> io::Result<Vec<Events>> {
+    wait_with_timeout(fds, -1)
+}
+
+/// [`wait_readable`] with a time limit in milliseconds (0 returns at once, -1
+/// waits without a limit).
+///
+/// # Errors
+///
+/// As [`wait_readable`].
+pub fn wait_with_timeout(fds: &[RawFd], millis: libc::c_int) -> io::Result<Vec<Events>> {
     let mut set: Vec<libc::pollfd> = fds
         .iter()
         .map(|&fd| libc::pollfd {
@@ -262,7 +273,7 @@ pub fn wait_readable(fds: &[RawFd]) -> io::Result<Vec<Events>> {
     loop {
         // SAFETY: `set` is a live array of `set.len()` valid `pollfd`s for the
         // whole call, and -1 waits without a time limit.
-        let n = unsafe { libc::poll(set.as_mut_ptr(), set.len() as libc::nfds_t, -1) };
+        let n = unsafe { libc::poll(set.as_mut_ptr(), set.len() as libc::nfds_t, millis) };
         match check(n) {
             Ok(_) => break,
             Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
@@ -279,46 +290,118 @@ pub fn wait_readable(fds: &[RawFd]) -> io::Result<Vec<Events>> {
         .collect())
 }
 
-/// The state of a message channel, read without taking a message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Channel {
+/// What `recvmsg` returned on a message channel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Received {
     /// The other end is closed (a read returns 0).
     Closed,
-    /// A message is waiting.
-    Message,
-    /// Open and empty.
-    Idle,
+    /// Nothing is waiting.
+    Empty,
+    /// One datagram.
+    Message {
+        /// The bytes that fit in the buffer.
+        bytes: Vec<u8>,
+        /// The datagram was longer than the buffer and was cut.
+        truncated: bool,
+        /// The sender the kernel recorded for it, if any.
+        creds: Option<Creds>,
+    },
 }
 
-/// Look at `fd` without consuming anything (`recv` with `MSG_PEEK`).
+/// Ask the kernel to attach the sender's credentials to every message received
+/// on `fd` (`SO_PASSCRED`). The option belongs to the socket, so it holds in
+/// every process that has it open.
 ///
 /// # Errors
 ///
-/// Returns the error `recv` reports other than "would block".
-pub fn peek_channel(fd: RawFd) -> io::Result<Channel> {
-    let mut byte = 0u8;
-    // SAFETY: the buffer is one live byte for the whole call, the length says so,
-    // and `MSG_PEEK` leaves the message in the queue.
-    let n = unsafe {
-        libc::recv(
+/// Returns the error `setsockopt` reports.
+pub fn enable_passcred(fd: RawFd) -> io::Result<()> {
+    let on: libc::c_int = 1;
+    // SAFETY: `on` is a live int and its size is passed.
+    check(unsafe {
+        libc::setsockopt(
             fd,
-            (&raw mut byte).cast(),
-            1,
-            libc::MSG_PEEK | libc::MSG_DONTWAIT,
+            libc::SOL_SOCKET,
+            libc::SO_PASSCRED,
+            (&raw const on).cast(),
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        )
+    })
+    .map(drop)
+}
+
+/// Take one datagram of at most `capacity` bytes from `fd` without blocking,
+/// with the credentials the kernel attached to it. A zero-length read is the
+/// other end closing; no message of length zero is defined.
+///
+/// # Errors
+///
+/// Returns the error `recvmsg` reports other than "would block".
+pub fn receive(fd: RawFd, capacity: usize) -> io::Result<Received> {
+    let mut buffer = vec![0u8; capacity];
+    let mut iov = libc::iovec {
+        iov_base: buffer.as_mut_ptr().cast(),
+        iov_len: buffer.len(),
+    };
+    let mut control = [0u64; 32];
+    // SAFETY: an all-zero `msghdr` is a valid empty header.
+    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+    msg.msg_iov = &raw mut iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = control.as_mut_ptr().cast();
+    msg.msg_controllen = std::mem::size_of_val(&control) as _;
+    // SAFETY: `msg` references `iov` and `control`, both alive and writable for
+    // the call; `MSG_CMSG_CLOEXEC` closes any descriptor a sender tried to pass.
+    let n = unsafe {
+        libc::recvmsg(
+            fd,
+            &raw mut msg,
+            libc::MSG_DONTWAIT | libc::MSG_CMSG_CLOEXEC,
         )
     };
-    match n.cmp(&0) {
-        std::cmp::Ordering::Equal => Ok(Channel::Closed),
-        std::cmp::Ordering::Greater => Ok(Channel::Message),
-        std::cmp::Ordering::Less => {
-            let e = io::Error::last_os_error();
-            if e.kind() == io::ErrorKind::WouldBlock {
-                Ok(Channel::Idle)
-            } else {
-                Err(e)
+    if n < 0 {
+        let e = io::Error::last_os_error();
+        return if e.kind() == io::ErrorKind::WouldBlock {
+            Ok(Received::Empty)
+        } else {
+            Err(e)
+        };
+    }
+    if n == 0 {
+        return Ok(Received::Closed);
+    }
+    let mut creds = None;
+    // SAFETY: the kernel filled `msg_control` with well-formed control
+    // messages; the walk uses the `CMSG_*` helpers and stays inside them.
+    unsafe {
+        let mut header = libc::CMSG_FIRSTHDR(&raw const msg);
+        while !header.is_null() {
+            if (*header).cmsg_level == libc::SOL_SOCKET
+                && (*header).cmsg_type == libc::SCM_CREDENTIALS
+            {
+                let u = std::ptr::read_unaligned(libc::CMSG_DATA(header).cast::<libc::ucred>());
+                creds = Some(Creds {
+                    pid: u.pid,
+                    uid: u.uid,
+                    gid: u.gid,
+                });
             }
+            header = libc::CMSG_NXTHDR(&raw const msg, header);
         }
     }
+    buffer.truncate(n as usize);
+    Ok(Received::Message {
+        bytes: buffer,
+        truncated: msg.msg_flags & libc::MSG_TRUNC != 0,
+        creds,
+    })
+}
+
+/// The effective user id of this process.
+#[must_use]
+pub fn effective_uid() -> u32 {
+    // SAFETY: `geteuid` takes no arguments, has no memory effects and cannot fail.
+    unsafe { libc::geteuid() }
 }
 
 /// A pidfd for `pid` (`pidfd_open`).
@@ -335,6 +418,20 @@ pub fn pidfd_open(pid: u32) -> io::Result<OwnedFd> {
         )?;
     // SAFETY: `fd` is a descriptor this call just received and nothing else owns.
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+/// Whether `pidfd` is readable: the process it names has exited.
+///
+/// # Errors
+///
+/// Returns the error `poll` reports, or `InvalidInput` for a descriptor that
+/// is not open.
+pub fn pidfd_is_readable(pidfd: RawFd) -> io::Result<bool> {
+    let events = wait_with_timeout(&[pidfd], 0)?;
+    if events[0].invalid {
+        return Err(io::Error::from(io::ErrorKind::InvalidInput));
+    }
+    Ok(events[0].readable || events[0].hangup)
 }
 
 /// A connected pair of `SOCK_SEQPACKET` Unix sockets, close-on-exec.
