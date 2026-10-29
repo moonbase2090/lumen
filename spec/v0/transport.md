@@ -83,11 +83,13 @@ This section is part of the experiment profile and is not yet normative. It give
 
 **Rules.**
 
-- A command id starts at 1 in a layer and each command start carries the previous id plus one. A command end is accepted only for the command that is open; any other command end is refused.
+- A command id starts at 1 in a layer and each command start carries the previous id plus one. A command start with any other id is malformed. A command start while a command is open closes that command's block as ended-unknown and opens the new one, as under [Frame abort](#transport.abort). A command end is accepted only for the command that is open; a command end for any other id, or when no command is open, is malformed. The id is 32 bits: a layer is re-keyed before its ids would wrap, as for sequence numbers.
 - `exit status` is the shell's reported status as a signed 32-bit value. The terminal shows it as reported and never infers one.
-- `action` is 1 to grant and 0 to revoke. `capability` is 1 to 8. A grant that the layer's policy does not allow is refused. A revoke takes effect at once, and a grant takes effect as [Grants](@/spec/v0/capabilities.md#caps.grants) describes.
+- `action` is 1 to grant and 0 to revoke; any other value is malformed. `capability` is 1 to 8. A grant that the layer's policy does not allow is refused. A revoke takes effect at once, and a grant takes effect as [Grants](@/spec/v0/capabilities.md#caps.grants) describes.
 - A clipboard write is shown to the user in full, with its exact bytes made visible, and nothing reaches the clipboard until the user confirms. The confirmation is the terminal's own and cannot be answered by program output.
-- A notification is handled under [Notifications](@/spec/v0/trust.md#trust.notifications).
+- A notification is handled under [Notifications](@/spec/v0/trust.md#trust.notifications). The 4096 bytes are the frame's string limit; the shorter limit that applies to the displayed text is in that section.
+- A staged-content marker is parsed and has no other effect in this revision. The side channel it would commit is not defined for v0 frames yet.
+- A sealed type that is not in the table is refused after its header verifies, without looking up a capability or opening its payload.
 - A frame whose payload does not match its row, whose length is wrong, whose string is not valid UTF-8, or whose `capability` is out of range is malformed. A malformed frame is refused as a failed frame under [Frame abort](#transport.abort), has no effect, and counts toward the [pin](#transport.pin) as a failed authenticated frame.
 
 ## Sealed frame payload {#transport.aead}
