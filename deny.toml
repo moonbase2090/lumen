@@ -10,6 +10,10 @@ version = 2
 allow = ["MIT", "Apache-2.0", "Unicode-3.0", "Zlib", "BSD-3-Clause", "ISC"]
 confidence-threshold = 0.9
 
+# zune-jpeg is pinned to a release candidate (=0.5.16-rc3) in crates/lumen-decoder:
+# 0.5.15, the last stable release, panics on malformed JPEGs (tests/jpeg_panics.rs
+# keeps the 16 inputs). Pre-release versions are allowed by these checks; move to
+# 0.5.16 stable when it ships and drop the exact pin of a release candidate.
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

@@ -103,7 +103,7 @@ All three are pure Rust, so the decoder build has no C code to compile, no syste
 | Format | Crate | Version | Licence | Notes |
 |---|---|---|---|---|
 | PNG | `png` | 0.18.1 | MIT OR Apache-2.0 | Widely used. Has decode limits that the worker sets explicitly. |
-| JPEG | `zune-jpeg` | 0.5.15 (the last non-release-candidate) | MIT OR Apache-2.0 OR Zlib | Pure Rust, widely used, and actively maintained. The newest release is a release candidate, which this page does not propose. |
+| JPEG | `zune-jpeg` | =0.5.16-rc3 (a release candidate, pinned exactly) | MIT OR Apache-2.0 OR Zlib | Pure Rust, widely used, and actively maintained. 0.5.15, the last stable release, panics on malformed JPEGs (16 inputs found by fuzzing, kept as tests); 0.5.16-rc3 does not. Move to 0.5.16 when it is released. |
 | WebP | `image-webp` | 0.2.4 | MIT OR Apache-2.0 | Pure Rust, decode only is used. |
 
 All three licences are covered by `deny.toml`, as `MIT`, `Apache-2.0` or `Zlib`.
