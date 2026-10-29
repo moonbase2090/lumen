@@ -196,3 +196,131 @@ mod hidden_frame {
         assert_eq!(ca.frames_refused, cb.frames_refused);
     }
 }
+
+/// The pin notice and counter each arm gives for a sequence of sealed aborts.
+fn aborts_a(times: &[u64]) -> (Vec<usize>, bool, u64) {
+    let mut l = a::Layer::new(
+        a::Config {
+            budget: a::Budget {
+                max_frames: 100,
+                max_bytes: 100_000,
+            },
+        },
+        LayerState::Sealed,
+    );
+    let shown = times.iter().map(|t| l.sealed_abort(*t).len()).collect();
+    (shown, l.is_pinned(), l.counters().pinned_notices)
+}
+
+fn aborts_b(times: &[u64]) -> (Vec<usize>, bool, u64) {
+    let mut l = b::Layer::new(b::Config {
+        budget: b::Budget {
+            max_frames: 100,
+            max_bytes: 100_000,
+        },
+        background_as_text: false,
+    });
+    let shown = times.iter().map(|t| l.sealed_abort(*t).len()).collect();
+    (shown, l.is_pinned(), l.counters().pinned_notices)
+}
+
+#[test]
+fn sealed_aborts_pin_both_arms_at_the_same_abort() {
+    for times in [
+        vec![0, 1, 2, 3, 4],
+        vec![0, 0, 0, 60_000, 60_001],
+        vec![0, 30_000, 59_999, 60_000, 90_000, 119_999],
+        vec![5, 5, 5, 5],
+        vec![0, 60_000, 120_000, 180_000, 240_000],
+    ] {
+        assert_eq!(aborts_a(&times), aborts_b(&times), "{times:?}");
+    }
+}
+
+/// Pin each arm with sealed aborts, then feed the same genuine sealed frame.
+/// A pinned layer uses no keys, so both must show it as text, not open it.
+fn after_pin_a(frame: &[u8]) -> Vec<&'static str> {
+    let mut l = a::Layer::new(
+        a::Config {
+            budget: a::Budget {
+                max_frames: 100,
+                max_bytes: 100_000,
+            },
+        },
+        LayerState::Sealed,
+    );
+    l.attach_sealed(receiver(), |_| CAP);
+    l.open_container();
+    for t in 0..=3 {
+        let _ = l.sealed_abort(t);
+    }
+    let mut items = l.feed(frame, a::Context::default());
+    items.extend(l.finish());
+    items.iter().map(|i| a::item_summary(i).0).collect()
+}
+
+fn after_pin_b(frame: &[u8]) -> Vec<&'static str> {
+    let mut l = b::Layer::new(b::Config {
+        budget: b::Budget {
+            max_frames: 100,
+            max_bytes: 100_000,
+        },
+        background_as_text: false,
+    });
+    l.attach_sealed(receiver(), |_| CAP);
+    l.open_container();
+    for t in 0..=3 {
+        let _ = l.sealed_abort(t);
+    }
+    let mut items = l.feed(frame, b::Context::default());
+    items.extend(l.finish());
+    items.iter().map(|i| b::item_summary(i).0).collect()
+}
+
+const CAP: u8 = 2;
+
+fn receiver() -> lumen_sealed::Receiver {
+    let keys = lumen_sealed::DirectionKeys::derive(
+        &lumen_sealed::LayerRoot::new([6; 32]),
+        lumen_sealed::LayerId(3),
+        lumen_sealed::Direction::ToTerminal,
+    );
+    lumen_sealed::Receiver::new(
+        keys,
+        lumen_sealed::LayerId(3),
+        lumen_sealed::Direction::ToTerminal,
+    )
+}
+
+/// A genuine sealed frame (detector header, then the sealed frame) of type 0x22.
+fn genuine() -> Vec<u8> {
+    let keys = lumen_sealed::DirectionKeys::derive(
+        &lumen_sealed::LayerRoot::new([6; 32]),
+        lumen_sealed::LayerId(3),
+        lumen_sealed::Direction::ToTerminal,
+    );
+    let mut sender = lumen_sealed::Sender::new(
+        keys,
+        lumen_sealed::LayerId(3),
+        lumen_sealed::Direction::ToTerminal,
+        1,
+    );
+    let Ok(sealed) = sender.seal(0x22, CAP, b"\x00\x02hi") else {
+        unreachable!("sealing a short payload succeeds")
+    };
+    let mut v = b"\x1b_".to_vec();
+    v.extend_from_slice(&TAG);
+    v.push(0x22);
+    v.extend_from_slice(&u32::try_from(sealed.len()).unwrap_or(0).to_be_bytes());
+    v.extend(sealed);
+    v
+}
+
+#[test]
+fn a_pinned_layer_shows_a_genuine_sealed_frame_as_text_in_both_arms() {
+    let frame = genuine();
+    let (x, y) = (after_pin_a(&frame), after_pin_b(&frame));
+    assert_eq!(x, y);
+    assert!(!x.contains(&"sealed"), "{x:?}");
+    assert!(x.contains(&"text"), "{x:?}");
+}

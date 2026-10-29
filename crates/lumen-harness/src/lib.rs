@@ -193,6 +193,11 @@ pub enum Origin {
     Sealed,
     /// Anything unsealed: Track 0, plain output, a paste, a program's bytes.
     Unsealed,
+    /// A user action after the terminal's own confirmation, such as opening a
+    /// link whose full target the user confirmed. It is not unsealed input
+    /// causing an effect, so it is not a leak. A harness run that uses it
+    /// simulates the confirmation and must say so.
+    User,
 }
 
 /// Implemented by the terminal's effect code, and only there, to say which

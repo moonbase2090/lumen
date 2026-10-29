@@ -13,24 +13,28 @@
 //! sink is the OS notification. The emulator is still read as a tripwire, so a
 //! notification that gets past the guard counts as an unsealed attempt at it.
 //!
-//! The emulator has no code for clipboard writes, link opens, grants, exit
-//! status or command boundaries: those sinks belong to the terminal window and
-//! to the sealed frame types. They are not registered, so the harness reports
-//! them as never exercised and the verdict stays "not measured" rather than a
-//! zero.
+//! Sealed frames are routed to the other five sinks by [`Terminal::sealed`]:
+//! command start, prompt and command end reach the command-boundary and
+//! exit-status sinks, a grant reaches the grant sink, a clipboard write reaches
+//! the clipboard sink after the terminal's own confirmation, and a notification
+//! is a toast or an OS notification. A link opens only on a confirmed user
+//! action, [`Terminal::user_opens_link`].
+//!
+//! Two user actions are simulated, because the harness has no user: the
+//! clipboard confirmation ([`Desk::confirm_clipboard`]) and the link
+//! confirmation. [`Terminal::simulated`] lists the ones a run used, and the
+//! report must print them.
 //!
 //! This crate is test-only: nothing shipped depends on it.
 
 #![forbid(unsafe_code)]
 
 pub mod guard;
+pub mod sealed;
 
 use guard::Guard;
 use lumen_harness::{Effect, EffectLog, Origin, SinkTable, TerminalSinks};
 use prismattyc_emulator::Emulator;
-
-/// The identity the notification sink presents to the effect log.
-pub const NOTIFICATION_SINK: &str = "lumen-sinks::notification";
 
 /// Columns of the emulator grid. Fixed so a run does not depend on a window.
 const COLUMNS: usize = 80;
@@ -38,6 +42,21 @@ const COLUMNS: usize = 80;
 const ROWS: usize = 24;
 /// Scrollback lines the emulator may keep.
 const SCROLLBACK: usize = 1000;
+
+/// The identity each sink presents to the effect log.
+fn sink_id(effect: Effect) -> &'static str {
+    match effect {
+        Effect::ClipboardWrite => "lumen-sinks::clipboard_write",
+        Effect::Notification => "lumen-sinks::notification",
+        Effect::LinkOpen => "lumen-sinks::link_open",
+        Effect::Grant => "lumen-sinks::grant",
+        Effect::ExitStatus => "lumen-sinks::exit_status",
+        Effect::BoundaryChange => "lumen-sinks::boundary_change",
+    }
+}
+
+/// The identity the notification sink presents to the effect log.
+pub const NOTIFICATION_SINK: &str = "lumen-sinks::notification";
 
 /// The sinks this crate wires, as the effect log expects them.
 #[derive(Debug, Clone, Copy, Default)]
@@ -49,47 +68,98 @@ impl TerminalSinks for WiredSinks {
     }
 
     fn sinks(&self) -> &'static [(Effect, &'static str)] {
-        &[(Effect::Notification, NOTIFICATION_SINK)]
+        &[
+            (Effect::ClipboardWrite, "lumen-sinks::clipboard_write"),
+            (Effect::Notification, NOTIFICATION_SINK),
+            (Effect::LinkOpen, "lumen-sinks::link_open"),
+            (Effect::Grant, "lumen-sinks::grant"),
+            (Effect::ExitStatus, "lumen-sinks::exit_status"),
+            (Effect::BoundaryChange, "lumen-sinks::boundary_change"),
+        ]
     }
 }
 
-/// The terminal's policy for notifications.
+/// The terminal's policy file keys for notifications.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Policy {
-    /// Let unsigned output raise a toast (`allow-unsigned`). Off by default. It
-    /// never raises an OS notification.
+    /// `notifications.allow-unsigned`: let unsigned grid output draw a toast.
+    /// Off by default. It never raises an OS notification.
     pub allow_unsigned: bool,
+    /// `notifications.os`: allow OS notifications from sealed frames. Off by default.
+    pub os_notifications: bool,
+    /// `notifications.os-text`: let an OS notification carry the program's text.
+    /// Off by default.
+    pub os_text: bool,
+    /// Capabilities the policy does not allow a layer to be granted, as a bit
+    /// mask: bit `n` stands for capability number `n`. A grant of one is
+    /// refused. A revoke is never refused.
+    pub grant_denied: u16,
+}
+
+/// What kind of layer the output is on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Layer {
     /// The layer is an SSH session. The opt-in never applies to it.
     pub ssh: bool,
     /// The layer is a multiplexer pane. The opt-in never applies to it.
     pub multiplexer_pane: bool,
 }
 
+/// The window and the user, which the harness can only simulate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Desk {
+    /// The terminal window is unfocused.
+    pub unfocused: bool,
+    /// The user has muted the pane.
+    pub muted: bool,
+    /// The user confirms a clipboard write when asked. Simulated.
+    pub confirm_clipboard: bool,
+}
+
 impl Policy {
-    /// Whether an unsigned notification may be drawn as a toast on this layer.
+    /// Whether the policy allows `capability` to be granted.
     #[must_use]
-    pub fn unsigned_toast_allowed(&self) -> bool {
-        self.allow_unsigned && !self.ssh && !self.multiplexer_pane
+    pub fn allows_grant(&self, capability: u8) -> bool {
+        capability >= 16 || self.grant_denied & (1 << capability) == 0
+    }
+
+    /// Whether an unsigned notification may be drawn as a toast on `layer`.
+    #[must_use]
+    pub fn unsigned_toast_allowed(&self, layer: Layer) -> bool {
+        self.allow_unsigned && !layer.ssh && !layer.multiplexer_pane
     }
 }
 
-/// A layer may show at most one toast per this many milliseconds.
-pub const TOAST_INTERVAL_MS: u64 = 1000;
+/// At least this many milliseconds between two notifications from a layer.
+pub const NOTIFICATION_INTERVAL_MS: u64 = 1000;
 /// A layer may show at most [`TOASTS_PER_WINDOW`] toasts in this many milliseconds.
 pub const TOAST_WINDOW_MS: u64 = 10_000;
 /// The most toasts a layer shows in [`TOAST_WINDOW_MS`].
 pub const TOASTS_PER_WINDOW: usize = 4;
+/// The most bytes of program text in a notification.
+pub const MAX_NOTIFICATION_BYTES: usize = 200;
+/// The most terminal cells of program text in a notification.
+pub const MAX_NOTIFICATION_CELLS: usize = 60;
 
-/// What one case did at the notification sink.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// What one case did at the sinks.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CaseSinks {
-    /// OS notifications that unsigned output raised at the sink. Always zero
+    /// OS notifications that reached the sink from unsigned output. Always zero
     /// unless a notification got past the guard.
     pub notification_attempts: u64,
-    /// Notification sequences the guard removed and denied.
+    /// Notification sequences the guard removed and denied, or dropped over a limit.
     pub denied_notifications: u64,
-    /// Notification sequences shown as a terminal-drawn toast.
+    /// Notifications shown as a terminal-drawn toast.
     pub toasts: u64,
+    /// OS notifications raised from sealed frames.
+    pub os_notifications: u64,
+    /// Sealed frames refused: unknown type, malformed, out of sequence, or
+    /// without the capability.
+    pub refused: u64,
+    /// Attempts at each sink in this case, from any origin, by effect name.
+    pub effects: std::collections::BTreeMap<&'static str, u64>,
+    /// The text of each OS notification raised, in order.
+    pub os_texts: Vec<String>,
 }
 
 /// The upstream emulator behind the notification guard, with an effect log on
@@ -97,11 +167,18 @@ pub struct CaseSinks {
 pub struct Terminal {
     emulator: Emulator,
     guard: Guard,
+    guard_enabled: bool,
     policy: Policy,
+    layer: Layer,
+    desk: Desk,
     log: EffectLog,
     case: CaseSinks,
+    accepted_times: Vec<u64>,
     toast_times: Vec<u64>,
     orphan: bool,
+    command: sealed::CommandState,
+    granted: [bool; 9],
+    simulated: Vec<&'static str>,
 }
 
 impl Terminal {
@@ -118,11 +195,18 @@ impl Terminal {
         Self {
             emulator: Emulator::new(COLUMNS, ROWS, SCROLLBACK),
             guard: Guard::new(),
+            guard_enabled: true,
             policy,
+            layer: Layer::default(),
+            desk: Desk::default(),
             log: EffectLog::new(SinkTable::from_terminal(&WiredSinks)),
             case: CaseSinks::default(),
+            accepted_times: Vec::new(),
             toast_times: Vec::new(),
             orphan: false,
+            command: sealed::CommandState::default(),
+            granted: [false; 9],
+            simulated: Vec::new(),
         }
     }
 
@@ -139,7 +223,11 @@ impl Terminal {
     pub fn feed_at(&mut self, bytes: &[u8], origin: Origin, input: &str, now_ms: u64) {
         let mut out = Vec::with_capacity(bytes.len());
         let mut found = Vec::new();
-        self.guard.filter(bytes, &mut out, &mut found);
+        if self.guard_enabled {
+            self.guard.filter(bytes, &mut out, &mut found);
+        } else {
+            out.extend_from_slice(bytes);
+        }
         self.deliver(&out, &found, origin, input, now_ms);
     }
 
@@ -160,40 +248,62 @@ impl Terminal {
     ) {
         self.emulator.feed(out);
         for _ in found {
-            let spaced = self
-                .toast_times
-                .last()
-                .is_none_or(|t| now_ms.saturating_sub(*t) >= TOAST_INTERVAL_MS);
-            let in_window = self
-                .toast_times
-                .iter()
-                .filter(|t| now_ms.saturating_sub(**t) < TOAST_WINDOW_MS)
-                .count();
-            if self.policy.unsigned_toast_allowed()
-                && !self.orphan
-                && spaced
-                && in_window < TOASTS_PER_WINDOW
-            {
-                self.toast_times.push(now_ms);
+            let allowed = self.policy.unsigned_toast_allowed(self.layer) && !self.orphan;
+            if allowed && self.toast_ok(now_ms) {
+                self.accept(now_ms, true);
                 self.case.toasts += 1;
             } else {
-                // Denied by default, or past the rate limit: dropped and counted.
+                // Denied by default, or past a rate limit: dropped and counted.
                 self.case.denied_notifications += 1;
             }
         }
         // The guard should leave the emulator nothing to raise. If it does
         // anyway, that is a notification the guard missed, and it counts.
         if self.emulator.take_pending_attention().is_some() {
-            self.attempt(origin, input);
+            if origin == Origin::Unsealed {
+                self.case.notification_attempts += 1;
+            }
+            self.attempt(Effect::Notification, origin, input);
         }
     }
 
-    fn attempt(&mut self, origin: Origin, input: &str) {
-        if origin == Origin::Unsealed {
-            self.case.notification_attempts += 1;
+    /// Whether a notification may be accepted from the layer now: at least
+    /// [`NOTIFICATION_INTERVAL_MS`] after the last one.
+    fn spaced(&self, now_ms: u64) -> bool {
+        self.accepted_times
+            .last()
+            .is_none_or(|t| now_ms.saturating_sub(*t) >= NOTIFICATION_INTERVAL_MS)
+    }
+
+    /// Whether a toast may be drawn now: spaced, and under the window limit.
+    fn toast_ok(&self, now_ms: u64) -> bool {
+        let in_window = self
+            .toast_times
+            .iter()
+            .filter(|t| now_ms.saturating_sub(**t) < TOAST_WINDOW_MS)
+            .count();
+        self.spaced(now_ms) && in_window < TOASTS_PER_WINDOW
+    }
+
+    /// Record an accepted notification.
+    fn accept(&mut self, now_ms: u64, toast: bool) {
+        self.accepted_times.push(now_ms);
+        if toast {
+            self.toast_times.push(now_ms);
         }
-        self.log
-            .attempt(Effect::Notification, origin, input, NOTIFICATION_SINK);
+    }
+
+    /// Record an attempt at the sink for `effect`.
+    fn attempt(&mut self, effect: Effect, origin: Origin, input: &str) {
+        *self.case.effects.entry(effect.name()).or_insert(0) += 1;
+        self.log.attempt(effect, origin, input, sink_id(effect));
+    }
+
+    /// Turn the guard off. This is a negative control for tests: with it off, a
+    /// notification in plain output reaches the emulator, and the count must
+    /// not be zero. A run that reports a result never calls it.
+    pub fn disable_guard_for_negative_control(&mut self) {
+        self.guard_enabled = false;
     }
 
     /// Say whether the output is orphan output (no command container is open).
@@ -207,19 +317,38 @@ impl Terminal {
         self.policy = policy;
     }
 
-    /// Start a new case: a fresh emulator and guard and zeroed case counts, the
-    /// same effect log, so a case cannot leak state into the next.
+    /// Set what kind of layer the cases that follow run on.
+    pub fn set_layer(&mut self, layer: Layer) {
+        self.layer = layer;
+    }
+
+    /// Set the window and simulated user state for the cases that follow.
+    pub fn set_desk(&mut self, desk: Desk) {
+        self.desk = desk;
+    }
+
+    /// Start a new case: a fresh emulator, guard, layer state and case counts,
+    /// the same effect log, so a case cannot leak state into the next.
     pub fn new_case(&mut self) {
         self.emulator = Emulator::new(COLUMNS, ROWS, SCROLLBACK);
         self.guard = Guard::new();
         self.case = CaseSinks::default();
+        self.accepted_times.clear();
         self.toast_times.clear();
+        self.command = sealed::CommandState::default();
+        self.granted = [false; 9];
     }
 
-    /// What the current case did at the notification sink so far.
+    /// What the current case did at the sinks so far.
     #[must_use]
-    pub fn case_sinks(&self) -> CaseSinks {
-        self.case
+    pub fn case_sinks(&self) -> &CaseSinks {
+        &self.case
+    }
+
+    /// The simulated user actions this terminal used, for the report.
+    #[must_use]
+    pub fn simulated(&self) -> &[&'static str] {
+        &self.simulated
     }
 
     /// The effect log.
