@@ -49,16 +49,17 @@ The type byte of a frame names what the frame asks for. Sealed types are below 0
 | 0x12 | command end | closes the command's container and carries its exit status (an exit-status and command-boundary change) | a sealed shell-integration layer |
 | 0x20 | grant | grants a capability to the layer, or narrows a grant | a sealed shell-integration layer |
 | 0x21 | clipboard write | asks for a clipboard write; nothing is written until the terminal's own confirmation, which shows the exact bytes | the `clipboard-write` capability |
+| 0x22 | notification | raises one notification, which the terminal shows in its own notification handling | the `notifications` capability |
 | 0x30 | staged-content marker | commits side-channel content staged under a one-shot id | the `side-channel` capability |
 
-Types 0x22 (notification) and 0x23 (title) are reserved. v0 defines no capability for them, so a terminal rejects them as it rejects any unknown sealed type.
+Type 0x23 (title) is reserved. v0 defines no capability for it, so a terminal rejects it as it rejects any unknown sealed type. Notifications from unsealed bytes are not frames and are handled as the [capability list](@/spec/v0/capabilities.md#caps.list) and the trust rules describe.
 
-**Unsealed types.** 0x80 is a paragraph, 0x81 a heading and 0x82 a code block. All other unsealed types are reserved. An unsealed frame can never cause one of the effects above: it creates no command structure, grants nothing, writes no clipboard, shows no exit status and raises no notification. The other Track 0 block kinds listed in [Scope](@/spec/v0/trust.md#trust.track0-scope) take their type bytes from this range when they are added to the profile.
+**Unsealed types.** 0x80 is a paragraph, 0x81 a heading and 0x82 a code block. All other unsealed types are reserved. An unsealed frame can never cause one of the effects above: it creates no command structure, grants nothing, writes no clipboard, shows no exit status and raises no notification. This profile carries only these three. The other block kinds in [Scope](@/spec/v0/trust.md#trust.track0-scope) take their type bytes from this range when they are added to it, and until then a frame of a kind this profile does not define renders as escaped text.
 
 **Rules.**
 
-- A sealed type that is not in this table, or that the layer's grant does not cover, is rejected as a failed authenticated frame under [Frame abort](#transport.abort). It has no effect.
-- A multiplexer's keys cover only types 0x01 and 0x02, as in [Keys](@/spec/v0/multiplexers.md#mux.keys). Every other sealed type under them is rejected and treated as a desync.
+- A sealed frame whose header verified but whose type is not in this table, or is not covered by the layer's grant, is refused. It has no effect. Its payload is shown once as a failed frame, as for an AEAD failure under [Frame abort](#transport.abort), and it counts toward the [pin](#transport.pin) as a failed authenticated frame.
+- A multiplexer's keys cover only types 0x01 and 0x02, as in [Keys](@/spec/v0/multiplexers.md#mux.keys). Every other sealed type under them is refused as above, and in addition the layer is treated as desynchronised and its panes fall back to text.
 - A link opens only after the user confirms the full target, and a capability reply travels on the control channel, not in a frame. Neither has a type byte.
 - The effect of a type happens in the terminal's sink for that effect and nowhere else. A conformance test counts attempts at each sink and the origin of the input that caused them.
 
