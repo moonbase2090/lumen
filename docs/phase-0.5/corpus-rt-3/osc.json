@@ -1,0 +1,594 @@
+{
+ "revision": "rt-3",
+ "note": "notification cases: OSC 9, 777 and 99 are removed before the emulator. By default they are denied for unsigned output. With allow-unsigned they become terminal-drawn toasts on a local layer, at most one per layer per second, the rest dropped and counted; the opt-in never applies to an SSH session or a multiplexer pane. No unsigned case reaches the OS notification sink. Counts are in `sinks`. Sealed notifications are not in this revision.",
+ "cases": [
+  {
+   "id": "osc9-grid",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "6c730a1b5d393b6275696c6420646f6e6507",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "OSC 9 in grid output, BEL-terminated: removed and denied, nothing reaches the sink"
+  },
+  {
+   "id": "osc777-grid",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d3737373b6e6f746966793b7469746c653b626f64791b5c",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "OSC 777 notify, ST-terminated"
+  },
+  {
+   "id": "osc99-grid",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d39393b693d313b626f647920746578741b5c",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "OSC 99, ST-terminated"
+  },
+  {
+   "id": "osc9-eight-bit-st",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b646f6e659c",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "terminated by the 8-bit ST"
+  },
+  {
+   "id": "osc9-split-in-number",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "6c730a1b5d",
+     "t_ms": 0
+    },
+    {
+     "hex": "39",
+     "t_ms": 5
+    },
+    {
+     "hex": "3b68656c6c6f07",
+     "t_ms": 10
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "split between the introducer, the number and the body"
+  },
+  {
+   "id": "osc9-split-in-terminator",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b68656c6c6f1b",
+     "t_ms": 0
+    },
+    {
+     "hex": "5c6166746572",
+     "t_ms": 5
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "split inside ESC backslash"
+  },
+  {
+   "id": "osc9-leading-zeros",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d3030393b7807",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "the number is read as digits, so 009 is OSC 9"
+  },
+  {
+   "id": "osc9-fifty-in-one-read",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e07",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 50,
+    "toasts": 0
+   },
+   "note": "each sequence is counted once; none reaches the sink"
+  },
+  {
+   "id": "osc52-and-title-are-not-notifications",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d35323b633b5a585a7062413d3d071b5d303b61207469746c6507",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 0,
+    "toasts": 0
+   },
+   "note": "other OSC numbers are not intercepted by this rule and raise no notification"
+  },
+  {
+   "id": "osc9-after-aborted-sequence",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b616263181b5d3737373b6e6f746966793b743b6207",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 2,
+    "toasts": 0
+   },
+   "note": "CAN ends the first; the second is a fresh sequence"
+  },
+  {
+   "id": "track0-payload-with-osc-text",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "6c730a1b5f8a4c554d454e01f3800000000a0008611b5d393b780762",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 0,
+    "toasts": 0
+   },
+   "note": "a control character in a Track 0 string refuses the frame; it is shown as escaped text and never reaches the emulator as a sequence"
+  },
+  {
+   "id": "orphan-track0-then-osc9",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5f8a4c554d454e01f38000000007000568656c6c6f1b5d393b7807",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "no command container is open: the frame goes to the background strip and the OSC is still denied",
+   "context": {
+    "container": false
+   }
+  },
+  {
+   "id": "multiplexer-osc9",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "TMUX or STY is set: the OSC is still removed and denied",
+   "context": {
+    "tmux_or_screen": true
+   }
+  },
+  {
+   "id": "multiplexer-passthrough-wrapper",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b50746d75783b1b1b5d393b78071b5c",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "the tmux passthrough wrapper doubles the ESC; the notification inside is still removed and denied",
+   "context": {
+    "tmux_or_screen": true
+   }
+  },
+  {
+   "id": "alt-screen-osc9",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "alternate screen active",
+   "context": {
+    "alt_screen": true
+   }
+  },
+  {
+   "id": "utf8-text-with-9d-is-kept",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "e29f9d393b6e6f7420616e206f736307",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 0,
+    "toasts": 0
+   },
+   "note": "U+27DD ends in byte 0x9D; the 8-bit C1 form is not an OSC introducer to the pinned emulator, so the text is kept"
+  },
+  {
+   "id": "osc9-grid-allow-unsigned",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "6c730a1b5d393b6275696c6420646f6e6507",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 0,
+    "toasts": 1
+   },
+   "note": "allow-unsigned on: the notification becomes a terminal-drawn toast; no OS notification reaches the sink",
+   "context": {
+    "allow_unsigned": true
+   }
+  },
+  {
+   "id": "osc777-grid-allow-unsigned",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d3737373b6e6f746966793b7469746c653b626f64791b5c",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 0,
+    "toasts": 1
+   },
+   "note": "allow-unsigned on, OSC 777",
+   "context": {
+    "allow_unsigned": true
+   }
+  },
+  {
+   "id": "osc99-grid-allow-unsigned",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d39393b693d313b626f647920746578741b5c",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 0,
+    "toasts": 1
+   },
+   "note": "allow-unsigned on, OSC 99",
+   "context": {
+    "allow_unsigned": true
+   }
+  },
+  {
+   "id": "osc9-fifty-allow-unsigned",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e07",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 49,
+    "toasts": 1
+   },
+   "note": "allow-unsigned on: one toast per layer per second, so one toast and 49 dropped and counted; still no OS notification",
+   "context": {
+    "allow_unsigned": true
+   }
+  },
+  {
+   "id": "orphan-osc9-allow-unsigned",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5f8a4c554d454e01f38000000007000568656c6c6f1b5d393b7807",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "allow-unsigned on, orphan output: the opt-in covers unsigned grid output only, so the notification is denied, with no toast and no OS notification",
+   "context": {
+    "container": false,
+    "allow_unsigned": true
+   }
+  },
+  {
+   "id": "multiplexer-osc9-allow-unsigned",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "allow-unsigned never applies to a multiplexer pane (TMUX or STY set): denied, no toast, no OS notification",
+   "context": {
+    "tmux_or_screen": true,
+    "allow_unsigned": true
+   }
+  },
+  {
+   "id": "alt-screen-osc9-allow-unsigned",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 0,
+    "toasts": 1
+   },
+   "note": "allow-unsigned on, alternate screen",
+   "context": {
+    "alt_screen": true,
+    "allow_unsigned": true
+   }
+  },
+  {
+   "id": "track0-payload-allow-unsigned",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "6c730a1b5f8a4c554d454e01f3800000000a0008611b5d393b780762",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 0,
+    "toasts": 0
+   },
+   "note": "allow-unsigned on: a Track 0 string with an OSC is still escaped text, so there is no toast",
+   "context": {
+    "allow_unsigned": true
+   }
+  },
+  {
+   "id": "ssh-osc9-allow-unsigned",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "context": {
+    "allow_unsigned": true,
+    "ssh": true
+   },
+   "note": "allow-unsigned never applies to an SSH session: denied, no toast, no OS notification"
+  },
+  {
+   "id": "osc9-two-in-one-second-allow-unsigned",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 500
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 1
+   },
+   "context": {
+    "allow_unsigned": true
+   },
+   "note": "two reads 500 ms apart: the first is a toast, the second is dropped and counted"
+  },
+  {
+   "id": "osc9-two-a-second-apart-allow-unsigned",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 1000
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 0,
+    "toasts": 2
+   },
+   "context": {
+    "allow_unsigned": true
+   },
+   "note": "two reads 1000 ms apart: both are toasts"
+  },
+  {
+   "id": "osc9-ssh-and-multiplexer-default-policy",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "context": {
+    "ssh": true,
+    "tmux_or_screen": true
+   },
+   "note": "default policy on an SSH layer under a multiplexer: denied"
+  },
+  {
+   "id": "osc9-five-in-ten-seconds-allow-unsigned",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 0
+    },
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 1000
+    },
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 2000
+    },
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 3000
+    },
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 4000
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 4
+   },
+   "context": {
+    "allow_unsigned": true
+   },
+   "note": "five reads a second apart: four toasts in ten seconds, the fifth is dropped and counted"
+  },
+  {
+   "id": "osc9-eight-bit-introducer",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "6c730a9d393b646f6e6507",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "raw 0x9D outside a UTF-8 sequence is an OSC introducer to the guard"
+  },
+  {
+   "id": "osc9-eight-bit-introducer-utf8-form",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "c29d3737373b6e6f746966793b743b629c",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1,
+    "toasts": 0
+   },
+   "note": "the two-byte UTF-8 form of the 8-bit introducer, ended by the 8-bit ST"
+  }
+ ]
+}

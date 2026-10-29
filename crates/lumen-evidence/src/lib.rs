@@ -24,6 +24,18 @@
 //!   produce, in order, once adjacent `output` items and adjacent `text` items
 //!   are each joined (a read boundary can split them). Used by the reach mode
 //!   ([`matrix`]); the corpus replay ignores it.
+//! - `sinks`: optional `{"notification_attempts": n, "denied_notifications": m,
+//!   "toasts": t}`, the counts the case must produce: OS notifications that
+//!   reached the sink (v0 raises none), notification sequences the guard removed
+//!   and denied, and notification sequences shown as a terminal-drawn toast. A
+//!   count that differs is a violation of the case. A key that is left out is
+//!   not checked.
+//! - `context.allow_unsigned`: the policy `allow-unsigned` for the case
+//!   (default false). With it, unsigned notifications on a local layer become
+//!   toasts, at most one per second; the rest are dropped and counted.
+//!   `context.ssh` marks an SSH session. The opt-in never applies to an SSH
+//!   session, to a layer with `tmux_or_screen` set, or to orphan output
+//!   (`container` false), because the opt-in covers grid output only.
 //! - `forbid`: optional item kinds that must not appear (for example `sealed`
 //!   for input that never came from a sealed layer). Each occurrence is a
 //!   violation. The kinds are the item kinds of either arm
@@ -85,10 +97,51 @@ pub struct Case {
     pub tmux_or_screen: bool,
     /// A command's container is open.
     pub container: bool,
+    /// The terminal policy for this case.
+    pub policy: lumen_sinks::Policy,
     /// Item kinds that must not appear.
     pub forbid: Vec<String>,
     /// The kinds each arm must produce: key `b` for Arm B, `a` for Arm A.
     pub expect: BTreeMap<String, Vec<String>>,
+    /// The notification-sink counts the case must produce.
+    pub sinks: SinkExpect,
+}
+
+/// Expected counts at the notification sink. `None` is not checked.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SinkExpect {
+    /// Notifications that unsigned output raised at the sink.
+    pub notification_attempts: Option<u64>,
+    /// Notification sequences the guard removed and denied.
+    pub denied_notifications: Option<u64>,
+    /// Notification sequences shown as a terminal-drawn toast.
+    pub toasts: Option<u64>,
+}
+
+fn sinks_of(id: &str, v: &Value) -> Result<SinkExpect, String> {
+    let mut out = SinkExpect::default();
+    if v.is_null() {
+        return Ok(out);
+    }
+    let obj = v
+        .as_object()
+        .ok_or_else(|| format!("{id}: sinks must be an object"))?;
+    for (key, n) in obj {
+        let n = n
+            .as_u64()
+            .ok_or_else(|| format!("{id}: sinks.{key} must be a whole number"))?;
+        match key.as_str() {
+            "notification_attempts" => out.notification_attempts = Some(n),
+            "denied_notifications" => out.denied_notifications = Some(n),
+            "toasts" => out.toasts = Some(n),
+            other => {
+                return Err(format!(
+                    "{id}: unknown sinks key {other:?}; use notification_attempts, denied_notifications or toasts"
+                ));
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// A loaded corpus.
@@ -182,13 +235,20 @@ pub(crate) fn case_of(v: &Value) -> Result<Case, String> {
         .map_err(|e| format!("{id}: {e}"))?;
     let forbid = kinds_of(&id, "forbid", &v["forbid"])?;
     let expect = expect_of(&id, &v["expect"])?;
+    let sinks = sinks_of(&id, &v["sinks"])?;
     Ok(Case {
         category: v["category"].as_str().unwrap_or_default().to_owned(),
         alt_screen: v["context"]["alt_screen"].as_bool().unwrap_or(false),
         tmux_or_screen: v["context"]["tmux_or_screen"].as_bool().unwrap_or(false),
         container: v["context"]["container"].as_bool().unwrap_or(true),
+        policy: lumen_sinks::Policy {
+            allow_unsigned: v["context"]["allow_unsigned"].as_bool().unwrap_or(false),
+            ssh: v["context"]["ssh"].as_bool().unwrap_or(false),
+            multiplexer_pane: v["context"]["tmux_or_screen"].as_bool().unwrap_or(false),
+        },
         forbid,
         expect,
+        sinks,
         reads,
         id,
     })
@@ -251,6 +311,8 @@ pub struct CaseResult {
     /// Every item kind in order, with adjacent `output` and adjacent `text`
     /// items each joined.
     pub sequence: Vec<&'static str>,
+    /// What the case did at the notification sink, when a terminal was driven.
+    pub sinks: Option<lumen_sinks::CaseSinks>,
 }
 
 /// The result of a whole run.
@@ -293,8 +355,18 @@ impl Report {
         for c in &self.cases {
             let _ = writeln!(
                 out,
-                "{} items={:?} violations={} counters={}",
-                c.id, c.kinds, c.violations, c.counters
+                "{} items={:?} violations={} sinks={} counters={}",
+                c.id,
+                c.kinds,
+                c.violations,
+                c.sinks.map_or_else(
+                    || "n/a".to_owned(),
+                    |s| format!(
+                        "{}/{}/{}",
+                        s.notification_attempts, s.denied_notifications, s.toasts
+                    )
+                ),
+                c.counters
             );
         }
         out
@@ -492,6 +564,8 @@ pub(crate) fn run_case<W: Write>(
 ) -> std::io::Result<CaseResult> {
     if let Some(t) = &mut terminal {
         t.new_case();
+        t.set_policy(case.policy);
+        t.set_orphan(!case.container);
     }
     let mut layer = AnyLayer::new(arm);
     if case.container {
@@ -520,21 +594,38 @@ pub(crate) fn run_case<W: Write>(
         last_t = r.t_ms;
         let items = layer.feed_items(&r.bytes, case.alt_screen, case.tmux_or_screen, r.t_ms);
         if let Some(t) = &mut terminal {
-            t.feed(&items.output(), Origin::Unsealed, &case.id);
+            t.feed_at(&items.output(), Origin::Unsealed, &case.id, r.t_ms);
         }
         record(r.t_ms, r.bytes.len(), &items.summary(), rec)?;
     }
     let items = layer.finish_items();
+    let mut sinks = None;
+    let mut sink_violation = 0;
     if let Some(t) = &mut terminal {
-        t.feed(&items.output(), Origin::Unsealed, &case.id);
+        t.feed_at(&items.output(), Origin::Unsealed, &case.id, last_t);
+        t.finish(Origin::Unsealed, &case.id, last_t);
+        let got = t.case_sinks();
+        let want = case.sinks;
+        if want
+            .notification_attempts
+            .is_some_and(|n| n != got.notification_attempts)
+            || want
+                .denied_notifications
+                .is_some_and(|n| n != got.denied_notifications)
+            || want.toasts.is_some_and(|n| n != got.toasts)
+        {
+            sink_violation = 1;
+        }
+        sinks = Some(got);
     }
     record(last_t, 0, &items.summary(), rec)?;
     Ok(CaseResult {
         id: case.id.clone(),
         kinds,
         counters: layer.counters(),
-        violations,
+        violations: violations + sink_violation,
         sequence,
+        sinks,
     })
 }
 

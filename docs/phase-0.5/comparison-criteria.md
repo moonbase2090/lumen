@@ -149,10 +149,11 @@ The shared red-team and replay corpus is a directory of JSON files, read in name
 
 - `id` and `category`, both strings. Ids are unique across the corpus.
 - `reads`: the PTY reads in order. Each read is `{"hex": "..."}` or `{"fill": "<hex byte>", "count": n}`, the same segment encoding as `conformance/vectors`, with an optional `t_ms` (default 0).
-- `context`: optional `alt_screen` and `tmux_or_screen` booleans, and `container` (default true).
+- `context`: optional `alt_screen`, `tmux_or_screen`, `allow_unsigned` and `ssh` booleans (default false), and `container` (default true).
 - `forbid`: optional item kinds that must not appear. Each entry must be one of the item kinds the layer reports. An unknown kind fails the load with the case id, so a typo cannot pass silently.
 
 - `expect`: optional positive expectation, `{"b": [...], "a": [...]}`, the item kinds Arm B and Arm A must produce, in order. Adjacent `output` items and adjacent `text` items are each joined first, because a read boundary can split them. Kinds are checked like `forbid`, and a key other than `b` and `a` fails the load. The red-team corpus does not use `expect`; the corpus replay ignores it. The reach mode (2.1) requires it on every session of the matrix.
+- `sinks`: optional `{"notification_attempts": n, "denied_notifications": m, "toasts": t}`, the counts the case must produce (5.7): OS notifications that reached the sink, notifications denied or dropped, and notifications drawn as a toast. A count that differs makes the case a violation, and a key that is left out is not checked. An unknown key or a value that is not a whole number fails the load with the case id. `context` also takes `allow_unsigned` and `ssh` (both default false), the policy and layer facts for the case.
 
 The format is defined in `crates/lumen-evidence/src/lib.rs`. A change to it is a change to the corpus revision and needs both arms' agreement.
 
@@ -210,11 +211,15 @@ A format passes when it has at least 1000 CPU-hours, no crash after the last 168
 
 ### 5.7 Terminal sinks (authority leakage)
 
-The corpus replay (5.1) feeds the ordinary output each arm's layer passes on to the upstream emulator, unchanged, through the `lumen-sinks` crate, and reports each effect the emulator raises through the harness effect log with the origin of the input. Ordinary output is always unsealed. The summary's `2.4=` line and the per-sink `exercised`, `unsealed` and `foreign` counts are printed as the harness reports them, and the log header names `lumen-sinks` as the source of the sink table.
+The corpus replay (5.1) passes the ordinary output each arm's layer passes on to the terminal model in the `lumen-sinks` crate, and reports each effect through the harness effect log with the origin of the input. Ordinary output is always unsealed. The summary's `2.4=` line and the per-sink `exercised`, `unsealed` and `foreign` counts are printed as the harness reports them, and the log header names `lumen-sinks` as the source of the sink table.
 
-Only effects that the emulator raises are wired, and they are read from the emulator itself. Today that is the notification sink (OSC 9, OSC 777 and OSC 99). The emulator has no code for clipboard writes, link opens, grants, exit status or command boundaries; those belong to the terminal window and the sealed command types, which do not exist in this tree. They are not registered, so they show as never exercised and the verdict is `not measured`, never zero. A sealed-origin attempt per sink is also needed for a zero, because a sink that was never reached proves nothing. A result must print the per-sink lines and may report only the sinks it exercised.
+**Notification guard.** The model puts a guard in front of the upstream emulator. It removes OSC 9, OSC 777 and OSC 99 from the bytes before the emulator sees them, whether the output is grid output, Track 0 output or orphan output, and whatever the multiplexer or alternate-screen state. The introducers are `ESC ]`, the raw 8-bit C1 byte 0x9D outside a UTF-8 sequence, and its UTF-8 form C2 9D. The number is read as digits, so `009` is OSC 9. A sequence may end with BEL, `ESC \` or the 8-bit ST; CAN, SUB or another escape sequence also ends it. The guard keeps its state across reads.
 
-A corpus case with an OSC notification in plain output is counted as a leak by this reading, because the emulator raises the notification from unsealed bytes. Whether the terminal filters such sequences before the emulator is a design decision for the terminal; this harness measures the emulator as pinned.
+By default a removed notification is denied: it draws nothing, and the denial is counted (`denied_notifications`). Unsigned output never raises an OS notification. With the policy `allow-unsigned`, on a local layer that is not an SSH session or a multiplexer pane (`tmux_or_screen` set), and for grid output only (not orphan output, where no command container is open), a removed notification is drawn as a terminal toast (`toasts`), at most one per layer per second and four in ten seconds on the read timestamps; the rest are dropped and counted as denied. The emulator is still read as a tripwire, so a notification that gets past the guard counts as an unsealed attempt at the sink (`notification_attempts`), and every rt-3 case expects zero of those.
+
+**What is still not measured.** The emulator has no code for clipboard writes, link opens, grants, exit status or command boundaries; those belong to the terminal window and to the sealed frame types, which the transport section of the spec numbers. They are not registered, so they show as never exercised and the verdict is `not measured`, never zero. A zero needs every sink exercised, with a sealed-origin attempt at each; a sink that was never reached proves nothing. A result must print the per-sink lines and may report only the sinks it exercised. Sealed notifications (type 0x22 with the `notifications` grant) are not in the corpus yet.
+
+The notification cases are in `docs/phase-0.5/corpus-rt-3` (revision `rt-3`), each with its `sinks` counts.
 
 ## 6. Results format
 

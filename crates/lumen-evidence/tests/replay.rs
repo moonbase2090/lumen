@@ -215,33 +215,88 @@ fn rt2_opens_nothing_on_an_unsealed_layer() {
     }
 }
 
+fn rt3() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/phase-0.5/corpus-rt-3")
+}
+
 #[test]
-fn a_notification_in_ordinary_output_reaches_the_terminal_sink_in_both_arms() {
-    let dir = std::env::temp_dir().join(format!("lumen-evidence-osc-{}", std::process::id()));
+fn the_notification_corpus_is_denied_before_the_sink_in_every_arm() {
+    let Ok(corpus) = load_corpus(&rt3()) else {
+        unreachable!("the committed corpus loads")
+    };
+    assert_eq!(corpus.revision, "rt-3");
+    for arm in [Arm::B, Arm::ASealed, Arm::AUnsealed] {
+        let Ok((report, _)) = run_arm(&corpus, "testsha", arm, Vec::new()) else {
+            unreachable!("writing to a Vec succeeds")
+        };
+        assert_eq!(report.violations(), 0, "{arm:?}");
+        let attempts: u64 = report
+            .cases
+            .iter()
+            .filter_map(|c| c.sinks.map(|s| s.notification_attempts))
+            .sum();
+        let denied: u64 = report
+            .cases
+            .iter()
+            .filter_map(|c| c.sinks.map(|s| s.denied_notifications))
+            .sum();
+        assert_eq!(
+            attempts, 0,
+            "{arm:?}: no unsigned notification reaches the sink"
+        );
+        assert!(denied >= 50, "{arm:?}: denials are counted ({denied})");
+        // Nothing was raised, and five sinks have no code, so 2.4 stays not measured.
+        assert!(
+            report.authority.starts_with("2.4=not measured"),
+            "{}",
+            report.authority
+        );
+    }
+}
+
+#[test]
+fn a_sinks_expectation_that_does_not_hold_is_a_violation() {
+    let dir = std::env::temp_dir().join(format!("lumen-evidence-sinks-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
-    // "ls\n", then OSC 9, then a notification inside a Track 0 frame's payload text.
+    // The case denies one notification but expects two.
     let doc = r#"{"revision":"t","cases":[
-        {"id":"osc9-plain","reads":[{"hex":"6c730a1b5d393b6275696c6420646f6e6507"}]},
-        {"id":"nothing","reads":[{"hex":"6c730a"}]}]}"#;
+        {"id":"wrong","reads":[{"hex":"1b5d393b7807"}],"sinks":{"denied_notifications":2}},
+        {"id":"right","reads":[{"hex":"1b5d393b7807"}],"sinks":{"denied_notifications":1,"notification_attempts":0}}]}"#;
     assert!(std::fs::write(dir.join("c.json"), doc).is_ok());
     let Ok(corpus) = load_corpus(&dir) else {
         unreachable!("the corpus loads")
     };
-    for arm in [Arm::B, Arm::ASealed, Arm::AUnsealed] {
-        let Ok((report, header)) = run_arm(&corpus, "testsha", arm, Vec::new()) else {
-            unreachable!("writing to a Vec succeeds")
-        };
-        assert_eq!(header.sinks, "lumen-sinks");
-        assert!(
-            report.authority.starts_with("2.4=non-zero (1)"),
-            "{arm:?}: {}",
-            report.authority
-        );
-        assert!(
-            report
-                .authority
-                .contains("notification exercised=1 unsealed=1 foreign=0")
-        );
-    }
+    let Ok((report, _)) = run_arm(&corpus, "testsha", Arm::B, Vec::new()) else {
+        unreachable!("writing to a Vec succeeds")
+    };
+    let violations: Vec<_> = report
+        .cases
+        .iter()
+        .map(|c| (c.id.as_str(), c.violations))
+        .collect();
+    assert_eq!(violations, [("wrong", 1), ("right", 0)]);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_bad_sinks_object_fails_the_load_with_the_case_id() {
+    for (i, bad) in [
+        r#""sinks":{"nope":1}"#,
+        r#""sinks":{"denied_notifications":"1"}"#,
+        r#""sinks":[1]"#,
+    ]
+    .iter()
+    .enumerate()
+    {
+        let dir =
+            std::env::temp_dir().join(format!("lumen-evidence-sinksbad{i}-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let doc = format!(
+            r#"{{"revision":"t","cases":[{{"id":"case-x","reads":[{{"hex":"61"}}],{bad}}}]}}"#
+        );
+        assert!(std::fs::write(dir.join("c.json"), doc).is_ok());
+        let e = load_corpus(&dir).err().unwrap_or_default();
+        assert!(e.contains("case-x") && e.contains("sinks"), "{bad}: {e}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
