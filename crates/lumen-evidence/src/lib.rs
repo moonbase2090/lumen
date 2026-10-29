@@ -55,6 +55,9 @@ pub mod flood;
 pub mod matrix;
 pub mod panes;
 pub mod parity;
+pub mod pixels;
+
+pub use lumen_term::Renderer;
 pub mod pc1;
 pub mod placement;
 pub mod render;
