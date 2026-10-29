@@ -18,7 +18,7 @@ arm-b = ["dep:lumen-arm-b"]
 prismattyc-core.workspace = true
 prismattyc-emulator.workspace = true
 lumen-track0 = { path = "../lumen-track0" }
-fontdue = "0.9"
+swash = "0.2"
 png = "0.17"
 lumen-arm-a = { path = "../lumen-arm-a", optional = true }
 lumen-arm-b = { path = "../lumen-arm-b", optional = true }
