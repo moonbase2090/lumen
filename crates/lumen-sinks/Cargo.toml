@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 lumen-harness = { path = "../lumen-harness" }
 lumen-sealed = { path = "../lumen-sealed" }
+lumen-term = { path = "../lumen-term" }
 prismattyc-emulator.workspace = true
 
 [lints]

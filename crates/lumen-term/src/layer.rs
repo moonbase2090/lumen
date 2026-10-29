@@ -35,12 +35,12 @@ pub enum Piece {
     Text(String),
     /// A chrome notice.
     Notice(Notice),
-    /// A sealed frame that verified and opened, with its payload length.
+    /// A sealed frame that verified and opened, with its decrypted payload.
     Sealed {
         /// The sealed frame type.
         kind: u8,
-        /// Length of the decrypted payload.
-        len: usize,
+        /// The decrypted payload.
+        body: Vec<u8>,
     },
 }
 
@@ -136,7 +136,7 @@ mod arm_b {
             b::Item::Pinned => Piece::Notice(Notice::Pinned),
             b::Item::Sealed { header, body } => Piece::Sealed {
                 kind: header.kind,
-                len: body.len(),
+                body,
             },
         }
     }

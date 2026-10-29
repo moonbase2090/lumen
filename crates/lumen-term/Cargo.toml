@@ -15,6 +15,8 @@ lumen-track0 = { path = "../lumen-track0" }
 swash = "0.2"
 png = "0.17"
 lumen-arm-b = { path = "../lumen-arm-b" }
+unicode-general-category = "1.1.0"
+lumen-sealed = { path = "../lumen-sealed" }
 
 [dev-dependencies]
 lumen-detector = { path = "../lumen-detector" }
