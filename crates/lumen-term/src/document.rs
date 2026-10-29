@@ -48,6 +48,12 @@ impl Document {
         }
     }
 
+    /// The width, in columns, of every block.
+    #[must_use]
+    pub fn columns(&self) -> usize {
+        self.columns
+    }
+
     /// The blocks, oldest first.
     #[must_use]
     pub fn blocks(&self) -> &[Block] {
