@@ -41,3 +41,21 @@ These are about `crates/lumen-sinks`, not the spec text.
 ## What held up
 
 Interception reads as complete (introducers, terminators, split reads, overflow ending at ESC, CAN or SUB, no reply to the PTY). The OS conditions are evaluated when the notification arrives. The fixed prefix, the pane label and the default of sending no program text to the operating system are the right mitigations for the accepted residual risk, and `notifications.os-text` being a separate key is a good call.
+
+## Status at the re-check
+
+The author answered R1 to R9 in the text. Re-checked at `9b35d4a`:
+
+| # | Status |
+|---|---|
+| R1 | Answered: an OS budget of 1 per second and 3 per minute per layer and 8 per minute overall, then toasts only until the user acts or ten quiet minutes pass. The overall limit is a per-minute window. |
+| R2 | Answered after one correction: the Hangul and other fillers are category Lo, so they are listed by code point, and a combining mark with no base is removed. |
+| R3 | Answered: every toast is clipped to its own box. |
+| R4 | Answered: no icon, action button, reply field or inline image reaches the operating system. |
+| R5 | Answered: a toast never removes another layer's toast. Open as a choice: with four layers each holding four toasts a fifth layer's toast is dropped. |
+| R6 | Answered: layer ids are never reused and a closed layer's toasts are removed. |
+| R7 | Answered: the token is random, single-use, bound to one layer and invalid after the layer closes or the terminal restarts. |
+| R8 | Answered after one correction: 'local' is defined once and both the OS path and `allow-unsigned` use it. |
+| R9 | Answered: mute covers toasts, with one-step mute and capability revocation from the keyboard. |
+
+M1 to M5 are about the sink model and stay open there. This is a read of the text, not a test of an implementation.
