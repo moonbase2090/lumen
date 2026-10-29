@@ -674,6 +674,104 @@
       ]
     },
     {
+      "category": "forged",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn",
+        "replayed_frame_accepted"
+      ],
+      "id": "cross-pane-forged-container-then-replay",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3020000002800000001000000010000000000000000000000000000000000000000000000000000000000000000",
+          "op": "output",
+          "pane": 2
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3800000000600047265616c",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "replay"
+        },
+        {
+          "op": "replay"
+        }
+      ]
+    },
+    {
+      "category": "forged",
+      "forbid": [
+        "draw_outside_rect",
+        "draw_hidden_pane",
+        "stale_generation_drawn",
+        "forged_container_drawn",
+        "replayed_frame_accepted"
+      ],
+      "id": "forged-layout-from-a-pane-replayed",
+      "screen": {
+        "cols": 80,
+        "rows": 24
+      },
+      "script": [
+        {
+          "generation": 1,
+          "op": "layout",
+          "panes": [
+            {
+              "h": 24,
+              "id": 1,
+              "w": 40,
+              "x": 0,
+              "y": 0
+            },
+            {
+              "h": 24,
+              "id": 2,
+              "w": 40,
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f30100000018000000000000000000000000000000000000000000000000",
+          "op": "output",
+          "pane": 1
+        },
+        {
+          "op": "replay"
+        }
+      ]
+    },
+    {
       "category": "hostile",
       "forbid": [
         "draw_outside_rect",
@@ -1073,5 +1171,5 @@
       ]
     }
   ],
-  "revision": "pc-1"
+  "revision": "pc-2"
 }

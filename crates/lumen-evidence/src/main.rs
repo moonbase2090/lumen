@@ -128,6 +128,11 @@ fn flood(
         lumen_evidence::flood::run_flood(arm, commit, std::time::Duration::from_secs(seconds), log)
             .map_err(|e| e.to_string())?;
     finish(out, &report.summary(&header))?;
+    std::fs::write(
+        out.join("render.json"),
+        report.render_log(&format!("{} flood {commit}", header.features)),
+    )
+    .map_err(|e| format!("render.json: {e}"))?;
     Ok(
         if report.within_budget() && report.memory_ok() != Some(false) {
             ExitCode::SUCCESS
