@@ -14,7 +14,7 @@ A gate is a test suite that an implementation must pass before a feature is enab
 Track 0 stays off until all three of these pass:
 
 - <a id="gate.trust-margin"></a>**Trust margin**: under adversarial Track 0 input, the pixels of the trust margin stay unchanged.
-- <a id="gate.no-authority"></a>**No authority from unsealed input**: no unsealed input creates command structure or exercises any capability. The one exception is the user's `notifications.allow-unsigned` policy opt-in, which lets unsigned grid output on a local layer draw a terminal toast, at most one per layer per second ([Notifications](@/spec/v0/trust.md#trust.notifications)).
+- <a id="gate.no-authority"></a>**No authority from unsealed input**: no unsealed input creates command structure or exercises any capability. The one exception is the user's `allow_unsigned` policy opt-in, which lets unsigned grid output on a local layer draw a terminal toast, at most one per layer per second ([Notifications](@/spec/v0/trust.md#trust.notifications)).
 - <a id="gate.parity"></a>**Side-channel parity**: no Lumen channel accepts anything that PTY writes could not already do.
 
 ## Decoder memory gate {#gate.decoder-memory}
