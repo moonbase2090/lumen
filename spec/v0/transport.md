@@ -63,6 +63,35 @@ Type 0x23 (title) is reserved. v0 defines no capability for it, so a terminal re
 - A link opens only after the user confirms the full target, and a capability reply travels on the control channel, not in a frame. Neither has a type byte.
 - The effect of a type happens in the terminal's sink for that effect and nowhere else. A conformance test counts attempts at each sink and the origin of the input that caused them.
 
+### Capability numbers and payloads {#transport.payloads}
+
+This section is part of the experiment profile and is not yet normative. It gives the capability byte that a sealed frame is protected under, and the payloads of the frame types in the table above other than layout and pane container, whose payloads are in [Frame payloads](@/spec/v0/multiplexers.md#mux.payloads). All integers are big endian.
+
+**Capability numbers.** The capability byte in the associated data of a sealed frame (see [Sealed frame payload](#transport.aead)) is 0 or the number of a capability in the order of the [capability list](@/spec/v0/capabilities.md#caps.list): 1 `images`, 2 `tables`, 3 `rgb-color`, 4 `cell-spans`, 5 `side-channel`, 6 `hyperlinks`, 7 `clipboard-write`, 8 `notifications`. A type that needs no capability uses 0. The capability byte of each type is fixed by the type, so a frame sealed under any other value fails its AEAD check and is a failed frame.
+
+| Type | Name | Capability byte | Payload |
+|---|---|---|---|
+| 0x01 | layout | 0 | see [Frame payloads](@/spec/v0/multiplexers.md#mux.payloads) |
+| 0x02 | pane container | 0 | see [Frame payloads](@/spec/v0/multiplexers.md#mux.payloads) |
+| 0x10 | command start | 0 | `command id` (u32) |
+| 0x11 | prompt | 0 | empty |
+| 0x12 | command end | 0 | `command id` (u32), `exit status` (i32) |
+| 0x20 | grant | 0 | `action` (u8), `capability` (u8) |
+| 0x21 | clipboard write | 7 | the text, valid UTF-8, at most 65536 bytes |
+| 0x22 | notification | 8 | a string: a length (u16) and that many bytes of UTF-8, at most 4096 |
+| 0x30 | staged-content marker | 5 | `id` (u32), `hash` (32 bytes, SHA-256 of the staged content) |
+
+**Rules.**
+
+- A command id starts at 1 in a layer and each command start carries the previous id plus one. A command start with any other id is malformed. A command start while a command is open closes that command's block as ended-unknown and opens the new one, as under [Frame abort](#transport.abort). A command end is accepted only for the command that is open; a command end for any other id, or when no command is open, is malformed. The id is 32 bits: a layer is re-keyed before its ids would wrap, as for sequence numbers.
+- `exit status` is the shell's reported status as a signed 32-bit value. The terminal shows it as reported and never infers one.
+- `action` is 1 to grant and 0 to revoke; any other value is malformed. `capability` is 1 to 8. A grant that the layer's policy does not allow is refused. A revoke takes effect at once, and a grant takes effect as [Grants](@/spec/v0/capabilities.md#caps.grants) describes.
+- A clipboard write is shown to the user in full, with its exact bytes made visible, and nothing reaches the clipboard until the user confirms. The confirmation is the terminal's own and cannot be answered by program output.
+- A notification is handled under [Notifications](@/spec/v0/trust.md#trust.notifications). The 4096 bytes are the frame's string limit; the shorter limit that applies to the displayed text is in that section.
+- A staged-content marker is parsed and has no other effect in this revision. The side channel it would commit is not defined for v0 frames yet.
+- A sealed type that is not in the table is refused after its header verifies, without looking up a capability or opening its payload.
+- A frame whose payload does not match its row, whose length is wrong, whose string is not valid UTF-8, or whose `capability` is out of range is malformed. A malformed frame is refused as a failed frame under [Frame abort](#transport.abort), has no effect, and counts toward the [pin](#transport.pin) as a failed authenticated frame.
+
 ## Sealed frame payload {#transport.aead}
 
 Every sealed payload is protected with an AEAD under the derived key. The nonce is direction || 64-bit sequence number. The associated data covers layer id, capability, direction, origin, sequence number, type and length. This means captures (for example `script` or multiplexer pipe output) hold only ciphertext and headers. Sensitive content such as clipboard text and approvals MUST travel only in sealed frames. The cipher choice (ChaCha20-Poly1305 or AES-256-GCM) MUST be constant-time on all target CPUs, and nonces are never reused.
