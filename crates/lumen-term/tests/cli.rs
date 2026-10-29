@@ -114,7 +114,6 @@ fn the_binary_refuses_bad_arguments_with_the_usage() {
 #[test]
 fn notification_flags_are_off_by_default_and_parse() {
     let d = parse(&[]).unwrap_or_else(|e| unreachable!("{e}"));
-    assert!(!d.says_local);
     let s = d.notifications;
     assert_eq!(
         (s.allow_unsigned, s.os_notifications, s.os_text),
@@ -124,7 +123,6 @@ fn notification_flags_are_off_by_default_and_parse() {
         "--allow-unsigned",
         "--os-notifications",
         "--os-text",
-        "--local",
         "--",
         "x",
     ])
@@ -134,7 +132,6 @@ fn notification_flags_are_off_by_default_and_parse() {
         (s.allow_unsigned, s.os_notifications, s.os_text),
         (true, true, true)
     );
-    assert!(o.says_local);
     assert_eq!(o.command, ["x"]);
     assert!(
         parse(&["--os-text"]).is_err(),
@@ -170,21 +167,19 @@ fn snapshot_bytes(flags: &[&str], name: &str) -> Vec<u8> {
 
 #[cfg(unix)]
 #[test]
-fn the_real_binary_shows_a_toast_only_when_the_flags_allow_it() {
+fn no_flag_makes_the_real_binary_show_an_unsigned_toast_without_evidence_of_a_local_layer() {
+    // The terminal cannot yet show that the foreground process tree is local, so
+    // no flag, and no statement by the user, turns the place into a local one.
     let plain = snapshot_bytes(&[], "toast-off.png");
-    let not_stated = snapshot_bytes(&["--allow-unsigned"], "toast-unknown.png");
-    let shown = snapshot_bytes(&["--allow-unsigned", "--local"], "toast-on.png");
-    assert_eq!(
-        plain, not_stated,
-        "an unknown place is not local, so no toast"
-    );
-    assert_ne!(
-        plain, shown,
-        "with the setting and a stated local place the toast is drawn"
-    );
-    let without_setting = snapshot_bytes(&["--local"], "toast-no-setting.png");
-    assert_eq!(
-        plain, without_setting,
-        "stating the place does not turn the setting on"
+    for flags in [
+        &["--allow-unsigned"][..],
+        &["--allow-unsigned", "--os-notifications", "--os-text"],
+        &["--os-notifications"],
+    ] {
+        assert_eq!(plain, snapshot_bytes(flags, "toast-flags.png"), "{flags:?}");
+    }
+    assert!(
+        parse(&["--local"]).is_err(),
+        "there is no way to assert a local layer"
     );
 }

@@ -40,20 +40,20 @@ impl OsSink for NoSink {
     fn send(&mut self, _: &crate::notify::OsNotification) {}
 }
 
-/// Where the session runs, as far as the terminal can tell. `user_says_local`
-/// is the user's own statement that the program is a local one; without it the
-/// place is unknown, which is not local, because the terminal cannot see
-/// whether the program starts `ssh` or a multiplexer. A terminal that is itself
-/// inside `ssh` or a multiplexer is never local, whatever the user says.
-/// `set` says whether an environment variable is set.
+/// Where the session runs, as far as the terminal can tell. It is never
+/// [`Place::Local`]: a local layer is one whose foreground process tree is shown
+/// to be local, and the terminal has no way to show that yet (the program may
+/// start `ssh` or a multiplexer at any time), so nothing a user passes can make
+/// it so. A terminal that is itself inside `ssh` or a multiplexer says so, and
+/// everything else is unknown. Shell integration is what will supply a local
+/// place, through [`App::configure_notifications`]. `set` says whether an
+/// environment variable is set.
 #[must_use]
-pub fn place_of(user_says_local: bool, set: impl Fn(&str) -> bool) -> Place {
+pub fn place_of(set: impl Fn(&str) -> bool) -> Place {
     if set("SSH_CONNECTION") || set("SSH_TTY") || set("SSH_CLIENT") {
         Place::Ssh
     } else if set("TMUX") || set("STY") {
         Place::MultiplexerPane
-    } else if user_says_local {
-        Place::Local
     } else {
         Place::Unknown
     }
@@ -149,10 +149,11 @@ impl App {
 
     /// Apply the user's notification settings. The operating-system sink is
     /// made only if `os_notifications` is on; otherwise nothing that could show
-    /// one exists. `user_says_local` is the user's statement that the program is
-    /// local, which [`place_of`] weighs against the environment.
-    pub fn use_settings(&mut self, settings: Settings, user_says_local: bool) {
-        let place = place_of(user_says_local, |name| std::env::var_os(name).is_some());
+    /// one exists. The place is [`place_of`] the environment, which is never
+    /// local, so until something can show the foreground process tree is local
+    /// no unsigned toast and no operating-system notification is shown.
+    pub fn use_settings(&mut self, settings: Settings) {
+        let place = place_of(|name| std::env::var_os(name).is_some());
         let sink: Box<dyn OsSink + Send> = if settings.os_notifications {
             Box::new(crate::os_backend::SystemSink::new())
         } else {

@@ -238,18 +238,44 @@ fn the_sink_is_called_only_when_the_setting_is_on_and_the_window_is_unfocused() 
 }
 
 #[test]
-fn the_place_is_unknown_unless_the_user_says_local_and_the_environment_allows_it() {
-    let none = |_: &str| false;
-    assert_eq!(place_of(false, none), Place::Unknown);
-    assert_eq!(place_of(true, none), Place::Local);
+fn the_place_is_never_local_whatever_the_environment_holds() {
+    let vars = [
+        "SSH_CONNECTION",
+        "SSH_TTY",
+        "SSH_CLIENT",
+        "TMUX",
+        "STY",
+        "LUMEN_LOCAL",
+    ];
+    assert_eq!(place_of(|_| false), Place::Unknown);
+    for mask in 0..(1u32 << vars.len()) {
+        let set = |name: &str| {
+            vars.iter()
+                .position(|v| *v == name)
+                .is_some_and(|i| mask & (1 << i) != 0)
+        };
+        assert_ne!(place_of(set), Place::Local, "mask {mask:b}");
+    }
     for var in ["SSH_CONNECTION", "SSH_TTY", "SSH_CLIENT"] {
-        assert_eq!(place_of(true, |n| n == var), Place::Ssh, "{var}");
+        assert_eq!(place_of(|n| n == var), Place::Ssh, "{var}");
     }
     for var in ["TMUX", "STY"] {
-        assert_eq!(
-            place_of(true, |n| n == var),
-            Place::MultiplexerPane,
-            "{var}"
-        );
+        assert_eq!(place_of(|n| n == var), Place::MultiplexerPane, "{var}");
     }
+}
+
+#[test]
+fn a_session_started_with_the_settings_on_is_not_local_so_it_shows_no_unsigned_toast() {
+    let mut app = start(NOTIFY);
+    app.use_settings(Settings {
+        allow_unsigned: true,
+        os_notifications: true,
+        os_text: true,
+    });
+    assert!(pump_until(&mut app, |x| x.notifier().dropped() > 0));
+    assert_eq!(
+        app.notifier().shown().len(),
+        0,
+        "no evidence of a local layer, no toast"
+    );
 }

@@ -105,8 +105,6 @@ pub struct Config {
     pub exit_after: Option<Duration>,
     /// What the user allowed for notifications.
     pub notifications: crate::notify::Settings,
-    /// The user's statement that the program is a local one.
-    pub says_local: bool,
 }
 
 struct Running {
@@ -198,7 +196,7 @@ impl ApplicationHandler for Host {
             size.height,
         ) {
             Ok(mut app) => {
-                app.use_settings(self.config.notifications, self.config.says_local);
+                app.use_settings(self.config.notifications);
                 window.request_redraw();
                 self.state = Some(Running {
                     window,
