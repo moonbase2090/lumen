@@ -75,7 +75,7 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 - **Plateau (proposed):** no new coverage edges over the last 168 CPU-hours.
 - **Sandbox escape tests:** the test set, named by revision in the harness, must pass in full.
 - **Harness:** the decoder fuzzing harness, run against the decoder build identity and the terminal image-path build identity.
-- **Threshold:** at least 1000 CPU-hours per format, no new crash in the last 168 CPU-hours, plateau reached, and the named sandbox escape tests passing. This is the [decoder gate](../../spec/v0/conformance.md#gate.decoder). Until it passes, images stay off, and the arm is measured with images off.
+- **Threshold:** at least 1000 CPU-hours per format, no new crash in the last 168 CPU-hours, plateau reached, and the named sandbox escape tests passing. This is the [decoder gate](../../spec/v0/conformance.md#gate.decoder). Until it passes, images stay off, and the arm is measured with images off. The status of this criterion in phase 0.5 and the plan for the run are in [the decoder fuzz plan](decoder-fuzz-plan.md).
 
 ### 2.6 Denial of service
 
