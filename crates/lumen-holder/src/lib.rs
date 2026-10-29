@@ -24,7 +24,10 @@
     reason = "FFI wrappers for prctl, seccomp, mlock, poll and close; see the module docs"
 )]
 pub mod ffi_linux;
+pub mod layer;
 pub mod layout;
+pub mod principal;
+pub mod protocol;
 #[cfg(target_os = "linux")]
 pub mod run;
 #[cfg(target_os = "linux")]

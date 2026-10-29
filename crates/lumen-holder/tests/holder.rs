@@ -29,7 +29,7 @@ fn stand_in_shell() -> (Child, OwnedFd) {
 
 fn launch(extra: &[&str]) -> (Started, Child, OwnedFd) {
     let (shell, pidfd) = stand_in_shell();
-    let started = start_with(holder(), &pidfd, std::process::id(), extra)
+    let started = start_with(holder(), &pidfd, shell.id(), std::process::id(), extra)
         .unwrap_or_else(|e| unreachable!("the holder starts: {e}"));
     (started, shell, pidfd)
 }
@@ -155,24 +155,9 @@ fn the_seal_channel_closing_ends_the_holder() {
 }
 
 #[test]
-fn a_message_on_the_seal_channel_ends_the_holder_since_no_request_is_defined() {
-    let (s, mut shell, _pidfd) = launch(&[]);
-    let Started {
-        mut child,
-        seal,
-        spawn: _spawn,
-        eof_write: _eof,
-    } = s;
-    let mut file = std::fs::File::from(seal);
-    assert!(std::io::Write::write_all(&mut file, b"x").is_ok());
-    assert_eq!(exit_code(&mut child), Some(13));
-    let _ = shell.kill();
-}
-
-#[test]
 fn a_holder_told_the_wrong_terminal_pid_does_not_run() {
     let (mut shell, pidfd) = stand_in_shell();
-    let mut s = start_with(holder(), &pidfd, std::process::id() + 1, &[])
+    let mut s = start_with(holder(), &pidfd, shell.id(), std::process::id() + 1, &[])
         .unwrap_or_else(|e| unreachable!("{e}"));
     assert_eq!(
         exit_code(&mut s.child),
@@ -215,4 +200,137 @@ fn the_spawn_leaves_the_terminals_ends_close_on_exec() {
     let mut s = s;
     let _ = s.child.kill();
     let _ = shell.kill();
+}
+
+/// A holder for which this test process is the shell, so what the test sends
+/// on the seal channel is what the shell sends. The report goes to standard output.
+fn launch_with_this_process_as_the_shell() -> Started {
+    let pidfd = pidfd_open(std::process::id()).unwrap_or_else(|e| unreachable!("pidfd_open: {e}"));
+    start_with(
+        holder(),
+        &pidfd,
+        std::process::id(),
+        std::process::id(),
+        &["--report"],
+    )
+    .unwrap_or_else(|e| unreachable!("the holder starts: {e}"))
+}
+
+fn finish(started: Started) -> (Option<i32>, String) {
+    let Started {
+        mut child,
+        seal,
+        spawn: _spawn,
+        eof_write: _eof,
+    } = started;
+    let stdout = child.stdout.take();
+    drop(seal);
+    let code = exit_code(&mut child);
+    let mut out = String::new();
+    if let Some(mut stdout) = stdout {
+        let _ = stdout.read_to_string(&mut out);
+    }
+    (code, out)
+}
+
+fn send(fd: &OwnedFd, bytes: &[u8]) {
+    let mut file = std::fs::File::from(fd.try_clone().unwrap_or_else(|e| unreachable!("{e}")));
+    assert!(std::io::Write::write_all(&mut file, bytes).is_ok());
+}
+
+#[test]
+fn a_ready_from_the_shell_is_accepted_once_and_a_second_is_refused() {
+    let s = launch_with_this_process_as_the_shell();
+    send(&s.seal, &lumen_holder::protocol::ready(1));
+    send(&s.seal, &lumen_holder::protocol::ready(2));
+    let (code, out) = finish(s);
+    assert_eq!(code, Some(12), "{out}");
+    assert!(
+        out.contains("ready=1 second_ready=1 refused=0 malformed=0"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_message_from_a_child_that_holds_the_descriptor_is_refused() {
+    let s = launch_with_this_process_as_the_shell();
+    // A child of the shell that inherited the channel writes a perfectly good ready.
+    let child_end = s.seal.try_clone().unwrap_or_else(|e| unreachable!("{e}"));
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg("printf '\\001\\001\\000\\000\\000\\007'")
+        .stdout(Stdio::from(child_end))
+        .status();
+    assert!(status.is_ok_and(|s| s.success()));
+    let (code, out) = finish(s);
+    assert_eq!(code, Some(12), "{out}");
+    assert!(
+        out.contains("ready=0 second_ready=0 refused=1 malformed=0"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_refused_sender_does_not_use_up_the_shells_ready() {
+    let s = launch_with_this_process_as_the_shell();
+    let child_end = s.seal.try_clone().unwrap_or_else(|e| unreachable!("{e}"));
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg("printf '\\001\\001\\000\\000\\000\\007'")
+        .stdout(Stdio::from(child_end))
+        .status();
+    assert!(status.is_ok_and(|s| s.success()));
+    send(&s.seal, &lumen_holder::protocol::ready(1));
+    let (code, out) = finish(s);
+    assert_eq!(code, Some(12), "{out}");
+    assert!(
+        out.contains("ready=1 second_ready=0 refused=1 malformed=0"),
+        "{out}"
+    );
+}
+
+#[test]
+fn malformed_messages_from_the_shell_are_dropped_and_counted_and_do_not_end_the_holder() {
+    let s = launch_with_this_process_as_the_shell();
+    let bad: [&[u8]; 6] = [
+        &[2, 1, 0, 0, 0, 1],
+        &[1, 9, 0, 0, 0, 1],
+        &[1],
+        &[1, 1, 0, 0, 0],
+        &[1, 1, 0, 0, 0, 1, 0],
+        &[1; 200],
+    ];
+    for m in bad {
+        send(&s.seal, m);
+    }
+    send(&s.seal, &lumen_holder::protocol::ready(1));
+    let (code, out) = finish(s);
+    assert_eq!(code, Some(12), "{out}");
+    assert!(
+        out.contains("ready=1 second_ready=0 refused=0 malformed=6"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_holder_whose_shell_start_time_was_wrong_refuses_even_the_real_shell() {
+    // The pid is right and the user is right but the recorded start time is not
+    // the process's: what a reused pid would look like.
+    let pidfd = pidfd_open(std::process::id()).unwrap_or_else(|e| unreachable!("{e}"));
+    let s = start_with(
+        holder(),
+        &pidfd,
+        std::process::id(),
+        std::process::id(),
+        &["--report", "--shell-start", "1"],
+    );
+    // A later --shell-start wins in the holder's argument loop.
+    let s = s.unwrap_or_else(|e| unreachable!("{e}"));
+    send(&s.seal, &lumen_holder::protocol::ready(1));
+    let (code, out) = finish(s);
+    assert_eq!(code, Some(12), "{out}");
+    assert!(
+        out.contains("ready=0 second_ready=0 refused=1 malformed=0"),
+        "{out}"
+    );
 }

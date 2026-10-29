@@ -2,6 +2,7 @@
 
 use crate::ffi_linux;
 use crate::layout::ALL;
+use crate::principal;
 use std::io;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
@@ -36,8 +37,13 @@ pub struct Started {
 /// # Errors
 ///
 /// Returns why a channel could not be made or the program could not start.
-pub fn start(program: &Path, shell_pidfd: &OwnedFd, terminal: u32) -> io::Result<Started> {
-    start_with(program, shell_pidfd, terminal, &[])
+pub fn start(
+    program: &Path,
+    shell_pidfd: &OwnedFd,
+    shell_pid: u32,
+    terminal: u32,
+) -> io::Result<Started> {
+    start_with(program, shell_pidfd, shell_pid, terminal, &[])
 }
 
 /// [`start`] with more arguments for the holder. The holder's standard output
@@ -50,10 +56,19 @@ pub fn start(program: &Path, shell_pidfd: &OwnedFd, terminal: u32) -> io::Result
 pub fn start_with(
     program: &Path,
     shell_pidfd: &OwnedFd,
+    shell_pid: u32,
     terminal: u32,
     extra: &[&str],
 ) -> io::Result<Started> {
+    // The shell's start time is read while the pidfd still pins its pid.
+    let start_time = principal::start_time(shell_pid)
+        .ok_or_else(|| io::Error::other("the shell's start time cannot be read"))?;
+    if ffi_linux::pidfd_is_readable(shell_pidfd.as_raw_fd())? {
+        return Err(io::Error::other("the shell has already exited"));
+    }
     let (seal_holder, seal_shell) = ffi_linux::seqpacket_pair()?;
+    // Set before the shell can send, so no message arrives without credentials.
+    ffi_linux::enable_passcred(seal_holder.as_raw_fd())?;
     let (spawn_holder, spawn_terminal) = ffi_linux::seqpacket_pair()?;
     let (eof_read, eof_write) = ffi_linux::pipe()?;
     let sources = [
@@ -66,6 +81,10 @@ pub fn start_with(
     command
         .arg("--terminal")
         .arg(terminal.to_string())
+        .arg("--shell-pid")
+        .arg(shell_pid.to_string())
+        .arg("--shell-start")
+        .arg(start_time.to_string())
         .args(extra)
         .env_clear()
         .stdin(Stdio::null())
