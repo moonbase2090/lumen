@@ -54,6 +54,7 @@ pub mod decoder;
 pub mod flood;
 pub mod matrix;
 pub mod parity;
+pub mod render;
 pub mod rt2;
 
 use lumen_arm_a::pipeline::ITEM_KINDS as ARM_A_KINDS;

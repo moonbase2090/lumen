@@ -221,6 +221,14 @@ By default a removed notification is denied: it draws nothing, and the denial is
 
 The notification cases are in `docs/phase-0.5/corpus-rt-3` (revision `rt-3`), each with its `sinks` counts.
 
+### 5.8 Render-log mode
+
+`lumen-evidence --render-log [--log FILE] --commit SHA --out DIR` judges the parts of 2.6 that need a UI and a decoder: the longest UI stall, the sustained frame rate and the peak memory under a lying decoder stream. The driver has neither, so a terminal writes the log while the flood of 5.3 and the lying decoder stream run against it, and this mode applies the limits.
+
+The log is a JSON object with `revision`, `build` (the terminal build identity), `duration_ms`, `frames_ms` (the time of every frame drawn, in order) and, optionally, `lying_decoder` with `decoder_build`, `streams` (a whole number: the count of lying streams played, not a list) and `peak_rss_mib`. The longest stall is the longest gap between consecutive points of 0, each frame time and `duration_ms`, so the wait for the first frame and the wait after the last count. It must be at most 2000 ms. The frame rate is frames over `duration_ms`, reported and not gated. Peak memory must stay under 512 MiB, and a log with no lying stream played does not measure it.
+
+The run exits 0 when every part is within its limit, 1 when a measured part is over, and 3 when a part is not measured: no log, no frames, or no lying decoder run. A failure takes precedence over a missing part. 2 is a usage or load error, and it includes a `streams` or `peak_rss_mib` that is not a whole number, so a list of streams is refused, not read as zero.
+
 ## 6. Results format
 
 A result is a docs PR that adds `docs/phase-0.5/results-<arm>.md` for each arm at a stated commit SHA. It contains:
