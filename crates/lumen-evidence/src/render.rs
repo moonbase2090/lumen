@@ -13,6 +13,11 @@
 //!
 //! - `revision`: the log format revision, a string.
 //! - `build`: the terminal build identity that was run, a string.
+//! - `basis`: optional, `ui` (the default) or `pipeline`. A terminal writes a
+//!   `ui` log: its frames are frames drawn. The flood mode of the driver writes
+//!   a `pipeline` log: a "frame" is a return from the layer, because the
+//!   driver draws nothing. A `pipeline` log gives a proxy for the stall, never
+//!   a frame rate, and never counts as the 2.6 measurement (exit 3).
 //! - `duration_ms`: the length of the run in milliseconds.
 //! - `frames_ms`: the time of every frame drawn, in milliseconds from the
 //!   start of the run, in order.
@@ -58,6 +63,9 @@ pub struct Report {
     pub stall_ms: Part<u64>,
     /// Frames per second over the run; reported, never gated.
     pub frame_rate: Option<f64>,
+    /// The log is on the `pipeline` basis: its stall is a proxy, not a gap
+    /// between drawn frames.
+    pub proxy: bool,
     /// Peak resident memory under the lying decoder, in MiB.
     pub memory_mib: Part<u64>,
 }
@@ -67,9 +75,14 @@ impl Report {
     /// a part is not measured, else 0.
     #[must_use]
     pub fn exit_code(&self) -> u8 {
+        // A proxy is evidence for a failure, never for a pass: a stall over the
+        // limit between returns of the layer is a real hold-up, but returns are
+        // not drawn frames, so a proxy within the limit measures nothing.
+        let missing_basis = self.proxy;
         let failed = matches!(self.stall_ms, Part::Measured { ok: false, .. })
             || matches!(self.memory_mib, Part::Measured { ok: false, .. });
-        let missing = matches!(self.stall_ms, Part::NotMeasured(_))
+        let missing = missing_basis
+            || matches!(self.stall_ms, Part::NotMeasured(_))
             || matches!(self.memory_mib, Part::NotMeasured(_));
         if failed {
             1
@@ -96,6 +109,13 @@ impl Report {
             Part::NotMeasured(why) => {
                 let _ = writeln!(out, "2.6 longest_ui_stall=not measured ({why})");
             }
+            Part::Measured { value, ok } if self.proxy => {
+                let _ = writeln!(
+                    out,
+                    "2.6 longest_return_gap_ms={value} (pipeline proxy: the longest gap between returns of the layer, not between drawn frames; limit {STALL_LIMIT_MS}) {}; the UI stall is not measured",
+                    if *ok { "within" } else { "OVER" }
+                );
+            }
             Part::Measured { value, ok } => {
                 let _ = writeln!(
                     out,
@@ -104,6 +124,12 @@ impl Report {
                 );
             }
         }
+        if self.proxy {
+            let _ = writeln!(
+                out,
+                "2.6 sustained_frame_rate=not measured (pipeline basis: a return from the layer is not a drawn frame)"
+            );
+        }
         match self.frame_rate {
             Some(r) => {
                 let _ = writeln!(
@@ -111,6 +137,7 @@ impl Report {
                     "2.6 sustained_frame_rate_fps={r:.1} (reported, not gated)"
                 );
             }
+            None if self.proxy => {}
             None => {
                 let _ = writeln!(out, "2.6 sustained_frame_rate=not measured (no frames)");
             }
@@ -136,6 +163,7 @@ fn not_measured(why: &str) -> Report {
         build: None,
         stall_ms: Part::NotMeasured(why.to_owned()),
         frame_rate: None,
+        proxy: false,
         memory_mib: Part::NotMeasured(why.to_owned()),
     }
 }
@@ -152,6 +180,15 @@ pub fn judge(log: &str) -> Result<Report, String> {
         .filter(|b| !b.is_empty())
         .ok_or("render log: no build identity")?
         .to_owned();
+    let proxy = match v["basis"].as_str() {
+        None | Some("ui") => false,
+        Some("pipeline") => true,
+        Some(other) => {
+            return Err(format!(
+                "render log: unknown basis {other:?}; use ui or pipeline"
+            ));
+        }
+    };
     let duration = v["duration_ms"]
         .as_u64()
         .filter(|d| *d > 0)
@@ -187,7 +224,7 @@ pub fn judge(log: &str) -> Result<Report, String> {
                 value: longest,
                 ok: longest <= STALL_LIMIT_MS,
             },
-            Some(fps),
+            (!proxy).then_some(fps),
         )
     };
     let memory_mib = match v.get("lying_decoder").filter(|d| !d.is_null()) {
@@ -216,6 +253,7 @@ pub fn judge(log: &str) -> Result<Report, String> {
         build: Some(build),
         stall_ms,
         frame_rate,
+        proxy,
         memory_mib,
     })
 }
@@ -386,6 +424,64 @@ mod tests {
         v["lying_decoder"]
             .as_object_mut()
             .map(|o| o.remove("streams"));
+        assert!(judge(&v.to_string()).is_err());
+    }
+
+    #[test]
+    fn a_pipeline_log_gives_a_stall_proxy_and_never_a_frame_rate_or_a_pass() {
+        let mut v = good();
+        v["basis"] = json!("pipeline");
+        v["lying_decoder"] = Value::Null;
+        let r = judged(&v);
+        assert!(r.proxy);
+        assert_eq!(r.frame_rate, None);
+        assert_eq!(
+            r.stall_ms,
+            Part::Measured {
+                value: 1000,
+                ok: true
+            }
+        );
+        assert_eq!(
+            r.exit_code(),
+            3,
+            "a proxy within the limit measures nothing"
+        );
+        let Ok((_, header)) = run_render(None, "sha", Vec::new()) else {
+            unreachable!("no log runs")
+        };
+        let text = r.summary(&header);
+        assert!(text.contains("longest_return_gap_ms=1000"), "{text}");
+        assert!(text.contains("the UI stall is not measured"), "{text}");
+        assert!(text.contains("sustained_frame_rate=not measured"), "{text}");
+        assert!(!text.contains("longest_ui_stall_ms"), "{text}");
+    }
+
+    #[test]
+    fn a_pipeline_log_never_passes_even_with_a_lying_decoder_run_in_limits() {
+        let mut v = good();
+        v["basis"] = json!("pipeline");
+        assert!(v["lying_decoder"].is_object());
+        assert_eq!(judged(&v).exit_code(), 3);
+    }
+
+    #[test]
+    fn a_pipeline_gap_over_the_limit_still_fails() {
+        let mut v = good();
+        v["basis"] = json!("pipeline");
+        v["frames_ms"] = json!([0, 2500]);
+        v["duration_ms"] = json!(2500);
+        assert_eq!(judged(&v).exit_code(), 1);
+    }
+
+    #[test]
+    fn an_explicit_ui_basis_is_a_normal_log_and_an_unknown_basis_is_refused() {
+        let mut v = good();
+        v["basis"] = json!("ui");
+        let r = judged(&v);
+        assert!(!r.proxy);
+        assert_eq!(r.exit_code(), 0);
+        v["basis"] = json!("screen");
         assert!(judge(&v.to_string()).is_err());
     }
 

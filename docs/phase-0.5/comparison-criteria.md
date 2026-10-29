@@ -178,6 +178,8 @@ The summary reports:
 - `peak_rss_mib`: peak resident memory of the driver process against the 512 MiB limit, with its source. On Linux that is the kernel's high-water mark; elsewhere it is the largest of samples taken every 100 ms, so it can miss a short peak.
 - `longest_feed_ms`: the longest single call into the layer. It is a proxy for how long a caller would be held up. It is not the UI stall of 2.6.
 
+The flood also writes `render.json` beside its log: the time at which the layer returned from a read, kept at least 10 ms apart, on the `pipeline` basis of 5.8. A gap read from it is never shorter than the real one and at most 10 ms longer.
+
 Three things are reported as `not measured`, with the reason, because the driver has no UI or decoder: the longest UI stall, the sustained frame rate and the lying-decoder stream. The 10-minute duration of 2.6 is the caller's choice of N. A shorter run is a shorter run and its result says so.
 
 ### 5.4 Cost mode
@@ -235,6 +237,8 @@ The notification cases are in `docs/phase-0.5/corpus-rt-3` (revision `rt-3`), ea
 `lumen-evidence --render-log [--log FILE] --commit SHA --out DIR` judges the parts of 2.6 that need a UI and a decoder: the longest UI stall, the sustained frame rate and the peak memory under a lying decoder stream. The driver has neither, so a terminal writes the log while the flood of 5.3 and the lying decoder stream run against it, and this mode applies the limits.
 
 The log is a JSON object with `revision`, `build` (the terminal build identity), `duration_ms`, `frames_ms` (the time of every frame drawn, in order) and, optionally, `lying_decoder` with `decoder_build`, `streams` (a whole number: the count of lying streams played, not a list) and `peak_rss_mib`. The longest stall is the longest gap between consecutive points of 0, each frame time and `duration_ms`, so the wait for the first frame and the wait after the last count. It must be at most 2000 ms. The frame rate is frames over `duration_ms`, reported and not gated. Peak memory must stay under 512 MiB, and a log with no lying stream played does not measure it.
+
+A log has a `basis`: `ui` (the default) for a log a terminal writes, where a frame is a frame drawn, or `pipeline` for the log the flood of 5.3 writes, where a "frame" is a return from the layer because the driver draws nothing. A `pipeline` log gives the longest gap between returns as a proxy, labelled as one, and never a frame rate. It never counts as the 2.6 measurement: a gap over the limit exits 1, because a layer that held its caller that long is a real hold-up, and anything else exits 3. `run-comparison.sh` judges each flood's own log by default, as `render-log-<arm>`, and a log given with `--render-log` replaces them with the single `render-log` mode.
 
 The run exits 0 when every part is within its limit, 1 when a measured part is over, and 3 when a part is not measured: no log, no frames, or no lying decoder run. A failure takes precedence over a missing part. 2 is a usage or load error, and it includes a `streams` or `peak_rss_mib` that is not a whole number, so a list of streams is refused, not read as zero.
 
