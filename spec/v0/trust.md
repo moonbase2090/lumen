@@ -54,7 +54,7 @@ Each unauthenticated producer gets a smaller share than any sealed layer: **25% 
 
 ## Notifications {#trust.notifications}
 
-**Interception.** The terminal intercepts OSC 9, OSC 777 and OSC 99 in a layer before any emulator sees them, on every path: grid output, and Track 0 output with or without an open container. The interception covers the 7-bit `ESC ]` and 8-bit C1 introducers, both terminators (BEL and `ESC \`, or the 8-bit ST), a sequence split across reads, and the multi-part form of OSC 99. A sequence whose body exceeds 4 KiB is discarded when it overflows. An intercepted sequence is routed to the terminal's notification handling and is never passed to the grid. The terminal writes no reply to the PTY for any of them, including OSC 99's query and close-report forms, whose answers would be a side channel.
+**Interception.** The terminal intercepts OSC 9, OSC 777 and OSC 99 in a layer before any emulator sees them, on every path: grid output, and Track 0 output with or without an open container. The interception covers the 7-bit `ESC ]` and 8-bit C1 introducers, both terminators (BEL and `ESC \`, or the 8-bit ST), a sequence split across reads, and the multi-part form of OSC 99. A sequence whose body exceeds 4 KiB is discarded when it overflows: the rest of the sequence up to its terminator is discarded too, and none of it reaches the grid. An intercepted sequence is routed to the terminal's notification handling and is never passed to the grid. The terminal writes no reply to the PTY for any of them, including OSC 99's query and close-report forms, whose answers would be a side channel.
 
 **Two kinds of notification.** A notification is either a **terminal toast**, drawn in the terminal's notification area, or an **OS notification**, passed to the operating system's notification service. Unsigned output never produces an OS notification.
 
@@ -85,7 +85,7 @@ A notification that fails the OS conditions is shown as a toast if the toast lim
 
 - at least 1000 ms must pass between two notifications accepted from the same layer;
 - each layer has a queue of at most 8 toasts, and at most 4 toasts from a layer are shown in any 10 seconds;
-- at most 16 toasts are shown at once across all layers.
+- at most 16 toasts are shown at once across all layers. Each toast stays for at most 6 seconds, and the terminal removes it sooner if the user dismisses it. When the 16-toast cap is full, the new toast replaces the oldest toast from the layer with the most toasts shown; if no toast can be replaced, the new notification is dropped and counted.
 
 A notification over these limits is dropped and counted in the chrome count.
 
