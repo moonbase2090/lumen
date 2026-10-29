@@ -22,6 +22,10 @@ cargo run -p lumen-evidence -- --decoder --ledger OUT/ledger.json --commit "$(gi
 
 CPU-hours are wall seconds times workers, summed over slices; that is an approximation of CPU time, not a measurement of it. A longer run is the same command with larger `--slice-seconds` and `--slices`; the output directory resumes.
 
+## Findings so far
+
+- **`png` 0.18.1 panics on a `PLTE` chunk whose length is not a multiple of 3** (slice index out of range in `create_rgba_palette`). The PNG fuzz target found 8 such inputs within minutes once the upstream regression seeds were in the corpus. The `png` crate skips its checksums under `cfg(fuzzing)`, so the raw inputs only fail in the fuzz build; with the CRCs repaired, 4 of the 8 panic the production worker, which exits 101 with no reply (the host reads that as a decoder crash and shows alt text, so it is contained). Upstream fixed it in image-png commit 8330c2c6 (2026-04-24), which is in no release; 0.18.1 (2026-02-14) is the latest. The worker rejects such files itself before calling `png` (`plte_lengths_ok` in `decode.rs`), and `tests/png_plte.rs` carries four repaired inputs plus a test that fails when `png` stops panicking on them, which is the cue to delete the workaround. After the check, the 8 original inputs run clean, and a further 300 s PNG run with 4 workers (about 0.33 CPU-hours, 8.1 million executions) found nothing; that is a smoke run and says nothing about the gate.
+
 ## Running it on a one-time spot VM
 
 `scripts/decoder-fuzz-vm.sh` installs the toolchain on a fresh Debian or Ubuntu VM, checks out `COMMIT` and runs the campaign. The campaign is built to survive the VM disappearing:
