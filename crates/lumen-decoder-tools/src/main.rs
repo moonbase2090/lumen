@@ -8,6 +8,7 @@
 //! - `format NAME SAMPLES CRASHES` prints one format's ledger entry.
 //! - `escape TESTLOG REVISION` prints `{revision, passed, total}` for the G4
 //!   suite from a `cargo test` log.
+//! - `annotate LEDGER NAME=FILE...` prints the ledger with a `notes` object.
 //! - `ledger REVISION DECODER_BUILD IMAGE_PATH_BUILD ESCAPE_JSON ENTRY_JSON...`
 //!   prints the ledger.
 
@@ -58,6 +59,20 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
                 "{}",
                 json!({"revision": arg(2)?, "passed": passed, "total": total})
             );
+            Ok(ExitCode::SUCCESS)
+        }
+        "annotate" => {
+            let ledger: Value = serde_json::from_str(&fs::read_to_string(arg(1)?)?)?;
+            let mut notes = serde_json::Map::new();
+            // NAME=FILE pairs: each file's JSON becomes notes[NAME].
+            for pair in &args[2..] {
+                let (name, file) = pair.split_once('=').ok_or("expected NAME=FILE")?;
+                notes.insert(
+                    name.to_string(),
+                    serde_json::from_str(&fs::read_to_string(file)?)?,
+                );
+            }
+            println!("{}", ledger::with_notes(ledger, Value::Object(notes)));
             Ok(ExitCode::SUCCESS)
         }
         "ledger" => {

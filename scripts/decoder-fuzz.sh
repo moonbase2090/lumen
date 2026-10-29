@@ -4,7 +4,7 @@
 # ledger that `lumen-evidence --decoder` judges.
 #
 #   scripts/decoder-fuzz.sh --out DIR [--workers N] [--slice-seconds S]
-#       [--slices K] [--formats png,jpeg,webp] [--seeds DIR] [--image-path-build ID] [--rss-mb MB]
+#       [--slices K] [--formats png,jpeg,webp] [--seeds DIR] [--image-path-build ID] [--rss-mb MB] [--miri-record FILE]
 #
 # CPU-hours are wall time times workers, summed over the slices. The run
 # resumes in DIR: corpora, samples and crashes are kept, so a later call adds
@@ -21,6 +21,7 @@ NIGHTLY="${NIGHTLY:-nightly}"
 OUT=""; WORKERS=2; SLICE=3600; SLICES=1; FORMATS="png,jpeg,webp"; SEEDS=""
 IMAGE_PATH_BUILD="absent: no terminal image path exists yet"
 RSS_MB=2048
+MIRI_RECORD=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
@@ -31,6 +32,7 @@ while [ $# -gt 0 ]; do
     --seeds) SEEDS="$2"; shift 2 ;;
     --image-path-build) IMAGE_PATH_BUILD="$2"; shift 2 ;;
     --rss-mb) RSS_MB="$2"; shift 2 ;;
+    --miri-record) MIRI_RECORD="$2"; shift 2 ;;
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -122,5 +124,18 @@ ENTRIES=()
 for f in "${FMTS[@]}"; do
   ENTRIES+=("$("${TOOLS[@]}" format "$f" "$OUT/$f/samples.jsonl" "$OUT/$f/crashes.jsonl")")
 done
-"${TOOLS[@]}" ledger fz-1 "$DECODER_BUILD" "$IMAGE_PATH_BUILD" "$ESCAPE" "${ENTRIES[@]}" > "$OUT/ledger.json"
+"${TOOLS[@]}" ledger fz-1 "$DECODER_BUILD" "$IMAGE_PATH_BUILD" "$ESCAPE" "${ENTRIES[@]}" > "$OUT/ledger.plain.json"
+
+# Notes that travel with the numbers (the judge ignores them): what was fuzzed,
+# what was not run, and the empty past-CVE record.
+cat > "$OUT/build.json" <<JSON
+{"fuzzed": "default-feature build (what ships: zune-jpeg x86/neon SIMD on)", "sanitizer": "AddressSanitizer", "overflow_checks_and_debug_assertions": true, "nightly": "$NIGHTLY", "libfuzzer": "-timeout=2 -rss_limit_mb=$RSS_MB (runaway guard); 512 MiB is the worker heap cap"}
+JSON
+cat > "$OUT/ubsan.json" <<'JSON'
+{"run": false, "reason": "Rust has no UBSan (rustc -Zsanitizer has no undefined). Nothing here is labelled UBSan. Overflow checks and debug assertions are on in the fuzz build; Miri results, if any, are in notes.miri."}
+JSON
+NOTES=("past_cve_seeds=$ROOT/crates/lumen-decoder/fuzz/seeds-regression/PAST_CVES.json" "build=$OUT/build.json" "ubsan=$OUT/ubsan.json")
+[ -n "$MIRI_RECORD" ] || MIRI_RECORD="$ROOT/crates/lumen-decoder/fuzz/miri-record.json"
+[ ! -f "$MIRI_RECORD" ] || NOTES+=("miri=$MIRI_RECORD")
+"${TOOLS[@]}" annotate "$OUT/ledger.plain.json" "${NOTES[@]}" > "$OUT/ledger.json"
 echo "ledger: $OUT/ledger.json"

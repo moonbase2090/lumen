@@ -1,0 +1,17 @@
+{
+  "library": "zune-jpeg 0.5.15 (the default-feature build, with its x86 AVX2 and aarch64 NEON unsafe SIMD code)",
+  "toolchain": "nightly-2026-10-06 (miri 0.1.0 ea137335b7 2026-10-05)",
+  "run_on": "2026-10-29, macOS aarch64 host, scripts/decoder-miri.sh",
+  "source": "zune-jpeg's own tests at upstream commit d22e2aa3fb4259943fe0dbe1b5fef47c7e72aab5; its src differs from the crates.io 0.5.15 package by one test-only line in mcu_prog.rs",
+  "ran": [
+    {"what": "zune-jpeg unit tests, x86_64 with AVX2 forced on", "result": "10 passed, no undefined behaviour", "covers": "AVX2 IDCT and upsampler"},
+    {"what": "zune-jpeg integration tests, x86_64 with AVX2 forced on", "result": "invalid_images 7, metadata 3, non_interleaved 7 passed (the last took 569 s), no undefined behaviour"},
+    {"what": "this repository's small JPEG regression seeds through the shipped crate, x86_64 with AVX2 forced on", "result": "passed in 16 s, no undefined behaviour"}
+  ],
+  "did_not_run": [
+    {"what": "the aarch64 NEON code under Miri", "reason": "Miri does not implement the LLVM intrinsics the NEON code calls on this target (llvm.aarch64.neon.st1x2.v8i16.p0 in the crate's own test, llvm.aarch64.neon.sqshrun.v4i16 in the seed run), and aborts. The NEON unsafe code has no Miri result."},
+    {"what": "x86_64 without forcing AVX2", "reason": "Miri reports no AVX2, so 7 of the 10 unit tests ran and the AVX2 code did not; those 7 passing says nothing about the AVX2 path"},
+    {"what": "the bit reader and upsampler on inputs the fuzzer finds", "reason": "Miri ran the crate's tests and the small seeds only; it is far too slow to follow the fuzzer"},
+    {"what": "unsafe code in zune-core, flate2 and crc32fast", "reason": "not run; which of these compile into the worker was not checked"}
+  ]
+}
