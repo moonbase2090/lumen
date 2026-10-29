@@ -38,6 +38,7 @@
 #![forbid(unsafe_code)]
 
 pub mod cost;
+pub mod decoder;
 pub mod flood;
 pub mod matrix;
 pub mod parity;

@@ -65,7 +65,7 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 
 - **Unit:** count of unsealed inputs that cause a clipboard write, notification, link open, grant, exit status or boundary change.
 - **Method:** the output-adversary corpus, at a stated corpus revision, is run against each arm with the terminal's authority-effect log enabled. Each event is recorded with the input that produced it.
-- **Harness:** comparison harness, authority-log mode (section 5.6).
+- **Harness:** comparison harness, authority-log mode (section 5.7).
 - **Threshold:** **zero** events. Any non-zero count in arm B fails the decision rule.
 
 ### 2.5 Decoder robustness
@@ -196,7 +196,18 @@ The summary, with its per-file counts, is the raw log; `run.jsonl` holds only th
 
 The count is only as complete as the catalogue, so a result must say that the catalogue was checked against the channel code at the measured commit, and by whom. The run exits 0 only for a measured zero, 1 when the count is not zero and 3 when no channel is declared; 2 is a usage or load error. A catalogue with no channel is reported as `2.9=not measured` and exits 3, not 0, so a gate script cannot read it as a pass: a count over nothing says nothing about the gate. The committed catalogue (`ch-1`) declares no channel, because no channel (Track B, the seal channel) has code in the arms yet. `run.jsonl` holds only the header.
 
-### 5.6 Terminal sinks (authority leakage)
+### 5.6 Decoder mode
+
+`lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR` judges a decoder fuzzing ledger against the threshold of 2.5. The driver does not fuzz: there is no image decoder in this repository and images are off. With no ledger the summary says `2.5=not measured`. The run exits 0 when the gate holds, 1 when it does not and 3 when nothing was measured: no ledger, or a ledger that enables no format. Exit 0 is therefore never printed for a run that measured nothing.
+
+The ledger is a JSON object with `revision`, `decoder_build` and `image_path_build` (the gate covers both identities), one entry per enabled format and the sandbox escape result:
+
+- a format has `name`, `cpu_hours`, `crashes` (each `at_cpu_hour` and `kind`) and `coverage` (each `at_cpu_hour` and the cumulative `edges`);
+- `sandbox_escape` has the test set `revision` and the `passed` and `total` counts.
+
+A format passes when it has at least 1000 CPU-hours, no crash after the last 168 CPU-hours' start (a crash exactly 168 CPU-hours before the end is older), and a plateau: the most coverage seen over the whole run was already seen at or before that point. A coverage reading from before the window is needed, so a ledger without one has no plateau. The gate passes when every format passes and the sandbox escape set passed in full and is not empty. A ledger that enables no format is `not measured`.
+
+### 5.7 Terminal sinks (authority leakage)
 
 The corpus replay (5.1) feeds the ordinary output each arm's layer passes on to the upstream emulator, unchanged, through the `lumen-sinks` crate, and reports each effect the emulator raises through the harness effect log with the origin of the input. Ordinary output is always unsealed. The summary's `2.4=` line and the per-sink `exercised`, `unsealed` and `foreign` counts are printed as the harness reports them, and the log header names `lumen-sinks` as the source of the sink table.
 
