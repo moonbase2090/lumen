@@ -417,11 +417,9 @@ dependencies = [
 name = "lumen-term"
 version = "0.0.0"
 dependencies = [
- "lumen-arm-a",
  "lumen-arm-b",
  "lumen-detector",
  "lumen-sealed",
- "lumen-term",
  "lumen-track0",
  "png 0.17.16",
  "prismattyc-core",
