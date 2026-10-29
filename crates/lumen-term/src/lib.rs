@@ -17,4 +17,4 @@ pub mod layer;
 
 pub use document::{Block, Document, RichBlock};
 pub use grid::GridBlock;
-pub use layer::{Layer, Notice, Passthrough, Piece};
+pub use layer::{Context, Layer, Notice, Passthrough, Piece};

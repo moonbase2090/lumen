@@ -11,6 +11,17 @@ pub enum Notice {
     Pinned,
 }
 
+/// What the terminal knows about the layer when it hands over a read.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Context {
+    /// The alternate screen is active on the layer.
+    pub alt_screen: bool,
+    /// `TMUX` or `STY` is set in the layer's environment.
+    pub tmux_or_screen: bool,
+    /// Monotonic time of the read, in milliseconds.
+    pub now_ms: u64,
+}
+
 /// One thing the layer decided about a piece of the stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Piece {
@@ -35,8 +46,8 @@ pub enum Piece {
 
 /// What stands between a PTY's bytes and the grid.
 pub trait Layer {
-    /// Take the bytes of one read, at `now_ms` on a monotonic clock.
-    fn feed(&mut self, bytes: &[u8], now_ms: u64) -> Vec<Piece>;
+    /// Take the bytes of one read, with what the terminal knows about the layer.
+    fn feed(&mut self, bytes: &[u8], ctx: Context) -> Vec<Piece>;
     /// The stream ended: release what is held back.
     fn finish(&mut self) -> Vec<Piece>;
     /// The terminal opened the container for a new command.
@@ -51,7 +62,7 @@ pub trait Layer {
 pub struct Passthrough;
 
 impl Layer for Passthrough {
-    fn feed(&mut self, bytes: &[u8], _now_ms: u64) -> Vec<Piece> {
+    fn feed(&mut self, bytes: &[u8], _ctx: Context) -> Vec<Piece> {
         if bytes.is_empty() {
             Vec::new()
         } else {
@@ -72,17 +83,18 @@ impl Layer for Passthrough {
 
 #[cfg(feature = "arm-a")]
 mod arm_a {
-    use super::{Layer, Notice, Piece};
+    use super::{Context, Layer, Notice, Piece};
     use lumen_arm_a::pipeline as a;
 
     impl Layer for a::Layer {
-        fn feed(&mut self, bytes: &[u8], now_ms: u64) -> Vec<Piece> {
+        fn feed(&mut self, bytes: &[u8], ctx: Context) -> Vec<Piece> {
             a::Layer::feed(
                 self,
                 bytes,
                 a::Context {
-                    now_ms,
-                    ..a::Context::default()
+                    alt_screen: ctx.alt_screen,
+                    tmux_or_screen: ctx.tmux_or_screen,
+                    now_ms: ctx.now_ms,
                 },
             )
             .into_iter()
@@ -123,17 +135,18 @@ mod arm_a {
 
 #[cfg(feature = "arm-b")]
 mod arm_b {
-    use super::{Layer, Notice, Piece};
+    use super::{Context, Layer, Notice, Piece};
     use lumen_arm_b as b;
 
     impl Layer for b::Layer {
-        fn feed(&mut self, bytes: &[u8], now_ms: u64) -> Vec<Piece> {
+        fn feed(&mut self, bytes: &[u8], ctx: Context) -> Vec<Piece> {
             b::Layer::feed(
                 self,
                 bytes,
                 b::Context {
-                    now_ms,
-                    ..b::Context::default()
+                    alt_screen: ctx.alt_screen,
+                    tmux_or_screen: ctx.tmux_or_screen,
+                    now_ms: ctx.now_ms,
                 },
             )
             .into_iter()
