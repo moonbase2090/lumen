@@ -631,6 +631,57 @@ impl Renderer {
         frame
     }
 
+    /// The toasts that fit in a notification area `columns` cells wide and `nh`
+    /// pixels high, top down: each one's height in pixels and its wrapped lines.
+    /// A toast that does not fit in what is left is not in the list, and neither
+    /// is any after it. Painting and hit testing both use this, so a click lands
+    /// on exactly what was drawn.
+    fn toast_boxes(&self, toasts: &[Toast], columns: u32, nh: u32) -> Vec<(u32, Vec<String>)> {
+        let inner = usize::try_from(columns)
+            .unwrap_or(1)
+            .saturating_sub(2)
+            .max(1);
+        let mut used = 0;
+        let mut out = Vec::new();
+        for toast in toasts {
+            let mut lines = wrap(&toast.text, inner);
+            lines.truncate(TOAST_MAX_LINES);
+            let rows = u32::try_from(lines.len()).unwrap_or(0) + u32::from(toast.unsigned);
+            let height = rows * self.cell_h + 2 * self.scale;
+            if used + height > nh {
+                break;
+            }
+            used += height;
+            out.push((height, lines));
+        }
+        out
+    }
+
+    /// The toast drawn at pixel `(x, y)` of a window `win` showing `toasts`, as
+    /// its index in `toasts`, or `None` if the point is on no toast.
+    #[must_use]
+    pub fn toast_at(&self, win: &Window, toasts: &[Toast], x: u32, y: u32) -> Option<usize> {
+        let lay = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
+        let note = notification_area(&lay);
+        let (nx, ny, nw, nh) = (
+            note.x * self.cell_w,
+            note.y * self.cell_h,
+            note.w * self.cell_w,
+            note.h * self.cell_h,
+        );
+        if nw == 0 || x < nx || x >= nx + nw {
+            return None;
+        }
+        let mut top = ny;
+        for (index, (height, _)) in self.toast_boxes(toasts, note.w, nh).iter().enumerate() {
+            if y >= top && y < top + height {
+                return Some(index);
+            }
+            top += height;
+        }
+        None
+    }
+
     /// Paint `toasts` top down into the notification area `(x, y, w, h)` in
     /// pixels, `columns` cells wide. A toast that does not fit in what is left
     /// is not drawn, and neither is any after it.
@@ -645,19 +696,8 @@ impl Renderer {
             return;
         }
         let t = &self.theme;
-        let inner = usize::try_from(columns)
-            .unwrap_or(1)
-            .saturating_sub(2)
-            .max(1);
         let mut used = 0;
-        for toast in toasts {
-            let mut lines = wrap(&toast.text, inner);
-            lines.truncate(TOAST_MAX_LINES);
-            let rows = u32::try_from(lines.len()).unwrap_or(0) + u32::from(toast.unsigned);
-            let height = rows * self.cell_h + 2 * self.scale;
-            if used + height > nh {
-                break;
-            }
+        for (toast, (height, lines)) in toasts.iter().zip(self.toast_boxes(toasts, columns, nh)) {
             let mut box_frame = Frame::new(nw, height, t.toast);
             box_frame.fill(0, 0, nw, self.scale, t.toast_border);
             box_frame.fill(
