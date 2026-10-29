@@ -66,6 +66,14 @@ fn main() -> ExitCode {
                     "ready={} second_ready={} refused={} malformed={}",
                     counters.ready, counters.second_ready, counters.refused, counters.malformed
                 );
+                println!(
+                    "key={} second_key={} refused_spawn={} malformed_spawn={} locked={}",
+                    counters.key,
+                    counters.second_key,
+                    counters.refused_spawn,
+                    counters.malformed_spawn,
+                    counters.locked
+                );
             }
             ExitCode::from(end.code())
         }

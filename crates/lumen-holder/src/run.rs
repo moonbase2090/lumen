@@ -2,8 +2,8 @@
 
 use crate::ffi_linux::{self, Received};
 use crate::layer::{Counters, Layer};
-use crate::layout::{ALL, EOF_FD, PIDFD_FD, SEAL_FD};
-use crate::principal::{self, Principal};
+use crate::layout::{ALL, EOF_FD, PIDFD_FD, SEAL_FD, SPAWN_FD};
+use crate::principal::{self, Principal, Terminal};
 use crate::protocol::MAX_MESSAGE;
 use std::io;
 use std::os::fd::RawFd;
@@ -71,8 +71,15 @@ pub fn harden(terminal: u32, also_keep: &[RawFd]) -> io::Result<()> {
 /// Returns an error from `poll` or `recvmsg`, or `InvalidInput` if one of the
 /// four descriptors is not open.
 pub fn wait_for_end(layer: &mut Layer) -> io::Result<End> {
+    // The terminal may close its end of the spawn socketpair once it has
+    // delivered the key; that is not an end, so the descriptor stops being watched.
+    let mut spawn_open = true;
     loop {
-        let events = ffi_linux::wait_readable(&[EOF_FD, PIDFD_FD, SEAL_FD])?;
+        let mut watched = vec![EOF_FD, PIDFD_FD, SEAL_FD];
+        if spawn_open {
+            watched.push(SPAWN_FD);
+        }
+        let events = ffi_linux::wait_readable(&watched)?;
         if events.iter().any(|e| e.invalid) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -84,6 +91,26 @@ pub fn wait_for_end(layer: &mut Layer) -> io::Result<End> {
         }
         if events[1].readable || events[1].hangup {
             return Ok(End::ShellExited);
+        }
+        if spawn_open && (events[3].readable || events[3].hangup) {
+            loop {
+                match ffi_linux::receive(SPAWN_FD, MAX_MESSAGE)? {
+                    Received::Closed => {
+                        spawn_open = false;
+                        break;
+                    }
+                    Received::Empty => break,
+                    Received::Message {
+                        bytes,
+                        truncated,
+                        creds,
+                    } => {
+                        layer.handle_spawn(creds, &bytes, truncated, &|key| {
+                            ffi_linux::lock_memory(key).is_ok()
+                        });
+                    }
+                }
+            }
         }
         if events[2].readable || events[2].hangup {
             // Everything queued is judged before the end of the channel is acted on.
@@ -112,8 +139,15 @@ pub fn wait_for_end(layer: &mut Layer) -> io::Result<End> {
 /// Returns why the holder could not harden or wait.
 pub fn run(terminal: u32, shell: Principal, report: bool) -> io::Result<(End, Counters)> {
     ffi_linux::enable_passcred(SEAL_FD)?;
+    ffi_linux::enable_passcred(SPAWN_FD)?;
     harden(terminal, if report { &[1] } else { &[] })?;
-    let mut layer = Layer::new(shell);
+    let mut layer = Layer::new(
+        shell,
+        Terminal {
+            pid: terminal,
+            uid: shell.uid,
+        },
+    );
     let key: Option<Key> = None;
     let end = wait_for_end(&mut layer)?;
     drop(key);
