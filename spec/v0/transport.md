@@ -34,6 +34,34 @@ Track 0 frames are length-prefixed framed escapes on the PTY. They use the same 
 
 Every sealed frame has one fixed-size header layout. Its 64-byte authenticator field carries a 128-bit tag, zero-padded, and the padding is checked. The tag covers the layer id, direction, sequence number, type and length. It is computed under a header subkey derived from the layer's app key and is verified **before** any payload byte is consumed. The header contains a reserved origin byte. In v0 only app origin is valid.
 
+## Frame types {#transport.types}
+
+The type byte of a frame names what the frame asks for. Sealed types are below 0x80 and unsealed types are 0x80 and above, as in [Track 0 frames](#transport.track0-frames). This table is part of the experiment profile and is not yet normative.
+
+**Sealed types.** A sealed frame has an effect only if its header verified, its payload opened, and the layer's grant covers the type.
+
+| Type | Name | Effect | Needs |
+|---|---|---|---|
+| 0x01 | layout | multiplexer layout for the outer terminal | a sealed multiplexer layer |
+| 0x02 | pane container | one pane's container, with its pane id, layout generation and rectangle | a sealed multiplexer layer |
+| 0x10 | command start | opens a command block (a command-boundary change) | a sealed shell-integration layer |
+| 0x11 | prompt | marks a prompt boundary (a command-boundary change) | a sealed shell-integration layer |
+| 0x12 | command end | closes the command's container and carries its exit status (an exit-status and command-boundary change) | a sealed shell-integration layer |
+| 0x20 | grant | grants a capability to the layer, or narrows a grant | a sealed shell-integration layer |
+| 0x21 | clipboard write | asks for a clipboard write; nothing is written until the terminal's own confirmation, which shows the exact bytes | the `clipboard-write` capability |
+| 0x30 | staged-content marker | commits side-channel content staged under a one-shot id | the `side-channel` capability |
+
+Types 0x22 (notification) and 0x23 (title) are reserved. v0 defines no capability for them, so a terminal rejects them as it rejects any unknown sealed type.
+
+**Unsealed types.** 0x80 is a paragraph, 0x81 a heading and 0x82 a code block. All other unsealed types are reserved. An unsealed frame can never cause one of the effects above: it creates no command structure, grants nothing, writes no clipboard, shows no exit status and raises no notification. The other Track 0 block kinds listed in [Scope](@/spec/v0/trust.md#trust.track0-scope) take their type bytes from this range when they are added to the profile.
+
+**Rules.**
+
+- A sealed type that is not in this table, or that the layer's grant does not cover, is rejected as a failed authenticated frame under [Frame abort](#transport.abort). It has no effect.
+- A multiplexer's keys cover only types 0x01 and 0x02, as in [Keys](@/spec/v0/multiplexers.md#mux.keys). Every other sealed type under them is rejected and treated as a desync.
+- A link opens only after the user confirms the full target, and a capability reply travels on the control channel, not in a frame. Neither has a type byte.
+- The effect of a type happens in the terminal's sink for that effect and nowhere else. A conformance test counts attempts at each sink and the origin of the input that caused them.
+
 ## Sealed frame payload {#transport.aead}
 
 Every sealed payload is protected with an AEAD under the derived key. The nonce is direction || 64-bit sequence number. The associated data covers layer id, capability, direction, origin, sequence number, type and length. This means captures (for example `script` or multiplexer pipe output) hold only ciphertext and headers. Sensitive content such as clipboard text and approvals MUST travel only in sealed frames. The cipher choice (ChaCha20-Poly1305 or AES-256-GCM) MUST be constant-time on all target CPUs, and nonces are never reused.
