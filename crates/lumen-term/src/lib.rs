@@ -15,9 +15,13 @@
 pub mod document;
 pub mod grid;
 pub mod layer;
+pub mod layout;
 pub mod raster;
+pub mod strip;
 
 pub use document::{Block, Document, RichBlock};
 pub use grid::GridBlock;
 pub use layer::{Context, Layer, Notice, Passthrough, Piece};
+pub use layout::{Layout, Rect, StripPlacement, layout};
 pub use raster::{Frame, Renderer, Theme};
+pub use strip::Strip;
