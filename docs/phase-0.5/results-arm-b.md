@@ -1,47 +1,68 @@
 # Results: Arm B (Track 0 everywhere plus the sealed upgrade)
 
-This is the first comparison run, at one commit, over one corpus. It measures one criterion in part (2.2, byte pipeline only) and no other criterion. Section 4 of the [criteria](comparison-criteria.md) cannot be applied yet.
+Second comparison run, at main `7529aca649448252111ca79f3c55a38f7d11aadc`. The first run (at 726cb4a) is kept at the end of this file.
+
+This run measures parts of 2.1, 2.2 and 2.6 and nothing else. Section 4 of the [criteria](comparison-criteria.md) cannot be applied: 2.2a, 2.3 and 2.9 are not measured.
+
+## What this run does and does not show
+
+- **2.2 checks byte-pipeline output only.** The driver replays corpora through the arm's byte pipeline and counts forbidden items. Nothing is drawn, so it does not show that a terminal would draw no forged boundary, exit status, producer identity or badge.
+- **Reach uses the item-kinds oracle, not screenshots.** Criterion 2.1 names the screenshot-diff oracle, so the reach figure below is a partial measurement and is not counted as the 2.1 result.
+- **The macOS reach rows are modelled on Linux.** The harness models the macOS sessions on the Linux VM. Nothing ran on macOS.
+- **The test pass rests on exit status.** The workspace tests passed because the run exited 0 under `pipefail`. The per-test lines were cut off by the console capture, so they are not part of this result. The capture is to be fixed for the next run.
+- **The G1, G6 and G7 gates are not met** until the macOS clean-VM proof for the gate experiments is posted. This run does not switch any gate on or off.
 
 ## Run
 
-- Build commit: `726cb4a92fc3604e10f35e4192c322f4864c1f12`
-- Machine: clean Linux VM, arm64, Ubuntu 24.04.5, rustc 1.99.1 (58cf8f9c3 2026-10-13), built with `--locked`
-- Corpus: `docs/phase-0.5/corpus/`, revision `rt-1`, 15 cases, sha256 `4d840cfbddc6f38ad4b08e60e46e78d5215a9f94fb45dac5b877c5ba8bf40df0`
-- Harness and session matrix: the driver records neither a harness version nor a session-matrix revision. No session matrix exists yet.
-- Tests run first on the same VM (`cargo test --locked -p lumen-evidence -p lumen-harness -p lumen-arm-a -p lumen-arm-b`): all passed, 0 failed. Output: [evidence/726cb4a-tests.txt](evidence/726cb4a-tests.txt)
-- Gates that were off: none were switched on or off in this run.
+- Build commit: `7529aca649448252111ca79f3c55a38f7d11aadc` (main, which includes pull requests 35 to 39)
+- Machine: clean Linux VM, arm64, Ubuntu 24.04, unprivileged user, built with `--locked`
+- Harness: `lumen-evidence-2`. Session matrix: `sm-1`. Corpora: `rt-1` (15 cases) and `rt-2` (9 sealed-frame cases).
+- Overall: `cargo test --locked --workspace` and the release build passed, and all 11 evidence runs exited 0.
+- Raw logs: the results tarball with sha256 `7b46bd7fb24ed5f1deaf78b587fc3ccb1ba0487b5639a956323b17224debbe7b` holds the 11 `run.jsonl` and `summary.txt` pairs. It is referenced by hash only and is not committed.
 
 ## Metrics
 
 | Metric | Unit | Value | Threshold | Result | Raw log |
 |---|---|---|---|---|---|
-| 2.1 Reach | % | n/a | B at least 80% (12/14) | not measured: there is no session matrix and no session-replay mode, and the corpus has no `expect` field yet (section 5.1). | n/a |
-| 2.2 Spoof success | forbidden items over rt-1 | arm b: 0 | 0 | 0 in every run. See the note below: byte pipeline only, nothing is drawn | [726cb4a-rt-1-arm-b.txt](evidence/726cb4a-rt-1-arm-b.txt) |
+| 2.1 Reach | sessions reached of 14 (sm-1) | 14/14 | B at least 12/14; A reported, not gated | partial: item-kinds oracle, not the screenshot oracle the criterion names; macOS rows modelled on Linux. Meets 12/14 on that oracle. | results tarball `7b46bd7fb24e…` |
+| 2.2 Spoof success | forbidden items over rt-1 | 0 | 0 | 0 in every run. Byte pipeline only, nothing is drawn | results tarball `7b46bd7fb24e…` |
+| 2.2 Spoof success | forbidden items over rt-2 | 0 | 0 | 0 in every run. Byte pipeline only, nothing is drawn | results tarball `7b46bd7fb24e…` |
 | 2.2a Spoofing user study | % | n/a | B at most plain VT, and at most A + 2 pp | not measured (pending): the human study has not been run. | n/a |
-| 2.2b Simulated-reader spoofing (proxy, veto only) | % | n/a | veto if above plain VT | not measured: the driver renders nothing and has no screenshot mode. | n/a |
-| 2.3 Trust-margin pixels | px | n/a | 0 | not measured: there is no renderer or screenshot, and the driver has no pixel-diff mode. | n/a |
-| 2.4 Authority leakage | events | n/a | 0 | not measured: the driver reports `2.4=not measured (no terminal sinks are registered)`; all six sinks show `exercised=0`. | n/a |
-| 2.5 Decoder robustness | CPU-hours per format | n/a | section 2.5 | not measured: there is no decoder fuzzing harness, and images stay off. | n/a |
-| 2.6 Denial of service | budgets, memory, stall | n/a | section 2.6 | not measured: there is no flood mode. Case `orphan-flood-budget-spent` exercises the budget path only; its counters are in the per-case table. | n/a |
+| 2.2b Simulated-reader spoofing (proxy, veto only) | % | n/a | veto if above plain VT | not measured: there is no screenshot mode. | n/a |
+| 2.3 Trust-margin pixels | px | n/a | 0 | not measured: there is no screenshot or pixel-diff mode. | n/a |
+| 2.4 Authority leakage | events | n/a | 0 | not measured: no terminal sinks are registered. | n/a |
+| 2.5 Decoder robustness | CPU-hours per format | n/a | section 2.5 | not measured: there is no decoder fuzzing harness. | n/a |
+| 2.6 Denial of service, flood budget | budget violations | within budget, 500 of 500 blocks drawn | within the 25% unauthenticated share | pass for the byte pipeline over a 30 s flood. The criterion proposes 10 minutes, so this is a shorter run | results tarball `7b46bd7fb24e…` |
+| 2.6 Denial of service, peak memory | MiB | 3 MiB | under 512 MiB | pass for the driver process, not a terminal | results tarball `7b46bd7fb24e…` |
+| 2.6 Denial of service, longest feed | ms | 6.07 ms | UI stall under 2 s (proposed) | reported only: the longest single call into the layer is a proxy, not the UI stall | results tarball `7b46bd7fb24e…` |
+| 2.6 Denial of service, UI stall, frame rate, lying decoder | n/a | n/a | section 2.6 | not measured: the driver has no UI or decoder. | n/a |
 | 2.7 Red-team findings | open findings at Medium or above | n/a | 0 | not measured: this is a manual independent review. | n/a |
-| 2.8 Cost | reported only | n/a | none | not measured: there is no cost mode in the driver. | n/a |
-| 2.9 Parity | channels | n/a | 0 | not measured: there is no parity mode in the driver. | n/a |
+| 2.8 Cost | reported only | n/a | none | not measured: the cost mode was not merged at this commit. | n/a |
+| 2.9 Parity | channels | n/a | 0 | not measured: the parity mode was not merged at this commit. | n/a |
+| 7.x Multiplexer placement | various | n/a | section 7.3 | not measured: there is no pane corpus or harness. | n/a |
 
-### What check 2.2 covers
+## rt-2: the sealed path is exercised
 
-The evidence driver replays the corpus through the arm's byte pipeline and counts items whose kind is in a case's `forbid` list. `violations=0` means no forbidden item came out of the pipeline. Nothing is drawn, so this does not show that a terminal would not draw a forged boundary, exit status, producer identity or badge. The spoof-success percentage is not printed by the driver and is not measured.
+`sealed_opened` totals 261 in this run. Per case:
 
-Arm B ran as `lumen-evidence --arm b`. Orphan Track 0 (no container) appears only as a collapsed background item in this arm (`no-container-no-block`: `{"background": 1}`).
+| Case | Result |
+|---|---|
+| `sealed-valid` | 1 opened |
+| `sealed-valid-two-in-order` | 2 opened |
+| `sealed-valid-split-across-reads` | 1 opened |
+| `sealed-replayed-frame` | 1 opened, 1 refused as a replay |
+| `sealed-over-body-cap-in-one-second` | 256 opened, 44 refused |
+| `sealed-tampered-body` | 0 opened |
+| `sealed-abort-mid-body` | 0 opened |
+| `sealed-wrong-keys` | refused as an invalid header |
+
+The run report gives these per-case results for the sealed arms together. The case `sealed-aborts-pin-the-layer` is not listed there.
 
 ## Decision outcome
 
-No outcome under section 4. Criteria 2.1, 2.2a, 2.3 and 2.9 are not measured, so the rule cannot be evaluated.
+No outcome under section 4. Criteria 2.2a, 2.3 and 2.9 are not measured, and 2.1 is only partly measured, so the rule cannot be evaluated. Gates G1, G6 and G7 are not met until the macOS clean-VM proof is posted.
 
-## Not covered by this corpus
-
-Every case reports `sealed_opened=0`, because rt-1 has no real sealed frames. The sealed upgrade path is therefore not exercised by this run.
-
-## Per-case output
+## Earlier run at 726cb4a: per-case output (rt-1)
 
 Generated from the evidence files by a script, not typed in.
 
