@@ -24,5 +24,6 @@ pub use terminal::{Counters, Draw, Outcome, PaneTerminal};
 pub const TYPE_LAYOUT: u8 = 0x01;
 /// The sealed frame type of a pane container.
 pub const TYPE_PANE: u8 = 0x02;
-/// The capability value both models seal and open multiplexer frames under.
-pub const MUX_CAP: u8 = 3;
+/// The capability value both models seal and open multiplexer frames under:
+/// the frame type table seals layout and pane container frames under none.
+pub const MUX_CAP: u8 = lumen_sealed::types::CAP_NONE;

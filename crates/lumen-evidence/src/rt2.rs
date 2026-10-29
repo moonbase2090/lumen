@@ -1,8 +1,8 @@
-//! The `rt-2` corpus: real sealed frames, built by the sealing code itself.
+//! The `rt-2.1` corpus (it was `rt-2` before its frames moved to the frame type table's type and capability pairs): real sealed frames, built by the sealing code itself.
 //!
 //! Every frame is sealed under the fixed test keys the driver gives each
 //! replayed layer ([`crate::TEST_ROOT`], [`crate::TEST_LAYER`],
-//! [`crate::TEST_CAP`]), so the sealed upgrade path is exercised and
+//! [`crate::TEST_CAP`] for types outside the table), so the sealed upgrade path is exercised and
 //! `sealed_opened` is above zero. The committed JSON file is the output of
 //! [`rt2_json`]; a test fails if the two differ.
 
@@ -13,11 +13,13 @@ use lumen_sealed::{Direction, DirectionKeys, HEADER_LEN, LayerRoot, Sender};
 use serde_json::{Value, json};
 use std::fmt::Write as _;
 
-/// The frame type of every test frame: a sealed type, below the unsealed range.
-const SEALED_KIND: u8 = 0x01;
+/// The frame type of every test frame: a notification, which the frame type
+/// table seals under the `notifications` capability. Its payload is a length
+/// and UTF-8 text, so every frame here is a well-formed one.
+const SEALED_KIND: u8 = lumen_sealed::types::KIND_NOTIFICATION;
 
 /// The corpus revision.
-pub const REVISION: &str = "rt-2";
+pub const REVISION: &str = "rt-2.1";
 
 fn sender(root: [u8; 32], first_seq: u64) -> Sender {
     let keys = DirectionKeys::derive(&LayerRoot::new(root), TEST_LAYER, Direction::ToTerminal);
@@ -52,9 +54,14 @@ fn wrap(sealed: &[u8]) -> Vec<u8> {
     v
 }
 
-/// The next frame from `s`, sealed for the test capability.
+/// The capability the frame type table fixes for [`SEALED_KIND`].
+fn capability() -> u8 {
+    lumen_sealed::types::capability_of(SEALED_KIND).unwrap_or(TEST_CAP)
+}
+
+/// The next frame from `s`, sealed under the capability its type fixes.
 fn next(s: &mut Sender, text: &str) -> Vec<u8> {
-    match s.seal(SEALED_KIND, TEST_CAP, &paragraph(text)) {
+    match s.seal(SEALED_KIND, capability(), &paragraph(text)) {
         Ok(sealed) => wrap(&sealed),
         Err(e) => unreachable!("sealing a short payload succeeds: {e:?}"),
     }

@@ -579,20 +579,17 @@ enum AnyLayer {
 
 /// The layer id of the fixed test keys every replayed layer holds.
 pub const TEST_LAYER: lumen_sealed::LayerId = lumen_sealed::LayerId(7);
-/// The capability every test frame is sealed for.
+/// The capability a frame of a type outside the frame type table is sealed
+/// for. Frames of a table type use the capability the table fixes.
 pub const TEST_CAP: u8 = 2;
 /// The root secret of the fixed test keys. It is public test data, not a secret.
 pub const TEST_ROOT: [u8; 32] = [9; 32];
 
 /// The capability a replayed frame is sealed under: the one the frame type
-/// table fixes for the shell-integration, clipboard, notification and marker
-/// types. The earlier rt-2 frames use the layout type under the test
-/// capability, and they keep it until that corpus moves to table-valid pairs.
+/// table fixes for its type, or the test capability for a type the table does
+/// not have.
 fn test_cap_of(kind: u8) -> u8 {
-    match kind {
-        lumen_sealed::types::KIND_LAYOUT | lumen_sealed::types::KIND_PANE_CONTAINER => TEST_CAP,
-        other => lumen_sealed::types::capability_of(other).unwrap_or(TEST_CAP),
-    }
+    lumen_sealed::types::capability_of(kind).unwrap_or(TEST_CAP)
 }
 
 fn test_receiver() -> lumen_sealed::Receiver {
