@@ -231,3 +231,54 @@ fn no_toast_means_the_same_pixels_as_before() {
         r.render_window_with(&doc(), &WIN, &[])
     );
 }
+
+#[test]
+fn wide_characters_in_a_narrow_window_neither_panic_nor_leave_the_area() {
+    let r = renderer();
+    // Two-cell characters, three bytes each, in text that must wrap at every width.
+    let cjk = "\u{4e2d}\u{6587}\u{4e2d}\u{6587} \u{4e2d}\u{6587}\u{6587}";
+    for cols in [4, 5, 6, 7, 8, 9, 12, 80] {
+        let win = Window {
+            cols,
+            rows: 24,
+            editor_row: 19,
+            editor_rows: 2,
+        };
+        let empty = Document::new(
+            usize::try_from(cols.saturating_sub(4)).unwrap_or(0).max(1),
+            4,
+        );
+        let base = r.render_window(&empty, &win);
+        for unsigned in [false, true] {
+            let shown = toasts(&[cjk, "\u{4e2d}"], unsigned);
+            let f = r.render_window_with(&empty, &win, &shown);
+            let l = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
+            let area = notification_area(&l);
+            let all = Rect {
+                x: 0,
+                y: 0,
+                w: win.cols,
+                h: win.rows,
+            };
+            assert_eq!(
+                changed(&r, &base, &f, &all),
+                changed(&r, &base, &f, &area),
+                "cols {cols} unsigned={unsigned}: spilled"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_wide_character_in_a_narrow_rich_block_does_not_panic_either() {
+    use lumen_term::{Context, Passthrough, Piece};
+    let r = renderer();
+    for columns in [1usize, 2, 3, 4, 5, 6] {
+        let mut d = Document::new(columns, 2);
+        d.receive(&mut Passthrough, b"x", Context::default());
+        d.apply(vec![Piece::Rich(lumen_track0::Block::Paragraph(
+            "\u{4e2d}\u{6587}\u{4e2d}\u{6587} \u{4e2d}".to_owned(),
+        ))]);
+        let _ = r.render(&d);
+    }
+}

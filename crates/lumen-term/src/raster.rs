@@ -641,6 +641,9 @@ impl Renderer {
         columns: u32,
         toasts: &[Toast],
     ) {
+        if nw == 0 || nh == 0 {
+            return;
+        }
         let t = &self.theme;
         let inner = usize::try_from(columns)
             .unwrap_or(1)
@@ -657,9 +660,21 @@ impl Renderer {
             }
             let mut box_frame = Frame::new(nw, height, t.toast);
             box_frame.fill(0, 0, nw, self.scale, t.toast_border);
-            box_frame.fill(0, height - self.scale, nw, self.scale, t.toast_border);
+            box_frame.fill(
+                0,
+                height.saturating_sub(self.scale),
+                nw,
+                self.scale,
+                t.toast_border,
+            );
             box_frame.fill(0, 0, self.scale, height, t.toast_border);
-            box_frame.fill(nw - self.scale, 0, self.scale, height, t.toast_border);
+            box_frame.fill(
+                nw.saturating_sub(self.scale),
+                0,
+                self.scale,
+                height,
+                t.toast_border,
+            );
             let mut y = self.scale;
             if toast.unsigned {
                 self.text_line(&mut box_frame, self.cell_w, y, CONTAINER_LABEL, t.label);
@@ -753,8 +768,18 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
                 }
                 if line.is_empty() {
                     let head = clip(&word, width.max(1));
-                    word = word[head.len().max(1)..].to_owned();
-                    lines.push(head);
+                    // A character wider than the line leaves `head` empty: drop
+                    // that whole character, never part of it, so the cut stays on
+                    // a character boundary and the loop still makes progress.
+                    let cut = if head.is_empty() {
+                        word.chars().next().map_or(1, char::len_utf8)
+                    } else {
+                        head.len()
+                    };
+                    word = word[cut..].to_owned();
+                    if !head.is_empty() {
+                        lines.push(head);
+                    }
                     if word.is_empty() {
                         break;
                     }
