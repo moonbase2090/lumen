@@ -58,7 +58,40 @@ fn premultiply(rgba: &mut [u8]) {
     }
 }
 
+/// Whether every `PLTE` chunk has a length that is a multiple of 3, as the PNG
+/// specification requires.
+///
+/// Workaround for `png` 0.18.1, which panics in `create_rgba_palette` when the
+/// length is not (slice index out of range). Upstream rejects such chunks since
+/// commit 8330c2c6 of image-png, which is not in a release yet. Drop this when
+/// the `png` version in use has that fix: the test
+/// `png_still_panics_on_the_fixtures_without_the_check` fails when it does.
+fn plte_lengths_ok(bytes: &[u8]) -> bool {
+    let mut at = 8usize; // after the signature
+    while let Some(head) = bytes.get(at..at.saturating_add(8)) {
+        let len = u32::from_be_bytes([head[0], head[1], head[2], head[3]]);
+        if &head[4..8] == b"PLTE" && len % 3 != 0 {
+            return false;
+        }
+        if &head[4..8] == b"IEND" {
+            break;
+        }
+        // Length, type, data, CRC; a length that runs past the end ends the scan.
+        let Some(next) = usize::try_from(len)
+            .ok()
+            .and_then(|l| at.checked_add(12)?.checked_add(l))
+        else {
+            break;
+        };
+        at = next;
+    }
+    true
+}
+
 fn png(bytes: &[u8]) -> Result<Decoded, Status> {
+    if !plte_lengths_ok(bytes) {
+        return Err(Status::Corrupt);
+    }
     let mut dec = png::Decoder::new(Cursor::new(bytes));
     // Palette and low bit depths expanded, 16-bit stripped to 8.
     dec.set_transformations(png::Transformations::normalize_to_color8());
