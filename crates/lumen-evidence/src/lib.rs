@@ -34,6 +34,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod flood;
 pub mod matrix;
 pub mod parity;
 pub mod rt2;
@@ -384,14 +385,24 @@ impl AnyLayer {
 
     /// Feed one read and return the `(kind, len)` summary of what came out.
     fn feed(&mut self, bytes: &[u8], read: &Read, case: &Case) -> Vec<(&'static str, usize)> {
+        self.feed_raw(bytes, case.alt_screen, case.tmux_or_screen, read.t_ms)
+    }
+
+    fn feed_raw(
+        &mut self,
+        bytes: &[u8],
+        alt_screen: bool,
+        tmux_or_screen: bool,
+        now_ms: u64,
+    ) -> Vec<(&'static str, usize)> {
         match self {
             AnyLayer::A(l) => l
                 .feed(
                     bytes,
                     lumen_arm_a::pipeline::Context {
-                        alt_screen: case.alt_screen,
-                        tmux_or_screen: case.tmux_or_screen,
-                        now_ms: read.t_ms,
+                        alt_screen,
+                        tmux_or_screen,
+                        now_ms,
                     },
                 )
                 .iter()
@@ -401,9 +412,9 @@ impl AnyLayer {
                 .feed(
                     bytes,
                     lumen_arm_b::Context {
-                        alt_screen: case.alt_screen,
-                        tmux_or_screen: case.tmux_or_screen,
-                        now_ms: read.t_ms,
+                        alt_screen,
+                        tmux_or_screen,
+                        now_ms,
                     },
                 )
                 .iter()
