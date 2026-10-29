@@ -298,7 +298,6 @@ impl Layer {
         self.gate.pin_pending = false;
         if self.gate.pinned && !was {
             self.pinned_shown = true;
-            self.gate.verified.clear();
             self.gate.stats.pinned_notices += 1;
             vec![Item::Pinned]
         } else {
