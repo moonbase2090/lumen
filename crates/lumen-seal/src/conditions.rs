@@ -18,6 +18,10 @@
 //!    `CAP_SYS_PTRACE` (bit 19). `CapBnd` is not used.
 //! 9. The terminal's pidfd for the shell is still unreadable after the reads.
 //!
+//! The optional `require_yama_scope = 2` and `require_perf_block` settings are
+//! not implemented: the floors here are the fixed ones above, and the settings
+//! must be added before this decision is relied on.
+//!
 //! A value below the floor of 3 or 4 latches: every layer of the terminal,
 //! including ones started later, is grid-only until the terminal exits, even
 //! if the value rises again. A read that fails is a failed check but does not

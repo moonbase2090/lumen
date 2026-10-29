@@ -11,6 +11,10 @@
 //! `/proc/sys` (under a configurable root, so tests use a made-up tree), and
 //! the two checks the file system cannot answer go through the one FFI module,
 //! `ffi_linux`. Every read that fails is a failed check.
+//!
+//! Not implemented here: the spec's optional `require_yama_scope = 2` and
+//! `require_perf_block` settings, which raise the floors for a user who asks.
+//! They must be added before this decision is relied on.
 
 #![deny(unsafe_code)]
 
