@@ -7,7 +7,7 @@
 use lumen_panes::codec::{Layout, Malformed, PaneContainer};
 use lumen_panes::{Multiplexer, Outcome, PaneTerminal, Rect, TYPE_LAYOUT, TYPE_PANE};
 use lumen_sealed::types::{CAP_NOTIFICATIONS, KIND_CLIPBOARD_WRITE, KIND_NOTIFICATION};
-use lumen_sealed::{Direction, DirectionKeys, LayerId, LayerRoot, Sender};
+use lumen_sealed::{Direction, DirectionKeys, LayerId, LayerRoot, Receiver, Sender};
 use lumen_track0::{Block, KIND_PARAGRAPH};
 
 const LAYER: LayerId = LayerId(9);
@@ -309,6 +309,25 @@ fn pane_clients_cannot_send_notification_or_clipboard_frames() {
         assert_eq!(t.draws(), [], "type {kind:#04x}");
         assert_eq!(t.counters().refused, 1, "type {kind:#04x}");
     }
+}
+
+#[test]
+fn multiplexer_and_ordinary_layer_keys_are_separate_purposes() {
+    let (mut multiplexer, mut terminal) = pair();
+    let pane = multiplexer.new_pane();
+    let layout = Layout {
+        generation: 1,
+        panes: vec![(pane, left())],
+    }
+    .encode();
+
+    let ordinary_layout = frame_with_capability(TYPE_LAYOUT, 0, &layout);
+    assert_eq!(terminal.receive(&ordinary_layout), Outcome::Refused);
+
+    let mux_layout = multiplexer.layout_at(1, &[(pane, left())]);
+    let ordinary_keys = DirectionKeys::derive(&root(), LAYER, Direction::ToTerminal);
+    let mut ordinary_receiver = Receiver::new(ordinary_keys, LAYER, Direction::ToTerminal);
+    assert!(ordinary_receiver.open(0, &mux_layout).is_err());
 }
 
 #[test]
