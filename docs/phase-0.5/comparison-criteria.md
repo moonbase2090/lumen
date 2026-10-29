@@ -196,6 +196,14 @@ The summary, with its per-file counts, is the raw log; `run.jsonl` holds only th
 
 The count is only as complete as the catalogue, so a result must say that the catalogue was checked against the channel code at the measured commit, and by whom. The run exits 0 only for a measured zero, 1 when the count is not zero and 3 when no channel is declared; 2 is a usage or load error. A catalogue with no channel is reported as `2.9=not measured` and exits 3, not 0, so a gate script cannot read it as a pass: a count over nothing says nothing about the gate. The committed catalogue (`ch-1`) declares no channel, because no channel (Track B, the seal channel) has code in the arms yet. `run.jsonl` holds only the header.
 
+### 5.7 Render-log mode
+
+`lumen-evidence --render-log [--log FILE] --commit SHA --out DIR` judges the parts of 2.6 that need a UI and a decoder: the longest UI stall, the sustained frame rate and the peak memory under a lying decoder stream. The driver has neither, so a terminal writes the log while the flood of 5.3 and the lying decoder stream run against it, and this mode applies the limits.
+
+The log is a JSON object with `revision`, `build` (the terminal build identity), `duration_ms`, `frames_ms` (the time of every frame drawn, in order) and, optionally, `lying_decoder` with `decoder_build`, `streams` (the lying streams played) and `peak_rss_mib`. The longest stall is the longest gap between consecutive points of 0, each frame time and `duration_ms`, so the wait for the first frame and the wait after the last count. It must be at most 2000 ms. The frame rate is frames over `duration_ms`, reported and not gated. Peak memory must stay under 512 MiB, and a log with no lying stream played does not measure it.
+
+The run exits 0 when every part is within its limit, 1 when a measured part is over, and 3 when a part is not measured: no log, no frames, or no lying decoder run. A failure takes precedence over a missing part. 2 is a usage or load error.
+
 ## 6. Results format
 
 A result is a docs PR that adds `docs/phase-0.5/results-<arm>.md` for each arm at a stated commit SHA. It contains:

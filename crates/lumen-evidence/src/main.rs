@@ -20,6 +20,12 @@
 //! than a PTY write could. Exits 0 for a measured zero, 1 for a non-zero
 //! count and 3 when no channel is declared (not measured).
 //!
+//! `lumen-evidence --render-log [--log FILE] --commit SHA --out DIR`
+//!
+//! Render-log mode (criteria 2.6): judges the UI stall, frame rate and
+//! lying-decoder memory a terminal logged. Exits 0 when every part is within
+//! its limit, 1 when a measured part is over, and 3 when a part is not measured.
+//!
 //! `lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]`
 //!
 //! Reach mode (criteria 2.1): replays the session matrix and reports how many
@@ -36,7 +42,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR\n       lumen-evidence --parity --channels FILE --commit SHA --out DIR";
+const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR\n       lumen-evidence --parity --channels FILE --commit SHA --out DIR\n       lumen-evidence --render-log [--log FILE] --commit SHA --out DIR";
 
 /// Write the log and summary for a finished run and print the summary.
 fn finish(out: &std::path::Path, summary: &str) -> Result<(), String> {
@@ -136,6 +142,14 @@ fn parity(channels: &str, commit: &str, out: &std::path::Path) -> Result<ExitCod
     Ok(ExitCode::from(report.exit_code()))
 }
 
+fn render_log(log: Option<&str>, commit: &str, out: &std::path::Path) -> Result<ExitCode, String> {
+    let log_out = open_log(out)?;
+    let (report, header) =
+        lumen_evidence::render::run_render(log.map(std::path::Path::new), commit, log_out)?;
+    finish(out, &report.summary(&header))?;
+    Ok(ExitCode::from(report.exit_code()))
+}
+
 fn reach(matrix: &str, commit: &str, out: &std::path::Path, arm: &str) -> Result<ExitCode, String> {
     let arm = match arm {
         "b" => lumen_evidence::matrix::ReachArm::B,
@@ -168,6 +182,9 @@ fn main() -> ExitCode {
                 (Some(root), Some(base)) => cost(&root, &base, &commit, &out),
                 _ => Err("--cost needs --root and --base".to_owned()),
             }
+        }
+        (None, None) if args.iter().any(|a| a == "--render-log") => {
+            render_log(arg(&args, "--log").as_deref(), &commit, &out)
         }
         (None, None) if args.iter().any(|a| a == "--parity") => match arg(&args, "--channels") {
             Some(f) => parity(&f, &commit, &out),
