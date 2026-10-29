@@ -68,10 +68,10 @@ Each unauthenticated producer gets a smaller share than any sealed layer: **25% 
 
 - the layer is not possibly-remote, not an SSH session and not a multiplexer pane. A notification from any of those layers is never an OS notification in v0. The layer must also be local (see Local layers above);
 - the terminal is unfocused. A focused terminal shows a toast instead;
-- the pane is not muted, and neither is the layer;
-- the layer is within the OS budget: at most one OS notification per layer per second, at most 3 per layer per minute, and at most 8 per minute across all layers.
+- the pane is not muted, and the layer is not muted;
+- the layer is within the OS budget: at most one OS notification per layer per second, at most 3 per layer in any 60-second window, and at most 8 in any 60-second window across all layers, measured as sliding windows on a monotonic clock.
 
-An OS notification cannot be recalled once sent: it may stay in a history, sync to other devices, or survive the terminal. The budget above is therefore the only limit on what the OS keeps. When the OS budget is spent, the layer's notifications are toasts only until the user acts on that layer (unmutes it or opens it) or ten minutes pass with no notification from it, whichever comes first. The global budget of 8 per minute is shared by all layers and resets every minute. A notification that fails it is a toast, so one noisy layer can use up the shared OS budget for a minute but cannot take toasts from another layer. A notification that fails the OS conditions is shown as a toast if the toast limits allow, and otherwise dropped and counted.
+An OS notification cannot be recalled once sent: it may stay in a history, sync to other devices, or survive the terminal. The budget above is therefore the only limit on what the OS keeps. When the OS budget is spent, the layer's notifications are toasts only until the user acts on that layer (unmutes it or opens it) or ten minutes pass with no notification from it, whichever comes first. The global budget of 8 in any 60-second window is shared by all layers. A notification that fails it is a toast, so one noisy layer can use up the shared OS budget for a minute but cannot take toasts from another layer. A notification that fails the OS conditions is shown as a toast if the toast limits allow, and otherwise dropped and counted.
 
 **Exposure of program text.** By default an OS notification carries only the fixed prefix and the pane label. The program's text is never sent to the operating system unless the separate policy key `notifications.os-text` is set (default `false`, set only in the user's policy file). Enabling it sends the program's plain text to the operating system's notification service. That service may show it on a lock screen, keep it in a history, sync it to other devices, and expose it to other apps with notification access. Sealed output can contain secrets. The setting's description must state this, next to the setting itself.
 
@@ -87,7 +87,7 @@ An OS notification cannot be recalled once sent: it may stay in a history, sync 
 
 - at least 1000 ms must pass between two notifications accepted from the same layer;
 - each layer has a queue of at most 8 toasts, and at most 4 toasts from a layer are shown in any 10 seconds;
-- at most 16 toasts are shown at once across all layers. Each toast stays for at most 6 seconds, and the terminal removes it sooner if the user dismisses it. When a layer is at its own limit of 4 toasts in 10 seconds, its new toast replaces its own oldest toast. When the 16-toast cap is full, a new toast from a layer replaces that layer's own oldest shown toast if it has one; otherwise the new notification is dropped. A new toast never removes another layer's toast.
+- at most 16 toasts are shown at once across all layers. Each toast stays for at most 6 seconds, and the terminal removes it sooner if the user dismisses it. When a layer is at its own limit of 4 toasts in 10 seconds, the new notification is dropped and counted, as the rule below states. When the 16-toast cap is full, a new toast from a layer replaces that layer's own oldest shown toast if it has one; otherwise the new notification is dropped. A new toast never removes another layer's toast.
 
 A notification over these limits is dropped and counted in the chrome count.
 
