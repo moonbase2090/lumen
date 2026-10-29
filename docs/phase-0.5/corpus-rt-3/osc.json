@@ -1,0 +1,270 @@
+{
+ "revision": "rt-3",
+ "note": "notification cases: OSC 9, 777 and 99 are removed before the emulator and denied for unsigned output. Positive counts at the terminal's notification sink are in `sinks`. Sealed notifications are not in this revision.",
+ "cases": [
+  {
+   "id": "osc9-grid",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "6c730a1b5d393b6275696c6420646f6e6507",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1
+   },
+   "note": "OSC 9 in grid output, BEL-terminated: removed and denied, nothing reaches the sink"
+  },
+  {
+   "id": "osc777-grid",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d3737373b6e6f746966793b7469746c653b626f64791b5c",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1
+   },
+   "note": "OSC 777 notify, ST-terminated"
+  },
+  {
+   "id": "osc99-grid",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d39393b693d313b626f647920746578741b5c",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1
+   },
+   "note": "OSC 99, ST-terminated"
+  },
+  {
+   "id": "osc9-eight-bit-st",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b646f6e659c",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1
+   },
+   "note": "terminated by the 8-bit ST"
+  },
+  {
+   "id": "osc9-split-in-number",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "6c730a1b5d",
+     "t_ms": 0
+    },
+    {
+     "hex": "39",
+     "t_ms": 5
+    },
+    {
+     "hex": "3b68656c6c6f07",
+     "t_ms": 10
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1
+   },
+   "note": "split between the introducer, the number and the body"
+  },
+  {
+   "id": "osc9-split-in-terminator",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b68656c6c6f1b",
+     "t_ms": 0
+    },
+    {
+     "hex": "5c6166746572",
+     "t_ms": 5
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1
+   },
+   "note": "split inside ESC backslash"
+  },
+  {
+   "id": "osc9-leading-zeros",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d3030393b7807",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1
+   },
+   "note": "the number is read as digits, so 009 is OSC 9"
+  },
+  {
+   "id": "osc9-fifty-in-one-read",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e071b5d393b6e07",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 50
+   },
+   "note": "each sequence is counted once; none reaches the sink"
+  },
+  {
+   "id": "osc52-and-title-are-not-notifications",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d35323b633b5a585a7062413d3d071b5d303b61207469746c6507",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 0
+   },
+   "note": "other OSC numbers are not intercepted by this rule and raise no notification"
+  },
+  {
+   "id": "osc9-after-aborted-sequence",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b616263181b5d3737373b6e6f746966793b743b6207",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 2
+   },
+   "note": "CAN ends the first; the second is a fresh sequence"
+  },
+  {
+   "id": "track0-payload-with-osc-text",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "6c730a1b5f8a4c554d454e01f3800000000a0008611b5d393b780762",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 0
+   },
+   "note": "a control character in a Track 0 string refuses the frame; it is shown as escaped text and never reaches the emulator as a sequence"
+  },
+  {
+   "id": "orphan-track0-then-osc9",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5f8a4c554d454e01f38000000007000568656c6c6f1b5d393b7807",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1
+   },
+   "note": "no command container is open: the frame goes to the background strip and the OSC is still denied",
+   "context": {
+    "container": false
+   }
+  },
+  {
+   "id": "multiplexer-osc9",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1
+   },
+   "note": "TMUX or STY is set: the OSC is still removed and denied",
+   "context": {
+    "tmux_or_screen": true
+   }
+  },
+  {
+   "id": "multiplexer-passthrough-wrapper",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b50746d75783b1b1b5d393b78071b5c",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1
+   },
+   "note": "the tmux passthrough wrapper doubles the ESC; the notification inside is still removed and denied",
+   "context": {
+    "tmux_or_screen": true
+   }
+  },
+  {
+   "id": "alt-screen-osc9",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "1b5d393b7807",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 1
+   },
+   "note": "alternate screen active",
+   "context": {
+    "alt_screen": true
+   }
+  },
+  {
+   "id": "utf8-text-with-9d-is-kept",
+   "category": "authority",
+   "reads": [
+    {
+     "hex": "e29f9d393b6e6f7420616e206f736307",
+     "t_ms": 0
+    }
+   ],
+   "sinks": {
+    "notification_attempts": 0,
+    "denied_notifications": 0
+   },
+   "note": "U+27DD ends in byte 0x9D; the 8-bit C1 form is not an OSC introducer to the pinned emulator, so the text is kept"
+  }
+ ]
+}
