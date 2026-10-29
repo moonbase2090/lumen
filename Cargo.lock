@@ -355,6 +355,7 @@ version = "0.0.0"
 dependencies = [
  "lumen-sealed",
  "lumen-track0",
+ "sha2",
 ]
 
 [[package]]
