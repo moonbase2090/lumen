@@ -7,6 +7,15 @@
 //! says, in the credentials it attached to that message, that it was sent by
 //! that pid, as the same user, and the process with that pid still has the
 //! recorded start time (a reused pid does not).
+//!
+//! `SO_PASSCRED` is what makes the kernel attach those credentials. The terminal
+//! sets it on the holder's end of the socketpair before it starts the holder,
+//! so it is already set when the shell is handed its end; the holder sets it
+//! again when it starts, which changes nothing. A `ready` therefore cannot be
+//! lost to a missing option. If a message does arrive without credentials, for
+//! any reason, it is refused and counted, nothing is sent back, and the layer
+//! stays not ready: the shell sees no new command blocks, and the layer is
+//! grid-only once the ready timeout (not built yet) runs out.
 
 use std::path::Path;
 
