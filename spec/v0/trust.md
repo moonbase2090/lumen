@@ -60,8 +60,10 @@ Each unauthenticated producer gets a smaller share than any sealed layer: **25% 
 
 **Two kinds of notification.** A notification is either a **terminal toast**, drawn in the terminal's notification area, or an **OS notification**, passed to the operating system's notification service. Unsigned output never produces an OS notification.
 
+**Setting names.** The notification settings are top-level policy keys in snake case: `allow_unsigned`, `os_notifications` and `os_text`. Each defaults to `false` and is set only in the user's policy file ([Policy](@/spec/v0/capabilities.md#caps.policy)). They are settings, not capabilities: the capability that lets a sealed frame notify is `notifications`.
+
 - **Default for unsigned output: deny.** Notifications from unsigned output draw no toast and no OS notification. The attempt is counted in the chrome count of dropped items ([Track 0](@/spec/v0/trust.md#trust.track0-scope)).
-- **Opt-in for unsigned output.** The policy key `notifications.allow-unsigned` (default `false`, set only in the user's policy file, [Policy](@/spec/v0/capabilities.md#caps.policy)) lets unsigned grid output on a local layer (see Local layers above) draw a toast, subject to the rate limits below. It never applies to possibly-remote layers, SSH sessions or multiplexer panes, and it never produces an OS notification. This is an explicit exception to [No authority from unsealed input](@/spec/v0/conformance.md#gate.no-authority), which covers all other unsealed input unchanged.
+- **Opt-in for unsigned output.** The policy key `allow_unsigned` (default `false`, set only in the user's policy file, [Policy](@/spec/v0/capabilities.md#caps.policy)) lets unsigned grid output on a local layer (see Local layers above) draw a toast, subject to the rate limits below. It never applies to possibly-remote layers, SSH sessions or multiplexer panes, and it never produces an OS notification. This is an explicit exception to [No authority from unsealed input](@/spec/v0/conformance.md#gate.no-authority), which covers all other unsealed input unchanged.
 - **A sealed 0x22 frame with the `notifications` capability** draws one toast, or one OS notification when the OS path below applies, per frame. Any further notification from that frame is dropped and counted in the chrome count. The capability is per sealed layer, as [Grants](@/spec/v0/capabilities.md#caps.grants) describes, and it is not in the default grant for a remote layer. The frame type is in the frame-type table of the transport spec.
 
 **OS path.** OS notifications are off by default. The policy key `os_notifications` (default `false`, set only in the user's policy file) allows them. When it is on, a sealed 0x22 notification with the `notifications` capability raises an OS notification only if all of these hold, evaluated when the notification arrives:
@@ -83,7 +85,7 @@ An OS notification cannot be recalled once sent: it may stay in a history, sync 
 
 **Pane label.** The pane label is the layer's position in the terminal's own layout (window, tab or pane index), with the colour and glyph derived from its opaque id, as [Pane identity](@/spec/v0/multiplexers.md#mux.pane-identity) describes for panes. It is never program text: no title, working directory or pane text. Layer ids are never reused, as pane ids are. When a layer closes, its queued and shown toasts are removed, so a position is never shown with a toast from a layer that has gone.
 
-**Rate limits.** The numbers below are provisional proposals, to be tuned by measurement. Measured on a monotonic clock, and applied to toasts from `allow-unsigned` and to every sealed notification alike:
+**Rate limits.** The numbers below are provisional proposals, to be tuned by measurement. Measured on a monotonic clock, and applied to toasts from `allow_unsigned` and to every sealed notification alike:
 
 - at least 1000 ms must pass between two notifications accepted from the same layer;
 - each layer has a queue of at most 8 toasts, and at most 4 toasts from a layer are shown in any 10 seconds;
