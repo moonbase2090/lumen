@@ -1,0 +1,395 @@
+{
+  "cases": [
+    {
+      "category": "authority",
+      "context": {
+        "allow_unsigned": true,
+        "os_notifications": true,
+        "os_text": true,
+        "unfocused": true
+      },
+      "id": "unsigned-never-os-with-every-setting-on",
+      "note": "allow-unsigned, os, os-text and an unfocused window are all on: an unsigned notification is a toast, never an OS notification",
+      "reads": [
+        {
+          "hex": "1b5d393b7807",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "toasts": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "toasts": 1
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "allow_unsigned": true,
+        "os_notifications": true,
+        "os_text": true,
+        "unfocused": true
+      },
+      "id": "sealed-0x22-reaches-the-os-sink",
+      "note": "a sealed 0x22 frame with the capability, setting on, unfocused, local: the one way to an OS notification",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006f0000000700000000000000000002220000001c2d8a958f2883300b827a36c59dca6696000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cadb867963a2cc28c3bad57c740839b8bfc21319670e82309f8cfb16",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1,
+          "notification": 1
+        },
+        "os_notifications": 1,
+        "os_texts": [
+          "Program in pane 1 says: build done"
+        ],
+        "toasts": 0
+      },
+      "sinks_unsealed_layer": {
+        "effects": {},
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "allow_unsigned": true,
+        "os_notifications": true,
+        "os_text": true,
+        "unfocused": true
+      },
+      "id": "unsigned-toast-then-sealed-os",
+      "note": "the unsigned sequence is a toast and the sealed frame a second later is an OS notification",
+      "reads": [
+        {
+          "hex": "1b5d393b7807",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 5
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006900000007000000000000000000022200000016bb7955e3d5efeb2ecd2911d37dbacb3a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cad5806364ab62802290a69f7dcbf655cf75bf13bf9f",
+          "t_ms": 1000
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1,
+          "notification": 1
+        },
+        "os_notifications": 1,
+        "toasts": 1
+      },
+      "sinks_unsealed_layer": {
+        "effects": {},
+        "os_notifications": 0,
+        "toasts": 1
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "allow_unsigned": true,
+        "os_notifications": true,
+        "os_text": true,
+        "unfocused": true
+      },
+      "id": "sealed-os-then-unsigned-within-a-second",
+      "note": "the layer's one notification per second is spent by the sealed frame, so the unsigned sequence 490 ms later is dropped and counted",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006900000007000000000000000000022200000016bb7955e3d5efeb2ecd2911d37dbacb3a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cad5806364ab62802290a69f7dcbf655cf75bf13bf9f",
+          "t_ms": 10
+        },
+        {
+          "hex": "1b5d393b7807",
+          "t_ms": 500
+        }
+      ],
+      "sinks": {
+        "denied_notifications": 1,
+        "effects": {
+          "grant": 1,
+          "notification": 1
+        },
+        "os_notifications": 1,
+        "toasts": 0
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "os_notifications": 0,
+        "toasts": 1
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "allow_unsigned": true,
+        "os_notifications": true,
+        "os_text": true,
+        "ssh": true,
+        "unfocused": true
+      },
+      "id": "ssh-sealed-and-unsigned-are-toast-or-nothing",
+      "note": "an SSH session: the sealed frame is a toast, never an OS notification, and the unsigned opt-in does not apply",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006900000007000000000000000000022200000016bb7955e3d5efeb2ecd2911d37dbacb3a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cad5806364ab62802290a69f7dcbf655cf75bf13bf9f",
+          "t_ms": 10
+        },
+        {
+          "hex": "1b5d393b7807",
+          "t_ms": 1010
+        }
+      ],
+      "sinks": {
+        "denied_notifications": 1,
+        "effects": {
+          "grant": 1
+        },
+        "os_notifications": 0,
+        "toasts": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 1,
+        "effects": {},
+        "os_notifications": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "allow_unsigned": true,
+        "os_notifications": true,
+        "os_text": true,
+        "tmux_or_screen": true,
+        "unfocused": true
+      },
+      "id": "multiplexer-sealed-and-unsigned-are-toast-or-nothing",
+      "note": "a multiplexer pane: the same",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006900000007000000000000000000022200000016bb7955e3d5efeb2ecd2911d37dbacb3a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cad5806364ab62802290a69f7dcbf655cf75bf13bf9f",
+          "t_ms": 10
+        },
+        {
+          "hex": "1b5d393b7807",
+          "t_ms": 1010
+        }
+      ],
+      "sinks": {
+        "denied_notifications": 1,
+        "effects": {
+          "grant": 1
+        },
+        "os_notifications": 0,
+        "toasts": 1
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 1,
+        "effects": {},
+        "os_notifications": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "allow_unsigned": true,
+        "container": false,
+        "os_notifications": true,
+        "os_text": true,
+        "unfocused": true
+      },
+      "id": "orphan-output-unsigned-denied-sealed-os",
+      "note": "orphan output: the opt-in covers grid output only, so the unsigned sequence is denied; the sealed frame is still an OS notification",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006900000007000000000000000000022200000016bb7955e3d5efeb2ecd2911d37dbacb3a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cad5806364ab62802290a69f7dcbf655cf75bf13bf9f",
+          "t_ms": 10
+        },
+        {
+          "hex": "1b5d393b7807",
+          "t_ms": 1010
+        }
+      ],
+      "sinks": {
+        "denied_notifications": 1,
+        "effects": {
+          "grant": 1,
+          "notification": 1
+        },
+        "os_notifications": 1,
+        "toasts": 0
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 1,
+        "effects": {},
+        "os_notifications": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "allow_unsigned": true,
+        "os_notifications": true,
+        "os_text": true,
+        "unfocused": false
+      },
+      "id": "focused-window-sealed-is-a-toast",
+      "note": "a focused window shows a toast instead",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006900000007000000000000000000022200000016bb7955e3d5efeb2ecd2911d37dbacb3a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cad5806364ab62802290a69f7dcbf655cf75bf13bf9f",
+          "t_ms": 10
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1
+        },
+        "os_notifications": 0,
+        "toasts": 1
+      },
+      "sinks_unsealed_layer": {
+        "effects": {},
+        "os_notifications": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "allow_unsigned": true,
+        "os_notifications": false,
+        "os_text": true,
+        "unfocused": true
+      },
+      "id": "os-setting-off-sealed-and-unsigned-are-toasts",
+      "note": "notifications.os is off: both are toasts",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006900000007000000000000000000022200000016bb7955e3d5efeb2ecd2911d37dbacb3a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cad5806364ab62802290a69f7dcbf655cf75bf13bf9f",
+          "t_ms": 10
+        },
+        {
+          "hex": "1b5d393b7807",
+          "t_ms": 1010
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1
+        },
+        "os_notifications": 0,
+        "toasts": 2
+      },
+      "sinks_unsealed_layer": {
+        "effects": {},
+        "os_notifications": 0,
+        "toasts": 1
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "allow_unsigned": true,
+        "os_notifications": false,
+        "os_text": true,
+        "unfocused": true
+      },
+      "id": "fifth-toast-in-ten-seconds-is-dropped",
+      "note": "four toasts in ten seconds from a layer, mixing both sources; the fifth is dropped and counted",
+      "reads": [
+        {
+          "hex": "1b5d393b7807",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b86d631cfdef379cfd02d8cc54297a588bf",
+          "t_ms": 5
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f32200000066000000070000000000000000000222000000130f6118cb15f15484435e0e32264d379c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000cad08552dd678ff98a6eafd666765bb0e9efd4",
+          "t_ms": 1000
+        },
+        {
+          "hex": "1b5d393b7807",
+          "t_ms": 2000
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3220000006600000007000000000000000000032200000013c57768fd320dfdd9bf6e02ff89cf6c680000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000d993283b07d1aaa2f5b707b5955a740633af9",
+          "t_ms": 3000
+        },
+        {
+          "hex": "1b5d393b7807",
+          "t_ms": 4000
+        }
+      ],
+      "sinks": {
+        "denied_notifications": 1,
+        "effects": {
+          "grant": 1
+        },
+        "os_notifications": 0,
+        "toasts": 4
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "os_notifications": 0,
+        "toasts": 3
+      }
+    }
+  ],
+  "note": "notification cases that carry sealed 0x22 frames beside unsigned OSC sequences: an OS notification comes only from a sealed frame with the capability, behind notifications.os; unsigned, SSH, multiplexer and orphan output only ever produce a toast or nothing",
+  "revision": "rt-3"
+}
