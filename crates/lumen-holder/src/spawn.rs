@@ -70,6 +70,7 @@ pub fn start_with(
     // Set before the shell can send, so no message arrives without credentials.
     ffi_linux::enable_passcred(seal_holder.as_raw_fd())?;
     let (spawn_holder, spawn_terminal) = ffi_linux::seqpacket_pair()?;
+    ffi_linux::enable_passcred(spawn_holder.as_raw_fd())?;
     let (eof_read, eof_write) = ffi_linux::pipe()?;
     let sources = [
         seal_holder.as_raw_fd(),
@@ -104,4 +105,18 @@ pub fn start_with(
         spawn: spawn_terminal,
         eof_write,
     })
+}
+
+/// Deliver the layer's key to the holder over the spawn socketpair: one
+/// datagram, the only thing that ever travels on it. The message buffer is
+/// zeroized as soon as it is sent. The holder takes one key for its whole life.
+///
+/// # Errors
+///
+/// Returns the error from the write.
+pub fn deliver_key(started: &Started, number: u32, layer: u32, root: &[u8; 32]) -> io::Result<()> {
+    use std::io::Write as _;
+    let message = crate::protocol::key_message(number, layer, root);
+    let mut end = std::fs::File::from(started.spawn.try_clone()?);
+    end.write_all(&message[..])
 }
