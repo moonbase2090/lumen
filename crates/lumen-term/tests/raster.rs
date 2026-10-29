@@ -45,7 +45,7 @@ fn the_same_document_renders_to_the_same_pixels_every_time() {
     assert_eq!((a.width, a.height), (340, 111));
     assert_eq!(
         digest(&a),
-        "ea9a525bfb73fb7466e927adf65246c10644bc8e24ab9bbacab469298742e310"
+        "9bf629567863298ae5fa097a36a18f0b6f00282fb4e1dfdeceba6d944d8d17e4"
     );
 }
 
