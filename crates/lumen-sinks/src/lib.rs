@@ -90,6 +90,10 @@ pub struct Policy {
     /// `notifications.os-text`: let an OS notification carry the program's text.
     /// Off by default.
     pub os_text: bool,
+    /// Capabilities the policy does not allow a layer to be granted, as a bit
+    /// mask: bit `n` stands for capability number `n`. A grant of one is
+    /// refused. A revoke is never refused.
+    pub grant_denied: u16,
 }
 
 /// What kind of layer the output is on.
@@ -113,6 +117,12 @@ pub struct Desk {
 }
 
 impl Policy {
+    /// Whether the policy allows `capability` to be granted.
+    #[must_use]
+    pub fn allows_grant(&self, capability: u8) -> bool {
+        capability >= 16 || self.grant_denied & (1 << capability) == 0
+    }
+
     /// Whether an unsigned notification may be drawn as a toast on `layer`.
     #[must_use]
     pub fn unsigned_toast_allowed(&self, layer: Layer) -> bool {

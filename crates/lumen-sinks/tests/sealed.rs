@@ -304,3 +304,19 @@ fn negative_control_a_missing_guard_makes_the_count_non_zero() {
     );
     assert_eq!(t.log().verdict(), Verdict::NonZero(1));
 }
+
+#[test]
+fn a_grant_the_policy_does_not_allow_is_refused_and_a_revoke_is_not() {
+    let mut t = Terminal::with_policy(Policy {
+        grant_denied: 1 << 7,
+        ..Policy::default()
+    });
+    assert_eq!(
+        t.sealed(KIND_GRANT, &granted(7), 0, "c"),
+        Outcome::Refused(Refusal::PolicyDenied)
+    );
+    assert_eq!(t.sealed(KIND_GRANT, &granted(8), 0, "c"), Outcome::Applied);
+    assert_eq!(t.sealed(KIND_GRANT, &[0, 7], 0, "c"), Outcome::Applied);
+    assert_eq!(count(&t, "grant"), 2);
+    assert_eq!(t.case_sinks().refused, 1);
+}

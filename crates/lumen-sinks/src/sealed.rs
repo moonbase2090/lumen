@@ -30,6 +30,8 @@ pub enum Refusal {
     OutOfSequence,
     /// The layer does not hold the capability the frame needs.
     NotGranted,
+    /// The policy does not allow the capability to be granted.
+    PolicyDenied,
 }
 
 /// What the terminal did with a sealed frame.
@@ -126,6 +128,9 @@ impl Terminal {
                 Outcome::Applied
             }
             Frame::Grant { grant, capability } => {
+                if grant && !self.policy.allows_grant(capability) {
+                    return self.refuse(Refusal::PolicyDenied);
+                }
                 if let Some(slot) = self.granted.get_mut(usize::from(capability)) {
                     *slot = grant;
                 }

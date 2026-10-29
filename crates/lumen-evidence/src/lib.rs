@@ -53,7 +53,9 @@ pub mod cost;
 pub mod decoder;
 pub mod flood;
 pub mod matrix;
+pub mod panes;
 pub mod parity;
+pub mod render;
 pub mod rt2;
 pub mod rt4;
 
@@ -202,7 +204,7 @@ pub struct Corpus {
     pub cases: Vec<Case>,
 }
 
-fn unhex(s: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn unhex(s: &str) -> Result<Vec<u8>, String> {
     if !s.len().is_multiple_of(2) || !s.is_ascii() {
         return Err(format!("bad hex {s:?}"));
     }
@@ -212,7 +214,7 @@ fn unhex(s: &str) -> Result<Vec<u8>, String> {
         .collect()
 }
 
-fn read_of(v: &Value) -> Result<Read, String> {
+pub(crate) fn read_of(v: &Value) -> Result<Read, String> {
     let bytes = if let Some(h) = v["hex"].as_str() {
         unhex(h)?
     } else if let Some(f) = v["fill"].as_str() {
@@ -312,6 +314,12 @@ pub(crate) fn case_of(v: &Value) -> Result<Case, String> {
             allow_unsigned: v["context"]["allow_unsigned"].as_bool().unwrap_or(false),
             os_notifications: v["context"]["os_notifications"].as_bool().unwrap_or(false),
             os_text: v["context"]["os_text"].as_bool().unwrap_or(false),
+            grant_denied: v["context"]["deny_grants"].as_array().map_or(0, |a| {
+                a.iter()
+                    .filter_map(Value::as_u64)
+                    .filter(|n| *n < 16)
+                    .fold(0u16, |m, n| m | (1 << n))
+            }),
         },
         layer: lumen_sinks::Layer {
             ssh: v["context"]["ssh"].as_bool().unwrap_or(false),

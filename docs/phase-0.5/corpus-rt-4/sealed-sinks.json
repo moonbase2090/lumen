@@ -224,6 +224,69 @@
     {
       "category": "authority",
       "context": {
+        "confirm_clipboard": true,
+        "deny_grants": [
+          7
+        ]
+      },
+      "id": "grant-denied-by-policy",
+      "note": "the policy does not allow clipboard-write to be granted: the grant is refused and the write after it too",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b896c48bbfbff643548f1976b09c427593c",
+          "t_ms": 0
+        },
+        {
+          "hex": "1b5f8a4c554d454e01f3210000006400000007000000000000000000022100000011c044c8135711f589f52e207b8eaf0b9b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b2b617c3e7ba152ff88fe6e6050769213d",
+          "t_ms": 5
+        }
+      ],
+      "sinks": {
+        "effects": {},
+        "refused": 2
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
+        "deny_grants": [
+          7
+        ]
+      },
+      "id": "revoke-is-never-denied-by-policy",
+      "note": "a revoke is allowed whatever the policy denies",
+      "reads": [
+        {
+          "hex": "1b5f8a4c554d454e01f32000000065000000070000000000000000000120000000126443fb8860cbbb10f629a14d1bcd25ee0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008a89114f5ca2b1ed625cedb57efaed8c2fbe",
+          "t_ms": 0
+        }
+      ],
+      "sinks": {
+        "effects": {
+          "grant": 1
+        },
+        "refused": 0
+      },
+      "sinks_unsealed_layer": {
+        "denied_notifications": 0,
+        "effects": {},
+        "notification_attempts": 0,
+        "os_notifications": 0,
+        "refused": 0,
+        "toasts": 0
+      }
+    },
+    {
+      "category": "authority",
+      "context": {
         "confirm_clipboard": true
       },
       "id": "clipboard-without-grant",

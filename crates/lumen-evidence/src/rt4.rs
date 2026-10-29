@@ -204,6 +204,27 @@ pub fn rt4_json() -> String {
     }
 
     let mut f = Frames::new();
+    let reads = vec![
+        read(&f.frame(KIND_GRANT, &grant(7)), 0),
+        read(&f.frame(CLIPBOARD, b"x"), 5),
+    ];
+    cases.push(case(
+        "grant-denied-by-policy",
+        &reads,
+        &json!({"deny_grants": [7], "confirm_clipboard": true}),
+        &json!({"effects": {}, "refused": 2}),
+        "the policy does not allow clipboard-write to be granted: the grant is refused and the write after it too",
+    ));
+    let mut f = Frames::new();
+    let reads = vec![read(&f.frame(KIND_GRANT, &[0, 7]), 0)];
+    cases.push(case(
+        "revoke-is-never-denied-by-policy",
+        &reads,
+        &json!({"deny_grants": [7]}),
+        &json!({"effects": {"grant": 1}, "refused": 0}),
+        "a revoke is allowed whatever the policy denies",
+    ));
+    let mut f = Frames::new();
     cases.push(case(
         "clipboard-without-grant",
         &[read(&f.frame(CLIPBOARD, b"x"), 0)],

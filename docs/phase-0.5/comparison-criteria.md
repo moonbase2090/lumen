@@ -149,7 +149,7 @@ The shared red-team and replay corpus is a directory of JSON files, read in name
 
 - `id` and `category`, both strings. Ids are unique across the corpus.
 - `reads`: the PTY reads in order. Each read is `{"hex": "..."}` or `{"fill": "<hex byte>", "count": n}`, the same segment encoding as `conformance/vectors`, with an optional `t_ms` (default 0).
-- `context`: optional `alt_screen`, `tmux_or_screen`, `allow_unsigned`, `ssh`, `os_notifications`, `os_text`, `unfocused`, `muted` and `confirm_clipboard` booleans (default false), and `container` (default true). A case may also have `user_actions` (`open_link_confirmed`, `open_link_unconfirmed`) and `sinks_unsealed_layer`, the expected counts for an Arm A layer that holds no keys.
+- `context`: optional `alt_screen`, `tmux_or_screen`, `allow_unsigned`, `ssh`, `os_notifications`, `os_text`, `unfocused`, `muted`, `confirm_clipboard` and `deny_grants` (a list of capability numbers the policy does not allow to be granted) booleans (default false), and `container` (default true). A case may also have `user_actions` (`open_link_confirmed`, `open_link_unconfirmed`) and `sinks_unsealed_layer`, the expected counts for an Arm A layer that holds no keys.
 - `forbid`: optional item kinds that must not appear. Each entry must be one of the item kinds the layer reports. An unknown kind fails the load with the case id, so a typo cannot pass silently.
 
 - `expect`: optional positive expectation, `{"b": [...], "a": [...]}`, the item kinds Arm B and Arm A must produce, in order. Adjacent `output` items and adjacent `text` items are each joined first, because a read boundary can split them. Kinds are checked like `forbid`, and a key other than `b` and `a` fails the load. The red-team corpus does not use `expect`; the corpus replay ignores it. The reach mode (2.1) requires it on every session of the matrix.
@@ -227,6 +227,14 @@ By default a removed notification is denied: it draws nothing, and the denial is
 
 The notification cases are in `docs/phase-0.5/corpus-rt-3` (revision `rt-3`), each with its `sinks` counts.
 
+### 5.8 Render-log mode
+
+`lumen-evidence --render-log [--log FILE] --commit SHA --out DIR` judges the parts of 2.6 that need a UI and a decoder: the longest UI stall, the sustained frame rate and the peak memory under a lying decoder stream. The driver has neither, so a terminal writes the log while the flood of 5.3 and the lying decoder stream run against it, and this mode applies the limits.
+
+The log is a JSON object with `revision`, `build` (the terminal build identity), `duration_ms`, `frames_ms` (the time of every frame drawn, in order) and, optionally, `lying_decoder` with `decoder_build`, `streams` (a whole number: the count of lying streams played, not a list) and `peak_rss_mib`. The longest stall is the longest gap between consecutive points of 0, each frame time and `duration_ms`, so the wait for the first frame and the wait after the last count. It must be at most 2000 ms. The frame rate is frames over `duration_ms`, reported and not gated. Peak memory must stay under 512 MiB, and a log with no lying stream played does not measure it.
+
+The run exits 0 when every part is within its limit, 1 when a measured part is over, and 3 when a part is not measured: no log, no frames, or no lying decoder run. A failure takes precedence over a missing part. 2 is a usage or load error, and it includes a `streams` or `peak_rss_mib` that is not a whole number, so a list of streams is refused, not read as zero.
+
 ## 6. Results format
 
 A result is a docs PR that adds `docs/phase-0.5/results-<arm>.md` for each arm at a stated commit SHA. It contains:
@@ -269,3 +277,19 @@ This is a selection rule: a result can select Option B on a platform, so it is a
 ### 7.4 Preconditions
 
 The Track 0 gates in section 3 and the [alternate-screen rule](../../spec/v0/multiplexers.md#mux.alt-screen), which applies per pane, must pass before any rich pane is measured.
+
+### 7.5 Pane corpus format
+
+The pane corpus is a directory of JSON files read in name order, with the rules of section 5.1: every file is `{"revision": "...", "cases": [...]}`, every file gives the same revision, and ids are unique across the corpus. A case has `id`, `category`, `screen` (`cols` and `rows` at the start), `script` and an optional `forbid`.
+
+A script is a list of steps, each an object with an `op`:
+
+- `layout`: `generation` and `panes`, a list of `{id, x, y, w, h, visible}` in cells. `visible` defaults to true. `x` and `y` may be negative and `w` and `h` may be zero, because a malformed rectangle is a test input. A layout may not name a pane id twice.
+- `output`: `pane` and the bytes the pane writes, as `hex` or as `fill` and `count` like the reads of 5.1, with an optional `t_ms`. The pane id may be one that no layout names. A forged pane-container frame is written this way.
+- `resize`: `cols` and `rows`. `zoom`: `pane`, or no `pane` to clear the zoom. `detach` and `reattach`.
+
+A script says what the multiplexer is told and what its panes write. It does not say how a layout or pane-container frame is encoded, so a case does not depend on the payload layout of those frames.
+
+`forbid` lists outcomes that must not happen. The kinds cover five of the 7.2 metrics: `draw_outside_rect` and `draw_hidden_pane` (cross-pane and hidden-pane drawing), `stale_generation_drawn` (stale-generation drop), `forged_container_drawn` (forged frames stay text), and `key_reuse` and `unmarked_replay` (reattach). Three metrics have no kind and are measured another way: trust-margin pixels in panes need the screenshot and pixel diff of 2.3, key custody needs a memory and environment scan of the multiplexer server during a run, and pane reach is reported only and needs the screenshot oracle. Introducer fuzzing of the pane parser uses this corpus as input (a pane writes the variants at every split position with `output`), but its two counts, frames accepted without valid sealing and frame bytes reaching the VT parser, are read from the parser's counters, not from `forbid`. An unknown kind fails the load with the case id, so a typo cannot pass silently.
+
+The format is defined in `crates/lumen-evidence/src/panes.rs`. A change to it is a change to the pane corpus revision and needs both arms' agreement.
