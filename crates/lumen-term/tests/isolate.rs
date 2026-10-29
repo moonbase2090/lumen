@@ -190,8 +190,8 @@ fn esc_then_a_c1_control_removes_both() {
     assert_eq!(once(b"a\x1b\xc2\x9bb"), b"ab", "by code point too");
     assert_eq!(
         once(b"a\x1b\xc2\xa9b"),
-        b"a\x1b\xc2\xa9b",
-        "ESC then text is left alone"
+        b"a\xc2\xa9b",
+        "ESC then a non-ASCII code point: the ESC goes"
     );
 }
 
@@ -231,4 +231,134 @@ fn an_allowlisted_osc_at_the_cap_passes_and_one_byte_more_is_dropped_with_a_noti
             assert_eq!(out, b"ab");
         }
     }
+}
+
+#[test]
+fn esc_then_a_lone_c2_keeps_what_follows_and_still_drops_an_escape_that_follows() {
+    // The C2 is invalid and goes, and the ESC goes with it, so the next byte
+    // is text and not the command it would be after an ESC.
+    assert_eq!(once(b"x\x1b\xc2Ab"), b"xAb");
+    assert_eq!(once(b"x\x1b\xc2zb"), b"xzb");
+    assert_eq!(
+        once(b"x\x1b\xa9Pb"),
+        b"xPb",
+        "ESC, a dropped byte, then P is not a DCS"
+    );
+    assert_eq!(
+        once(b"x\x1b\xc3Pb"),
+        b"xPb",
+        "ESC, an invalid sequence, then P"
+    );
+    assert_eq!(
+        once(b"x\x1b\xc2\xa9b"),
+        b"x\xc2\xa9b",
+        "a complete code point stays"
+    );
+    // ESC C2 ESC P: the DCS that follows is dropped to its terminator.
+    assert_eq!(once(b"x\x1b\xc2\x1bPpayload\x1b\\y"), b"xy");
+    // ESC C2 C2 9B: the C1 by code point after it goes with its own ESC-less C2.
+    assert_eq!(once(b"x\x1b\xc2\xc2\x9by"), b"xy");
+    // Every C1 code point after ESC C2 goes, and the byte after the range stays.
+    for c1 in 0x80u8..=0x9f {
+        assert_eq!(once(&[b'x', 0x1b, 0xc2, c1, b'y']), b"xy", "{c1:#x}");
+    }
+    assert_eq!(
+        once(b"x\xc2\xa0y"),
+        b"x\xc2\xa0y",
+        "U+00A0 is not a C1 control"
+    );
+}
+
+#[test]
+fn an_allowlisted_osc_with_a_control_or_an_escape_in_its_body_is_dropped_whole() {
+    for body in [
+        &b"0;a\x1bPSECRET"[..],
+        b"0;a\x1b[2Jb",
+        b"2;a\x00b",
+        b"2;a\x0ab",
+        b"2;a\x7fb",
+        b"2;a\x18b",
+    ] {
+        let mut s = b"x\x1b]".to_vec();
+        s.extend_from_slice(body);
+        s.extend_from_slice(b"\x1b\\y");
+        assert_eq!(once(&s), b"xy", "{body:?}");
+    }
+}
+
+/// Every string over a small alphabet, up to a length.
+fn words(alphabet: &[&[u8]], max: usize) -> Vec<Vec<u8>> {
+    let mut all = vec![Vec::new()];
+    let mut layer = vec![Vec::new()];
+    for _ in 0..max {
+        let mut next = Vec::new();
+        for w in &layer {
+            for a in alphabet {
+                let mut v = w.clone();
+                v.extend_from_slice(a);
+                next.push(v);
+            }
+        }
+        all.extend(next.iter().cloned());
+        layer = next;
+    }
+    all
+}
+
+#[test]
+fn over_every_short_string_of_the_awkward_bytes_the_output_is_inert_idempotent_and_split_safe() {
+    let alphabet: [&[u8]; 13] = [
+        b"\x1b",
+        b"\xc2",
+        b"\x9b",
+        b"\x9f",
+        b"\xa9",
+        b"P",
+        b"]",
+        b"\\",
+        b"x",
+        b"\x07",
+        b"0;",
+        b"\xe2\x82",
+        b"\xac",
+    ];
+    let mut checked = 0;
+    for w in words(&alphabet, 5) {
+        let whole = run(&[&w]);
+        let out = &whole.0;
+        let text = std::str::from_utf8(out);
+        assert!(text.is_ok(), "{w:?} -> {out:?}");
+        assert!(
+            !text.is_ok_and(|t| t.chars().any(|c| ('\u{80}'..='\u{9f}').contains(&c))),
+            "{w:?}"
+        );
+        assert!(
+            !out.windows(2).any(|p| p == [0x1b, b'P']
+                || p == [0x1b, b'_']
+                || p == [0x1b, b'^']
+                || p == [0x1b, b'X']),
+            "{w:?} -> {out:?}"
+        );
+        // Filtering what it let through changes nothing.
+        // (A lone ESC at the very end is held and dropped by a second pass.)
+        let settled = out.strip_suffix(b"\x1b").unwrap_or(out);
+        assert_eq!(once(out), settled, "{w:?}");
+        // Nothing is held back that a later complete string cannot clear: a DCS
+        // that follows is dropped, whatever came before, unless the input ends
+        // inside a string that is already being discarded or read.
+        let mut tail = w.clone();
+        tail.extend_from_slice(b"\x1bPSECRET\x1b\\Z");
+        let after = once(&tail);
+        assert!(
+            !after.windows(6).any(|p| p == b"SECRET"),
+            "{w:?} -> {after:?}"
+        );
+        assert!(after.ends_with(b"Z"), "{w:?} -> {after:?}");
+        // One cut anywhere gives the same result.
+        for i in 0..=w.len() {
+            assert_eq!(run(&[&w[..i], &w[i..]]), whole, "{w:?} split at {i}");
+        }
+        checked += 1;
+    }
+    assert!(checked > 300_000, "{checked}");
 }

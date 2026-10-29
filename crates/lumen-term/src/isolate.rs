@@ -55,8 +55,6 @@ enum State {
     Ground,
     /// Saw ESC.
     Esc,
-    /// Saw ESC then C2, which starts the UTF-8 form of a C1 control.
-    EscC2,
     /// Reading an OSC body; `esc` is set after an ESC.
     Osc {
         body: Vec<u8>,
@@ -85,6 +83,12 @@ impl Default for Isolator {
 }
 
 fn allowed_osc(body: &[u8]) -> bool {
+    // An ESC or another control inside the body would end the string in a
+    // parser that does not follow the one-terminator rule, so such a body is
+    // not passed on.
+    if body.iter().any(|b| *b < 0x20 || *b == 0x7f) {
+        return false;
+    }
     let digits: Vec<u8> = body
         .iter()
         .copied()
@@ -158,16 +162,6 @@ impl Isolator {
         match std::mem::replace(&mut self.state, State::Ground) {
             State::Ground => self.ground(b, out),
             State::Esc => self.after_esc(b, out),
-            State::EscC2 => {
-                if b <= 0x9f {
-                    // ESC then a C1 control by code point: both go.
-                    self.stats.c1 += 1;
-                } else {
-                    out.push(ESC);
-                    self.text(0xc2, out);
-                    self.text(b, out);
-                }
-            }
             State::Osc { body, esc } => self.osc(body, esc, b, out, notes),
             State::Skip { esc, read } => self.skip(esc, read, b, notes),
         }
@@ -198,11 +192,11 @@ impl Isolator {
                 };
             }
             ESC => self.state = State::Esc,
-            0xc2 => self.state = State::EscC2,
-            0x80..=0x9f => {
-                // ESC then a C1 control: both go, so the next byte is not read
-                // as the end of an escape that was never completed.
-                self.stats.c1 += 1;
+            0x80..=0xff => {
+                // ESC then a byte that is not ASCII is not an escape sequence.
+                // The ESC goes, so that if the byte is dropped (a C1 control or
+                // invalid UTF-8) the next byte is not read as following an ESC.
+                self.text(b, out);
             }
             _ => {
                 out.push(ESC);
