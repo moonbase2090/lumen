@@ -878,6 +878,14 @@ name = "lumen-harness"
 version = "0.0.0"
 
 [[package]]
+name = "lumen-holder"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "zeroize",
+]
+
+[[package]]
 name = "lumen-panes"
 version = "0.0.0"
 dependencies = [
