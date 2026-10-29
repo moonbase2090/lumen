@@ -39,6 +39,12 @@
 //! Option B at the model level. Exits 1 when a case produced a forbidden
 //! outcome.
 //!
+//! `lumen-evidence --screenshots --corpus DIR [--corpus DIR ...] [--scale N] --commit SHA --out DIR`
+//!
+//! Pixel mode (criteria 2.3): changed pixels in the trust margin and the editor
+//! against a baseline, over the corpus. Exits 0 for a measured zero, 1 for a
+//! non-zero count and 3 when the baseline was not stable or nothing was measured.
+//!
 //! `lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]`
 //!
 //! Reach mode (criteria 2.1): replays the session matrix and reports how many
@@ -55,7 +61,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR\n       lumen-evidence --parity --channels FILE --commit SHA --out DIR\n       lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR\n       lumen-evidence --render-log [--log FILE] --commit SHA --out DIR\n       lumen-evidence --panes DIR --placement a|b --commit SHA --out DIR";
+const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR\n       lumen-evidence --parity --channels FILE --commit SHA --out DIR\n       lumen-evidence --screenshots --corpus DIR [--corpus DIR ...] [--scale N] --commit SHA --out DIR\n       lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR\n       lumen-evidence --render-log [--log FILE] --commit SHA --out DIR\n       lumen-evidence --panes DIR --placement a|b --commit SHA --out DIR";
 
 /// Write the log and summary for a finished run and print the summary.
 fn finish(out: &std::path::Path, summary: &str) -> Result<(), String> {
@@ -198,11 +204,38 @@ fn placement(
     let (report, header) = lumen_evidence::placement::run_placement(&corpus, commit, which, log)
         .map_err(|e| e.to_string())?;
     finish(out, &report.summary(&header))?;
-    Ok(if report.violations() == 0 {
-        ExitCode::SUCCESS
-    } else {
+    Ok(if report.violations() > 0 {
         ExitCode::from(1)
+    } else if !report.cases.is_empty() && report.not_run() == report.cases.len() {
+        // Nothing was played, so nothing was measured.
+        ExitCode::from(3)
+    } else {
+        ExitCode::SUCCESS
     })
+}
+
+fn screenshots(
+    corpora: &[String],
+    commit: &str,
+    out: &std::path::Path,
+    scale: &str,
+) -> Result<ExitCode, String> {
+    let scale: u32 = scale
+        .parse()
+        .ok()
+        .filter(|s| (1..=4).contains(s))
+        .ok_or_else(|| format!("--scale {scale:?} must be 1 to 4 (criteria 2.3 names 2)"))?;
+    let dirs: Vec<PathBuf> = corpora.iter().map(PathBuf::from).collect();
+    let dirs: Vec<&std::path::Path> = dirs.iter().map(PathBuf::as_path).collect();
+    let corpus = lumen_evidence::load_corpora(&dirs)?;
+    let log = open_log(out)?;
+    let (report, header) =
+        lumen_evidence::pixels::run_pixels(&corpus, commit, scale, Some(out), log)?;
+    let rects = lumen_evidence::Renderer::light(scale)
+        .map(|r| lumen_evidence::pixels::rects_text(&r))
+        .unwrap_or_default();
+    finish(out, &report.summary(&header, &rects))?;
+    Ok(ExitCode::from(report.exit_code()))
 }
 
 fn reach(matrix: &str, commit: &str, out: &std::path::Path, arm: &str) -> Result<ExitCode, String> {
@@ -259,6 +292,10 @@ fn main() -> ExitCode {
             Some(f) => parity(&f, &commit, &out),
             None => Err("--parity needs --channels".to_owned()),
         },
+        (Some(()), None) if args.iter().any(|a| a == "--screenshots") => {
+            let scale = arg(&args, "--scale").unwrap_or_else(|| "2".to_owned());
+            screenshots(&corpora, &commit, &out, &scale)
+        }
         (Some(()), None) => replay(&corpora, &commit, &out, &arm),
         (None, Some(matrix)) => reach(&matrix, &commit, &out, &arm),
         _ => {

@@ -6,8 +6,34 @@
 // Short names for frames and rectangles keep the comparisons readable.
 #![allow(clippy::many_single_char_names)]
 
+use lumen_term::notify::{Desk, Notifier, Outcome, Place, Settings, Source};
 use lumen_term::{Context, Document, Passthrough, Piece, Renderer, StripPlacement, Window, layout};
 use lumen_track0::Block;
+
+/// Two toasts: an unsigned one (allowed by the policy) and a sealed one.
+fn toasts() -> Vec<lumen_term::notify::Toast> {
+    let mut notifier = Notifier::new(Settings {
+        allow_unsigned: true,
+        ..Settings::default()
+    });
+    notifier.set_desk(Desk {
+        focused: true,
+        muted: false,
+    });
+    notifier.add_layer(1, "tab 1", Place::Local);
+    notifier.add_layer(2, "tab 2", Place::Local);
+    let outcomes = [
+        notifier.notify(0, 1, Source::UnsignedGrid, ""),
+        notifier.notify(
+            0,
+            2,
+            Source::Sealed,
+            "deploy finished \u{2714} \u{202e}exit 0",
+        ),
+    ];
+    assert!(outcomes.iter().all(|o| *o == Outcome::Toast));
+    notifier.shown().to_vec()
+}
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -46,6 +72,8 @@ fn main() {
     let closed = renderer.render_window(&doc, &win);
     doc.user_opens_strip(0);
     let open = renderer.render_window(&doc, &win);
+
+    let with_toasts = renderer.render_window_with(&doc, &win, &toasts());
 
     let (cw, ch) = renderer.cell();
     let count = |a: &lumen_term::Frame, b: &lumen_term::Frame, x: u32, y: u32, w: u32, h: u32| {
@@ -86,13 +114,13 @@ fn main() {
             "{name}: changed pixels vs baseline: margin={margin} editor={editor} strip={strip}"
         );
     }
-    match open.to_png() {
+    match with_toasts.to_png() {
         Ok(png) => {
             if std::fs::write(&out, png).is_err() {
                 eprintln!("could not write {out}");
                 std::process::exit(1);
             }
-            println!("wrote {out} ({}x{})", open.width, open.height);
+            println!("wrote {out} ({}x{})", with_toasts.width, with_toasts.height);
         }
         Err(e) => {
             eprintln!("png: {e}");
