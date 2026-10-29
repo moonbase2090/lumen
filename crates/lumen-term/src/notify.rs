@@ -86,12 +86,26 @@ impl Place {
 }
 
 /// The window and the user.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+///
+/// The default is a focused terminal that is not muted: until the host reports
+/// otherwise the terminal assumes it has focus, so a notification is a toast
+/// and never an OS notification. Only a host that says the terminal is
+/// unfocused can open the OS path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Desk {
     /// The terminal has focus.
     pub focused: bool,
     /// The user muted the terminal's notifications.
     pub muted: bool,
+}
+
+impl Default for Desk {
+    fn default() -> Self {
+        Self {
+            focused: true,
+            muted: false,
+        }
+    }
 }
 
 /// Where a notification came from.

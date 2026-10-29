@@ -471,3 +471,37 @@ fn a_layer_at_the_screen_cap_replaces_only_its_own_oldest_toast() {
         "its own oldest went: {mine:?}"
     );
 }
+
+#[test]
+fn a_host_that_never_reports_focus_gets_toasts_not_os_notifications() {
+    // No call to set_desk: the terminal assumes it has focus.
+    let mut n = Notifier::new(all_on());
+    n.add_layer(1, "tab 1", LOCAL);
+    assert!(Desk::default().focused && !Desk::default().muted);
+    for t in [0, 1000, 2000] {
+        assert_eq!(sealed(&mut n, t, "x"), Outcome::Toast, "at {t}");
+    }
+    // Once the host says the terminal is unfocused, the OS path opens.
+    n.set_desk(unfocused());
+    assert!(matches!(sealed(&mut n, 3000, "x"), Outcome::Os(_)));
+    // Back to focused, and it is a toast again.
+    n.set_desk(Desk {
+        focused: true,
+        muted: false,
+    });
+    assert_eq!(sealed(&mut n, 4000, "x"), Outcome::Toast);
+}
+
+#[test]
+fn routing_without_a_desk_report_never_reaches_the_os_sink() {
+    let mut n = Notifier::new(all_on());
+    n.add_layer(1, "tab 1", LOCAL);
+    let mut sink = Recorder::default();
+    let events = [
+        sealed_event(0x20, vec![1, 8]),
+        sealed_event(0x22, string("hi")),
+    ];
+    let out = n.route(0, 1, &events, &mut sink);
+    assert_eq!(out, [Outcome::Toast]);
+    assert_eq!(sink.sent.len(), 0);
+}
