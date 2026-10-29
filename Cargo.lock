@@ -887,6 +887,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumen-seal"
+version = "0.0.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "lumen-sealed"
 version = "0.0.0"
 dependencies = [
