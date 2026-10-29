@@ -2,7 +2,9 @@
 
 use crate::grid::GridBlock;
 use crate::layer::{Context, Layer, Notice, Piece};
+use crate::strip::Strip;
 use lumen_track0::Block as Track0Block;
+use std::collections::BTreeSet;
 
 /// A Track 0 block shown in the terminal's own container.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,6 +34,7 @@ pub struct Document {
     notices: Vec<Notice>,
     sealed: Vec<(u8, usize)>,
     cycle: u32,
+    open_strips: BTreeSet<u32>,
 }
 
 impl Document {
@@ -45,6 +48,7 @@ impl Document {
             notices: Vec::new(),
             sealed: Vec::new(),
             cycle: 0,
+            open_strips: BTreeSet::new(),
         }
     }
 
@@ -104,6 +108,45 @@ impl Document {
                 Piece::Sealed { kind, len } => self.sealed.push((kind, len)),
             }
         }
+    }
+
+    /// The background strips, one per prompt cycle that has background
+    /// output, oldest first. A strip is collapsed unless the user opened it.
+    #[must_use]
+    pub fn strips(&self) -> Vec<Strip<'_>> {
+        let mut out: Vec<Strip<'_>> = Vec::new();
+        for block in &self.blocks {
+            let Block::Rich(r) = block else { continue };
+            if !r.background {
+                continue;
+            }
+            match out.last_mut() {
+                Some(s) if s.cycle == r.cycle => s.blocks.push(r),
+                _ => out.push(Strip {
+                    cycle: r.cycle,
+                    blocks: vec![r],
+                    open: self.open_strips.contains(&r.cycle),
+                }),
+            }
+        }
+        out
+    }
+
+    /// The user opens the strip of `cycle`. This is the only way a strip
+    /// opens: nothing the layer yields calls it. It returns false if that
+    /// cycle has no strip.
+    pub fn user_opens_strip(&mut self, cycle: u32) -> bool {
+        if self.strips().iter().any(|s| s.cycle == cycle) {
+            self.open_strips.insert(cycle);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// The user closes the strip of `cycle`.
+    pub fn user_closes_strip(&mut self, cycle: u32) {
+        self.open_strips.remove(&cycle);
     }
 
     /// The prompt cycle blocks are arriving in. It starts at 0.
