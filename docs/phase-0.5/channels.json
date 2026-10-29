@@ -1,5 +1,36 @@
 {
- "revision": "ch-1",
- "note": "no Lumen channel is implemented at this revision: Track B and the seal channel have no code in the arms yet, so there is nothing to declare and parity (2.9) is not measured",
- "channels": []
+ "revision": "ch-2",
+ "note": "Declared from the spec by the author of the arms. No channel below has code in this repository, so the count applies the parity rule to the declared actions and is not a test of an implementation. Each action lists only what the channel accepts as input that can change the terminal; messages the terminal sends out (capability replies) and messages the channel refuses are not actions.",
+ "channels": [
+  {
+   "id": "track-b",
+   "source": "spec/v0/transport.md#transport.track-b",
+   "actions": [
+    {
+     "id": "stage-content",
+     "pty_equivalent": "a sealed frame of the same type written to the PTY by the key holder: staged content has no effect until an authenticated sealed marker (type 0x30) on the PTY commits it, and the marker is itself a PTY frame"
+    }
+   ]
+  },
+  {
+   "id": "seal-channel",
+   "source": "spec/v0/sealed-layers.md#sealed.control",
+   "actions": [
+    {
+     "id": "seal-granted-frame",
+     "pty_equivalent": "the sealed frame of the same type on the PTY: the holder seals only types its layer's policy grants, and the resulting frame reaches the terminal over the PTY"
+    }
+   ]
+  },
+  {
+   "id": "control-channel",
+   "source": "spec/v0/sealed-layers.md#sealed.control",
+   "actions": [
+    {
+     "id": "request-capability",
+     "pty_equivalent": "a sealed grant frame (type 0x20) on the PTY: a request changes nothing until the terminal's policy allows it and a grant takes effect, and the grant is a PTY frame"
+    }
+   ]
+  }
+ ]
 }

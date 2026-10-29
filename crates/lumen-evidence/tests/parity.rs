@@ -18,18 +18,64 @@ fn load_text(name: &str, text: &str) -> Result<lumen_evidence::parity::Catalogue
 }
 
 #[test]
-fn the_committed_catalogue_declares_no_channel_so_parity_is_not_measured() {
+fn the_committed_catalogue_declares_the_spec_channels_and_says_they_have_no_code() {
     let Ok(c) = load_catalogue(&committed()) else {
         unreachable!("the committed catalogue loads")
+    };
+    assert_eq!(c.revision, "ch-2");
+    let ids: Vec<_> = c.channels.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(ids, ["track-b", "seal-channel", "control-channel"]);
+    for ch in &c.channels {
+        assert!(ch.source.is_some(), "{}: names its spec section", ch.id);
+        assert!(!ch.actions.is_empty(), "{}", ch.id);
+        // A channel that names code must name code that exists.
+        if let Some(code) = &ch.code {
+            let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(code);
+            assert!(path.exists(), "{}: {code}", ch.id);
+        }
+    }
+    let Ok((report, header)) = run_parity(&c, "testsha", Vec::new()) else {
+        unreachable!("writing to a Vec succeeds")
+    };
+    assert!(report.measured());
+    assert_eq!((report.channels, report.count()), (3, 0));
+    assert_eq!(report.exit_code(), 0);
+    assert_eq!(report.without_code.len(), 3);
+    let s = report.summary(&header);
+    assert!(s.contains("channels_accepting_more_than_pty=0"), "{s}");
+    assert!(
+        s.contains("declaration_level: 3 of 3 channels have no code"),
+        "{s}"
+    );
+}
+
+#[test]
+fn an_empty_catalogue_is_still_not_measured_and_exits_3() {
+    let Ok(c) = load_text("empty", r#"{"revision":"t","channels":[]}"#) else {
+        unreachable!("well-formed")
     };
     let Ok((report, header)) = run_parity(&c, "testsha", Vec::new()) else {
         unreachable!("writing to a Vec succeeds")
     };
     assert!(!report.measured());
     assert_eq!(report.exit_code(), 3, "an empty catalogue is not a pass");
-    let s = report.summary(&header);
-    assert!(s.contains("2.9=not measured"), "{s}");
-    assert!(!s.contains("channels_accepting_more_than_pty"), "{s}");
+    assert!(report.summary(&header).contains("2.9=not measured"));
+}
+
+#[test]
+fn a_channel_with_code_is_not_called_declaration_level() {
+    let text = r#"{"revision":"t","channels":[
+        {"id":"real","code":"crates/lumen-sealed","actions":[{"id":"a","pty_equivalent":"the same bytes"}]}]}"#;
+    let Ok(c) = load_text("code", text) else {
+        unreachable!("well-formed")
+    };
+    let Ok((report, header)) = run_parity(&c, "testsha", Vec::new()) else {
+        unreachable!("writing to a Vec succeeds")
+    };
+    assert_eq!(report.without_code, Vec::<String>::new());
+    assert!(!report.summary(&header).contains("declaration_level"));
 }
 
 #[test]
