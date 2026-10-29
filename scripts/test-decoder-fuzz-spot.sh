@@ -123,7 +123,7 @@ mkdir -p "$T/i/png/artifacts" && echo partial > "$T/i/png/artifacts/.crash-half.
 check "a leftover temporary copy is removed on the next run" test ! -e "$T/i/png/artifacts/.crash-half.tmp"
 check "...and was never recorded as a crash input" test -z "$(ls "$T/i/png/artifacts" | grep half)"
 
-# 11. A directory of the same commit and decoder but another image path is refused.
+# 10. A directory of the same commit and decoder but another image path is refused.
 cp -R "$T/a" "$T/j" && rm -rf "$T/j/.lock" && echo 0000 > "$T/j/image_path_build"
 "$RUN" --out "$T/j" "${COMMON[@]}" --slices 1 > "$T/j.log" 2>&1
 check "a different image-path identity is refused with exit 3" test $? -eq 3
