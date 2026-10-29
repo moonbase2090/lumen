@@ -42,9 +42,12 @@ TOOLS=(cargo run -q --locked -p lumen-decoder-tools --)
 cd "$ROOT"
 
 [ -n "$SEEDS" ] || { SEEDS="$OUT/seeds"; cargo run -q --locked -p lumen-decoder-tools --example seeds -- "$SEEDS"; }
+# The upstream projects' regression inputs, pinned in their manifest. They are
+# not CVE reproducers: the chosen libraries have no registered advisories.
+REGRESSION="$ROOT/crates/lumen-decoder/fuzz/seeds-regression"
 
 # Identity of what is fuzzed, recorded once per call so a changed build shows.
-FUZZ_FLAGS="cargo-fuzz asan; libfuzzer -timeout=2 -rss_limit_mb=$RSS_MB; nightly=$NIGHTLY"
+FUZZ_FLAGS="cargo-fuzz asan; overflow-checks+debug-assertions (no UBSan for Rust); libfuzzer -timeout=2 -rss_limit_mb=$RSS_MB; nightly=$NIGHTLY"
 DECODER_BUILD="$("${TOOLS[@]}" identity "$ROOT" "$FUZZ_FLAGS")"
 echo "$DECODER_BUILD" > "$OUT/decoder_build"
 git -C "$ROOT" rev-parse HEAD > "$OUT/commit" 2>/dev/null || true
@@ -73,6 +76,7 @@ IFS=',' read -ra FMTS <<< "$FORMATS"
 for f in "${FMTS[@]}"; do
   target="decode_$f"; dir="$OUT/$f"; mkdir -p "$dir/corpus"
   cp -n "$SEEDS/$f"/* "$dir/corpus/" 2>/dev/null || true
+  cp -n "$REGRESSION/$f"/* "$dir/corpus/" 2>/dev/null || true
   touch "$dir/samples.jsonl" "$dir/crashes.jsonl"
   art="$ROOT/crates/lumen-decoder/fuzz/artifacts/$target"
   for _ in $(seq 1 "$SLICES"); do
