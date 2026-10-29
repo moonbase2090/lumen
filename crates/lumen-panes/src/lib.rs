@@ -17,11 +17,15 @@
 pub mod codec;
 pub mod identity;
 pub mod mux;
+pub mod process;
 pub mod terminal;
 
 pub use codec::{Layout, PaneContainer, Rect};
 pub use identity::{Identity, PaneLabel};
 pub use mux::Multiplexer;
+pub use process::{
+    PaneProcessState, PaneProcessStates, ProcessIdentity, ProcessStateError, Program,
+};
 pub use terminal::{Counters, Draw, Outcome, PaneTerminal};
 
 /// The sealed frame type of a layout.
