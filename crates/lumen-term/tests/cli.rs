@@ -112,74 +112,16 @@ fn the_binary_refuses_bad_arguments_with_the_usage() {
 }
 
 #[test]
-fn notification_flags_are_off_by_default_and_parse() {
-    let d = parse(&[]).unwrap_or_else(|e| unreachable!("{e}"));
-    let s = d.notifications;
-    assert_eq!(
-        (s.allow_unsigned, s.os_notifications, s.os_text),
-        (false, false, false)
-    );
-    let o = parse(&[
+fn no_flag_sets_a_notification_setting_because_policy_comes_only_from_the_file() {
+    for flag in [
         "--allow-unsigned",
         "--os-notifications",
         "--os-text",
-        "--",
-        "x",
-    ])
-    .unwrap_or_else(|e| unreachable!("{e}"));
-    let s = o.notifications;
-    assert_eq!(
-        (s.allow_unsigned, s.os_notifications, s.os_text),
-        (true, true, true)
-    );
-    assert_eq!(o.command, ["x"]);
-    assert!(
-        parse(&["--os-text"]).is_err(),
-        "the text needs the setting it belongs to"
-    );
-}
-
-#[cfg(unix)]
-fn snapshot_bytes(flags: &[&str], name: &str) -> Vec<u8> {
-    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
-    let _ = std::fs::remove_file(&path);
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_lumen-term"))
-        .env_remove("TMUX")
-        .env_remove("STY")
-        .env_remove("SSH_CONNECTION")
-        .env_remove("SSH_TTY")
-        .env_remove("SSH_CLIENT")
-        .args(["--size", "480x300", "--wait", "5000", "--snapshot"])
-        .arg(&path)
-        .args(flags)
-        .args(["--", "/bin/sh", "-c", "printf '\\033]9;hello\\007'"])
-        .output();
-    let Ok(out) = out else {
-        unreachable!("the binary runs")
-    };
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    std::fs::read(&path).unwrap_or_else(|e| unreachable!("snapshot exists: {e}"))
-}
-
-#[cfg(unix)]
-#[test]
-fn no_flag_makes_the_real_binary_show_an_unsigned_toast_without_evidence_of_a_local_layer() {
-    // The terminal cannot yet show that the foreground process tree is local, so
-    // no flag, and no statement by the user, turns the place into a local one.
-    let plain = snapshot_bytes(&[], "toast-off.png");
-    for flags in [
-        &["--allow-unsigned"][..],
-        &["--allow-unsigned", "--os-notifications", "--os-text"],
-        &["--os-notifications"],
+        "--local",
+        "--allow_unsigned=true",
     ] {
-        assert_eq!(plain, snapshot_bytes(flags, "toast-flags.png"), "{flags:?}");
+        assert!(parse(&[flag]).is_err(), "{flag} must not exist");
     }
-    assert!(
-        parse(&["--local"]).is_err(),
-        "there is no way to assert a local layer"
-    );
+    assert!(parse(&["--show-policy"]).is_ok_and(|o| o.show_policy));
+    assert!(parse(&[]).is_ok_and(|o| !o.show_policy));
 }

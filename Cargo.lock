@@ -935,6 +935,7 @@ dependencies = [
  "png 0.17.16",
  "prismattyc-core",
  "prismattyc-emulator",
+ "rustix 0.38.44",
  "sha2",
  "softbuffer",
  "swash",
