@@ -478,7 +478,8 @@ impl Notifier {
                     }
                     out.push(outcome);
                 }
-                Event::Sealed { .. } => {}
+                // A truncated string is a notice for the window, not a notification.
+                Event::Sealed { .. } | Event::StringTruncated { .. } => {}
             }
         }
         out
