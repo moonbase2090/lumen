@@ -2,6 +2,7 @@
 
 use crate::grid::GridBlock;
 use crate::guard::Guard;
+use crate::isolate::{Isolator, Note, Stats};
 use crate::layer::{Context, Layer, Notice, Piece};
 use crate::strip::Strip;
 use lumen_track0::Block as Track0Block;
@@ -28,6 +29,12 @@ pub enum Event {
     Unsigned {
         /// The OSC number.
         number: u32,
+        /// The prompt cycle it arrived in.
+        cycle: u32,
+    },
+    /// A string in grid output reached its 4 KiB cap; the rest of it is
+    /// discarded, so the terminal shows a "string truncated" notice.
+    StringTruncated {
         /// The prompt cycle it arrived in.
         cycle: u32,
     },
@@ -58,6 +65,7 @@ pub struct Document {
     cycle: u32,
     open_strips: BTreeSet<u32>,
     guard: Guard,
+    isolator: Isolator,
     events: Vec<Event>,
 }
 
@@ -74,6 +82,7 @@ impl Document {
             cycle: 0,
             open_strips: BTreeSet::new(),
             guard: Guard::new(),
+            isolator: Isolator::new(),
             events: Vec::new(),
         }
     }
@@ -119,6 +128,26 @@ impl Document {
         &self.sealed
     }
 
+    /// What grid isolation has removed so far.
+    #[must_use]
+    pub fn isolation(&self) -> Stats {
+        self.isolator.stats()
+    }
+
+    /// Give the emulator what grid isolation allows of `bytes`.
+    fn isolate_and_feed(&mut self, bytes: &[u8]) {
+        let mut allowed = Vec::with_capacity(bytes.len());
+        let mut notes = Vec::new();
+        self.isolator.filter(bytes, &mut allowed, &mut notes);
+        for Note::StringTruncated in notes {
+            self.events
+                .push(Event::StringTruncated { cycle: self.cycle });
+        }
+        if !allowed.is_empty() {
+            self.grid().feed(&allowed);
+        }
+    }
+
     fn grid(&mut self) -> &mut GridBlock {
         if !matches!(self.blocks.last(), Some(Block::Grid(_))) {
             self.blocks.push(Block::Grid(Box::new(GridBlock::new(
@@ -149,7 +178,7 @@ impl Document {
                             cycle: self.cycle,
                         });
                     }
-                    self.grid().feed(&kept);
+                    self.isolate_and_feed(&kept);
                 }
                 Piece::Text(text) => {
                     let mut line = text.into_bytes();
@@ -255,7 +284,8 @@ impl Document {
         let mut rest = Vec::new();
         self.guard.finish(&mut rest);
         if !rest.is_empty() {
-            self.grid().feed(&rest);
+            self.isolate_and_feed(&rest);
         }
+        self.isolator.finish();
     }
 }
