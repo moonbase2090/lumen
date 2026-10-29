@@ -61,3 +61,12 @@ fn a_malformed_log_exits_2() {
     let l = write("rl-bad.json", "{}");
     assert_eq!(run(Some(&l), &tmp("rl-bad")), Some(2));
 }
+
+#[test]
+fn a_list_of_streams_is_refused_with_exit_2_not_read_as_zero() {
+    let l = write(
+        "rl-list.json",
+        &GOOD.replace("\"streams\":2", "\"streams\":[\"a\",\"b\"]"),
+    );
+    assert_eq!(run(Some(&l), &tmp("rl-list")), Some(2));
+}

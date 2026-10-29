@@ -17,8 +17,10 @@
 //! - `frames_ms`: the time of every frame drawn, in milliseconds from the
 //!   start of the run, in order.
 //! - `lying_decoder`: optional, `{"decoder_build": "..", "streams": n,
-//!   "peak_rss_mib": n}`: the number of lying streams played and the peak
-//!   resident memory of the terminal while they ran.
+//!   "peak_rss_mib": n}`: `streams` is a whole number, the count of lying
+//!   streams played (not a list), and `peak_rss_mib` is the peak resident
+//!   memory of the terminal while they ran. A value that is not a whole number
+//!   is refused.
 
 use lumen_harness::{EffectLog, HeaderInfo, Recorder, SinkTable};
 use serde_json::Value;
@@ -194,7 +196,10 @@ pub fn judge(log: &str) -> Result<Report, String> {
             if d["decoder_build"].as_str().is_none_or(str::is_empty) {
                 return Err("render log: lying_decoder has no decoder_build".into());
             }
-            if d["streams"].as_u64().unwrap_or(0) == 0 {
+            let streams = d["streams"]
+                .as_u64()
+                .ok_or("render log: lying_decoder.streams must be a whole number")?;
+            if streams == 0 {
                 Part::NotMeasured("no lying stream was played".to_owned())
             } else {
                 let peak = d["peak_rss_mib"]
@@ -365,6 +370,22 @@ mod tests {
         }
         let mut v = good();
         v["lying_decoder"]["decoder_build"] = json!("");
+        assert!(judge(&v.to_string()).is_err());
+        for bad_streams in [
+            json!(["a", "b"]),
+            json!("4"),
+            json!(1.5),
+            json!(-1),
+            Value::Null,
+        ] {
+            let mut v = good();
+            v["lying_decoder"]["streams"] = bad_streams;
+            assert!(judge(&v.to_string()).is_err());
+        }
+        let mut v = good();
+        v["lying_decoder"]
+            .as_object_mut()
+            .map(|o| o.remove("streams"));
         assert!(judge(&v.to_string()).is_err());
     }
 
