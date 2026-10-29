@@ -65,7 +65,7 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 
 - **Unit:** count of unsealed inputs that cause a clipboard write, notification, link open, grant, exit status or boundary change.
 - **Method:** the output-adversary corpus, at a stated corpus revision, is run against each arm with the terminal's authority-effect log enabled. Each event is recorded with the input that produced it.
-- **Harness:** comparison harness, authority-log mode.
+- **Harness:** comparison harness, authority-log mode (section 5.7).
 - **Threshold:** **zero** events. Any non-zero count in arm B fails the decision rule.
 
 ### 2.5 Decoder robustness
@@ -206,6 +206,14 @@ The ledger is a JSON object with `revision`, `decoder_build` and `image_path_bui
 - `sandbox_escape` has the test set `revision` and the `passed` and `total` counts.
 
 A format passes when it has at least 1000 CPU-hours, no crash after the last 168 CPU-hours' start (a crash exactly 168 CPU-hours before the end is older), and a plateau: the most coverage seen over the whole run was already seen at or before that point. A coverage reading from before the window is needed, so a ledger without one has no plateau. The gate passes when every format passes and the sandbox escape set passed in full and is not empty. A ledger that enables no format is `not measured`.
+
+### 5.7 Terminal sinks (authority leakage)
+
+The corpus replay (5.1) feeds the ordinary output each arm's layer passes on to the upstream emulator, unchanged, through the `lumen-sinks` crate, and reports each effect the emulator raises through the harness effect log with the origin of the input. Ordinary output is always unsealed. The summary's `2.4=` line and the per-sink `exercised`, `unsealed` and `foreign` counts are printed as the harness reports them, and the log header names `lumen-sinks` as the source of the sink table.
+
+Only effects that the emulator raises are wired, and they are read from the emulator itself. Today that is the notification sink (OSC 9, OSC 777 and OSC 99). The emulator has no code for clipboard writes, link opens, grants, exit status or command boundaries; those belong to the terminal window and the sealed command types, which do not exist in this tree. They are not registered, so they show as never exercised and the verdict is `not measured`, never zero. A sealed-origin attempt per sink is also needed for a zero, because a sink that was never reached proves nothing. A result must print the per-sink lines and may report only the sinks it exercised.
+
+A corpus case with an OSC notification in plain output is counted as a leak by this reading, because the emulator raises the notification from unsealed bytes. Whether the terminal filters such sequences before the emulator is a design decision for the terminal; this harness measures the emulator as pinned.
 
 ## 6. Results format
 

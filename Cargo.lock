@@ -303,6 +303,7 @@ dependencies = [
  "lumen-detector",
  "lumen-harness",
  "lumen-sealed",
+ "lumen-sinks",
  "lumen-track0",
  "serde_json",
 ]
@@ -327,6 +328,14 @@ dependencies = [
  "hmac",
  "sha2",
  "zeroize",
+]
+
+[[package]]
+name = "lumen-sinks"
+version = "0.0.0"
+dependencies = [
+ "lumen-harness",
+ "prismattyc-emulator",
 ]
 
 [[package]]
