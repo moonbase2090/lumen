@@ -4,6 +4,11 @@
 //! `summary.txt` to the output directory and prints the summary. Exits 1 when
 //! a case produced a forbidden item.
 //!
+//! `lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]`
+//!
+//! Flood mode (criteria 2.6): an unauthenticated producer floods one command
+//! for N seconds. Exits 1 when the budget or memory limit was exceeded.
+//!
 //! `lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR`
 //!
 //! Cost mode (criteria 2.8): counts what each arm crate adds to the shared
@@ -25,7 +30,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR";
+const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR";
 
 /// Write the log and summary for a finished run and print the summary.
 fn finish(out: &std::path::Path, summary: &str) -> Result<(), String> {
@@ -81,6 +86,41 @@ fn cost(root: &str, base: &str, commit: &str, out: &std::path::Path) -> Result<E
     Ok(ExitCode::SUCCESS)
 }
 
+fn flood(
+    seconds: &str,
+    commit: &str,
+    out: &std::path::Path,
+    arm: &str,
+) -> Result<ExitCode, String> {
+    let arm = parse_arm(arm)?;
+    let seconds: u64 = seconds
+        .parse()
+        .map_err(|_| format!("--seconds {seconds:?} is not a whole number"))?;
+    let log = open_log(out)?;
+    let (report, header) =
+        lumen_evidence::flood::run_flood(arm, commit, std::time::Duration::from_secs(seconds), log)
+            .map_err(|e| e.to_string())?;
+    finish(out, &report.summary(&header))?;
+    Ok(
+        if report.within_budget() && report.memory_ok() != Some(false) {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(1)
+        },
+    )
+}
+
+fn parse_arm(arm: &str) -> Result<lumen_evidence::Arm, String> {
+    match arm {
+        "b" => Ok(lumen_evidence::Arm::B),
+        "a-sealed" => Ok(lumen_evidence::Arm::ASealed),
+        "a-unsealed" => Ok(lumen_evidence::Arm::AUnsealed),
+        other => Err(format!(
+            "unknown --arm {other:?}; use b, a-sealed or a-unsealed"
+        )),
+    }
+}
+
 fn reach(matrix: &str, commit: &str, out: &std::path::Path, arm: &str) -> Result<ExitCode, String> {
     let arm = match arm {
         "b" => lumen_evidence::matrix::ReachArm::B,
@@ -104,6 +144,10 @@ fn main() -> ExitCode {
     let out = PathBuf::from(out);
     let arm = arg(&args, "--arm").unwrap_or_else(|| "b".to_owned());
     let result = match (arg(&args, "--corpus"), arg(&args, "--matrix")) {
+        (None, None) if args.iter().any(|a| a == "--flood") => match arg(&args, "--seconds") {
+            Some(n) => flood(&n, &commit, &out, &arm),
+            None => Err("--flood needs --seconds".to_owned()),
+        },
         (None, None) if args.iter().any(|a| a == "--cost") => {
             match (arg(&args, "--root"), arg(&args, "--base")) {
                 (Some(root), Some(base)) => cost(&root, &base, &commit, &out),

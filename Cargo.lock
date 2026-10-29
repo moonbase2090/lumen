@@ -300,8 +300,18 @@ version = "0.0.0"
 dependencies = [
  "lumen-arm-a",
  "lumen-arm-b",
+ "lumen-detector",
  "lumen-harness",
+ "lumen-sealed",
+ "lumen-track0",
  "serde_json",
+]
+
+[[package]]
+name = "lumen-gates"
+version = "0.0.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -317,13 +327,6 @@ dependencies = [
  "hmac",
  "sha2",
  "zeroize",
-]
-
-[[package]]
-name = "lumen-gates"
-version = "0.0.0"
-dependencies = [
- "libc",
 ]
 
 [[package]]

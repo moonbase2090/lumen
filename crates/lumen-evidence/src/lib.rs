@@ -27,11 +27,17 @@
 //!   (`lumen_arm_b::ITEM_KINDS`, `lumen_arm_a::pipeline::ITEM_KINDS`); an
 //!   unknown kind fails the load, so a typo cannot pass silently. A kind the
 //!   chosen arm never reports (`background` for Arm A) simply never appears.
+//!
+//! Every replayed layer holds the fixed test keys [`TEST_ROOT`], [`TEST_LAYER`]
+//! and [`TEST_CAP`] (public test data), so a case can carry real sealed frames.
+//! [`rt2`] builds such a corpus with the sealing code itself.
 
 #![forbid(unsafe_code)]
 
 pub mod cost;
+pub mod flood;
 pub mod matrix;
+pub mod rt2;
 
 use lumen_arm_a::pipeline::ITEM_KINDS as ARM_A_KINDS;
 use lumen_arm_b::ITEM_KINDS as ARM_B_KINDS;
@@ -319,25 +325,53 @@ enum AnyLayer {
     B(lumen_arm_b::Layer),
 }
 
+/// The layer id of the fixed test keys every replayed layer holds.
+pub const TEST_LAYER: lumen_sealed::LayerId = lumen_sealed::LayerId(7);
+/// The capability every test frame is sealed for.
+pub const TEST_CAP: u8 = 2;
+/// The root secret of the fixed test keys. It is public test data, not a secret.
+pub const TEST_ROOT: [u8; 32] = [9; 32];
+
+fn test_cap_of(_kind: u8) -> u8 {
+    TEST_CAP
+}
+
+fn test_receiver() -> lumen_sealed::Receiver {
+    let keys = lumen_sealed::DirectionKeys::derive(
+        &lumen_sealed::LayerRoot::new(TEST_ROOT),
+        TEST_LAYER,
+        lumen_sealed::Direction::ToTerminal,
+    );
+    lumen_sealed::Receiver::new(keys, TEST_LAYER, lumen_sealed::Direction::ToTerminal)
+}
+
 impl AnyLayer {
+    /// A layer that holds the fixed test keys, so a corpus can carry real sealed
+    /// frames. An unsealed Arm A layer ignores them.
     fn new(arm: Arm) -> Self {
         match arm {
-            Arm::B => AnyLayer::B(lumen_arm_b::Layer::new(lumen_arm_b::Config {
-                budget: lumen_arm_b::Budget::quarter_of(FULL_FRAMES, FULL_BYTES),
-                background_as_text: false,
-            })),
+            Arm::B => {
+                let mut l = lumen_arm_b::Layer::new(lumen_arm_b::Config {
+                    budget: lumen_arm_b::Budget::quarter_of(FULL_FRAMES, FULL_BYTES),
+                    background_as_text: false,
+                });
+                l.attach_sealed(test_receiver(), test_cap_of);
+                AnyLayer::B(l)
+            }
             Arm::ASealed | Arm::AUnsealed => {
                 let state = if arm == Arm::ASealed {
                     lumen_arm_a::LayerState::Sealed
                 } else {
                     lumen_arm_a::LayerState::Unsealed
                 };
-                AnyLayer::A(lumen_arm_a::pipeline::Layer::new(
+                let mut l = lumen_arm_a::pipeline::Layer::new(
                     lumen_arm_a::pipeline::Config {
                         budget: lumen_arm_a::pipeline::Budget::quarter_of(FULL_FRAMES, FULL_BYTES),
                     },
                     state,
-                ))
+                );
+                l.attach_sealed(test_receiver(), test_cap_of);
+                AnyLayer::A(l)
             }
         }
     }
@@ -351,14 +385,24 @@ impl AnyLayer {
 
     /// Feed one read and return the `(kind, len)` summary of what came out.
     fn feed(&mut self, bytes: &[u8], read: &Read, case: &Case) -> Vec<(&'static str, usize)> {
+        self.feed_raw(bytes, case.alt_screen, case.tmux_or_screen, read.t_ms)
+    }
+
+    fn feed_raw(
+        &mut self,
+        bytes: &[u8],
+        alt_screen: bool,
+        tmux_or_screen: bool,
+        now_ms: u64,
+    ) -> Vec<(&'static str, usize)> {
         match self {
             AnyLayer::A(l) => l
                 .feed(
                     bytes,
                     lumen_arm_a::pipeline::Context {
-                        alt_screen: case.alt_screen,
-                        tmux_or_screen: case.tmux_or_screen,
-                        now_ms: read.t_ms,
+                        alt_screen,
+                        tmux_or_screen,
+                        now_ms,
                     },
                 )
                 .iter()
@@ -368,9 +412,9 @@ impl AnyLayer {
                 .feed(
                     bytes,
                     lumen_arm_b::Context {
-                        alt_screen: case.alt_screen,
-                        tmux_or_screen: case.tmux_or_screen,
-                        now_ms: read.t_ms,
+                        alt_screen,
+                        tmux_or_screen,
+                        now_ms,
                     },
                 )
                 .iter()
