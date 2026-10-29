@@ -101,7 +101,7 @@ fn arm_a_has_no_strip_and_shows_orphan_output_as_text() {
     let mut doc = Document::new(40, 6);
     let mut layer = a_layer();
     doc.receive(&mut layer, &paragraph("orphan"), at(0));
-    assert!(doc.strips().is_empty());
+    assert_eq!(doc.strips().len(), 0);
 }
 
 #[test]
@@ -119,7 +119,7 @@ fn background_track0_text_sends_orphan_output_to_the_grid_as_escaped_text() {
     let mut doc = Document::new(60, 6);
     let mut layer = b_layer(100, true);
     doc.receive(&mut layer, &paragraph("orphan"), at(0));
-    assert!(doc.strips().is_empty(), "the policy leaves no strip");
+    assert_eq!(doc.strips().len(), 0, "the policy leaves no strip");
     let text = doc
         .blocks()
         .iter()
@@ -137,7 +137,7 @@ fn track_0_in_an_open_container_is_not_background() {
     let mut layer = b_layer(100, false);
     Layer::open_container(&mut layer);
     doc.receive(&mut layer, &paragraph("in the container"), at(0));
-    assert!(doc.strips().is_empty());
+    assert_eq!(doc.strips().len(), 0);
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn the_alternate_screen_and_multiplexer_rules_leave_no_strip() {
         let mut doc = Document::new(40, 6);
         let mut layer = b_layer(100, false);
         doc.receive(&mut layer, &paragraph("x"), ctx);
-        assert!(doc.strips().is_empty(), "{ctx:?}");
+        assert_eq!(doc.strips().len(), 0, "{ctx:?}");
     }
 }
 
