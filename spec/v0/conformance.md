@@ -23,16 +23,17 @@ The terminal's memory use stays within its budgets and reservations even when th
 
 ## Decoder gate {#gate.decoder}
 
-For each image format, under ASan and UBSan:
+For each image format the terminal accepts, the decoder and the terminal's image path MUST meet these obligations, each of which a test can show:
 
-- At least 1000 CPU-hours of fuzzing.
-- No new crash in the last 168 CPU-hours.
-- Coverage has reached a plateau.
-- Seed corpora include inputs from past CVEs.
-- Sandbox escape tests pass.
-- Fuzzing continues after release.
+- **Bounded resources.** No input makes the decoder run longer than 2 s or use more than 512 MiB. A hang over 2 s and memory use over 512 MiB count as crashes.
+- **Validate before display.** The terminal checks every decoder reply (width, height, stride, format and exact byte count) before it allocates or uploads anything, as [reply validation](@/spec/v0/images.md#images.validate) says. A reply that fails the check is discarded and the alt text is shown.
+- **Reject malformed input.** A malformed, truncated, oversized or lying input is refused with no output and no crash.
+- **Fail safely.** A decoder crash, a hang, an over-limit reply or a failed check never takes the terminal down and never shows partial output. That producer's images show alt text for the rest of the command, as [concurrency](@/spec/v0/images.md#images.concurrency) says.
+- **Sandbox escape tests pass.** The named test set passes in full.
 
-Hangs over 2 s, memory use over 512 MiB and sanitizer reports all count as crashes. A new crash blocks release, and the fix ships as a patched build. The gate covers both the decoder build identity and the terminal image-path build identity.
+A crash, a hang over 2 s, memory use over 512 MiB, or a report from the memory and undefined-behaviour checking that the decoder's language provides, found by any test, blocks release, and the fix ships as a patched build. For a decoder written in a memory-safe language that checking is the language's own: overflow and assertion checks left on, and a memory sanitizer where one exists. UBSan is not applicable to such a build, because it has no counterpart there, and the gate does not require it. The gate covers both the decoder build identity and the terminal image-path build identity.
+
+*Non-normative.* Coverage-guided fuzzing of each format, under a memory sanitizer where one is available and with the language's overflow and assertion checks on, is the recommended way to look for violations of these obligations. How long to fuzz, and when to stop, is a release decision and not a conformance requirement; an implementation's release criteria state it. Good seeds are inputs from past vulnerabilities. Public sources include the vulnerability database entries and published reproducers for the reference libraries of each format (for example, the libwebp WebP heap overflow of 2023, CVE-2023-4863), the public fuzzing corpora that the reference libraries' own projects publish, and the regression test suites that the decoder libraries themselves keep for the bugs they fixed.
 
 ## Multiplexer gate {#gate.multiplexer}
 
