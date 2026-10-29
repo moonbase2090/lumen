@@ -2,7 +2,9 @@
 //!
 //! This crate is a model, not a product: [`PaneTerminal`] is the outer
 //! terminal's handling of the two sealed multiplexer frame types, and
-//! [`Multiplexer`] is the sealed relay of Option A that produces them. It is
+//! [`Multiplexer`] is the sealed relay of Option A that produces them. Its key
+//! is derived under a separate multiplexer purpose, so ordinary sealed-layer
+//! frames cannot authenticate under it. It is
 //! test-only: nothing shipped depends on it. The payloads follow the experiment
 //! profile in `spec/v0/multiplexers.md` (Frame payloads), which is not yet
 //! normative.

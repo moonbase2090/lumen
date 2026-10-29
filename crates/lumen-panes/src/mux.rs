@@ -20,7 +20,7 @@ impl Multiplexer {
     /// A multiplexer for a layer, sealing under keys derived from `root`.
     #[must_use]
     pub fn new(root: &LayerRoot, layer: LayerId) -> Self {
-        let keys = DirectionKeys::derive(root, layer, Direction::ToTerminal);
+        let keys = DirectionKeys::derive_multiplexer(root, layer, Direction::ToTerminal);
         Self {
             sender: Sender::new(keys, layer, Direction::ToTerminal, 1),
             next_pane: 1,

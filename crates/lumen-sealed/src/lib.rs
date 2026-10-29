@@ -75,7 +75,7 @@ impl core::fmt::Debug for LayerRoot {
     }
 }
 
-/// Keys for one (layer, direction).
+/// Keys for one (layer, direction, purpose).
 pub struct DirectionKeys {
     aead: Zeroizing<[u8; 32]>,
     header: Zeroizing<[u8; 32]>,
@@ -104,8 +104,23 @@ impl DirectionKeys {
     /// Derive the app AEAD key and the header subkey for a layer and direction.
     #[must_use]
     pub fn derive(root: &LayerRoot, layer: LayerId, dir: Direction) -> Self {
+        Self::derive_for(root, layer, dir, b"lumen v0 app key")
+    }
+
+    /// Derive the multiplexer AEAD key and header subkey for a layer and
+    /// direction.
+    ///
+    /// This purpose is separate from the ordinary app key. A multiplexer key
+    /// therefore cannot authenticate command, grant, notification or other
+    /// ordinary layer frames even when both keys come from the same root.
+    #[must_use]
+    pub fn derive_multiplexer(root: &LayerRoot, layer: LayerId, dir: Direction) -> Self {
+        Self::derive_for(root, layer, dir, b"lumen v0 multiplexer key")
+    }
+
+    fn derive_for(root: &LayerRoot, layer: LayerId, dir: Direction, label: &[u8]) -> Self {
         let prk = Hkdf::<Sha256>::new(None, root.0.as_ref());
-        let app = expand(&prk, layer, dir, b"lumen v0 app key");
+        let app = expand(&prk, layer, dir, label);
         let app_prk = Hkdf::<Sha256>::new(None, app.as_ref());
         let header = expand(&app_prk, layer, dir, b"lumen v0 header subkey");
         Self { aead: app, header }
@@ -472,8 +487,14 @@ mod tests {
         let a = keys(1, LAYER, Direction::ToTerminal);
         let b = keys(1, LayerId(8), Direction::ToTerminal);
         let c = keys(1, LAYER, Direction::ToShell);
+        let d = DirectionKeys::derive_multiplexer(
+            &LayerRoot::new([1; 32]),
+            LAYER,
+            Direction::ToTerminal,
+        );
         assert_ne!(a.aead_key(), b.aead_key());
         assert_ne!(a.aead_key(), c.aead_key());
+        assert_ne!(a.aead_key(), d.aead_key());
         assert_ne!(a.aead_key(), &*a.header);
     }
 
@@ -507,6 +528,19 @@ mod tests {
                 .aead_key()
                 .as_slice(),
             hex("19efe04f609ab26453e5eb9ae7295417ee979e45add69d92e9df224ddb21fade")
+        );
+        let mux = DirectionKeys::derive_multiplexer(
+            &LayerRoot::new([1; 32]),
+            LAYER,
+            Direction::ToTerminal,
+        );
+        assert_eq!(
+            mux.aead_key().as_slice(),
+            hex("0e5b4e0f5b2d08ca32d23191bfdd7c75781397450763018df2b0daf89b774dff")
+        );
+        assert_eq!(
+            mux.header.as_slice(),
+            hex("91287dc0f92f9979c86ac063dbd827663bf8e9fea422bdbae4cbc64d07a963d8")
         );
     }
 
