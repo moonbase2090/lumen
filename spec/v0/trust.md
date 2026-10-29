@@ -54,26 +54,48 @@ Each unauthenticated producer gets a smaller share than any sealed layer: **25% 
 
 ## Notifications {#trust.notifications}
 
-The terminal intercepts OSC 9, OSC 777 and OSC 99 in a layer before any emulator sees them. This holds on every path: grid output, and Track 0 output with or without an open container. Each one is routed to the terminal's notification handling and is never passed to the grid as a sequence.
+**Interception.** The terminal intercepts OSC 9, OSC 777 and OSC 99 in a layer before any emulator sees them, on every path: grid output, and Track 0 output with or without an open container. The interception covers the 7-bit `ESC ]` and 8-bit C1 introducers, both terminators (BEL and `ESC \`, or the 8-bit ST), a sequence split across reads, and the multi-part form of OSC 99. A sequence whose body exceeds 4 KiB is discarded when it overflows. An intercepted sequence is routed to the terminal's notification handling and is never passed to the grid. The terminal writes no reply to the PTY for any of them, including OSC 99's query and close-report forms, whose answers would be a side channel.
 
-A notification is either a **terminal toast**, drawn in the terminal's own chrome, or an **OS notification**, raised through the operating system. Unsigned output never raises an OS notification.
+**Two kinds of notification.** A notification is either a **terminal toast**, drawn in the terminal's notification area, or an **OS notification**, passed to the operating system's notification service. Unsigned output never produces an OS notification.
 
 - **Default for unsigned output: deny.** Notifications from unsigned output draw no toast and no OS notification. The attempt is counted in the chrome count of dropped items ([Track 0](@/spec/v0/trust.md#trust.track0-scope)).
-- **Opt-in for unsigned output.** The policy key `notifications.allow-unsigned` (default `false`, set only in the user's policy file, [Policy](@/spec/v0/capabilities.md#caps.policy)) lets unsigned grid output on a local layer draw a toast, at most one per layer per second. Unsigned grid output is a byte stream with no frame boundary, so the unit is time: any notification after the first in the same second on that layer is dropped and counted in the chrome count. It never applies to possibly-remote layers, SSH sessions or multiplexer panes. It never produces an OS notification. This is an explicit exception to [No authority from unsealed input](@/spec/v0/conformance.md#gate.no-authority), which covers all other unsealed input unchanged.
-- **A sealed 0x22 frame with the `notifications` capability** draws at most one toast or OS notification per frame, and any further notification from that frame is dropped and counted in the chrome count. The capability is per sealed layer, as [Grants](@/spec/v0/capabilities.md#caps.grants) describes, and it is not in the default grant for a remote layer. The frame type is in the frame-type table of the transport spec.
+- **Opt-in for unsigned output.** The policy key `notifications.allow-unsigned` (default `false`, set only in the user's policy file, [Policy](@/spec/v0/capabilities.md#caps.policy)) lets unsigned grid output on a local layer draw a toast, subject to the rate limits below. It never applies to possibly-remote layers, SSH sessions or multiplexer panes, and it never produces an OS notification. This is an explicit exception to [No authority from unsealed input](@/spec/v0/conformance.md#gate.no-authority), which covers all other unsealed input unchanged.
+- **A sealed 0x22 frame with the `notifications` capability** draws one toast, or one OS notification when the OS path below applies, per frame. Any further notification from that frame is dropped and counted in the chrome count. The capability is per sealed layer, as [Grants](@/spec/v0/capabilities.md#caps.grants) describes, and it is not in the default grant for a remote layer. The frame type is in the frame-type table of the transport spec.
 
-**OS notifications** are off by default. The policy key `notifications.os` (default `false`, set only in the user's policy file) allows them. When it is on, a sealed 0x22 notification with the `notifications` capability raises an OS notification only if all of these hold:
+**OS path.** OS notifications are off by default. The policy key `notifications.os` (default `false`, set only in the user's policy file) allows them. When it is on, a sealed 0x22 notification with the `notifications` capability raises an OS notification only if all of these hold, evaluated when the notification arrives:
 
-- the layer is not possibly-remote, not an SSH session and not a multiplexer pane. No OS notification can come from those layers in v0;
+- the layer is not possibly-remote, not an SSH session and not a multiplexer pane. A notification from any of those layers is never an OS notification in v0;
 - the terminal is unfocused. A focused terminal shows a toast instead;
-- the pane is not muted. Each pane can be muted by the user;
-- the layer is within its rate limit, at most one OS notification per layer per second.
+- the pane is not muted by the user;
+- the layer is within the rate limits below.
 
-The terminal composes the OS notification text itself from a fixed terminal name, the pane label and the program's plain text only. The pane label is the layer's position in the terminal's own layout (window, tab or pane index) and its colour, as [Pane identity](@/spec/v0/multiplexers.md#mux.pane-identity) describes for panes. It is never a program-supplied title, working directory or pane text. The text is length-capped and escaped. No program icon, URL, action button or sound is passed to the operating system. Clicking an OS notification only focuses the pane. It never executes anything.
+A notification that fails the OS conditions is shown as a toast if the toast limits allow, and otherwise dropped and counted.
 
-**Accepted residual risk.** A signed program can write phishing-style wording into the plain text of its notification. The pane label and the `notifications` capability are the mitigations. The wording itself is not checked, and this risk is accepted.
+**Exposure.** Enabling `notifications.os` sends the program's plain text to the operating system's notification service. That service may show it on a lock screen, keep it in a history, sync it to other devices, and expose it to other apps with notification access. Sealed output can contain secrets. The setting's description must state this.
 
-**Red-team pass.** This section does not count toward any gate until a red-team pass by a reviewer other than its author has been recorded.
+**Text.** The terminal composes the text of every OS notification and every toast from three parts:
+
+1. a fixed prefix, `Program in <pane label> says:`, which the program cannot remove;
+2. the pane label, as defined below;
+3. the program's plain text, after these rules: valid UTF-8 only; one line, with all C0 and C1 control characters, bidirectional controls and zero-width characters removed; markup escaped for the notification API in use, and nothing made clickable; at most 200 bytes and 60 terminal cells, truncated with a visible marker.
+
+**Pane label.** The pane label is the layer's position in the terminal's own layout (window, tab or pane index), with the colour and glyph derived from its opaque id, as [Pane identity](@/spec/v0/multiplexers.md#mux.pane-identity) describes for panes. It is never program text: no title, working directory or pane text.
+
+**Rate limits.** Measured on a monotonic clock, and applied to toasts from `allow-unsigned` and to every sealed notification alike:
+
+- at least 1000 ms must pass between two notifications accepted from the same layer;
+- each layer has a queue of at most 8 toasts, and at most 4 toasts from a layer are shown in any 10 seconds;
+- at most 16 toasts are shown at once across all layers.
+
+A notification over these limits is dropped and counted in the chrome count.
+
+**Toast placement.** Toasts are drawn only in the terminal's notification area. They never occlude, and are never drawn in, the trust margin, the unverified-boundary labels or the command structure. An unsigned toast carries the unverified-output label as well as the pane label.
+
+**Click.** The OS callback carries only an opaque token the terminal made for that notification, never an identifier the program supplied (such as OSC 99's). Activating a notification focuses the pane. It confirms nothing, dismisses nothing and executes nothing. No dock or taskbar badge, no urgency request and no sound is made.
+
+**Accepted residual risk.** A signed program is authenticated, not trusted: a hostile dependency inside a sealed command qualifies. Such a program can write misleading wording into its notification text. The fixed prefix, the pane label and the `notifications` capability are the mitigations. The wording itself is not checked, and this risk is accepted by the owner.
+
+**Red-team pass.** This section does not count toward any gate until a red-team pass by a reviewer other than its author is recorded, and the red-team findings on the first revision have been addressed.
 
 ## Unverified boundaries {#trust.unverified-boundaries}
 
