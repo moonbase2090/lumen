@@ -18,4 +18,6 @@ pub mod ffi_sandbox;
 pub mod limits;
 pub mod protocol;
 #[cfg(unix)]
+pub mod images;
+#[cfg(unix)]
 pub mod runner;
