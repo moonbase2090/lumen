@@ -1,10 +1,63 @@
 # Results: Arm A (sealed-only rich)
 
+Third comparison run, at main `e27667310b15016c2aa891b1f33d0d5a9750c441`. The earlier runs (at 7529aca and 726cb4a) are kept at the end of this file.
+
+This run measures parts of 2.1, 2.2, 2.4, 2.6 and 2.8, and the model-level counts of 7.2 (reported in [results-placement.md](results-placement.md)). Section 4 of the [criteria](comparison-criteria.md) cannot be applied: 2.2a, 2.3 and 2.9 are not measured.
+
+## What this run does and does not show
+
+- **2.2 checks byte-pipeline output only.** The driver replays corpora through the arm's byte pipeline and counts forbidden items. Nothing is drawn, so it does not show that a terminal would draw no forged boundary, exit status, producer identity or badge.
+- **Reach uses the item-kinds oracle, not screenshots.** Criterion 2.1 names the screenshot-diff oracle, so the reach figure is a partial measurement and is not counted as the 2.1 result. The macOS reach rows are modelled by the harness on the Linux VM; nothing ran on macOS.
+- **2.4 rests on rt-4.** Only rt-4 exercises all six sinks, so the authority-leak verdict is taken from it, with rt-3 covering the notification and grant path. 2.4 is not measured for the unsealed layer of Arm A, which has no sealed layer to exercise the sinks, and not for rt-1, rt-2 or rt-3 on their own. Clipboard and link confirmations are simulated user actions, listed in the run output.
+- **The flood is a byte-pipeline run.** The 600-second flood checks the unauthenticated share of the budget and peak memory of the driver process. The longest single call into the layer is a proxy, not the UI stall; frame rate, UI stall and the lying decoder are not measured.
+- **The per-test list is complete this time.** The capture check counted 276 per-test lines and 276 tests, all ok (see Run).
+- **The G1, G6 and G7 gates are not met** until the macOS clean-VM proof for the gate experiments is posted. This run does not switch any gate on or off.
+
+## Run
+
+- Build commit: `e27667310b15016c2aa891b1f33d0d5a9750c441` (main)
+- Machine: clean Linux VM, arm64, Ubuntu 24.04, rustc 1.99.1, unprivileged user, built with `--locked`, full history cloned so the cost base was available
+- Harness: `lumen-evidence-2`. Session matrix: `sm-1`. Corpora: `rt-1` (15 cases), `rt-2` (9), `rt-3` (41), `rt-4` (30) and the pane corpus `pc-1` (18).
+- Overall: `scripts/capture-tests.sh --locked --workspace` passed with 276 per-test lines and 276 tests counted, 276 ok, 0 failed, 0 ignored; the release build passed; all 23 evidence runs exited with their expected codes (0 for the measured modes, 3 for parity, decoder and render-log, which are not measured).
+- Raw logs: the results tarball with sha256 `7f4c99f934a804c846649dfd87e1db37698dd8c7da95e5a1903ae5ea205c4b7a` holds each run's `run.jsonl`, `summary.txt` and output, the test log (sha256 `848b78a85b888bd2be466a17e94213cc9a699215debdbba480955e51c251afae`), the build log and the checksums, which were verified after extraction. It is referenced by hash only and is not committed.
+
+## Metrics
+
+| Metric | Unit | Value | Threshold | Result | Raw log |
+|---|---|---|---|---|---|
+| 2.1 Reach | sessions reached of 14 (sm-1) | sealed layer: 14/14; unsealed layer: n/a | B at least 12/14; A reported, not gated | partial: item-kinds oracle, not the screenshot oracle the criterion names; macOS rows modelled on Linux. Reported only. | results tarball `7f4c99f934a8…` |
+| 2.2 Spoof success, rt-1 | forbidden items over 15 cases | sealed layer: 0; unsealed layer: 0 | 0 | 0 in every run. Byte pipeline only, nothing is drawn | results tarball `7f4c99f934a8…` |
+| 2.2 Spoof success, rt-2 | forbidden items over 9 cases | sealed layer: 0; unsealed layer: 0 | 0 | 0 in every run. Byte pipeline only, nothing is drawn | results tarball `7f4c99f934a8…` |
+| 2.2 Spoof success, rt-3 | forbidden items over 41 cases | sealed layer: 0; unsealed layer: 0 | 0 | 0 in every run. Byte pipeline only, nothing is drawn | results tarball `7f4c99f934a8…` |
+| 2.2 Spoof success, rt-4 | forbidden items over 30 cases | sealed layer: 0; unsealed layer: 0 | 0 | 0 in every run. Byte pipeline only, nothing is drawn | results tarball `7f4c99f934a8…` |
+| 2.2a Spoofing user study | % | n/a | B at most plain VT, and at most A + 2 pp | not measured (pending): the human study has not been run. | n/a |
+| 2.2b Simulated-reader spoofing (proxy, veto only) | % | n/a | veto if above plain VT | not measured: there is no screenshot mode. | n/a |
+| 2.3 Trust-margin pixels | px | n/a | 0 | not measured: there is no screenshot or pixel-diff mode. | n/a |
+| 2.4 Authority leakage, rt-4 | leak events over 30 cases | sealed layer: 0 (same counts); unsealed layer: not measured (only link open 1 exercised, by a simulated click) | 0 | zero on the sealed layer; confirmations are simulated | results tarball `7f4c99f934a8…` |
+| 2.4 Authority leakage, rt-3 alone | leak events over 41 cases | sealed layer: notification and grant leaks 0 (notification 4, grant 9); unsealed layer: none exercised | 0 | not measured as a verdict: clipboard, link open, exit status and boundary change are not exercised there. The 4 cases that expect an OS notification each got one, and the unsigned, SSH, multiplexer, focused and setting-off cases got only toasts or denials | results tarball `7f4c99f934a8…` |
+| 2.5 Decoder robustness | CPU-hours per format | n/a | section 2.5 | not measured: no fuzzing ledger and no image decoder (exit 3). | n/a |
+| 2.6 Denial of service, flood budget | budget violations over a 600 s flood | sealed layer: within, 500 of 500 blocks drawn, 1 degrade notice; unsealed layer: within, 0 drawn, 1 degrade notice | within the 25% unauthenticated share | pass for the byte pipeline over 600 s, the duration the criterion proposes. Input: sealed layer: 13.75 GB in 209,869 reads; unsealed layer: 13.93 GB in 212,567 reads | results tarball `7f4c99f934a8…` |
+| 2.6 Denial of service, peak memory | MiB (kernel high-water mark) | 3 MiB in each run | under 512 MiB | pass for the driver process, not a terminal | results tarball `7f4c99f934a8…` |
+| 2.6 Denial of service, longest feed | ms | sealed layer: 6.723 ms; unsealed layer: 6.386 ms | UI stall under 2 s (proposed) | reported only: the longest single call into the layer is a proxy, not the UI stall | results tarball `7f4c99f934a8…` |
+| 2.6 Denial of service, UI stall, frame rate, lying decoder | n/a | n/a | section 2.6 | not measured: render-log mode ran with no log (exit 3); there is no UI or decoder. | n/a |
+| 2.7 Red-team findings | open findings at Medium or above | n/a | 0 | not measured: this is a manual independent review. | n/a |
+| 2.8 Cost | lines added vs base 5549359 | 1481 | none (reported only) | reported: source 436 lines, test 772 lines, 29 test functions, no new external dependencies, 0 `unsafe` uses, forbids unsafe, 0 fuzz targets. Arm A grew by 192 lines since 7529aca (the sealed-abort method). Shared crates 2484 lines and conformance vectors 986 belong to neither arm | results tarball `7f4c99f934a8…` |
+| 2.9 Parity | channels | n/a | 0 | not measured: the channel catalogue declares 0 channels (exit 3). | n/a |
+| 7.x Multiplexer placement | model-level counts of 7.2 | see [results-placement.md](results-placement.md) | section 7.3 | model level only; key reuse, replayed mark, trust-margin pixels, key custody and pane reach are not measured | results tarball `7f4c99f934a8…` |
+
+## Decision outcome
+
+No outcome under section 4. Criteria 2.2a, 2.3 and 2.9 are not measured, and 2.1 is only partly measured, so the rule cannot be evaluated. Gates G1, G6 and G7 are not met until the macOS clean-VM proof is posted. The multiplexer placement comparison has no outcome either; see [results-placement.md](results-placement.md).
+
+## Earlier runs (kept)
+
+### Second run, at main 7529aca
+
 Second comparison run, at main `7529aca649448252111ca79f3c55a38f7d11aadc`. The first run (at 726cb4a) is kept at the end of this file.
 
 This run measures parts of 2.1, 2.2 and 2.6 and nothing else. Section 4 of the [criteria](comparison-criteria.md) cannot be applied: 2.2a, 2.3 and 2.9 are not measured.
 
-## What this run does and does not show
+#### What this run does and does not show
 
 - **2.2 checks byte-pipeline output only.** The driver replays corpora through the arm's byte pipeline and counts forbidden items. Nothing is drawn, so it does not show that a terminal would draw no forged boundary, exit status, producer identity or badge.
 - **Reach uses the item-kinds oracle, not screenshots.** Criterion 2.1 names the screenshot-diff oracle, so the reach figure below is a partial measurement and is not counted as the 2.1 result.
@@ -12,7 +65,7 @@ This run measures parts of 2.1, 2.2 and 2.6 and nothing else. Section 4 of the [
 - **The test pass rests on exit status.** The workspace tests passed because the run exited 0 under `pipefail`. The per-test lines were cut off by the console capture, so they are not part of this result. The capture is to be fixed for the next run.
 - **The G1, G6 and G7 gates are not met** until the macOS clean-VM proof for the gate experiments is posted. This run does not switch any gate on or off.
 
-## Run
+#### Run
 
 - Build commit: `7529aca649448252111ca79f3c55a38f7d11aadc` (main, which includes pull requests 35 to 39)
 - Machine: clean Linux VM, arm64, Ubuntu 24.04, unprivileged user, built with `--locked`
@@ -20,7 +73,7 @@ This run measures parts of 2.1, 2.2 and 2.6 and nothing else. Section 4 of the [
 - Overall: `cargo test --locked --workspace` and the release build passed, and all 11 evidence runs exited 0.
 - Raw logs: the results tarball with sha256 `7b46bd7fb24ed5f1deaf78b587fc3ccb1ba0487b5639a956323b17224debbe7b` holds the 11 `run.jsonl` and `summary.txt` pairs. It is referenced by hash only and is not committed.
 
-## Metrics
+#### Metrics
 
 | Metric | Unit | Value | Threshold | Result | Raw log |
 |---|---|---|---|---|---|
@@ -41,7 +94,7 @@ This run measures parts of 2.1, 2.2 and 2.6 and nothing else. Section 4 of the [
 | 2.9 Parity | channels | n/a | 0 | not measured: the parity mode was not merged at this commit. | n/a |
 | 7.x Multiplexer placement | various | n/a | section 7.3 | not measured: there is no pane corpus or harness. | n/a |
 
-## rt-2: the sealed path is exercised
+#### rt-2: the sealed path is exercised
 
 `sealed_opened` totals 261 on the sealed layer and 0 on the unsealed layer, as expected because it holds no keys. Per case on the sealed layer:
 
@@ -58,11 +111,11 @@ This run measures parts of 2.1, 2.2 and 2.6 and nothing else. Section 4 of the [
 
 The run report gives these per-case results for the sealed arms together. The case `sealed-aborts-pin-the-layer` is not listed there.
 
-## Decision outcome
+#### Decision outcome
 
 No outcome under section 4. Criteria 2.2a, 2.3 and 2.9 are not measured, and 2.1 is only partly measured, so the rule cannot be evaluated. Gates G1, G6 and G7 are not met until the macOS clean-VM proof is posted.
 
-## Earlier run at 726cb4a: per-case output (rt-1)
+#### Earlier run at 726cb4a: per-case output (rt-1)
 
 Generated from the evidence files by a script, not typed in.
 
