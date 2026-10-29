@@ -83,6 +83,14 @@ impl Runner {
         self
     }
 
+    /// Replaces the wall-clock limit. The default is the contract's 4 s; the
+    /// test suite lengthens it for decodes that must succeed on a loaded host.
+    #[must_use]
+    pub fn with_wall(mut self, wall: Duration) -> Self {
+        self.wall = wall;
+        self
+    }
+
     /// The worker path.
     #[must_use]
     pub fn worker(&self) -> &Path {

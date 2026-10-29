@@ -27,7 +27,10 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
 pub fn decoder_files(root: &Path) -> io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     walk(&root.join("crates/lumen-decoder/src"), &mut files)?;
-    files.retain(|p| p.file_name().is_none_or(|n| n != "lumen-decoder-hostile.rs"));
+    files.retain(|p| {
+        p.file_name()
+            .is_none_or(|n| n != "lumen-decoder-hostile.rs")
+    });
     files.push(root.join("crates/lumen-decoder/Cargo.toml"));
     files.push(root.join("Cargo.lock"));
     files.sort();

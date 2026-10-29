@@ -6,7 +6,7 @@
 //! - [`ledger`] builds the ledger `lumen-evidence --decoder` judges from the
 //!   records a campaign keeps.
 //! - [`escape`] reads the sandbox escape result from a test run.
-//! - [`seeds`] writes seed images made by real encoders.
+//! - The `seeds` example writes seed images made by real encoders.
 //!
 //! None of this fuzzes. The campaign runs the fuzz targets under
 //! `crates/lumen-decoder/fuzz` and feeds its logs and samples here.
@@ -17,4 +17,3 @@ pub mod classify;
 pub mod escape;
 pub mod identity;
 pub mod ledger;
-pub mod seeds;

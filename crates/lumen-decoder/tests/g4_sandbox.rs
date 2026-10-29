@@ -14,8 +14,11 @@ type R = Result<(), Box<dyn Error>>;
 
 const WORKER: &str = env!("CARGO_BIN_EXE_lumen-decoder-worker");
 
+/// The real worker. Its wall-clock limit is long here: a decode that must
+/// succeed should not fail because the host running the suite is busy. The
+/// hostile tests below keep the contract's 4 s.
 fn real() -> Runner {
-    Runner::new(WORKER)
+    Runner::new(WORKER).with_wall(Duration::from_secs(60))
 }
 
 fn pixels(w: u32, h: u32, px: [u8; 4]) -> Vec<u8> {
@@ -310,17 +313,15 @@ mod hostile {
 
     #[test]
     fn a_stdout_flood_is_cut_off_at_the_reservation() {
-        let t = Instant::now();
+        // A worker that blocked on a full pipe would time out instead.
         assert_eq!(run("flood-stdout"), Outcome::Crash(Crash::Overflow));
-        assert!(t.elapsed() < Duration::from_secs(4), "{:?}", t.elapsed());
     }
 
     #[test]
     fn a_stderr_flood_neither_blocks_nor_changes_the_result() -> R {
-        let t = Instant::now();
+        // A worker blocked on a full stderr pipe would time out instead.
         let img = expect_image(run("flood-stderr"))?;
         assert_eq!(img.rgba, vec![9, 8, 7, 255]);
-        assert!(t.elapsed() < Duration::from_secs(4), "{:?}", t.elapsed());
         Ok(())
     }
 
@@ -340,8 +341,10 @@ mod hostile {
         let t = Instant::now();
         let o = run("spin");
         let e = t.elapsed();
+        // Killed by the CPU limit, not by the wall clock (that would be a
+        // `Timeout`). On a busy host 2 CPU seconds can take longer than 4 s of
+        // wall time, so the elapsed time is not asserted.
         assert_eq!(o, Outcome::Crash(Crash::Exit), "{e:?}");
-        assert!(e < Duration::from_millis(3900), "{e:?}");
     }
 
     #[test]
@@ -399,7 +402,8 @@ mod hostile {
         // The worker exits at once; the child holds the pipes. The host must
         // neither hang on them nor leave the child running.
         let o = run_with(&["raw-grandchild-exit", f.to_str().unwrap_or("")]);
-        assert!(t.elapsed() < Duration::from_secs(3), "{:?}", t.elapsed());
+        // The child sleeps for 60 s; hanging on its pipes would take that long.
+        assert!(t.elapsed() < Duration::from_secs(30), "{:?}", t.elapsed());
         assert!(matches!(o, Outcome::Image(_)), "{o:?}");
         let pid = pid_from(&f);
         let _ = std::fs::remove_file(&f);

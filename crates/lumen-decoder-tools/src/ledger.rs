@@ -26,7 +26,9 @@ pub fn lines(text: &str) -> Result<Vec<Value>, String> {
 pub fn format_entry(name: &str, samples: &[Value], crashes: &[Value]) -> Result<Value, String> {
     let mut cpu_hours = 0.0f64;
     for s in samples {
-        let h = s["at_cpu_hour"].as_f64().ok_or("a sample has no at_cpu_hour")?;
+        let h = s["at_cpu_hour"]
+            .as_f64()
+            .ok_or("a sample has no at_cpu_hour")?;
         cpu_hours = cpu_hours.max(h);
     }
     Ok(json!({
@@ -43,7 +45,7 @@ pub fn ledger(
     revision: &str,
     decoder_build: &str,
     image_path_build: &str,
-    formats: Vec<Value>,
+    formats: &[Value],
     escape_revision: &str,
     escape_passed: u32,
     escape_total: u32,

@@ -7,7 +7,7 @@ pub enum Kind {
     Hang,
     /// Memory use went over the fuzzer's RSS limit (512 MiB in the campaign).
     Memory,
-    /// An AddressSanitizer, UBSan or similar report.
+    /// An `AddressSanitizer`, `UBSan` or similar report.
     Sanitizer,
     /// A Rust panic or abort with no sanitizer report.
     Panic,
@@ -32,7 +32,7 @@ impl Kind {
 /// Classifies a log. `None` means the log reports no crash.
 ///
 /// A sanitizer report wins over the fuzzer's own line: libFuzzer prints
-/// `ERROR: libFuzzer: deadly signal` after an ASan report too.
+/// `ERROR: libFuzzer: deadly signal` after an `ASan` report too.
 #[must_use]
 pub fn classify(log: &str) -> Option<Kind> {
     let has = |needle: &str| log.contains(needle);
@@ -42,7 +42,11 @@ pub fn classify(log: &str) -> Option<Kind> {
         || (has("memory allocation of") && has("bytes failed"))
     {
         Some(Kind::Memory)
-    } else if has("ERROR: AddressSanitizer") || has("ERROR: LeakSanitizer") || has("runtime error:") || has("ERROR: MemorySanitizer") {
+    } else if has("ERROR: AddressSanitizer")
+        || has("ERROR: LeakSanitizer")
+        || has("runtime error:")
+        || has("ERROR: MemorySanitizer")
+    {
         Some(Kind::Sanitizer)
     } else if has("panicked at") {
         Some(Kind::Panic)

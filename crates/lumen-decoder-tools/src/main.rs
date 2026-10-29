@@ -3,7 +3,6 @@
 //! - `classify LOG` prints the crash kind of a libFuzzer log and exits 1 if it
 //!   reports a crash, 0 if not.
 //! - `identity ROOT [RUSTFLAGS]` prints the decoder build identity.
-//! - `seeds DIR` writes the seed images under `DIR/{png,jpeg,webp}`.
 //! - `format NAME SAMPLES CRASHES` prints one format's ledger entry.
 //! - `escape TESTLOG REVISION` prints `{revision, passed, total}` for the G4
 //!   suite from a `cargo test` log.
@@ -15,7 +14,7 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, ExitCode};
 
-use lumen_decoder_tools::{classify, escape, identity, ledger, seeds};
+use lumen_decoder_tools::{classify, escape, identity, ledger};
 use serde_json::{Value, json};
 
 fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
@@ -37,16 +36,6 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
             println!("{}", identity::hash(root, &files, &compiler, flags)?);
             Ok(ExitCode::SUCCESS)
         }
-        "seeds" => {
-            for (name, bytes) in seeds::all()? {
-                let p = Path::new(arg(1)?).join(name);
-                if let Some(d) = p.parent() {
-                    fs::create_dir_all(d)?;
-                }
-                fs::write(p, bytes)?;
-            }
-            Ok(ExitCode::SUCCESS)
-        }
         "format" => {
             let samples = ledger::lines(&fs::read_to_string(arg(2)?)?)?;
             let crashes = ledger::lines(&fs::read_to_string(arg(3)?)?)?;
@@ -56,7 +45,10 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
         "escape" => {
             let (passed, total) = escape::counts(&fs::read_to_string(arg(1)?)?, "g4_sandbox")
                 .ok_or("no g4_sandbox result in the log")?;
-            println!("{}", json!({"revision": arg(2)?, "passed": passed, "total": total}));
+            println!(
+                "{}",
+                json!({"revision": arg(2)?, "passed": passed, "total": total})
+            );
             Ok(ExitCode::SUCCESS)
         }
         "ledger" => {
@@ -65,10 +57,25 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
                 .iter()
                 .map(|f| serde_json::from_str(f))
                 .collect::<Result<Vec<Value>, _>>()?;
-            let n = |k: &str| esc[k].as_u64().and_then(|v| u32::try_from(v).ok()).ok_or(format!("escape json has no {k}"));
+            let n = |k: &str| {
+                esc[k]
+                    .as_u64()
+                    .and_then(|v| u32::try_from(v).ok())
+                    .ok_or(format!("escape json has no {k}"))
+            };
             println!(
                 "{}",
-                ledger::ledger(arg(1)?, arg(2)?, arg(3)?, formats, esc["revision"].as_str().ok_or("escape json has no revision")?, n("passed")?, n("total")?)
+                ledger::ledger(
+                    arg(1)?,
+                    arg(2)?,
+                    arg(3)?,
+                    &formats,
+                    esc["revision"]
+                        .as_str()
+                        .ok_or("escape json has no revision")?,
+                    n("passed")?,
+                    n("total")?
+                )
             );
             Ok(ExitCode::SUCCESS)
         }
