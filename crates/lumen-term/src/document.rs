@@ -66,8 +66,7 @@ impl Document {
         self.rows = rows;
         for block in &mut self.blocks {
             if let Block::Grid(g) = block {
-                // A block with no program of its own cannot fail to resize.
-                let _ = g.resize(columns, rows);
+                g.resize(columns, rows);
             }
         }
     }

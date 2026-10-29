@@ -1,70 +1,8 @@
-//! Blocks, block-sized PTYs and the arm layer in front of them.
+//! Blocks and the arm layer in front of them. Programs on PTYs are in `session.rs`.
 
 use lumen_detector::TAG;
-use lumen_term::{Block, Context, Document, GridBlock, Layer, Notice, Passthrough, Piece};
+use lumen_term::{Block, Context, Document, Layer, Notice, Passthrough, Piece};
 use lumen_track0::Block as Track0Block;
-use std::time::{Duration, Instant};
-
-/// Everything a block's program writes until `needle` shows or time runs out.
-fn read_until(block: &mut GridBlock, needle: &str) -> String {
-    let mut seen = String::new();
-    let end = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < end && !seen.contains(needle) {
-        let bytes = block.poll_wait(Duration::from_millis(200));
-        seen.push_str(&String::from_utf8_lossy(&bytes));
-    }
-    seen
-}
-
-#[cfg(unix)]
-#[test]
-fn a_blocks_pty_is_the_blocks_size() {
-    let mut block = GridBlock::spawn(30, 7, "/bin/sh", &["-c", "stty size"])
-        .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
-    assert!(read_until(&mut block, "7 30").contains("7 30"));
-}
-
-#[cfg(unix)]
-#[test]
-fn resizing_a_block_resizes_its_pty() {
-    let mut block = GridBlock::spawn(30, 7, "/bin/sh", &["-c", "read x; stty size"])
-        .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
-    assert!(block.resize(50, 12).is_ok());
-    assert_eq!(block.size(), (50, 12));
-    assert!(block.send(b"\n").is_ok());
-    assert!(read_until(&mut block, "12 50").contains("12 50"));
-}
-
-#[cfg(unix)]
-#[test]
-fn two_blocks_have_two_ptys_of_their_own_sizes() {
-    let mut a = GridBlock::spawn(20, 5, "/bin/sh", &["-c", "stty size"])
-        .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
-    let mut b = GridBlock::spawn(64, 3, "/bin/sh", &["-c", "stty size"])
-        .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
-    assert!(read_until(&mut a, "5 20").contains("5 20"));
-    assert!(read_until(&mut b, "3 64").contains("3 64"));
-}
-
-#[cfg(unix)]
-#[test]
-fn typing_reaches_the_program_and_its_output_reaches_the_grid() {
-    let mut block = GridBlock::spawn(40, 5, "/bin/sh", &["-c", "read x; echo got:$x"])
-        .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
-    assert!(block.send(b"hi\n").is_ok());
-    let seen = read_until(&mut block, "got:hi");
-    assert!(seen.contains("got:hi"));
-    block.feed(seen.as_bytes());
-    assert!(block.text_rows().iter().any(|r| r.contains("got:hi")));
-}
-
-#[test]
-fn a_block_without_a_program_refuses_input() {
-    let mut block = GridBlock::new(10, 2);
-    assert!(block.send(b"x").is_err());
-    assert_eq!(block.poll(), Vec::<u8>::new());
-    assert!(block.has_exited());
-}
 
 #[test]
 fn passthrough_output_lands_in_one_grid_block() {

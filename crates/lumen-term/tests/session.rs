@@ -3,6 +3,7 @@
 #![cfg(unix)]
 
 use lumen_detector::TAG;
+use lumen_term::session::{MAX_COLUMNS, MAX_ROWS};
 use lumen_term::{Block, Layer, Passthrough, Session};
 use std::time::{Duration, Instant};
 
@@ -195,4 +196,65 @@ fn typing_reaches_the_program() {
     assert!(s.send(b"abc\n").is_ok());
     assert!(pump_until(&mut s, |s| grid_text(s).contains("got:abc")));
     assert!(pump_until(&mut s, |_| true));
+}
+
+#[test]
+fn a_sessions_pty_is_the_blocks_size() {
+    let mut s = start(Box::new(Passthrough), 30, 7, "stty size");
+    assert!(pump_until(&mut s, |s| grid_text(s).contains("7 30")));
+}
+
+#[test]
+fn two_sessions_have_two_ptys_of_their_own_sizes() {
+    let mut a = start(Box::new(Passthrough), 20, 5, "stty size");
+    let mut b = start(Box::new(Passthrough), 64, 3, "stty size");
+    assert!(pump_until(&mut a, |s| grid_text(s).contains("5 20")));
+    assert!(pump_until(&mut b, |s| grid_text(s).contains("3 64")));
+}
+
+#[test]
+fn a_size_outside_the_limits_is_refused_and_changes_neither_the_document_nor_the_pty() {
+    let mut s = start(
+        Box::new(Passthrough),
+        30,
+        7,
+        "echo first; read x; stty size",
+    );
+    assert!(pump_until(&mut s, |s| grid_text(s).contains("first")));
+    for (c, r) in [
+        (0, 5),
+        (5, 0),
+        (MAX_COLUMNS + 1, 5),
+        (5, MAX_ROWS + 1),
+        (70_000, 70_000),
+    ] {
+        assert!(s.resize(c, r).is_err(), "{c}x{r}");
+        assert_eq!(
+            (s.document().columns(), s.document().rows()),
+            (30, 7),
+            "{c}x{r}"
+        );
+    }
+    assert!(
+        s.resize(MAX_COLUMNS, MAX_ROWS).is_ok(),
+        "the limits themselves are allowed"
+    );
+    assert!(s.resize(30, 7).is_ok());
+    assert!(s.send(b"\n").is_ok());
+    assert!(pump_until(&mut s, |s| grid_text(s).contains("7 30")));
+}
+
+#[test]
+fn a_session_cannot_start_with_a_size_outside_the_limits() {
+    for (c, r) in [(0, 5), (5, 0), (MAX_COLUMNS + 1, 5), (5, MAX_ROWS + 1)] {
+        assert!(
+            Session::start(Box::new(Passthrough), c, r, "/bin/sh", &["-c", "true"]).is_err(),
+            "{c}x{r}"
+        );
+    }
+}
+
+#[test]
+fn the_size_limits_are_the_documented_ones() {
+    assert_eq!((MAX_COLUMNS, MAX_ROWS), (1000, 500));
 }

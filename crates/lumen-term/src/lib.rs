@@ -15,13 +15,13 @@
 pub mod document;
 pub mod grid;
 pub mod layer;
-pub mod pty;
+mod pty;
 pub mod raster;
 pub mod session;
 
 pub use document::{Block, Document, RichBlock};
 pub use grid::GridBlock;
 pub use layer::{Context, Layer, Notice, Passthrough, Piece};
-pub use pty::{Pty, SpawnError};
+pub use pty::SpawnError;
 pub use raster::{Frame, Renderer, Theme};
 pub use session::Session;

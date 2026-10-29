@@ -5,6 +5,21 @@ use crate::layer::{Context, Layer};
 use crate::pty::{Pty, SpawnError};
 use std::time::{Duration, Instant};
 
+/// The most columns a session takes, which also bounds the cells a block holds.
+pub const MAX_COLUMNS: usize = 1000;
+/// The most rows a session takes.
+pub const MAX_ROWS: usize = 500;
+
+fn check_size(columns: usize, rows: usize) -> Result<(), SpawnError> {
+    if (1..=MAX_COLUMNS).contains(&columns) && (1..=MAX_ROWS).contains(&rows) {
+        Ok(())
+    } else {
+        Err(SpawnError(format!(
+            "a size of {columns} by {rows} is outside 1..={MAX_COLUMNS} by 1..={MAX_ROWS}"
+        )))
+    }
+}
+
 /// One program, one PTY, one layer and the document they make.
 ///
 /// The PTY is the size of the document's blocks, so the program sees the size
@@ -32,6 +47,7 @@ impl Session {
         program: &str,
         arguments: &[S],
     ) -> Result<Self, SpawnError> {
+        check_size(columns, rows)?;
         let pty = Pty::spawn(columns, rows, program, arguments)?;
         layer.open_container();
         Ok(Self {
@@ -91,15 +107,19 @@ impl Session {
         self.pty.send(bytes)
     }
 
-    /// The window is now `columns` by `rows`: every block and the program's
-    /// PTY take the new size.
+    /// The window is now `columns` by `rows`: the program's PTY and every block
+    /// take the new size. The PTY is told first, so if that fails (or the size
+    /// is outside the limits) the document keeps its old size and the two stay
+    /// in step.
     ///
     /// # Errors
     ///
-    /// Returns the PTY error if the program could not be told.
+    /// Returns why the size was refused or the program could not be told.
     pub fn resize(&mut self, columns: usize, rows: usize) -> Result<(), SpawnError> {
+        check_size(columns, rows)?;
+        self.pty.resize(columns, rows)?;
         self.document.resize(columns, rows);
-        self.pty.resize(columns, rows)
+        Ok(())
     }
 
     /// Whether the program has exited.
