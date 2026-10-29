@@ -6,7 +6,7 @@ Normative terms follow [spec/v0](../../spec/v0/_index.md). The arms are describe
 
 ## 1. The two arms
 
-Both arms are built in this repository behind Cargo features `arm-a` and `arm-b`, both off by default. They share the same renderer and the same red-team corpus. Each arm is built from a single commit, and every result records that commit SHA.
+Both arms are built in this repository as separate crates, `lumen-arm-a` and `lumen-arm-b`. The Cargo features `arm-a` and `arm-b` of the `lumen` crate, both off by default, select which crate is linked, and the comparison driver picks one with `--arm`. They share the same renderer and the same red-team corpus. Each arm is built from a single commit, and every result records that commit SHA.
 
 **Arm A: sealed-only rich.** Rich blocks render only on a sealed layer. Track 0 output on an unsealed layer renders as escaped text. The spec only states this for the alternate-screen and multiplexer cases ([trust](../../spec/v0/trust.md), [multiplexers](../../spec/v0/multiplexers.md#mux.alt-screen)). Applying it to every unsealed layer under arm A is a proposal of this document, not a spec rule.
 
@@ -108,7 +108,7 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 
 ## 3. Hard gates and preconditions
 
-An arm's feature is off on a target OS until the gate that protects it passes there. A gate failure is not a comparison result. It means the feature is measured with that feature off, and the result says so.
+An arm's rich rendering is off on a target OS until the gate that protects it passes there. A gate failure is not a comparison result. It means the arm is measured with that rendering off, and the result says so.
 
 The preconditions below come from the sealing and Track 0 gates in the [conformance gates](../../spec/v0/conformance.md). They apply to the default sealing path that both arms use.
 
@@ -121,7 +121,7 @@ Hardened-mode checks are not preconditions here. The [hardened mode](../../spec/
 
 ## 4. Decision rule
 
-1. Each arm must pass every precondition in section 3 on the OS where its feature is on. An arm that fails a precondition on an OS is measured with that feature off there, and the result says so.
+1. Each arm must pass every precondition in section 3 on the OS where its rich rendering is on. An arm that fails a precondition on an OS is measured with that rendering off there, and the result says so.
 2. **Arm B is chosen** unless one of these holds:
    - the trust-area-pixel count (section 2.3) is non-zero in arm B;
    - the authority-leak count (section 2.4) is non-zero in arm B;
