@@ -4,7 +4,7 @@ use serde_json::Value;
 
 /// Checks that a record is well formed and that what it says is consistent:
 /// every run has a known status; a run that passed has result lines and none of
-/// them reports a failure; a run that failed carries the error that stopped it.
+/// them reports a failure; a run that failed or timed out carries the reason.
 ///
 /// # Errors
 /// A description of the first thing wrong.
@@ -42,9 +42,9 @@ pub fn validate(record: &Value) -> Result<(), String> {
                     }
                 }
             }
-            Some("FAILED") => {
+            Some("FAILED" | "TIMEOUT") => {
                 if run["first_error"].as_str().is_none_or(str::is_empty) {
-                    return Err(format!("{name}: failed without an error line"));
+                    return Err(format!("{name}: did not pass and gives no reason"));
                 }
             }
             other => return Err(format!("{name}: unknown status {other:?}")),

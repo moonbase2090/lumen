@@ -3,38 +3,153 @@
   "miri": "miri 0.1.0 (ea137335b7 2026-10-05)",
   "host": "Darwin 27.0.0 arm64",
   "date": "2026-10-29",
-  "repo_commit": "278731b2a1459c775dcb06b1951e05de9b3d7abd",
-  "upstream_commit": "d22e2aa3fb4259943fe0dbe1b5fef47c7e72aab5",
+  "repo_commit": "93bbb7fbd20ee4fac352a02e37ffc2e9563051ae",
+  "upstream_commit": "c1c7f49776ee32928ed329f4436ae63a595b6283",
+  "zune_jpeg_version": "0.5.16-rc3",
   "runs": [
     {
       "name": "upstream-x86-avx2-unit",
       "status": "ok",
-      "command": "env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --lib --target x86_64-unknown-linux-gnu",
+      "command": "env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --lib --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
       "results": [
-        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+        "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out"
       ],
       "first_error": null
     },
     {
-      "name": "upstream-x86-avx2-integ",
+      "name": "upstream-x86-avx2-integ-app14",
+      "status": "TIMEOUT",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test app14 --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [],
+      "first_error": "did not finish within its time box (600 s); Miri is slow, and this says nothing about the code"
+    },
+    {
+      "name": "upstream-x86-avx2-integ-arithmetic_after_eoi",
       "status": "ok",
-      "command": "env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --tests --target x86_64-unknown-linux-gnu",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test arithmetic_after_eoi --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
       "results": [
-        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
-        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
-        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
-        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
       ],
       "first_error": null
+    },
+    {
+      "name": "upstream-x86-avx2-integ-arithmetic_progressive",
+      "status": "ok",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test arithmetic_progressive --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+      ],
+      "first_error": null
+    },
+    {
+      "name": "upstream-x86-avx2-integ-cancel",
+      "status": "TIMEOUT",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test cancel --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [],
+      "first_error": "did not finish within its time box (600 s); Miri is slow, and this says nothing about the code"
+    },
+    {
+      "name": "upstream-x86-avx2-integ-cmyk_rgba",
+      "status": "TIMEOUT",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test cmyk_rgba --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [],
+      "first_error": "did not finish within its time box (600 s); Miri is slow, and this says nothing about the code"
+    },
+    {
+      "name": "upstream-x86-avx2-integ-color_output",
+      "status": "TIMEOUT",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test color_output --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [],
+      "first_error": "did not finish within its time box (600 s); Miri is slow, and this says nothing about the code"
+    },
+    {
+      "name": "upstream-x86-avx2-integ-decode_raw",
+      "status": "TIMEOUT",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test decode_raw --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [],
+      "first_error": "did not finish within its time box (600 s); Miri is slow, and this says nothing about the code"
+    },
+    {
+      "name": "upstream-x86-avx2-integ-dnl_test",
+      "status": "TIMEOUT",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test dnl_test --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [],
+      "first_error": "did not finish within its time box (600 s); Miri is slow, and this says nothing about the code"
+    },
+    {
+      "name": "upstream-x86-avx2-integ-incremental",
+      "status": "TIMEOUT",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test incremental --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [],
+      "first_error": "did not finish within its time box (600 s); Miri is slow, and this says nothing about the code"
+    },
+    {
+      "name": "upstream-x86-avx2-integ-invalid_images",
+      "status": "ok",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test invalid_images --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+      ],
+      "first_error": null
+    },
+    {
+      "name": "upstream-x86-avx2-integ-metadata",
+      "status": "ok",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test metadata --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+      ],
+      "first_error": null
+    },
+    {
+      "name": "upstream-x86-avx2-integ-non_interleaved",
+      "status": "TIMEOUT",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test non_interleaved --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [],
+      "first_error": "did not finish within its time box (600 s); Miri is slow, and this says nothing about the code"
+    },
+    {
+      "name": "upstream-x86-avx2-integ-planar_layout",
+      "status": "ok",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test planar_layout --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+      ],
+      "first_error": null
+    },
+    {
+      "name": "upstream-x86-avx2-integ-progressive_dc_tables",
+      "status": "ok",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test progressive_dc_tables --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+      ],
+      "first_error": null
+    },
+    {
+      "name": "upstream-x86-avx2-integ-raw_imcu_rows",
+      "status": "TIMEOUT",
+      "command": "timebox 600s: env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --test raw_imcu_rows --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
+      "results": [],
+      "first_error": "did not finish within its time box (600 s); Miri is slow, and this says nothing about the code"
     },
     {
       "name": "upstream-x86-default",
       "status": "ok",
-      "command": "cargo +nightly-2026-10-06 miri test --lib --target x86_64-unknown-linux-gnu",
+      "command": "cargo +nightly-2026-10-06 miri test --lib --target x86_64-unknown-linux-gnu -- --skip set_options_refreshes_cached_dispatch",
       "results": [
-        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+        "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out"
       ],
       "first_error": null
+    },
+    {
+      "name": "upstream-x86-fnptr-test",
+      "status": "FAILED",
+      "command": "env RUSTFLAGS=-C target-feature=+avx2,+sse4.1 cargo +nightly-2026-10-06 miri test --lib --target x86_64-unknown-linux-gnu -- set_options_refreshes_cached_dispatch",
+      "results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 20 filtered out"
+      ],
+      "first_error": "crates/zune-jpeg/src/decoder.rs:3589:13: | assertion `left == right` failed left: 1566831 right: 1567086"
     },
     {
       "name": "seeds-x86-avx2",

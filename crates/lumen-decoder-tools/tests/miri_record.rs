@@ -124,11 +124,32 @@ fn the_committed_record_is_valid_and_says_what_the_docs_say()
     // Passed on the AVX2 code.
     for name in [
         "upstream-x86-avx2-unit",
-        "upstream-x86-avx2-integ",
+        "upstream-x86-default",
+        "upstream-x86-avx2-integ-arithmetic_after_eoi",
+        "upstream-x86-avx2-integ-arithmetic_progressive",
+        "upstream-x86-avx2-integ-invalid_images",
+        "upstream-x86-avx2-integ-metadata",
+        "upstream-x86-avx2-integ-planar_layout",
+        "upstream-x86-avx2-integ-progressive_dc_tables",
         "seeds-x86-avx2",
     ] {
         assert_eq!(run(name).ok_or(name)?["status"], "ok", "{name}");
     }
+    assert_eq!(r["zune_jpeg_version"], "0.5.16-rc3");
+    // The runs that did not finish are recorded as such, with the reason, not dropped.
+    let timeouts = r["runs"]
+        .as_array()
+        .map(|v| v.iter().filter(|x| x["status"] == "TIMEOUT").count());
+    assert_eq!(timeouts, Some(9));
+    // The one test that compares function addresses fails on its assertion.
+    let fnptr = run("upstream-x86-fnptr-test").ok_or("fnptr run")?;
+    assert_eq!(fnptr["status"], "FAILED");
+    assert!(
+        fnptr["first_error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("assertion")
+    );
     // The NEON run is recorded as a Miri limitation, not hidden.
     let neon = run("seeds-host-neon").ok_or("neon run")?;
     assert_eq!(neon["status"], "FAILED");
@@ -138,18 +159,24 @@ fn the_committed_record_is_valid_and_says_what_the_docs_say()
             .unwrap_or("")
             .contains("unsupported operation")
     );
-    // The docs' counts: 10 unit tests, and 7 + 3 + 7 integration tests.
-    let counts: Vec<String> = run("upstream-x86-avx2-integ").ok_or("integ")?["results"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|l| {
-                    l.as_str()
-                        .map(|s| s.split_whitespace().nth(3).unwrap_or("").to_string())
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    assert_eq!(counts, ["10", "7", "3", "7"]);
+    // The docs' counts: 20 unit tests, and 9 + 11 + 8 + 3 in the integration files that ran tests.
+    let passed = |name: &str| -> Option<String> {
+        run(name)?["results"][0]
+            .as_str()
+            .and_then(|l| l.split_whitespace().nth(3).map(str::to_string))
+    };
+    assert_eq!(passed("upstream-x86-avx2-unit").as_deref(), Some("20"));
+    for (name, n) in [
+        ("invalid_images", "9"),
+        ("metadata", "11"),
+        ("planar_layout", "8"),
+        ("progressive_dc_tables", "3"),
+    ] {
+        assert_eq!(
+            passed(&format!("upstream-x86-avx2-integ-{name}")).as_deref(),
+            Some(n),
+            "{name}"
+        );
+    }
     Ok(())
 }

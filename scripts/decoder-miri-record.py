@@ -26,6 +26,14 @@ for line in open(f"{work}/runs.tsv"):
     # Miri prints its error on the same line as the test name, so search inside lines.
     errors = [re.sub(r"^.*?error: ", "error: ", l.strip()) for l in log
               if "error: unsupported operation" in l or "Undefined Behavior" in l]
+    if not errors:
+        # An ordinary test failure: keep the panic line and the assertion after it.
+        for n, l in enumerate(log):
+            if "panicked at" in l:
+                errors = [(l.strip().split(") panicked at ", 1)[-1] + " | " + " ".join(x.strip() for x in log[n + 1:n + 4]))]
+                break
+    if status == "TIMEOUT":
+        errors = [f"did not finish within its time box ({cmd.split('timebox ')[1].split('s:')[0]} s); Miri is slow, and this says nothing about the code"]
     runs.append({
         "name": name,
         "status": status,
@@ -41,6 +49,7 @@ record = {
     "date": datetime.date.today().isoformat(),
     "repo_commit": sh("git", "-C", root, "rev-parse", "HEAD"),
     "upstream_commit": upstream,
+    "zune_jpeg_version": open(f"{work}/zune-image/crates/zune-jpeg/Cargo.toml").read().split('version = "')[1].split('"')[0],
     "runs": runs,
 }
 with open(f"{work}/miri-record.json", "w") as f:
