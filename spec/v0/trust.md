@@ -99,7 +99,7 @@ A notification over these limits is dropped and counted in the chrome count.
 
 **User control.** Muting a pane silences its toasts as well as its OS notifications. The user can mute the terminal's notifications in one step, and can revoke the `notifications` capability for a layer in one step. Both are reachable from the keyboard.
 
-**Accepted residual risk.** A signed program is authenticated, not trusted: a hostile dependency inside a sealed command qualifies. Such a program can write misleading wording into its notification text, and once an OS notification is sent it cannot be recalled. The fixed prefix, the pane label, the OS budget and the `notifications` capability are the mitigations. The wording itself is not checked, and this risk is accepted by the owner.
+**Accepted residual risk.** A signed program is authenticated, not trusted: a hostile dependency inside a sealed command qualifies. Such a program can write misleading wording into its notification text, and once an OS notification is sent it cannot be recalled. The fixed prefix, the pane label, the OS budget and the `notifications` capability are the mitigations. The wording itself is not checked. This residual risk is accepted because the wording of a signed program's own notifications cannot be verified mechanically, and the listed mitigations bound its reach.
 
 **Red-team pass.** This section does not count toward any gate until a red-team pass by a reviewer other than its author is recorded, and the findings of both passes are answered in the text. The second pass is `docs/phase-0.5/red-team-notifications.md`.
 

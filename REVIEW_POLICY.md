@@ -24,6 +24,8 @@ The PR body has a **Proof** section with real evidence: test output, a CI run li
 - The reviewer names the exact tip commit they reviewed and answers **SHIP** or **CHANGES**. A new commit needs a new review at the new tip.
 - A SHIP carries over a clean rebase when the PR's own diff is unchanged (`git range-diff` or `git patch-id --stable` shows no difference).
 - Trunk PRs are also built and exercised by the reviewer, not just read. Every finding is fixed or explicitly waived in the PR thread.
+- Before SHIP, check whether the PR changes the spec, conformance gates, release criteria or user-visible behavior. If it does, the PR must update `site/` or link a site PR that will merge with it.
+- Before SHIP, reject project-owner attribution phrases that attach a rule, decision, risk acceptance or exception to that role. State the rule and its reason without attribution. When history matters, name the Lumen maintainers. Exceptions require maintainer approval.
 - Docs-only PRs may merge on green checks with no review.
 
 ## 4. Required checks
@@ -47,8 +49,8 @@ Every test must fail if the behavior it names broke. Reject tests that assert a 
 - No admin overrides and no force-pushes to `main`.
 - Commits carry no private details: no personal names, paths, hostnames or addresses.
 - Security issues are reported privately (see `SECURITY.md`), never in a public issue, PR or commit message.
-- Releases and tags need owner approval.
+- Releases and tags require maintainer approval.
 
 ## Local verification
 
-Every behavior-changing PR must include proof that the change was built and exercised in a clean local VM of the relevant OS, and shown working: the commands run plus their output. Docs-only and CI-only PRs are exempt. Only an explicit owner override waives this requirement.
+Every behavior-changing PR must include proof that the change was built and exercised in a clean local VM of the relevant OS, and shown working: the commands run plus their output. Docs-only and CI-only PRs are exempt. Only an explicit maintainer override waives this requirement.
