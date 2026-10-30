@@ -4,10 +4,13 @@ use lumen_term::notify::{
     Desk, Notifier, OsNotification, OsSink, Outcome, Place, Settings, Source, escape_markup,
 };
 use lumen_term::os_backend::{
-    Invocation, Launch, MAX_IN_FLIGHT, Platform, Process, SystemSink, TITLE, WINDOWS_TEXT_VARIABLE,
-    invocation, unescape_markup,
+    Invocation, Launch, Platform, SystemSink, TITLE, WINDOWS_TEXT_VARIABLE, invocation,
+    unescape_markup,
 };
 use std::ffi::OsString;
+
+#[cfg(unix)]
+use lumen_term::os_backend::{MAX_IN_FLIGHT, Process};
 
 const PLATFORMS: [Platform; 3] = [Platform::MacOs, Platform::Linux, Platform::Windows];
 
@@ -57,7 +60,7 @@ fn the_text_is_one_argument_or_one_variable_and_never_part_of_a_script() {
                     );
                     assert_eq!(
                         i.env,
-                        vec![(WINDOWS_TEXT_VARIABLE.to_owned(), n.text.clone())]
+                        vec![(WINDOWS_TEXT_VARIABLE.to_owned(), unescape_markup(&n.text))]
                     );
                 }
                 Platform::Linux | Platform::MacOs => {
@@ -81,6 +84,47 @@ fn the_text_is_one_argument_or_one_variable_and_never_part_of_a_script() {
             }
         }
     }
+}
+
+#[cfg(windows)]
+#[test]
+#[ignore = "live proof requires a dedicated Windows test profile"]
+fn hostile_windows_text_is_data_and_runs_nothing() {
+    use std::process::{Command, Stdio};
+
+    let dir = std::env::temp_dir().join(format!("lumen-os-{}", std::process::id()));
+    assert!(std::fs::create_dir_all(&dir).is_ok());
+    let marker = dir.join("injection-ran");
+    let mut text = String::from("double \" single ' XML <tag> & command ");
+    text.push('$');
+    text.push('(');
+    text.push_str(&["Set", "-", "Content"].concat());
+    text.push_str(" -LiteralPath $env:LUMEN_INJECTION_MARKER -Value ran)");
+    text.push_str(" backticks ``");
+    let inv = invocation(Platform::Windows, &note(&text));
+    assert_eq!(
+        inv.env,
+        vec![(WINDOWS_TEXT_VARIABLE.to_owned(), text.clone())]
+    );
+    assert!(
+        as_strings(&inv.args).iter().all(|arg| !arg.contains(&text)),
+        "notification text must not be part of the script"
+    );
+
+    let output = Command::new(&inv.program)
+        .args(&inv.args)
+        .envs(inv.env.iter().map(|(key, value)| (key, value)))
+        .env("LUMEN_INJECTION_MARKER", &marker)
+        .stdin(Stdio::null())
+        .output();
+    assert!(
+        output.as_ref().is_ok_and(|output| output.status.success()),
+        "Windows notification failed: {output:?}"
+    );
+    assert!(!marker.exists(), "notification text ran as a command");
+    println!("toast text: {text}");
+    println!("PowerShell exited successfully; injection marker absent");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -127,6 +171,15 @@ fn the_programs_are_fixed_absolute_paths_started_without_a_shell() {
         "options end before the title and the text: {linux:?}"
     );
     assert_eq!(linux[2], TITLE);
+
+    let windows = as_strings(&invocation(Platform::Windows, &note("x")).args);
+    assert_eq!(
+        &windows[..3],
+        &["-NoProfile", "-NonInteractive", "-Command"]
+    );
+    assert_eq!(windows.len(), 4);
+    assert!(windows[3].contains("CreateTextNode($env:LUMEN_NOTIFICATION_TEXT)"));
+    assert!(!windows[3].contains("<text>' + $env:"));
 }
 
 #[test]
