@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests the gate-run controller of scripts/decoder-fuzz.sh with real short fuzz
-# runs. The gate's own numbers (1000 CPU-hours, 168) are far out of reach of a
+# runs. The gate's own numbers (250 CPU-hours, 168) are far out of reach of a
 # test, so the driver is given test-only thresholds through the environment
 # (LUMEN_GATE_MIN_HOURS, LUMEN_GATE_WINDOW_HOURS); the unit tests in
 # lumen-decoder-tools check the real numbers against the judge.

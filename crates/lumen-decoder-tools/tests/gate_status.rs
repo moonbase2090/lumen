@@ -33,12 +33,12 @@ fn judged(samples: &[Value], crashes: &[Value]) -> bool {
 #[test]
 fn a_format_that_meets_every_part_holds() {
     let s = samples(&[(100.0, 900.0), (830.0, 950.0), (1000.0, 950.0)]);
-    let st = status(&s, &crashes(&[40.0])).unwrap_or_else(|_| unreachable_status());
+    let st = status(&s, &crashes(&[])).unwrap_or_else(|_| unreachable_status());
     assert!(st.holds);
     assert_eq!(st.cpu_hours, 1000.0);
-    assert_eq!(st.recent_crashes, 0);
+    assert!(!st.over_cap);
     assert!(st.plateau);
-    assert_eq!(st.hours_since_new_crash, 960.0);
+    assert_eq!(st.hours_since_new_crash, 1000.0, "no crash: all of them");
     assert_eq!(
         st.hours_since_coverage_gain, 170.0,
         "coverage last grew at 830"
@@ -50,7 +50,7 @@ fn unreachable_status() -> lumen_decoder_tools::gate::Status {
         cpu_hours: -1.0,
         edges: 0.0,
         crashes: 0,
-        recent_crashes: 0,
+        over_cap: false,
         hours_since_new_crash: 0.0,
         hours_since_coverage_gain: 0.0,
         plateau: false,
@@ -65,10 +65,20 @@ fn each_part_of_the_gate_can_fail_it() {
         |p: &[(f64, f64)], c: &[f64]| status(&samples(p), &crashes(c)).is_ok_and(|st| st.holds);
     assert!(hold(&flat, &[]));
     assert!(
-        !hold(&[(100.0, 900.0), (500.0, 950.0), (999.0, 950.0)], &[]),
-        "999 CPU-hours"
+        !hold(&[(50.0, 950.0), (249.0, 950.0)], &[]),
+        "249 CPU-hours, under the floor"
+    );
+    assert!(
+        hold(&[(50.0, 950.0), (250.0, 950.0)], &[]),
+        "the floor is enough: the earlier 1000 no longer applies"
     );
     assert!(!hold(&flat, &[900.0]), "a crash inside the window");
+    assert!(!hold(&flat, &[40.0]), "a crash long ago still fails");
+    assert!(
+        !hold(&[(50.0, 950.0), (1201.0, 950.0)], &[]),
+        "past the cap"
+    );
+    assert!(hold(&[(50.0, 950.0), (1200.0, 950.0)], &[]), "at the cap");
     assert!(
         !hold(
             &[
@@ -91,7 +101,7 @@ fn each_part_of_the_gate_can_fail_it() {
 fn the_stop_rule_agrees_with_the_judge_on_the_boundaries() {
     // Hours are chosen so that the window starts at exactly 832.
     for (points, crash_at) in [
-        (vec![(832.0, 950.0), (1000.0, 950.0)], vec![832.0]), // a crash exactly 168 before the end: older
+        (vec![(832.0, 950.0), (1000.0, 950.0)], vec![832.0]), // a crash exactly 168 before the end: still a crash
         (vec![(832.0, 950.0), (1000.0, 950.0)], vec![832.5]), // just inside
         (vec![(832.0, 950.0), (1000.0, 950.0)], vec![]),      // reading exactly at the window start
         (vec![(832.5, 950.0), (1000.0, 950.0)], vec![]),      // reading just after it
@@ -101,6 +111,10 @@ fn the_stop_rule_agrees_with_the_judge_on_the_boundaries() {
         ), // grew at the end
         (vec![(100.0, 900.0), (1000.0, 950.0)], vec![]), // grew, then reading before window is lower
         (vec![(999.9, 950.0), (500.0, 950.0)], vec![]),  // unordered samples
+        (vec![(100.0, 950.0), (1200.0, 950.0)], vec![]), // at the cap
+        (vec![(100.0, 950.0), (1200.5, 950.0)], vec![]), // just past it
+        (vec![(80.0, 950.0), (249.5, 950.0)], vec![]),   // just under the floor
+        (vec![(82.0, 950.0), (250.0, 950.0)], vec![]),   // at the floor
     ] {
         let (s, c) = (samples(&points), crashes(&crash_at));
         let mine = status(&s, &c).is_ok_and(|st| st.holds);
@@ -120,7 +134,7 @@ fn the_stop_rule_agrees_with_the_judge_on_many_generated_runs() {
     };
     let (mut holding, mut total) = (0, 0);
     for _ in 0..3000 {
-        let end = 600 + next() % 800;
+        let end = 150 + next() % 1200;
         let mut points = Vec::new();
         let (mut hour, mut edges) = (0_u32, 800_u32);
         while hour < end {

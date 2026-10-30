@@ -15,9 +15,9 @@
 # The gate run (--gate-run), with the stop rule of the campaign plan:
 #   --gate-run             run every format in round-robin slices; count measured
 #                          CPU time (not workers x wall time); stop a format when
-#                          the gate holds for it (at least 1000 CPU-hours, no crash
-#                          in the last 168, coverage flat over the last 168, by the
-#                          judge's rule), or at --cap-cpu-hours; write status.json
+#                          the gate holds for it (at least 250 CPU-hours, no crash
+#                          at all, coverage flat over the last 168, by the judge's
+#                          rule), or at --cap-cpu-hours; write status.json
 #   --cap-cpu-hours H      cap per format (default 1200). The last slice is sized
 #                          in crates/lumen-decoder-tools/src/slice.rs from what is
 #                          left of the cap, assuming the worst of two things: a
@@ -30,11 +30,12 @@
 #   --max-wall-hours W     hard stop for the whole call, exit 8
 #   --pause-on-crash-after H  a crash recorded after H CPU-hours of its format
 #                          pauses the run (exit 7, state synced, the finish command
-#                          is NOT run): default 1032, the last hour a crash can
-#                          still be followed by 168 clean hours within a cap of
-#                          1200. 0 pauses on any crash. A fix changes the build
-#                          identity and re-runs the gate, so pausing on the first
-#                          crash is usually what is wanted.
+#                          is NOT run): default 0, any crash. A crash ends the run
+#                          for that build identity, which cannot pass however many
+#                          clean hours follow; the fix changes the build identity
+#                          and the gate runs again from zero. A larger H lets the
+#                          run go on after an early crash, for a run that only
+#                          wants the data.
 #   --price-per-hour P     for the estimated cost in status.json
 #   --stats-dir DIR        also write DIR/<fmt>.env (EXECS_PER_SEC COVERAGE
 #                          CORPUS_SIZE CRASHES LAST_CRASH_EPOCH LAST_COV_EPOCH, plus
@@ -76,7 +77,7 @@ IMAGE_PATH_BUILD=""
 RSS_MB=2048
 MIRI_RECORD=""
 TARGET_H=""; RESTORE_CMD=""; SYNC_CMD=""; FINISH_CMD=""
-GATE_RUN=0; CAP_H=1200; MAX_WALL_H=""; PAUSE_AFTER=1032; PRICE=""; STATS_DIR=""; CONSOLE=""; CONSOLE_PREFIX="FUZZ-STATUS"
+GATE_RUN=0; CAP_H=1200; MAX_WALL_H=""; PAUSE_AFTER=0; PRICE=""; STATS_DIR=""; CONSOLE=""; CONSOLE_PREFIX="FUZZ-STATUS"
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;

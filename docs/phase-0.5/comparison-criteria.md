@@ -70,14 +70,14 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 
 ### 2.5 Decoder robustness
 
-> **Superseded numbers.** The fuzzing quantities in this section (1000 CPU-hours, the 168-hour crash-free window and the plateau) were the specification's decoder gate. That gate now keeps only the testable safety obligations, and the fuzzing quantities are the [Lumen Term release criteria](../release-criteria.md#decoder-fuzzing): a floor of 250 CPU-hours per format, a stop after 168 CPU-hours with no new crash or coverage edge, a cap of 1200, continuous fuzzing and a re-fuzz on every decoder version bump. The text below is the phase 0.5 record and the comparison harness's judge still applies it.
+> **Superseded numbers.** The fuzzing quantities in this section (1000 CPU-hours, the 168-hour crash-free window and the plateau) were the specification's decoder gate. That gate now keeps only the testable safety obligations, and the fuzzing quantities are the [Lumen Term release criteria](../release-criteria.md#decoder-fuzzing): a floor of 250 CPU-hours per format, a stop after 168 CPU-hours with no new crash or coverage edge, a cap of 1200, continuous fuzzing and a re-fuzz on every decoder version bump. The text below is the phase 0.5 record; the comparison harness's judge now applies the release criteria's rule (see 5.6).
 
 - **Unit:** CPU-hours of fuzzing per enabled image format, new crashes in the last 168 CPU-hours, and coverage plateau status.
 - **Method:** coverage-guided fuzzing of each enabled format under ASan and UBSan, with seed corpora that include inputs from past CVEs. Hangs over 2 s, memory use over 512 MiB and sanitizer reports count as crashes.
 - **Plateau (proposed):** no new coverage edges over the last 168 CPU-hours.
 - **Sandbox escape tests:** the test set, named by revision in the harness, must pass in full.
 - **Harness:** the decoder fuzzing harness, run against the decoder build identity and the terminal image-path build identity.
-- **Threshold:** at least 1000 CPU-hours per format, no new crash in the last 168 CPU-hours, plateau reached, and the named sandbox escape tests passing. This is the [decoder gate](../../spec/v0/conformance.md#gate.decoder). Until it passes, images stay off, and the arm is measured with images off. The status of this criterion in phase 0.5 and the plan for the run are in [the decoder fuzz plan](decoder-fuzz-plan.md).
+- **Threshold (as recorded in phase 0.5; the current numbers are in the [release criteria](../release-criteria.md#decoder-fuzzing)):** at least 1000 CPU-hours per format, no new crash in the last 168 CPU-hours, plateau reached, and the named sandbox escape tests passing. This is the [decoder gate](../../spec/v0/conformance.md#gate.decoder). Until it passes, images stay off, and the arm is measured with images off. The status of this criterion in phase 0.5 and the plan for the run are in [the decoder fuzz plan](decoder-fuzz-plan.md).
 
 ### 2.6 Denial of service
 
@@ -216,7 +216,7 @@ The ledger is a JSON object with `revision`, `decoder_build` and `image_path_bui
 - a format has `name`, `cpu_hours`, `crashes` (each `at_cpu_hour` and `kind`) and `coverage` (each `at_cpu_hour` and the cumulative `edges`);
 - `sandbox_escape` has the test set `revision` and the `passed` and `total` counts.
 
-A format passes when it has at least 1000 CPU-hours, no crash after the last 168 CPU-hours' start (a crash exactly 168 CPU-hours before the end is older), and a plateau: the most coverage seen over the whole run was already seen at or before that point. A coverage reading from before the window is needed, so a ledger without one has no plateau. The gate passes when every format passes and the sandbox escape set passed in full and is not empty. A ledger that enables no format is `not measured`.
+A format passes when it has at least 250 CPU-hours (the floor), no crash at all (a crash ends the run for the build identity the ledger covers, however long ago it was found), no more than 1200 CPU-hours (the cap), and the stop rule holds: the most coverage seen over the whole run was already seen at or before the start of the last 168 CPU-hours (a reading exactly 168 CPU-hours before the end counts as before it). A coverage reading from before that point is needed, so a ledger without one has not shown the stop rule. A run that reaches the cap with the stop rule not holding has not passed. The thresholds are those of the [release criteria](../release-criteria.md#decoder-fuzzing). The gate passes when every format passes and the sandbox escape set passed in full and is not empty. A ledger that enables no format is `not measured`.
 
 ### 5.7 Terminal sinks (authority leakage)
 
