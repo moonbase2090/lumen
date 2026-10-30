@@ -23,11 +23,22 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-/// Largest payload a block may carry. Base64 makes it a third bigger, and with
-/// the line prefixes a block is about 29.5 KB, so that any 64 KiB window of
-/// console text, wherever it starts, holds at least one whole block when
-/// blocks follow one another (a block under 32 KiB is the condition).
-pub const MAX_BYTES: usize = 21_000;
+/// Largest payload a block may carry.
+pub const MAX_BYTES: usize = 17_000;
+/// Largest block as text, every line and its prefix included. [`encode`] refuses
+/// anything bigger, whatever the payload, prefix, id and kind.
+pub const MAX_BLOCK_TEXT: usize = 26_000;
+/// The console window the launcher can read.
+pub const WINDOW: usize = 65_536;
+/// The recovery guarantee: when the console text written between the end of one
+/// block and the start of the next is at most this many bytes, any [`WINDOW`]-byte
+/// window of console text holds at least one whole block (two blocks and the gap
+/// between them are at most `WINDOW - 1` bytes). With more output in between, a
+/// window can hold no whole block; the reader then finds nothing and a restore
+/// fails (exit 6) instead of using a damaged one.
+pub const MAX_GAP: usize = WINDOW - 2 * MAX_BLOCK_TEXT;
+/// Longest prefix, id or kind word.
+pub const MAX_WORD: usize = 32;
 /// Base64 characters per data line.
 pub const CHUNK_CHARS: usize = 900;
 
@@ -98,14 +109,15 @@ pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
 /// Why a block could not be written.
 #[derive(Debug, PartialEq, Eq)]
 pub enum EncodeError {
-    /// The payload is bigger than [`MAX_BYTES`].
+    /// The payload is bigger than [`MAX_BYTES`], or the block as text than [`MAX_BLOCK_TEXT`].
     TooBig(usize),
-    /// `id` or `kind` has a character outside `[A-Za-z0-9._-]`, or `prefix` has whitespace.
+    /// `prefix`, `id` or `kind` is empty, longer than [`MAX_WORD`] or has a character outside `[A-Za-z0-9._-]`.
     BadWord,
 }
 
 fn word_ok(w: &str) -> bool {
     !w.is_empty()
+        && w.len() <= MAX_WORD
         && w.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
 }
@@ -113,7 +125,7 @@ fn word_ok(w: &str) -> bool {
 /// The block for `data`, one line per element, each starting with `prefix`.
 ///
 /// # Errors
-/// [`EncodeError::TooBig`] when `data` is over [`MAX_BYTES`]; [`EncodeError::BadWord`]
+/// [`EncodeError::TooBig`] when `data` is over [`MAX_BYTES`] or the block text over [`MAX_BLOCK_TEXT`]; [`EncodeError::BadWord`]
 /// for an unusable `prefix`, `id` or `kind`.
 pub fn encode(
     prefix: &str,
@@ -144,6 +156,10 @@ pub fn encode(
         lines.push(format!("{prefix} CKPT-DATA id={id} n={n} {c}"));
     }
     lines.push(format!("{prefix} CKPT-END id={id}"));
+    let text: usize = lines.iter().map(|l| l.len() + 1).sum();
+    if text > MAX_BLOCK_TEXT {
+        return Err(EncodeError::TooBig(text));
+    }
     Ok(lines)
 }
 
@@ -229,7 +245,19 @@ pub fn decode_all(text: &str) -> Vec<Block> {
     let mut blocks = Vec::new();
     for (id, list) in parts {
         for p in list {
-            if !p.begun || !p.ended || p.conflict || p.data.len() != p.chunks || p.bytes > MAX_BYTES
+            let want_chunks = (p.bytes.div_ceil(3) * 4).div_ceil(CHUNK_CHARS);
+            let sized = p.data.iter().all(|(&n, body)| {
+                n < p.chunks
+                    && body.len() <= CHUNK_CHARS
+                    && (n + 1 == p.chunks || body.len() == CHUNK_CHARS)
+            });
+            if !p.begun
+                || !p.ended
+                || p.conflict
+                || p.bytes > MAX_BYTES
+                || p.chunks != want_chunks
+                || p.data.len() != p.chunks
+                || !sized
             {
                 continue;
             }

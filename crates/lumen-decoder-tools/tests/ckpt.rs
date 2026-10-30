@@ -10,8 +10,8 @@
 )]
 
 use lumen_decoder_tools::ckpt::{
-    CHUNK_CHARS, EncodeError, MAX_BYTES, base64_decode, base64_encode, decode_all, decode_newest,
-    encode,
+    CHUNK_CHARS, EncodeError, MAX_BLOCK_TEXT, MAX_BYTES, MAX_GAP, MAX_WORD, WINDOW, base64_decode,
+    base64_encode, decode_all, decode_newest, encode,
 };
 
 fn sample(n: usize, salt: u8) -> Vec<u8> {
@@ -109,21 +109,52 @@ fn a_repeated_snapshot_is_read_once_cleanly() {
 }
 
 #[test]
-fn the_size_limit_is_enforced_and_a_block_at_the_limit_fits_a_64_kib_window() {
+fn the_size_limits_are_enforced_on_the_whole_block() {
     assert_eq!(
         encode("P", "a", 1, "k", &sample(MAX_BYTES + 1, 0)),
         Err(EncodeError::TooBig(MAX_BYTES + 1))
     );
     assert_eq!(encode("P x", "a", 1, "k", b""), Err(EncodeError::BadWord));
     assert_eq!(encode("P", "a b", 1, "k", b""), Err(EncodeError::BadWord));
-    // Many hourly blocks of the largest size, then only the last 64 KiB of the
-    // console survives, ending anywhere: the block read is exactly the newest one
-    // that lies whole inside the window, and there always is one.
+    let long = "x".repeat(MAX_WORD + 1);
+    assert_eq!(encode(&long, "a", 1, "k", b""), Err(EncodeError::BadWord));
+    assert_eq!(encode("P", &long, 1, "k", b""), Err(EncodeError::BadWord));
+    // The largest payload with the longest words still fits the text limit.
+    let w = "w".repeat(MAX_WORD);
+    let lines = encode(&w, &w, u64::MAX, &w, &sample(MAX_BYTES, 1)).unwrap();
+    let text: usize = lines.iter().map(|l| l.len() + 1).sum();
+    assert!(text <= MAX_BLOCK_TEXT, "{text}");
+}
+
+#[test]
+fn a_block_that_lies_about_its_size_is_not_read() {
+    let lines = encode("P", "a", 1, "k", &sample(3000, 2)).unwrap();
+    // More chunks claimed than sent, fewer than sent, and a size over the limit.
+    for (from, to) in [
+        ("chunks=5", "chunks=6"),
+        ("chunks=5", "chunks=4"),
+        ("bytes=3000", "bytes=999999"),
+    ] {
+        let mut bad = lines.clone();
+        assert!(bad[0].contains(from), "{}", bad[0]);
+        bad[0] = bad[0].replace(from, to);
+        assert_eq!(decode_all(&text(&bad)).len(), 0, "{from} -> {to}");
+    }
+    // A chunk line out of range of the declared count.
+    let mut extra = lines.clone();
+    extra.insert(extra.len() - 1, "P CKPT-DATA id=a n=9 AAAA".to_string());
+    assert_eq!(decode_all(&text(&extra)).len(), 0);
+}
+
+/// Console text of `count` maximum-size blocks with `gap` bytes of other output
+/// before each; returns the text and each block's (start, end, seq).
+fn console_of(count: u64, gap: usize) -> (String, Vec<(usize, usize, u64)>) {
     let mut console = String::new();
-    let mut spans = Vec::new(); // (start, end, seq) of each block's text
-    for seq in 1..=8u64 {
-        console += &format!("boot noise {seq}\n");
-        let start = console.len();
+    let mut spans = Vec::new();
+    for seq in 1..=count {
+        console += &"g".repeat(gap.saturating_sub(1));
+        console.push('\n');
+        let start = console.len() + "LTM51-STATUS ".len(); // where the marker begins
         console += &text(
             &encode(
                 "LTM51-STATUS",
@@ -136,22 +167,62 @@ fn the_size_limit_is_enforced_and_a_block_at_the_limit_fits_a_64_kib_window() {
         );
         spans.push((start, console.len(), seq));
     }
-    for end in (65_536..=console.len()).step_by(997) {
-        let start = end - 65_536;
+    (console, spans)
+}
+
+#[test]
+fn with_at_most_the_stated_gap_every_64_kib_window_holds_a_whole_block() {
+    // Maximum-size blocks and the largest allowed gap between them. For EVERY
+    // window end from one full window to the end of the text, a block lies whole
+    // inside (a plain check on the block spans). The reader itself is run on the
+    // windows around every block edge (two bytes either side) and on every 251st
+    // end; there it must read a block no older than the newest whole one, intact.
+    let (console, spans) = console_of(3, MAX_GAP);
+    assert!(spans.iter().all(|s| s.1 - s.0 <= MAX_BLOCK_TEXT));
+    let mut edges = std::collections::BTreeSet::new();
+    for s in &spans {
+        for d in 0..=4usize {
+            for base in [s.0 + WINDOW, s.1] {
+                edges.insert((base + d).saturating_sub(2));
+            }
+        }
+    }
+    for end in WINDOW..=console.len() {
+        let start = end - WINDOW;
         let want = spans
             .iter()
             .filter(|s| s.0 >= start && s.1 <= end)
             .map(|s| s.2)
             .max();
-        let b = decode_newest(&console[start..end]);
         assert!(
             want.is_some(),
             "no whole block in the window ending at {end}"
         );
-        assert_eq!(b.as_ref().map(|b| b.seq), want, "window ending at {end}");
-        let b = b.unwrap();
-        assert_eq!(b.data, sample(MAX_BYTES, b.seq as u8));
+        if end % 251 != 0 && !edges.contains(&end) {
+            continue;
+        }
+        // The reader may even use a block cut a little at either end (the prefix of
+        // its first line, the newline of its last), so it never finds less.
+        let got = decode_newest(&console[start..end]).expect("a block is read");
+        assert!(
+            Some(got.seq) >= want,
+            "window ending at {end}: {} < {want:?}",
+            got.seq
+        );
+        assert_eq!(got.data, sample(MAX_BYTES, got.seq as u8));
     }
+}
+
+#[test]
+fn with_more_output_between_blocks_a_window_can_hold_none_and_nothing_is_read() {
+    // The claim is narrow on purpose: past the gap a window may hold no whole block.
+    let (console, spans) = console_of(3, MAX_GAP + 8000);
+    let empty = (WINDOW..=console.len()).find(|&end| {
+        let start = end - WINDOW;
+        !spans.iter().any(|s| s.0 >= start && s.1 <= end)
+    });
+    let end = empty.expect("a window with no whole block exists past the stated gap");
+    assert!(decode_newest(&console[end - WINDOW..end]).is_none());
 }
 
 #[test]

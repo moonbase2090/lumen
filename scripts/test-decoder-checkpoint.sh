@@ -44,7 +44,16 @@ mkdir "$T/y" && tar xzf "$T/last.tgz" -C "$T/y"
 check "the checkpoint holds the crash records and samples as the run left them" bash -c "cmp -s '$T/a/png/crashes.jsonl' '$T/y/png/crashes.jsonl' && cmp -s '$T/a/png/samples.jsonl' '$T/y/png/samples.jsonl'"
 check "the sequence number continued past the first run's" test "$(cat "$T/b/ckpt_seq")" -gt "$(cat "$T/a/ckpt_seq")"
 check "the block carried no corpus" test "$(tar tzf "$T/last.tgz" | grep -c corpus)" -eq 0
-check "...and fits the limit with room to spare" test "$(wc -c < "$T/last.tgz" | tr -d " ")" -lt 21000
+check "...and fits the limit with room to spare" test "$(wc -c < "$T/last.tgz" | tr -d " ")" -lt 17000
+
+# 2b. A console path with quotes and shell syntax in it is data, never a command.
+EVIL="$T/it's';touch PWNED-BY-PATH;'x.txt"
+rm -f "$ROOT/PWNED-BY-PATH"
+cp "$T/console.txt" "$EVIL"
+"$RUN" --out "$T/q" "${COMMON[@]}" --target-cpu-hours 0.001 --restore-console "$EVIL" > "$T/q.log" 2>&1
+check "a path with an apostrophe and shell syntax restores like any other" test $? -eq 0
+check "...and nothing in the path was run" test ! -e "$ROOT/PWNED-BY-PATH" -a ! -e PWNED-BY-PATH
+check "...and the restored samples are the checkpointed ones" test "$(head -1 "$T/q/png/samples.jsonl")" = "$(head -1 "$T/a/png/samples.jsonl")"
 
 # 3. A block of a different build is refused, before it touches OUT.
 mkdir "$T/x" && tar xzf "$T/last.tgz" -C "$T/x"

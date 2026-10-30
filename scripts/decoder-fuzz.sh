@@ -66,7 +66,7 @@
 #                          run restored from a block starts from the seeds, so its
 #                          coverage may dip until the fuzzer finds its way back, while
 #                          its CPU-hours and crash records carry over. A block holds at
-#                          most about 21 KB; when the state is bigger the crash inputs
+#                          most 17,000 bytes of state; when the state is bigger the crash inputs
 #                          are left out, and then the samples and crashes alone
 #   --restore-console FILE restore from the newest verified block in FILE (console text),
 #                          through the same staging directory and build check as
@@ -216,7 +216,9 @@ same_build "$OUT" || refuse "$OUT"
 # directory as OUT.
 if [ -n "$RESTORE_CONSOLE" ]; then
   [ -z "$RESTORE_CMD" ] || { echo "--restore-console and --restore-cmd are alternatives" >&2; exit 2; }
-  RESTORE_CMD='f="$(mktemp)" && cargo run -q --locked -p lumen-decoder-tools -- ckpt-decode "'"$RESTORE_CONSOLE"'" "$f" && tar xzf "$f" -C "$OUT" --no-same-owner; rc=$?; rm -f "$f"; exit $rc'
+  # The path travels as data in an environment variable, never inside the command text.
+  export CKPT_RESTORE_FILE="$RESTORE_CONSOLE"
+  RESTORE_CMD='f="$(mktemp)" && cargo run -q --locked -p lumen-decoder-tools -- ckpt-decode "$CKPT_RESTORE_FILE" "$f" && tar xzf "$f" -C "$OUT" --no-same-owner; rc=$?; rm -f "$f"; exit $rc'
 fi
 if [ -n "$RESTORE_CMD" ]; then
   STAGE="$(mktemp -d "$OUT.restore.XXXXXX")"
