@@ -42,6 +42,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --locked --workspace
       - run: cargo test --locked --workspace --all-features
+      # The earlier text rules stay available without the default features and keep their tests.
+      - run: cargo test --locked -p lumen-track0 -p lumen-term --no-default-features
 
   deny:
     runs-on: ubuntu-latest
