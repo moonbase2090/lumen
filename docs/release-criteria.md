@@ -18,10 +18,12 @@ The specification's [decoder gate](../spec/v0/conformance.md#gate.decoder) keeps
 
 **Seeds.** Seed corpora that include inputs from past vulnerabilities are recommended. Where the chosen libraries have none, regression inputs that their upstream projects keep for bugs they fixed are used and named as such; they are not presented as vulnerability reproducers.
 
+**The unit.** A CPU-hour here is the unit the [fuzz campaign](phase-1/decoder-fuzz-campaign.md) records: wall-clock seconds multiplied by the number of fuzzing workers, summed over the run. That is an approximation of CPU time and not a measurement of it, and it can overstate the CPU time actually used (a worker that waits still counts). The floor, the stop rule and the cap are all stated in that unit, so a run is judged by what the ledger records, and a run that wants the thresholds to mean true CPU time must record true CPU time instead and say so.
+
 **The record** is the ledger the [fuzz campaign](phase-1/decoder-fuzz-campaign.md) writes: CPU-hours per format, each crash with the CPU-hour it was found, the cumulative coverage edges over CPU-hours, the test set revision of the sandbox escape tests, and the two build identities.
 
 ### Status
 
 Not met. No run has reached the floor. The fuzz campaign tooling exists, and a short smoke run has been done on one platform.
 
-The judge in `lumen-evidence --decoder` and its description in [the comparison criteria](phase-0.5/comparison-criteria.md) still apply the earlier numbers (1000 CPU-hours, a 168-hour crash-free window and a plateau) until they are changed to this rule. A pass or fail from them is not a pass or fail of this criterion.
+The decoder judge in the comparison harness and its description in [the comparison criteria](phase-0.5/comparison-criteria.md) still apply the earlier numbers (1000 CPU-hours, a 168-hour crash-free window and a plateau) until they are changed to this rule. A pass or fail from them is not a pass or fail of this criterion.
