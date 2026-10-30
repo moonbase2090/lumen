@@ -1,5 +1,7 @@
-//! Seal requests without a process: what the holder seals for the shell, what
+//! Seal requests without a process (the `seal-requests` feature): what the holder seals for the shell, what
 //! it refuses, and that what it seals is what the terminal's receiver opens.
+
+#![cfg(feature = "seal-requests")]
 
 use lumen_holder::layer::{Layer, Outcome};
 use lumen_holder::principal::{Creds, Principal, Terminal};
@@ -308,4 +310,34 @@ fn a_request_has_a_header_a_frame_type_and_a_payload_up_to_the_message_limit() {
         protocol::parse(&[VERSION, protocol::SEAL, 0, 0, 0, 1], false),
         Err(protocol::Malformed::Length)
     );
+}
+
+#[test]
+fn the_last_sequence_number_is_used_once_and_never_again() {
+    let mut layer = Layer::with_first_seq(SHELL, TERMINAL, u64::MAX - 1);
+    layer.handle(FROM_SHELL, &protocol::ready(1), false, &clock(99_000));
+    let key = protocol::key_message(1, LAYER, &ROOT);
+    layer.handle_spawn(FROM_TERMINAL, &key[..], false, &|_| true);
+    let mut rx = receiver();
+    let mut seqs = Vec::new();
+    for n in 0..2 {
+        assert_eq!(ask(&mut layer, n, KIND_PROMPT, &[]), Outcome::Sealed);
+        let reply = layer.take_reply().unwrap_or_default();
+        let (header, _) = rx
+            .open(0, &frame_of(&reply, n))
+            .unwrap_or_else(|e| unreachable!("{e:?}"));
+        seqs.push(header.seq);
+    }
+    assert_eq!(seqs, [u64::MAX - 1, u64::MAX]);
+    // The sequence is used up. A nonce is never reused, so nothing more is
+    // sealed, however many times the shell asks.
+    for n in 2..6 {
+        assert_eq!(
+            ask(&mut layer, n, KIND_PROMPT, &[]),
+            Outcome::SealRefused(SealRefusal::Failed)
+        );
+        let reply = layer.take_reply().unwrap_or_default();
+        assert_eq!(refusal_of(&reply, n), SealRefusal::Failed as u8);
+    }
+    assert_eq!(layer.counters().sealed, 2);
 }

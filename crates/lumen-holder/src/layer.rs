@@ -83,8 +83,10 @@ pub enum KeyOutcome {
 struct HeldKey {
     layer: u32,
     root: Box<Zeroizing<[u8; 32]>>,
-    /// The sequence number of the next frame sealed to the terminal.
-    next_seq: u64,
+    /// The sequence number of the next frame sealed to the terminal, or `None`
+    /// once the last one has been used: a nonce is never reused, so the layer
+    /// seals nothing more.
+    next_seq: Option<u64>,
 }
 
 /// The holder's view of one layer.
@@ -92,6 +94,7 @@ pub struct Layer {
     principal: Principal,
     terminal: Terminal,
     ready: bool,
+    first_seq: u64,
     key: Option<HeldKey>,
     counters: Counters,
     reply: Option<Vec<u8>>,
@@ -112,7 +115,16 @@ impl Layer {
     /// ready and with no key.
     #[must_use]
     pub fn new(principal: Principal, terminal: Terminal) -> Self {
+        Self::with_first_seq(principal, terminal, FIRST_SEQ)
+    }
+
+    /// As [`Layer::new`], with the first sequence number the layer will use.
+    /// The holder always starts at 1; this exists so a test can reach the end
+    /// of the sequence.
+    #[must_use]
+    pub fn with_first_seq(principal: Principal, terminal: Terminal, first_seq: u64) -> Self {
         Self {
+            first_seq,
             principal,
             terminal,
             ready: false,
@@ -234,11 +246,13 @@ impl Layer {
         let layer = LayerId(held.layer);
         let keys =
             DirectionKeys::derive(&LayerRoot::new(**held.root), layer, Direction::ToTerminal);
-        let mut sender = Sender::new(keys, layer, Direction::ToTerminal, held.next_seq);
+        // A used-up sequence ends sealing for the layer for good.
+        let seq = held.next_seq.ok_or(SealRefusal::Failed)?;
+        let mut sender = Sender::new(keys, layer, Direction::ToTerminal, seq);
         let frame = sender
             .seal(kind, capability, body)
             .map_err(|_| SealRefusal::Failed)?;
-        held.next_seq = held.next_seq.saturating_add(1);
+        held.next_seq = seq.checked_add(1);
         Ok(frame)
     }
 
@@ -273,7 +287,7 @@ impl Layer {
                 self.key = Some(HeldKey {
                     layer: message.layer,
                     root,
-                    next_seq: FIRST_SEQ,
+                    next_seq: Some(self.first_seq),
                 });
                 KeyOutcome::Accepted {
                     layer: message.layer,

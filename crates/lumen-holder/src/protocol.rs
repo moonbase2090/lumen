@@ -7,7 +7,8 @@
 //! size limit is dropped and counted; the holder never evaluates or expands
 //! anything in it.
 //!
-//! On the seal channel the shell sends `ready` and seal requests; the holder
+//! On the seal channel the shell sends `ready` and, with the `seal-requests`
+//! feature, seal requests; the holder
 //! answers a seal request with the sealed frame or a refusal. The spawn
 //! socketpair carries one message, the key, from the terminal.
 //!
@@ -114,7 +115,7 @@ pub fn parse(bytes: &[u8], truncated: bool) -> Result<Message, Malformed> {
                 number: u32::from_be_bytes(number),
             })
         }
-        SEAL => {
+        SEAL if cfg!(feature = "seal-requests") => {
             let [a, b, c, d, frame_kind, body @ ..] = rest else {
                 return Err(Malformed::Length);
             };

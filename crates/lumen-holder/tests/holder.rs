@@ -455,6 +455,7 @@ fn a_key_sent_on_the_seal_channel_is_just_a_malformed_message() {
     assert!(out.contains("key=0"), "{out}");
 }
 
+#[cfg(feature = "seal-requests")]
 /// The next datagram the holder sent on the seal channel, waiting up to ten seconds.
 fn answer(fd: &OwnedFd) -> Vec<u8> {
     use lumen_holder::ffi_linux::{Received, receive, wait_with_timeout};
@@ -471,6 +472,7 @@ fn answer(fd: &OwnedFd) -> Vec<u8> {
     unreachable!("the holder did not answer");
 }
 
+#[cfg(feature = "seal-requests")]
 #[test]
 fn a_real_holder_seals_a_command_frame_for_the_shell_and_refuses_a_grant() {
     use lumen_holder::protocol::{
