@@ -18,6 +18,9 @@ window = ["dep:winit", "dep:softbuffer"]
 # default-ignorable and bidi code points in notification text. Forwards to
 # lumen-track0. On by default; without it the earlier rules apply.
 zero-width-text = ["lumen-track0/zero-width-text", "lumen-arm-b/zero-width-text"]
+# Spawn a configured Lumen-aware multiplexer client with a child-only key fd.
+# Off by default until the multiplexer conformance gate passes.
+multiplexer-client = []
 
 [[bin]]
 name = "lumen-term"
