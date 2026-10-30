@@ -454,3 +454,69 @@ fn a_key_sent_on_the_seal_channel_is_just_a_malformed_message() {
     );
     assert!(out.contains("key=0"), "{out}");
 }
+
+#[cfg(feature = "seal-requests")]
+/// The next datagram the holder sent on the seal channel, waiting up to ten seconds.
+fn answer(fd: &OwnedFd) -> Vec<u8> {
+    use lumen_holder::ffi_linux::{Received, receive, wait_with_timeout};
+    use std::os::fd::AsRawFd;
+    let raw = fd.as_raw_fd();
+    for _ in 0..100 {
+        let events = wait_with_timeout(&[raw], 100).unwrap_or_default();
+        if events.iter().any(|e| e.readable)
+            && let Ok(Received::Message { bytes, .. }) = receive(raw, 256)
+        {
+            return bytes.to_vec();
+        }
+    }
+    unreachable!("the holder did not answer");
+}
+
+#[cfg(feature = "seal-requests")]
+#[test]
+fn a_real_holder_seals_a_command_frame_for_the_shell_and_refuses_a_grant() {
+    use lumen_holder::protocol::{
+        SEAL_REFUSED, SEALED, SEALED_HEADER_LEN, SealRefusal, seal_request,
+    };
+    use lumen_sealed::types::{KIND_GRANT, KIND_PROMPT};
+    use lumen_sealed::{Direction, DirectionKeys, LayerId, LayerRoot, Receiver};
+
+    let s = launch_with_this_process_as_the_shell();
+    assert!(lumen_holder::spawn::deliver_key(&s, 1, 7, &ROOT).is_ok());
+    send(&s.seal, &lumen_holder::protocol::ready(1));
+    send(
+        &s.seal,
+        &seal_request(5, KIND_PROMPT, &[]).unwrap_or_else(|| unreachable!("fits")),
+    );
+    let sealed = answer(&s.seal);
+    assert_eq!(sealed[1], SEALED, "{sealed:?}");
+    assert_eq!(sealed[2..SEALED_HEADER_LEN], 5u32.to_be_bytes());
+    let mut receiver = Receiver::new(
+        DirectionKeys::derive(&LayerRoot::new(ROOT), LayerId(7), Direction::ToTerminal),
+        LayerId(7),
+        Direction::ToTerminal,
+    );
+    let (header, plain) = receiver
+        .open(0, &sealed[SEALED_HEADER_LEN..])
+        .unwrap_or_else(|e| unreachable!("the terminal's receiver opens it: {e:?}"));
+    assert_eq!((header.kind, plain.len()), (KIND_PROMPT, 0));
+
+    send(
+        &s.seal,
+        &seal_request(6, KIND_GRANT, &[1, 8]).unwrap_or_else(|| unreachable!("fits")),
+    );
+    let refused = answer(&s.seal);
+    assert_eq!(refused[1], SEAL_REFUSED, "{refused:?}");
+    assert_eq!(refused[6], SealRefusal::KindNotAllowed as u8);
+
+    let (code, out) = finish(s);
+    assert_eq!(code, Some(12), "{out}");
+    assert!(
+        out.contains("sealed=1 seal_refused=1 reply_dropped=0"),
+        "{out}"
+    );
+    assert!(
+        !out.contains("90"),
+        "the key's bytes are not in the report: {out}"
+    );
+}

@@ -7,7 +7,6 @@ use crate::principal::{self, Principal, Terminal};
 use crate::protocol::MAX_MESSAGE;
 use std::io;
 use std::os::fd::RawFd;
-use zeroize::Zeroizing;
 
 /// Why the holder ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,12 +33,6 @@ impl End {
 
 /// The exit status when the holder could not harden or wait.
 pub const FAULT: u8 = 70;
-
-/// The layer's key. It is zeroized when dropped, which is when the holder
-/// ends. No key is delivered in this piece, so the holder has none.
-pub struct Key(
-    #[allow(dead_code, reason = "held for its drop; delivery comes later")] Zeroizing<[u8; 32]>,
-);
 
 /// Put the process in the state it runs in: not dumpable, killed with its
 /// parent, with only the four descriptors it was given, and unable to fork,
@@ -124,6 +117,11 @@ pub fn wait_for_end(layer: &mut Layer) -> io::Result<End> {
                         creds,
                     } => {
                         layer.handle(creds, &bytes, truncated, &principal::start_time);
+                        if let Some(reply) = layer.take_reply()
+                            && !ffi_linux::send(SEAL_FD, &reply)?
+                        {
+                            layer.note_reply_dropped();
+                        }
                     }
                 }
             }
@@ -148,8 +146,6 @@ pub fn run(terminal: u32, shell: Principal, report: bool) -> io::Result<(End, Co
             uid: shell.uid,
         },
     );
-    let key: Option<Key> = None;
     let end = wait_for_end(&mut layer)?;
-    drop(key);
     Ok((end, layer.counters()))
 }

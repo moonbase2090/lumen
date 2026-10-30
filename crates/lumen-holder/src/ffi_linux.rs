@@ -399,6 +399,36 @@ pub fn receive(fd: RawFd, capacity: usize) -> io::Result<Received> {
     })
 }
 
+/// Send one datagram on `fd` without blocking. `Ok(false)` means it was not
+/// sent: the peer's queue is full or the peer is gone. Nothing is retried; the
+/// caller counts it.
+///
+/// # Errors
+///
+/// Returns the error `send` reports other than a full queue or a closed peer.
+pub fn send(fd: RawFd, bytes: &[u8]) -> io::Result<bool> {
+    // SAFETY: the pointer and length are those of a live slice, and the call
+    // only reads from it. `MSG_NOSIGNAL` keeps a closed peer from raising a signal.
+    let n = unsafe {
+        libc::send(
+            fd,
+            bytes.as_ptr().cast(),
+            bytes.len(),
+            libc::MSG_DONTWAIT | libc::MSG_NOSIGNAL,
+        )
+    };
+    if n >= 0 {
+        return Ok(n as usize == bytes.len());
+    }
+    let e = io::Error::last_os_error();
+    match e.kind() {
+        io::ErrorKind::WouldBlock | io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset => {
+            Ok(false)
+        }
+        _ => Err(e),
+    }
+}
+
 /// The effective user id of this process.
 #[must_use]
 pub fn effective_uid() -> u32 {

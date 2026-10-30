@@ -8,11 +8,20 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+# The seal request on the seal channel: the holder seals command-structure
+# frames when the shell asks. Off by default, so a holder built without it
+# treats a seal request as an unknown message type; turning it on by default
+# is its own change.
+seal-requests = []
+
 [[bin]]
 name = "lumen-holder"
 path = "src/main.rs"
 
 [dependencies]
+lumen-sealed = { path = "../lumen-sealed" }
 zeroize = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]

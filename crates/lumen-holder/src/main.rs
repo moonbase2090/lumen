@@ -74,6 +74,10 @@ fn main() -> ExitCode {
                     counters.malformed_spawn,
                     counters.locked
                 );
+                println!(
+                    "sealed={} seal_refused={} reply_dropped={}",
+                    counters.sealed, counters.seal_refused, counters.reply_dropped
+                );
             }
             ExitCode::from(end.code())
         }

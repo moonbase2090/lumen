@@ -6,10 +6,11 @@
 //! the spawn socketpair, the EOF pipe and a pidfd for the shell. Everything
 //! else is closed before the holder does anything else.
 //!
-//! This is the process shell: how it is started, hardened and ended. The key
-//! arrives over the spawn socketpair and requests arrive over the seal channel
-//! in later pieces; until then the holder has no key and a request is a
-//! protocol error that ends it.
+//! This is the process shell: how it is started, hardened and ended, and the
+//! one thing it does. The key arrives over the spawn socketpair. The shell asks
+//! over the seal channel for command-structure frames to be sealed, and the
+//! holder answers with the sealed frame, which the shell writes to the terminal;
+//! see [`protocol`] and [`layer`] for what it will and will not seal.
 //!
 //! The holder ends, and drops (zeroizes) its key, when the terminal's EOF pipe
 //! closes, when the shell's pidfd becomes readable, or when the seal channel
