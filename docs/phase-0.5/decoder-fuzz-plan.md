@@ -19,6 +19,8 @@ The fuzzing run cannot start until these exist. None of them is in the repositor
 
 ## The run
 
+> **Superseded numbers.** The CPU-hour totals and the plateau in this table are the earlier decoder gate. The fuzzing quantities now live in the [Lumen Term release criteria](../release-criteria.md#decoder-fuzzing) (a floor of 250 CPU-hours per format, a stop after 168 CPU-hours with no new crash or coverage edge, a cap of 1200, continuous fuzzing, a re-fuzz on every decoder version bump); the specification keeps only the testable safety obligations. This page is the phase 0.5 plan.
+
 When those exist, the run is the one the gate describes, once per format and per platform:
 
 | Part | Requirement | How it is recorded |

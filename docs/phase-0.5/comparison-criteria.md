@@ -70,6 +70,8 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 
 ### 2.5 Decoder robustness
 
+> **Superseded numbers.** The fuzzing quantities in this section (1000 CPU-hours, the 168-hour crash-free window and the plateau) were the specification's decoder gate. That gate now keeps only the testable safety obligations, and the fuzzing quantities are the [Lumen Term release criteria](../release-criteria.md#decoder-fuzzing): a floor of 250 CPU-hours per format, a stop after 168 CPU-hours with no new crash or coverage edge, a cap of 1200, continuous fuzzing and a re-fuzz on every decoder version bump. The text below is the phase 0.5 record and the comparison harness's judge still applies it.
+
 - **Unit:** CPU-hours of fuzzing per enabled image format, new crashes in the last 168 CPU-hours, and coverage plateau status.
 - **Method:** coverage-guided fuzzing of each enabled format under ASan and UBSan, with seed corpora that include inputs from past CVEs. Hangs over 2 s, memory use over 512 MiB and sanitizer reports count as crashes.
 - **Plateau (proposed):** no new coverage edges over the last 168 CPU-hours.
