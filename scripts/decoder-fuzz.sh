@@ -12,6 +12,41 @@
 # more slices. Nothing here proves the gate; the ledger is judged by
 # `lumen-evidence --decoder --ledger DIR/ledger.json`.
 #
+# The gate run (--gate-run), with the stop rule of the campaign plan:
+#   --gate-run             run every format in round-robin slices; count measured
+#                          CPU time (not workers x wall time); stop a format when
+#                          the gate holds for it (at least 1000 CPU-hours, no crash
+#                          in the last 168, coverage flat over the last 168, by the
+#                          judge's rule), or at --cap-cpu-hours; write status.json
+#   --cap-cpu-hours H      cap per format (default 1200). The last slice is sized
+#                          in crates/lumen-decoder-tools/src/slice.rs from what is
+#                          left of the cap, assuming the worst of two things: a
+#                          startup of 30 CPU-seconds per slice, and a rate of 1.25
+#                          times the highest CPU per worker-second any earlier
+#                          slice showed (the first slice takes at most 40% of what
+#                          is left). While both hold the counted hours never pass
+#                          the cap, and normally end a few percent under it; when
+#                          one breaks, the cap is passed by about the excess.
+#   --max-wall-hours W     hard stop for the whole call, exit 8
+#   --pause-on-crash-after H  a crash recorded after H CPU-hours of its format
+#                          pauses the run (exit 7, state synced, the finish command
+#                          is NOT run): default 1032, the last hour a crash can
+#                          still be followed by 168 clean hours within a cap of
+#                          1200. 0 pauses on any crash. A fix changes the build
+#                          identity and re-runs the gate, so pausing on the first
+#                          crash is usually what is wanted.
+#   --price-per-hour P     for the estimated cost in status.json
+#   --stats-dir DIR        also write DIR/<fmt>.env (EXECS_PER_SEC COVERAGE
+#                          CORPUS_SIZE CRASHES LAST_CRASH_EPOCH LAST_COV_EPOCH, plus
+#                          CPU_HOURS and STATE) after every slice, for a metrics push
+#   --console PATH         append one "FUZZ-STATUS key=value ..." line per format
+#                          and slice (and one for the whole run) to PATH, normally
+#                          /dev/console, so a launcher can read it from the serial
+#                          console with no provider access from the VM
+#   --console-prefix WORD  the first word of those lines (default FUZZ-STATUS)
+#   A format whose slices count nothing three times running (the fuzzer cannot
+#   start, or prints no coverage) stops the run with exit 9 instead of spinning.
+#
 # For a one-time (spot) VM that can disappear:
 #   --target-cpu-hours H   run each format until it has H CPU-hours, however many
 #                          calls that takes (replaces --slices)
@@ -36,11 +71,12 @@
 set -euo pipefail
 
 NIGHTLY="${NIGHTLY:-nightly}"
-OUT=""; WORKERS=2; SLICE=3600; SLICES=1; FORMATS="png,jpeg,webp"; SEEDS=""
+OUT=""; WORKERS=2; SLICE=3600; SLICE_NOW=3600; SLICES=1; FORMATS="png,jpeg,webp"; SEEDS=""
 IMAGE_PATH_BUILD=""
 RSS_MB=2048
 MIRI_RECORD=""
 TARGET_H=""; RESTORE_CMD=""; SYNC_CMD=""; FINISH_CMD=""
+GATE_RUN=0; CAP_H=1200; MAX_WALL_H=""; PAUSE_AFTER=1032; PRICE=""; STATS_DIR=""; CONSOLE=""; CONSOLE_PREFIX="FUZZ-STATUS"
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
@@ -56,10 +92,19 @@ while [ $# -gt 0 ]; do
     --restore-cmd) RESTORE_CMD="$2"; shift 2 ;;
     --sync-cmd) SYNC_CMD="$2"; shift 2 ;;
     --finish-cmd) FINISH_CMD="$2"; shift 2 ;;
+    --gate-run) GATE_RUN=1; shift ;;
+    --cap-cpu-hours) CAP_H="$2"; shift 2 ;;
+    --max-wall-hours) MAX_WALL_H="$2"; shift 2 ;;
+    --pause-on-crash-after) PAUSE_AFTER="$2"; shift 2 ;;
+    --price-per-hour) PRICE="$2"; shift 2 ;;
+    --stats-dir) STATS_DIR="$2"; shift 2 ;;
+    --console) CONSOLE="$2"; shift 2 ;;
+    --console-prefix) CONSOLE_PREFIX="$2"; shift 2 ;;
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
 [ -n "$OUT" ] || { echo "--out is required" >&2; exit 2; }
+SLICE_NOW="$SLICE"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
@@ -74,13 +119,15 @@ sync_out() { # copy OUT off the VM; never fatal by itself
   [ -n "$SYNC_CMD" ] || return 0
   bash -c "$SYNC_CMD" || { echo "sync failed: $SYNC_CMD" >&2; return 1; }
 }
-CHILD=""; CUR_TARGET=""
+CHILD=""; CUR_TARGET=""; CUR_RAW=""
 on_signal() {
   echo "signal received: stopping the fuzzer, recording the slice, syncing" >&2
   INTERRUPTED=1
   [ -z "$CHILD" ] || kill -TERM "$CHILD" 2>/dev/null || true
   # cargo does not pass the signal on to the fuzz processes it started.
-  [ -z "$CUR_TARGET" ] || pkill -TERM -f "/release/$CUR_TARGET" 2>/dev/null || true
+  # Only this run's fuzz processes: their command line carries this run's
+  # directory (-artifact_prefix), so a concurrent run is not touched.
+  [ -z "$CUR_RAW" ] || pkill -TERM -f -- "-artifact_prefix=$CUR_RAW/" 2>/dev/null || true
 }
 INTERRUPTED=0
 trap on_signal TERM INT
@@ -175,7 +222,7 @@ copy_input() { # source, destination
 # Copies crash inputs the fuzzer has written into OUT, and syncs when there are
 # new ones, so a VM that vanishes mid-slice loses only the last few seconds.
 copy_new_artifacts() { # format, target
-  local art="$ROOT/crates/lumen-decoder/fuzz/artifacts/$2" dir="$OUT/$1" a new=0
+  local art="$OUT/$1/raw-artifacts" dir="$OUT/$1" a new=0
   [ -d "$art" ] || return 0
   mkdir -p "$dir/artifacts"
   rm -f "$dir"/artifacts/.*.tmp        # a copy a previous run did not finish
@@ -189,7 +236,7 @@ copy_new_artifacts() { # format, target
 # Records the crashes in artifacts that are not recorded yet, at CPU-hour $3.
 record_artifacts() { # format, target, cpu-hour
   local f="$1" target="$2" now_h="$3" art dir seen a k
-  art="$ROOT/crates/lumen-decoder/fuzz/artifacts/$target"; dir="$OUT/$f"
+  art="$OUT/$f/raw-artifacts"; dir="$OUT/$f"
   mkdir -p "$dir/artifacts"; touch "$dir/artifacts-seen.txt"
   # Inputs a previous VM synced off but did not get to record.
   rm -f "$dir"/artifacts/.*.tmp        # a copy a previous run did not finish
@@ -204,9 +251,21 @@ record_artifacts() { # format, target, cpu-hour
       echo "oom report in $f ($a) replayed under the limit; recorded in replays.jsonl, not a crash" >&2
       continue
     fi
-    echo "{\"at_cpu_hour\": $now_h, \"kind\": \"${k:-other}\", \"artifact\": \"$a\"}" >> "$dir/crashes.jsonl"
+    echo "{\"at_cpu_hour\": $now_h, \"kind\": \"${k:-other}\", \"artifact\": \"$a\", \"at_epoch\": $(date +%s)}" >> "$dir/crashes.jsonl"
     echo "crash in $f at ${now_h} CPU-hours: ${k:-other} ($a)" >&2
   done
+}
+
+# How long the next slice of a format may run: the slice length, cut to what is
+# left of the CPU cap (assuming every worker is busy, so the measured time cannot
+# pass the cap by more than a rounding) and of the wall-clock limit. Prints the
+# seconds; 0 means the cap or the limit is reached.
+slice_for() { # format -> seconds
+  local rate="-" wall="-"
+  if [ "$GATE_RUN" != 1 ]; then echo "$SLICE"; return; fi
+  [ ! -s "$OUT/$1/ratio" ] || rate="$(cat "$OUT/$1/ratio")"
+  [ -z "${MAX_WALL_H:-}" ] || wall="$(python3 -c "import sys,time; print(max(0.0, float(sys.argv[1])*3600.0-(time.time()-int(sys.argv[2]))))" "$MAX_WALL_H" "$START_EPOCH")"
+  "${TOOLS[@]}" slice-seconds "$SLICE" "$WORKERS" "$CAP_H" "$(hours_of "$1" cpu_hours)" "$rate" "$wall"
 }
 
 run_slice() { # format -> 0 normal, 1 interrupted
@@ -216,34 +275,64 @@ run_slice() { # format -> 0 normal, 1 interrupted
   done_h="$(cpu_hours_of "$dir/samples.jsonl")"
   # Crashes a previous VM found but did not get to record.
   record_artifacts "$f" "$target" "$done_h"
-  (cd "$ROOT/crates/lumen-decoder" && exec cargo +"$NIGHTLY" fuzz run "$target" "$dir/corpus" -- \
-      -fork="$WORKERS" -ignore_crashes=1 -max_total_time="$SLICE" -timeout=2 \
+  mkdir -p "$dir/raw-artifacts"
+  rm -f "$dir/cpu_seconds"
+  # Build the target first and outside the CPU measurement: compiling it is not
+  # fuzzing, and on a fresh VM it takes minutes of CPU. (A dry run on a 2-vCPU
+  # instance counted the compile as fuzzing time and capped a format after one
+  # slice.) When it is already built this is a no-op; if it fails, the run below
+  # fails the same way and the no-progress stop applies.
+  (cd "$ROOT/crates/lumen-decoder" && cargo +"$NIGHTLY" fuzz build "$target" > "$dir/build.log" 2>&1) || true
+  local runner=()
+  [ "$GATE_RUN" = 1 ] && runner=(python3 "$ROOT/scripts/decoder-cpu-time.py" "$dir/cpu_seconds")
+  (cd "$ROOT/crates/lumen-decoder" && exec ${runner[@]+"${runner[@]}"} cargo +"$NIGHTLY" fuzz run "$target" "$dir/corpus" -- \
+      -fork="$WORKERS" -ignore_crashes=1 -max_total_time="$SLICE_NOW" -timeout=2 \
+      -artifact_prefix="$dir/raw-artifacts/" \
       -rss_limit_mb="$RSS_MB" -max_len=65536 > "$dir/last.log" 2>&1) &
-  CHILD=$!; CUR_TARGET="$target"
+  CHILD=$!; CUR_TARGET="$target"; CUR_RAW="$dir/raw-artifacts"
+  local t0; t0="$(python3 -c 'import time; print(time.time())')"
   # A signal in the moment before CHILD was set found nothing to stop.
-  if [ "$INTERRUPTED" = 1 ]; then kill -TERM "$CHILD" 2>/dev/null || true; pkill -TERM -f "/release/$CUR_TARGET" 2>/dev/null || true; fi
+  if [ "$INTERRUPTED" = 1 ]; then kill -TERM "$CHILD" 2>/dev/null || true; pkill -TERM -f -- "-artifact_prefix=$CUR_RAW/" 2>/dev/null || true; fi
   ( while kill -0 "$CHILD" 2>/dev/null; do sleep "$ARTIFACT_POLL"; copy_new_artifacts "$f" "$target"; done ) &
   watch=$!
   wait "$CHILD" || true
   # A signal makes `wait` return early; collect the fuzzer before reading its log.
   wait "$CHILD" 2>/dev/null || true
   # Give the fuzz processes a moment to exit and flush their log.
-  for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -f "/release/$CUR_TARGET" >/dev/null 2>&1 || break; sleep 1; done
+  for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -f -- "-artifact_prefix=$CUR_RAW/" >/dev/null 2>&1 || break; sleep 1; done
   kill "$watch" 2>/dev/null || true; wait "$watch" 2>/dev/null || true
-  CHILD=""; CUR_TARGET=""
+  CHILD=""; CUR_TARGET=""; CUR_RAW=""
+  # Learn how much CPU a worker-second really costs here: the highest ratio seen.
+  if [ "$GATE_RUN" = 1 ] && [ -s "$dir/cpu_seconds" ]; then
+    local prev="-" wall_s
+    [ ! -s "$dir/ratio" ] || prev="$(cat "$dir/ratio")"
+    wall_s="$(python3 -c "import sys,time; print(max(1.0, time.time()-float(sys.argv[1])))" "$t0")"
+    "${TOOLS[@]}" learn-rate "$prev" "$(cat "$dir/cpu_seconds")" "$WORKERS" "$wall_s" > "$dir/ratio.new" && mv "$dir/ratio.new" "$dir/ratio"
+  fi
   if [ "$INTERRUPTED" = 1 ]; then
     # Count the time libFuzzer says it ran, not the full slice.
     used="$(grep -oE 'time: [0-9]+s' "$dir/last.log" | tail -1 | grep -oE '[0-9]+' || echo 0)"
     used="${used:-0}"
   else
-    used="$SLICE"
+    used="$SLICE_NOW"
   fi
   edges="$(grep -E '^#[0-9]+: cov:' "$dir/last.log" | tail -1 | sed -E 's/.*cov: ([0-9]+).*/\1/' || true)"
   now_h="$(python3 -c "print($done_h + $used * $WORKERS / 3600.0)")"
+  # In the gate run the hours are the CPU time the fuzz processes really used.
+  if [ "$GATE_RUN" = 1 ] && [ -s "$dir/cpu_seconds" ]; then
+    echo "$used $WORKERS" >> "$dir/nominal.txt"
+    now_h="$(python3 -c "print($done_h + $(cat "$dir/cpu_seconds") / 3600.0)")"
+    used=1
+  elif [ "$GATE_RUN" = 1 ]; then
+    used=0
+  fi
+  local np; np="$(cat "$dir/noprogress" 2>/dev/null || echo 0)"
   if [ -n "${edges:-}" ] && [ "$used" -gt 0 ]; then
-    echo "{\"at_cpu_hour\": $now_h, \"edges\": $edges}" >> "$dir/samples.jsonl"
+    echo 0 > "$dir/noprogress"
+    echo "{\"at_cpu_hour\": $now_h, \"edges\": $edges, \"at_epoch\": $(date +%s)}" >> "$dir/samples.jsonl"
   else
     echo "no coverage line (or no time) in $dir/last.log; slice not counted" >&2
+    echo $((np + 1)) > "$dir/noprogress"
   fi
   record_artifacts "$f" "$target" "$now_h"
   sync_out || true
@@ -251,14 +340,184 @@ run_slice() { # format -> 0 normal, 1 interrupted
   return 0
 }
 
+START_EPOCH="$(date +%s)"; PAUSED=""; PAUSE_CODE=0
+
+# status.json: the numbers a dashboard needs, one object per format.
+write_status() { # overall state word
+  local f dir
+  for f in "${FMTS[@]}"; do
+    dir="$OUT/$f"
+    "${TOOLS[@]}" gate-status "$dir/samples.jsonl" "$dir/crashes.jsonl" ${LUMEN_GATE_MIN_HOURS:+"$LUMEN_GATE_MIN_HOURS" "${LUMEN_GATE_WINDOW_HOURS:?}"} > "$dir/gate.json" 2>/dev/null || echo '{}' > "$dir/gate.json"
+  done
+  python3 - "$OUT" "$FORMATS" "$1" "$START_EPOCH" "${PRICE:-}" "${STATS_DIR:-}" "${CONSOLE:-}" "${CONSOLE_PREFIX:-FUZZ-STATUS}" <<'PY'
+import json, os, re, sys, time
+out, formats, overall, start, price, stats_dir, console, prefix = sys.argv[1:9]
+now = int(time.time())
+elapsed = (time.time() - int(start)) / 3600.0
+doc = {"updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "state": overall,
+       "elapsed_wall_hours_this_call": round(elapsed, 4),
+       "estimated_cost_usd": round(elapsed * float(price), 2) if price else None, "formats": {}}
+
+def lines(path):
+    out = []
+    try:
+        for l in open(path):
+            if l.strip():
+                out.append(json.loads(l))
+    except (OSError, ValueError):
+        pass
+    return out
+
+def epochs(d):
+    """(first sample epoch, last crash epoch, epoch of the last coverage gain)."""
+    samples = sorted(lines(os.path.join(d, "samples.jsonl")), key=lambda r: r.get("at_cpu_hour", 0))
+    crashes = lines(os.path.join(d, "crashes.jsonl"))
+    first = next((r["at_epoch"] for r in samples if "at_epoch" in r), None)
+    best, gain = -1, None
+    for r in samples:
+        if r.get("edges", 0) > best:
+            best = r.get("edges", 0)
+            gain = r.get("at_epoch", gain)
+    last_crash = max((c["at_epoch"] for c in crashes if "at_epoch" in c), default=None)
+    return first, last_crash, gain
+
+console_lines = []
+for f in formats.split(","):
+    d = os.path.join(out, f)
+    try:
+        g = json.load(open(os.path.join(d, "gate.json")))
+    except Exception:
+        g = {}
+    log = ""
+    try:
+        log = open(os.path.join(d, "last.log"), errors="replace").read().replace("\r", "\n")
+    except OSError:
+        pass
+    ls = [l for l in log.splitlines() if re.match(r"^#\d+: cov:", l)]
+    last = ls[-1] if ls else ""
+    execs = re.search(r"exec/s: (\d+)", last)
+    corp = re.search(r"corp: (\d+)", last)
+    state = "running"
+    try:
+        state = open(os.path.join(d, "state")).read().strip() or "running"
+    except OSError:
+        pass
+    nominal = 0.0
+    try:
+        for l in open(os.path.join(d, "nominal.txt")):
+            a, b = l.split()
+            nominal += float(a) * float(b) / 3600.0
+    except OSError:
+        pass
+    corpus_n = int(corp.group(1)) if corp else (len(os.listdir(os.path.join(d, "corpus"))) if os.path.isdir(os.path.join(d, "corpus")) else 0)
+    first, last_crash, gain = epochs(d)
+    # With no crash yet the "last crash" is the start of the campaign, so the age
+    # reads as the time run so far and not as zero.
+    last_crash_epoch = last_crash or first or int(start)
+    last_cov_epoch = gain or first or int(start)
+    doc["formats"][f] = {
+        "state": state,
+        "CpuHours": g.get("cpu_hours", 0.0),
+        "NominalWorkerHours": round(nominal, 4),
+        "ExecsPerSec": int(execs.group(1)) if execs else 0,
+        "Coverage": g.get("edges", 0),
+        "CorpusSize": corpus_n,
+        "Crashes": g.get("crashes", 0),
+        "HoursSinceNewCrash": g.get("hours_since_new_crash", 0.0),
+        "HoursSinceCoverageGain": g.get("hours_since_coverage_gain", 0.0),
+        "GateHolds": g.get("holds", False),
+        "LastCrashEpoch": last_crash_epoch,
+        "LastCoverageEpoch": last_cov_epoch,
+    }
+    kv = [("EXECS_PER_SEC", doc["formats"][f]["ExecsPerSec"]), ("COVERAGE", int(doc["formats"][f]["Coverage"])),
+          ("CORPUS_SIZE", corpus_n), ("CRASHES", doc["formats"][f]["Crashes"]),
+          ("LAST_CRASH_EPOCH", last_crash_epoch), ("LAST_COV_EPOCH", last_cov_epoch),
+          ("CPU_HOURS", round(doc["formats"][f]["CpuHours"], 4)), ("STATE", state.replace(" ", "_"))]
+    if stats_dir:
+        os.makedirs(stats_dir, exist_ok=True)
+        tmp = os.path.join(stats_dir, "." + f + ".env.tmp")
+        with open(tmp, "w") as fh:
+            fh.write("".join(f"{k}={v}\n" for k, v in kv))
+        os.replace(tmp, os.path.join(stats_dir, f + ".env"))
+    console_lines.append(prefix + " fmt=" + f + " " + " ".join(f"{k}={v}" for k, v in kv) + f" EPOCH={now}")
+cost = doc["estimated_cost_usd"]
+console_lines.append(prefix + " overall state=" + overall.replace(" ", "_") + f" ELAPSED_H={doc['elapsed_wall_hours_this_call']}" + (f" COST_USD={cost}" if cost is not None else "") + f" EPOCH={now}")
+if console:
+    try:
+        with open(console, "a") as fh:
+            fh.write("\n".join(console_lines) + "\n")
+    except OSError:
+        pass
+tmp = os.path.join(out, ".status.json.tmp")
+json.dump(doc, open(tmp, "w"), indent=2)
+os.replace(tmp, os.path.join(out, "status.json"))
+PY
+}
+
+set_state() { echo "$2" > "$OUT/$1/state"; }
+# Three slices in a row that counted nothing mean the fuzzer is not running (no
+# nightly, no cargo-fuzz, a build that fails): stop instead of looping forever.
+no_progress_guard() { # format
+  local n; n="$(cat "$OUT/$1/noprogress" 2>/dev/null || echo 0)"
+  [ "$n" -lt 3 ] && return 0
+  echo "no progress: 3 slices of $1 counted nothing (see $OUT/$1/last.log); stopping" >&2
+  [ "$GATE_RUN" = 1 ] && write_status "no progress in $1"
+  sync_out || true
+  exit 9
+}
+get_state() { cat "$OUT/$1/state" 2>/dev/null || echo running; }
+hours_of() { "${TOOLS[@]}" gate-status "$OUT/$1/samples.jsonl" "$OUT/$1/crashes.jsonl" ${LUMEN_GATE_MIN_HOURS:+"$LUMEN_GATE_MIN_HOURS" "${LUMEN_GATE_WINDOW_HOURS:?}"} | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['$2'])"; }
+
 for f in "${FMTS[@]}"; do
   dir="$OUT/$f"; mkdir -p "$dir/corpus"
   cp -n "$SEEDS/$f"/* "$dir/corpus/" 2>/dev/null || true
   cp -n "$REGRESSION/$f"/* "$dir/corpus/" 2>/dev/null || true
   touch "$dir/samples.jsonl" "$dir/crashes.jsonl"
+done
+
+if [ "$GATE_RUN" = 1 ]; then
+  while [ -z "$PAUSED" ]; do
+    active=0
+    for f in "${FMTS[@]}"; do
+      [ "$(get_state "$f")" = running ] || continue
+      if [ "$(hours_of "$f" holds)" = True ]; then set_state "$f" done; continue; fi
+      if python3 -c "import sys; sys.exit(0 if $(hours_of "$f" cpu_hours) >= $CAP_H else 1)"; then set_state "$f" capped; continue; fi
+      SLICE_NOW="$(slice_for "$f")"
+      if [ "$SLICE_NOW" -le 0 ]; then
+        if [ -n "$MAX_WALL_H" ] && python3 -c "import sys,time; sys.exit(0 if (time.time()-$START_EPOCH)/3600.0 >= $MAX_WALL_H - 5/3600.0 else 1)"; then
+          PAUSED="wall-clock limit of $MAX_WALL_H hours"; PAUSE_CODE=8; break
+        fi
+        set_state "$f" capped; continue
+      fi
+      active=1
+      crashes_before="$(wc -l < "$OUT/$f/crashes.jsonl" | tr -d ' ')"
+      run_slice "$f" || { write_status interrupted; echo "interrupted; state synced" >&2; exit 143; }
+      no_progress_guard "$f"
+      crashes_after="$(wc -l < "$OUT/$f/crashes.jsonl" | tr -d ' ')"
+      now_h="$(hours_of "$f" cpu_hours)"
+      echo "$f $now_h" >> "$OUT/slices.log"      # the order slices ran in, for audit
+      if [ "$crashes_after" -gt "$crashes_before" ] \
+         && python3 -c "import sys; sys.exit(0 if $now_h >= $PAUSE_AFTER else 1)"; then
+        PAUSED="a crash in $f at $now_h CPU-hours (pause-on-crash-after $PAUSE_AFTER)"; PAUSE_CODE=7; break
+      fi
+      if [ -n "$MAX_WALL_H" ] && python3 -c "import sys,time; sys.exit(0 if (time.time()-$START_EPOCH)/3600.0 >= $MAX_WALL_H else 1)"; then
+        PAUSED="wall-clock limit of $MAX_WALL_H hours"; PAUSE_CODE=8; break
+      fi
+      write_status running
+      sync_out || true
+    done
+    [ "$active" = 1 ] || break
+  done
+  if [ -n "$PAUSED" ]; then echo "PAUSED: $PAUSED" >&2; write_status "paused: $PAUSED"; else write_status finished; fi
+fi
+
+for f in "${FMTS[@]}"; do
+  [ "$GATE_RUN" = 1 ] && break
+  dir="$OUT/$f"
   if [ -n "$TARGET_H" ]; then
     while python3 -c "import sys; sys.exit(0 if $(cpu_hours_of "$dir/samples.jsonl") < $TARGET_H else 1)"; do
       run_slice "$f" || { echo "interrupted; state synced" >&2; exit 143; }
+      no_progress_guard "$f"
     done
   else
     for _ in $(seq 1 "$SLICES"); do
@@ -302,6 +561,10 @@ for attempt in 1 2 3; do
   if sync_out; then ok=1; break; fi
   sleep 30
 done
+if [ -n "$PAUSED" ]; then
+  echo "paused, so the finish command is NOT run; the VM keeps its state. Reason: $PAUSED" >&2
+  exit "$PAUSE_CODE"
+fi
 if [ -n "$FINISH_CMD" ]; then
   if [ "$ok" = 1 ]; then
     echo "finished and synced; running the finish command" >&2

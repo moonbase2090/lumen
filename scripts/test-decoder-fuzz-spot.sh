@@ -7,12 +7,9 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUN="$ROOT/scripts/decoder-fuzz.sh"
 T="$(mktemp -d)"
-ART="$ROOT/crates/lumen-decoder/fuzz/artifacts/decode_png"
-# The campaign records every input in the artifacts directory, so the test starts
-# from an empty one and puts any existing inputs back afterwards.
-if [ -d "$ART" ]; then mv "$ART" "$T/art-backup"; fi
-restore_art() { rm -rf "$ART"; if [ -d "$T/art-backup" ]; then mv "$T/art-backup" "$ART"; fi; }
-trap 'pkill -f "/release/decode_png" 2>/dev/null; restore_art; rm -rf "$T"' EXIT
+# Crash inputs live under each run's own output directory, and the clean-up only
+# touches processes whose command line carries this test's temp directory.
+trap 'pkill -f -- "$T" 2>/dev/null; rm -rf "$T"' EXIT
 export NIGHTLY="${NIGHTLY:-nightly}"
 COMMON=(--workers 2 --slice-seconds 8 --formats png)
 fail=0
@@ -61,7 +58,7 @@ sleep 12
 check "the lock is held while the run is alive (the slice watcher did not release it)" test -d "$T/c/.lock"
 kill -TERM "$pid"; wait "$pid"; rc=$?
 check "SIGTERM exits 143" test "$rc" -eq 143
-check "no fuzz process is left" test -z "$(pgrep -f '/release/decode_png')"
+check "no fuzz process is left" test -z "$(pgrep -f -- "$T")"
 check "the partial slice was recorded in the synced copy" test "$(wc -l < "$T/dest-c/png/samples.jsonl" | tr -d ' ')" -eq 1
 h1="$(hours "$T/dest-c/png/samples.jsonl")"
 check "the partial slice counts far less than the 120 s slice ($h1 CPU-hours)" python3 -c "import sys; sys.exit(0 if 0 < $h1 < 2*120/3600.0*0.6 else 1)"
@@ -97,14 +94,13 @@ ARTIFACT_POLL=2 "$RUN" --out "$T/g" --workers 2 --slice-seconds 60 --formats png
   --sync-cmd "rsync -a --delete \"\$OUT/\" \"$T/dest-g/\"" > "$T/g.log" 2>&1 &
 pid=$!
 for _ in $(seq 1 120); do grep -qE '^#[0-9]+: cov:' "$T/g/png/last.log" 2>/dev/null && break; sleep 1; done
-mkdir -p "$ART"; echo "not a real crash" > "$ART/crash-spot-test"
+mkdir -p "$T/g/png/raw-artifacts"; echo "not a real crash" > "$T/g/png/raw-artifacts/crash-spot-test"
 sleep 8
 check "the crash input reached the synced copy before the slice ended" test -e "$T/dest-g/png/artifacts/crash-spot-test"
-check "the copy is complete" cmp -s "$ART/crash-spot-test" "$T/dest-g/png/artifacts/crash-spot-test"
+check "the copy is complete" cmp -s "$T/g/png/raw-artifacts/crash-spot-test" "$T/dest-g/png/artifacts/crash-spot-test"
 check "no temporary copy is left in the synced copy" test -z "$(ls -A "$T/dest-g/png/artifacts" | grep '\.tmp$')"
 check "...while the run was still going" kill -0 "$pid"
 kill -TERM "$pid"; wait "$pid"
-rm -f "$ART/crash-spot-test"
 
 # 8. A signal before the first slice starts stops the run without fuzzing a slice.
 "$RUN" --out "$T/h" --workers 2 --slice-seconds 120 --formats png --slices 1 \
@@ -115,7 +111,7 @@ start=$(date +%s)
 kill -TERM "$pid"; wait "$pid"; rc=$?
 check "an early SIGTERM exits 143" test "$rc" -eq 143
 check "...well before a 120 s slice could have finished" test $(( $(date +%s) - start )) -lt 100
-check "...with no fuzz process left" test -z "$(pgrep -f '/release/decode_png')"
+check "...with no fuzz process left" test -z "$(pgrep -f -- "$T")"
 
 # 9. A half-finished copy from a previous run is cleaned up, not trusted.
 mkdir -p "$T/i/png/artifacts" && echo partial > "$T/i/png/artifacts/.crash-half.tmp"
