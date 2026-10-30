@@ -44,7 +44,7 @@ mkdir "$T/y" && tar xzf "$T/last.tgz" -C "$T/y"
 check "the checkpoint holds the crash records and samples as the run left them" bash -c "cmp -s '$T/a/png/crashes.jsonl' '$T/y/png/crashes.jsonl' && cmp -s '$T/a/png/samples.jsonl' '$T/y/png/samples.jsonl'"
 check "the sequence number continued past the first run's" test "$(cat "$T/b/ckpt_seq")" -gt "$(cat "$T/a/ckpt_seq")"
 check "the block carried no corpus" test "$(tar tzf "$T/last.tgz" | grep -c corpus)" -eq 0
-check "...and fits the limit with room to spare" test "$(stat -f %z "$T/last.tgz" 2>/dev/null || stat -c %s "$T/last.tgz")" -lt 21000
+check "...and fits the limit with room to spare" test "$(wc -c < "$T/last.tgz" | tr -d " ")" -lt 21000
 
 # 3. A block of a different build is refused, before it touches OUT.
 mkdir "$T/x" && tar xzf "$T/last.tgz" -C "$T/x"
