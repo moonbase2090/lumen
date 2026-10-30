@@ -17,7 +17,7 @@ window = ["dep:winit", "dep:softbuffer"]
 # zero width space, no line break beside a joiner, and escapes (not removal) for
 # default-ignorable and bidi code points in notification text. Forwards to
 # lumen-track0. On by default; without it the earlier rules apply.
-zero-width-text = ["lumen-track0/zero-width-text"]
+zero-width-text = ["lumen-track0/zero-width-text", "lumen-arm-b/zero-width-text"]
 
 [[bin]]
 name = "lumen-term"
@@ -26,10 +26,10 @@ path = "src/main.rs"
 [dependencies]
 prismattyc-core.workspace = true
 prismattyc-emulator.workspace = true
-lumen-track0 = { path = "../lumen-track0" }
+lumen-track0 = { path = "../lumen-track0", default-features = false }
 swash = "0.2"
 png = "0.17"
-lumen-arm-b = { path = "../lumen-arm-b" }
+lumen-arm-b = { path = "../lumen-arm-b", default-features = false }
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland"], optional = true }
 softbuffer = { version = "0.4", default-features = false, features = ["x11", "x11-dlopen", "wayland", "wayland-dlopen"], optional = true }
 unicode-general-category = "1.1.0"
@@ -41,7 +41,7 @@ rustix = { version = "0.38", default-features = false, features = ["std", "proce
 
 [dev-dependencies]
 # The tests build the window code, so a self-dependency turns the feature on.
-lumen-term = { path = ".", features = ["window"] }
+lumen-term = { path = ".", default-features = false, features = ["window"] }
 lumen-detector = { path = "../lumen-detector" }
 sha2 = "0.10"
 

@@ -8,10 +8,16 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# The zero-width text rules of the parser, on by default; the terminal forwards
+# its own feature here so that turning it off reaches the parser.
+default = ["zero-width-text"]
+zero-width-text = ["lumen-track0/zero-width-text"]
+
 [dependencies]
 lumen-detector = { path = "../lumen-detector" }
 lumen-sealed = { path = "../lumen-sealed" }
-lumen-track0 = { path = "../lumen-track0" }
+lumen-track0 = { path = "../lumen-track0", default-features = false }
 
 [lints]
 workspace = true
