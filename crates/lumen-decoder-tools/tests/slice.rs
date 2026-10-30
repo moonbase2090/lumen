@@ -60,7 +60,7 @@ fn the_cap_is_never_passed_while_the_two_assumptions_hold() {
         let cap = rng.between(0.02, 1200.0);
         let slice = rng.between(6.0, 900.0);
         let base_startup = rng.between(0.0, STARTUP_CPU_SECONDS);
-        let first_rate = rng.between(0.6, 2.0); // nothing is known about the first slice
+        let first_rate = rng.between(0.6, 3.0 * 1.2); // nothing is known about the first slice: up to 3x the default
         let mut highest = 0.0_f64;
         let (hours, _) = run(
             cap,
@@ -122,11 +122,14 @@ fn when_an_assumption_breaks_the_cap_is_passed_by_about_the_excess() {
 }
 
 #[test]
-fn the_first_slice_takes_at_most_half_of_what_is_left_cut_or_not() {
+fn the_first_slice_takes_at_most_two_fifths_of_what_is_left_cut_or_not() {
     // No rate known yet, cap 0.1 CPU-hours (360 s), 2 workers, a 600 s slice.
     let first = next_slice_seconds(600.0, 2, 0.1, 0.0, None, None);
     let later = next_slice_seconds(600.0, 2, 0.1, 0.0, Some(1.2), None);
-    assert!(first > 0 && first * 2 <= later + 2, "{first} vs {later}");
+    assert!(
+        first > 0 && first * 5 <= later * 2 + 5,
+        "{first} vs {later}"
+    );
     // A slice shorter than the cap is not cut by the cap at all.
     assert_eq!(next_slice_seconds(900.0, 32, 1200.0, 0.0, None, None), 900);
 }
@@ -155,4 +158,13 @@ fn a_short_slice_does_not_teach_a_rate_below_half_and_the_highest_is_kept() {
     assert!((r - 1.4).abs() < 1e-9, "{r}");
     let r = learn_rate(Some(0.9), 60.0, 2, 20.0); // 60 / 40 = 1.5
     assert!((r - 1.5).abs() < 1e-9, "{r}");
+}
+
+#[test]
+fn a_first_rate_three_times_the_default_does_not_pass_the_cap() {
+    // The case a reviewer raised: cap 0.02 CPU-hours (72 s), 1 worker, the first
+    // slice at 3 x 1.2 = 3.6 CPU-seconds per second and a full startup of 30 s.
+    let secs = next_slice_seconds(600.0, 1, 0.02, 0.0, None, None) as f64;
+    let cpu = STARTUP_CPU_SECONDS + 3.6 * secs;
+    assert!(cpu <= 72.0, "{cpu} CPU-seconds against a 72-second cap");
 }

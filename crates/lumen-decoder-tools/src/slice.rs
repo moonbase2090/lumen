@@ -16,7 +16,8 @@
 //! breaks, the cap is passed by the excess, and nothing else bounds it; the
 //! simulation test in `tests/slice.rs` shows both. Until a rate has been seen,
 //! [`DEFAULT_RATE`] is used and the first slice takes at most [`FIRST_CUT_SHARE`]
-//! of what is left, so a rate is learned before the last slice.
+//! of what is left, so a rate is learned before the last slice; that share is
+//! set so that a first rate up to three times the default is still safe.
 
 /// Startup CPU allowed per slice, in seconds.
 pub const STARTUP_CPU_SECONDS: f64 = 30.0;
@@ -25,7 +26,7 @@ pub const DEFAULT_RATE: f64 = 1.2;
 /// Fraction of the planned time actually used (1 / 1.25).
 pub const MARGIN: f64 = 0.8;
 /// Largest share of what is left that the first slice, before any rate is known, may take.
-pub const FIRST_CUT_SHARE: f64 = 0.5;
+pub const FIRST_CUT_SHARE: f64 = 0.4;
 /// A slice shorter than this does little more than load its corpus.
 pub const MIN_SLICE_SECONDS: f64 = 5.0;
 
@@ -49,8 +50,8 @@ pub fn next_slice_seconds(
     let mut planned = left / (f64::from(workers) * rate) * MARGIN;
     if learned_rate.is_none() {
         // Nothing is known about the rate yet: the first slice may take at most
-        // half of what is left, whether or not it is cut, so that even a rate
-        // three times the default cannot pass the cap before one has been seen.
+        // 40% of what is left, whether or not it is cut: at 0.8 x 0.4 a rate three
+        // times the default (and a full startup) still stays under the cap.
         planned *= FIRST_CUT_SHARE;
     }
     let mut seconds = slice.min(planned);

@@ -23,7 +23,7 @@
 #                          left of the cap, assuming the worst of two things: a
 #                          startup of 30 CPU-seconds per slice, and a rate of 1.25
 #                          times the highest CPU per worker-second any earlier
-#                          slice showed (the first slice takes at most half of what
+#                          slice showed (the first slice takes at most 40% of what
 #                          is left). While both hold the counted hours never pass
 #                          the cap, and normally end a few percent under it; when
 #                          one breaks, the cap is passed by about the excess.
@@ -42,7 +42,7 @@
 #   --console PATH         append one "FUZZ-STATUS key=value ..." line per format
 #                          and slice (and one for the whole run) to PATH, normally
 #                          /dev/console, so a launcher can read it from the serial
-#                          console with no AWS access from the VM
+#                          console with no provider access from the VM
 #   --console-prefix WORD  the first word of those lines (default FUZZ-STATUS)
 #   A format whose slices count nothing three times running (the fuzzer cannot
 #   start, or prints no coverage) stops the run with exit 9 instead of spinning.
