@@ -274,18 +274,26 @@ fn judged(entry: serde_json::Value, passed: u32) -> Result<Report, String> {
 #[test]
 fn a_ledger_from_the_tools_is_judged_by_the_real_gate() -> R {
     assert!(matches!(
-        judged(entry(1200.0, Some(40.0))?, 33)?,
+        judged(entry(1200.0, None)?, 33)?,
         Report::Judged { .. }
     ));
-    let pass = judged(entry(1200.0, Some(40.0))?, 33)?;
+    let pass = judged(entry(1200.0, None)?, 33)?;
     assert!(pass.passes(), "{pass:?}");
     assert!(
-        !judged(entry(999.0, None)?, 33)?.passes(),
+        judged(entry(500.0, None)?, 33)?.passes(),
+        "above the 250 floor, not the earlier 1000"
+    );
+    assert!(
+        !judged(entry(249.0, None)?, 33)?.passes(),
         "too few CPU-hours"
     );
     assert!(
         !judged(entry(1200.0, Some(1100.0))?, 33)?.passes(),
         "a recent crash"
+    );
+    assert!(
+        !judged(entry(1200.0, Some(40.0))?, 33)?.passes(),
+        "an old crash still fails the build identity"
     );
     assert!(
         !judged(entry(1200.0, None)?, 32)?.passes(),

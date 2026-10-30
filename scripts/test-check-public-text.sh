@@ -9,6 +9,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 FIXTURE_NAME='Fixture Person'
+PROJECT_ROLE='owner'
 # The second line matches part of the allowlisted legal name, so a case that
 # passes proves the allowlist removed it, not that nothing matched.
 printf '%s\n' "$FIXTURE_NAME" 'Moonbase' >"$WORK/denylist.txt"
@@ -39,6 +40,7 @@ run_case "planted personal identifier fails" 1 "Contact $FIXTURE_NAME for detail
 run_case "identifier beside the allowlisted name on the same line fails" 1 "Moonbase 2090 LLC $FIXTURE_NAME"
 run_case "allowlisted name alone passes" 0 "Copyright (c) Moonbase 2090 LLC. All rights reserved."
 run_case "a lower-case variant of the legal name is not exempt" 1 "moonbase 2090 llc"
+run_case "project-owner attribution fails" 1 "on the ${PROJECT_ROLE}'s decision"
 
 if [[ "$FAILED" -ne 0 ]]; then
   echo "test-check-public-text: FAILED" >&2

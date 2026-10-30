@@ -32,6 +32,9 @@ GENERIC_PATTERNS=(
   '\bsk-[A-Za-z0-9_-]{20,}'
   '\bAIza[0-9A-Za-z_-]{35}\b'
   '\b(10\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]+\.[0-9]+)\b'
+  "\bowner'?s?[[:space:]]+(decision|acceptance|sign-?off)\b"
+  "\b(on|by)[[:space:]]+the[[:space:]]+owner'?s?\b"
+  '\baccepted[[:space:]]+by[[:space:]]+the[[:space:]]+owner\b'
 )
 
 TMP_PATTERNS="$(mktemp)"

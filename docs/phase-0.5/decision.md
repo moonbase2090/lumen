@@ -1,6 +1,6 @@
 # Phase 0.5 decision: Arm B
 
-On the owner's decision, the project chose **Arm B** (Track 0 rich everywhere, with the sealed upgrade) as the design for v0. Multiplexer panes keep placement A (the sealed relay). Arm A is frozen as the evidence record: it stays in the repository, and its results are kept as they were measured.
+The Lumen maintainers adopted **Arm B** (Track 0 rich everywhere, with the sealed upgrade) as the design for v0. Multiplexer panes keep placement A (the sealed relay). Arm A is frozen as the evidence record: it stays in the repository, and its results are kept as they were measured.
 
 This page records the decision and the evidence behind it. It is not a new measurement, and it does not change the criteria or the decision rule in [the criteria](comparison-criteria.md), which were fixed before the arms were built.
 
@@ -27,11 +27,11 @@ These criteria have no result, so they play no part in the choice:
 - 2.4 for Arm A on an unsealed layer, which has no sealed frame to exercise the sinks;
 - the section 7 gates for key reuse, the replayed mark, trust-margin pixels in panes, key custody and pane reach.
 
-The decision therefore rests on the measured criteria above, on the owner's judgement, and on the spec. It does not claim that any unmeasured criterion passed.
+The decision therefore rests on the measured criteria above, on the maintainers' judgement, and on the spec. It does not claim that any unmeasured criterion passed.
 
 ## Relation to the decision rule in section 4
 
-The choice of Arm B is the owner's decision. It is not the outcome of the rule in [section 4](comparison-criteria.md#4-decision-rule), and this record does not say that the rule selects Arm B. The rule's clauses stand as follows:
+Arm B was adopted by the Lumen maintainers. It is not the outcome of the rule in [section 4](comparison-criteria.md#4-decision-rule), and this record does not say that the rule selects Arm B. The rule's clauses stand as follows:
 
 - **Step 2, trust-area pixels (2.3).** Not measured. This clause is open.
 - **Step 2, authority leaks (2.4).** Zero on the sealed layer, but at the level of the test model with simulated confirmations. The clause is met for the model, and the model-level limit stands.
@@ -40,9 +40,9 @@ The choice of Arm B is the owner's decision. It is not the outcome of the rule i
 - **Step 3, reach (2.1).** 14 of 14 on the item-kind oracle. The criterion names the screenshot-diff oracle, so the clause is not met on the criterion's own oracle, and it is open until it is measured that way.
 - **Step 5, parity (2.9), spoof success (2.2), DoS (2.6) and red-team findings (2.7).** Parity is at declaration level; the 2.2 and 2.6 figures are byte-pipeline and proxy results; 2.7 is not yet reviewed. Each must be fixed or waived in writing before the result is accepted.
 
-**No waivers are recorded in this file.** Each open clause above remains open. If a measured clause fails, the decision is reopened. Any waiver the owner gives goes in this file, in the owner's words, with the clause it covers.
+**No waivers are recorded in this file.** Each open clause above remains open. If a measured clause fails, the decision is reopened. Any waiver requires maintainer approval and is recorded in this file, with the clause it covers.
 
 ## What follows
 
-- Arm A remains in the tree as the evidence record until the owner decides whether it leaves the default build.
+- Arm A remains in the tree as the evidence record until the maintainers decide whether it leaves the default build.
 - Work on the unmeasured criteria continues as Phase 1 work, against the design that was chosen.

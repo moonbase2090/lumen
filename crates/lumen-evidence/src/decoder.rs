@@ -2,8 +2,10 @@
 //!
 //! The driver does not fuzz. There is no image decoder in this repository and
 //! images are off, so there is nothing to fuzz yet. This mode reads the
-//! ledger that a decoder fuzzing run writes and applies the threshold of 2.5
-//! to it, so a run's verdict does not depend on who read the numbers. With no
+//! ledger that a decoder fuzzing run writes and applies the release criteria's
+//! rule (a floor of 250 CPU-hours, a stop after 168 CPU-hours with no new crash
+//! or coverage edge, a cap of 1200, and any crash fails the build identity) to
+//! it, so a run's verdict does not depend on who read the numbers. With no
 //! ledger it reports `not measured`.
 //!
 //! # Ledger format
@@ -29,11 +31,13 @@ use std::path::Path;
 
 use crate::HARNESS_VERSION;
 
-/// CPU-hours of fuzzing each enabled format needs.
-pub const MIN_CPU_HOURS: f64 = 1000.0;
-/// The window in which a new crash fails the gate and no new coverage edge
-/// means the plateau is reached.
+/// The floor: CPU-hours of fuzzing each enabled format needs before it is judged.
+pub const MIN_CPU_HOURS: f64 = 250.0;
+/// The stop rule's window: the run stops when it has seen no new coverage edge
+/// (and no crash) in this many CPU-hours.
 pub const WINDOW_CPU_HOURS: f64 = 168.0;
+/// The cap: a run does not go past this many CPU-hours for one format.
+pub const MAX_CPU_HOURS: f64 = 1200.0;
 
 /// One format's verdict.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,10 +46,11 @@ pub struct FormatResult {
     pub name: String,
     /// CPU-hours of fuzzing.
     pub cpu_hours: f64,
-    /// Crashes found in the last [`WINDOW_CPU_HOURS`].
-    pub recent_crashes: usize,
-    /// All crashes found.
+    /// Crashes found. Any crash fails the build identity the ledger covers; a
+    /// crash does not age out of the window.
     pub crashes: usize,
+    /// The run went past [`MAX_CPU_HOURS`].
+    pub over_cap: bool,
     /// No new coverage edge in the last window.
     pub plateau: bool,
     /// Every part of the threshold holds for this format.
@@ -108,11 +113,11 @@ impl Report {
                 for f in formats {
                     let _ = writeln!(
                         out,
-                        "format {} cpu_hours={} (need {MIN_CPU_HOURS}) crashes={} recent_crashes={} plateau={} {}",
+                        "format {} cpu_hours={} (floor {MIN_CPU_HOURS}, cap {MAX_CPU_HOURS}) crashes={} over_cap={} plateau={} {}",
                         f.name,
                         f.cpu_hours,
                         f.crashes,
-                        f.recent_crashes,
+                        f.over_cap,
                         f.plateau,
                         if f.pass { "pass" } else { "FAIL" }
                     );
@@ -152,11 +157,8 @@ fn format_of(v: &Value) -> Result<FormatResult, String> {
     let crashes = v["crashes"]
         .as_array()
         .ok_or_else(|| ctx("crashes is not a list".into()))?;
-    let mut recent_crashes = 0;
     for c in crashes {
-        if num(&c["at_cpu_hour"], "a crash's at_cpu_hour").map_err(ctx)? > from {
-            recent_crashes += 1;
-        }
+        num(&c["at_cpu_hour"], "a crash's at_cpu_hour").map_err(ctx)?;
     }
     let coverage = v["coverage"]
         .as_array()
@@ -172,12 +174,16 @@ fn format_of(v: &Value) -> Result<FormatResult, String> {
     }
     // The plateau needs a coverage reading from before the window to compare to.
     let plateau = before.is_some_and(|b| b >= overall);
-    let pass = cpu_hours >= MIN_CPU_HOURS && recent_crashes == 0 && plateau;
+    let over_cap = cpu_hours > MAX_CPU_HOURS;
+    // A crash ends the run for this build identity, however long ago it was
+    // found; reaching the cap before the stop rule holds is not a pass either,
+    // because the plateau test above is the stop rule.
+    let pass = cpu_hours >= MIN_CPU_HOURS && crashes.is_empty() && plateau && !over_cap;
     Ok(FormatResult {
         name,
         cpu_hours,
-        recent_crashes,
         crashes: crashes.len(),
+        over_cap,
         plateau,
         pass,
     })
@@ -264,7 +270,7 @@ mod tests {
             "formats": [{
                 "name": "png",
                 "cpu_hours": 1200.0,
-                "crashes": [{"at_cpu_hour": 40.0, "kind": "hang"}],
+                "crashes": [],
                 "coverage": [
                     {"at_cpu_hour": 100.0, "edges": 900},
                     {"at_cpu_hour": 1000.0, "edges": 950},
@@ -288,37 +294,70 @@ mod tests {
     }
 
     #[test]
-    fn too_few_cpu_hours_fails() {
+    fn too_few_cpu_hours_fails_and_the_floor_itself_is_enough() {
         let mut v = good();
-        v["formats"][0]["cpu_hours"] = json!(999.0);
+        v["formats"][0]["crashes"] = json!([]);
+        v["formats"][0]["cpu_hours"] = json!(249.0);
+        v["formats"][0]["coverage"] = json!([{"at_cpu_hour": 80.0, "edges": 950}]);
+        assert!(!judged(&v).passes());
+        v["formats"][0]["cpu_hours"] = json!(250.0);
+        v["formats"][0]["coverage"] = json!([{"at_cpu_hour": 82.0, "edges": 950}]);
+        assert!(judged(&v).passes());
+    }
+
+    #[test]
+    fn the_earlier_1000_hour_floor_no_longer_applies() {
+        let mut v = good();
+        v["formats"][0]["crashes"] = json!([]);
+        v["formats"][0]["cpu_hours"] = json!(400.0);
+        v["formats"][0]["coverage"] = json!([{"at_cpu_hour": 100.0, "edges": 950}]);
+        assert!(judged(&v).passes());
+    }
+
+    #[test]
+    fn any_crash_fails_however_long_ago_it_was_found() {
+        let mut v = good();
+        for at in [1.0, 40.0, 1031.0, 1033.0, 1200.0] {
+            v["formats"][0]["crashes"] = json!([{"at_cpu_hour": at, "kind": "sanitizer"}]);
+            assert!(!judged(&v).passes(), "a crash at {at} must fail");
+        }
+        v["formats"][0]["crashes"] = json!([]);
+        assert!(judged(&v).passes());
+    }
+
+    #[test]
+    fn a_run_past_the_cap_fails_and_the_cap_itself_does_not() {
+        let mut v = good();
+        v["formats"][0]["crashes"] = json!([]);
+        v["formats"][0]["cpu_hours"] = json!(1200.0);
+        assert!(judged(&v).passes());
+        v["formats"][0]["cpu_hours"] = json!(1200.5);
+        v["formats"][0]["coverage"] = json!([{"at_cpu_hour": 100.0, "edges": 950}]);
         assert!(!judged(&v).passes());
     }
 
     #[test]
-    fn a_crash_inside_the_last_168_cpu_hours_fails_and_an_older_one_does_not() {
+    fn a_run_that_reaches_the_cap_with_coverage_still_growing_has_not_passed() {
         let mut v = good();
-        v["formats"][0]["crashes"] = json!([{"at_cpu_hour": 1033.0, "kind": "sanitizer"}]);
+        v["formats"][0]["crashes"] = json!([]);
+        v["formats"][0]["coverage"] = json!([
+            {"at_cpu_hour": 100.0, "edges": 900},
+            {"at_cpu_hour": 1100.0, "edges": 951}
+        ]);
         assert!(!judged(&v).passes());
-        v["formats"][0]["crashes"] = json!([{"at_cpu_hour": 1031.0, "kind": "sanitizer"}]);
-        assert!(judged(&v).passes());
     }
 
     #[test]
     fn the_window_edge_belongs_to_the_older_side() {
         let mut v = good();
-        v["formats"][0]["crashes"] = json!([{"at_cpu_hour": 1032.0, "kind": "hang"}]);
-        assert!(judged(&v).passes());
+        v["formats"][0]["crashes"] = json!([]);
         v["formats"][0]["coverage"] = json!([{"at_cpu_hour": 1032.0, "edges": 950}]);
         assert!(judged(&v).passes());
-    }
-
-    #[test]
-    fn exactly_1000_cpu_hours_is_enough() {
-        let mut v = good();
-        v["formats"][0]["cpu_hours"] = json!(1000.0);
-        v["formats"][0]["crashes"] = json!([]);
-        v["formats"][0]["coverage"] = json!([{"at_cpu_hour": 832.0, "edges": 950}]);
-        assert!(judged(&v).passes());
+        v["formats"][0]["coverage"] = json!([{"at_cpu_hour": 1033.0, "edges": 950}]);
+        assert!(
+            !judged(&v).passes(),
+            "no reading at or before the window start"
+        );
     }
 
     #[test]

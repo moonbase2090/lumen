@@ -73,16 +73,28 @@ fn a_passing_ledger_exits_0_and_a_failing_one_exits_1() {
         &out.to_string_lossy(),
     ];
     assert_eq!(run(&args), Some(0));
-    let out = out_dir("dec-fail");
-    let l = ledger("dec-bad.json", &GOOD.replace("1200", "999"));
-    let args = [
-        "--decoder",
-        "--ledger",
-        &l.to_string_lossy(),
-        "--commit",
-        "t",
-        "--out",
-        &out.to_string_lossy(),
-    ];
-    assert_eq!(run(&args), Some(1));
+    // Fewer CPU-hours than the floor, and a crash found long before the end.
+    for (name, bad) in [
+        ("dec-low", GOOD.replace("1200", "249")),
+        (
+            "dec-crash",
+            GOOD.replace(
+                r#""crashes":[]"#,
+                r#""crashes":[{"at_cpu_hour":5,"kind":"hang"}]"#,
+            ),
+        ),
+    ] {
+        let out = out_dir(name);
+        let l = ledger(&format!("{name}.json"), &bad);
+        let args = [
+            "--decoder",
+            "--ledger",
+            &l.to_string_lossy(),
+            "--commit",
+            "t",
+            "--out",
+            &out.to_string_lossy(),
+        ];
+        assert_eq!(run(&args), Some(1), "{name}");
+    }
 }
