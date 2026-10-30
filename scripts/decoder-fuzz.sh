@@ -21,7 +21,7 @@
 #   --cap-cpu-hours H      cap per format (default 1200). The last slice is sized
 #                          in crates/lumen-decoder-tools/src/slice.rs from what is
 #                          left of the cap, assuming the worst of two things: a
-#                          startup of 8 CPU-seconds per slice, and a rate of 1.25
+#                          startup of 30 CPU-seconds per slice, and a rate of 1.25
 #                          times the highest CPU per worker-second any earlier
 #                          slice showed (the first slice takes at most half of what
 #                          is left). While both hold the counted hours never pass

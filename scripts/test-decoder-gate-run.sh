@@ -139,7 +139,7 @@ d=json.load(open('$T/c/status.json'))
 raise SystemExit(0 if d['state'].startswith('paused') and 'crash' in d['state'] else 1)"
 
 # 5. A crash BEFORE the pause hour does not pause (here the pause hour is large).
-LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/d" "${SMALL[@]}" --cap-cpu-hours 0.012 --pause-on-crash-after 1032 > "$T/d.log" 2>&1 &
+LUMEN_GATE_MIN_HOURS=100 LUMEN_GATE_WINDOW_HOURS=50 "$RUN" --out "$T/d" "${SMALL[@]}" --cap-cpu-hours 0.05 --pause-on-crash-after 1032 > "$T/d.log" 2>&1 &
 pid=$!
 for _ in $(seq 1 180); do grep -qE '^#[0-9]+: cov:' "$T/d/png/last.log" 2>/dev/null && break; sleep 1; done
 mkdir -p "$T/d/png/raw-artifacts" && echo "not a real crash" > "$T/d/png/raw-artifacts/crash-gate-test2"

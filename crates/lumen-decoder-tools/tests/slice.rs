@@ -1,5 +1,5 @@
 //! The cap holds, by construction, while two stated assumptions hold: the startup
-//! of a slice is at most 8 CPU-seconds and its rate at most 1.25 times the highest
+//! of a slice is at most 30 CPU-seconds and its rate at most 1.25 times the highest
 //! rate seen before it. A simulation checks that over many random worlds, and a
 //! second test shows what happens when an assumption does not hold.
 
@@ -69,7 +69,7 @@ fn the_cap_is_never_passed_while_the_two_assumptions_hold() {
             &mut |_| base_startup,
             &mut |i, learned| {
                 // After the first slice a rate stays within 1.25 x the highest seen
-                // (the learned figure is net of startup, so allow it a little more).
+                // (the learned figure includes startup, so it can only overstate).
                 let r = if i == 0 {
                     first_rate
                 } else {
@@ -118,7 +118,7 @@ fn when_an_assumption_breaks_the_cap_is_passed_by_about_the_excess() {
     );
     // At the allowed 1.25 it does not.
     let ok_hours = (STARTUP_CPU_SECONDS + 1.25 * 4.0 * secs) / 3600.0;
-    assert!(ok_hours <= 0.2, "{ok_hours}");
+    assert!(ok_hours <= 0.2 + 1e-9, "{ok_hours}");
 }
 
 #[test]
@@ -151,8 +151,8 @@ fn the_wall_limit_cuts_a_slice_and_under_five_seconds_is_zero() {
 #[test]
 fn a_short_slice_does_not_teach_a_rate_below_half_and_the_highest_is_kept() {
     assert!((learn_rate(None, 3.0, 2, 10.0) - 0.5).abs() < 1e-9);
-    let r = learn_rate(Some(1.4), 20.0, 2, 10.0); // (20 - 8) / 20 = 0.6
+    let r = learn_rate(Some(1.4), 20.0, 2, 10.0); // 20 / 20 = 1.0
     assert!((r - 1.4).abs() < 1e-9, "{r}");
-    let r = learn_rate(Some(0.9), 60.0, 2, 20.0); // (60 - 8) / 40 = 1.3
-    assert!((r - 1.3).abs() < 1e-9, "{r}");
+    let r = learn_rate(Some(0.9), 60.0, 2, 20.0); // 60 / 40 = 1.5
+    assert!((r - 1.5).abs() < 1e-9, "{r}");
 }
