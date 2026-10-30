@@ -13,6 +13,11 @@ default = []
 # The window: winit and softbuffer. Off by default so the headless crate builds
 # without them; the tests turn it on.
 window = ["dep:winit", "dep:softbuffer"]
+# The spec's rules for zero-width and bidi characters in text: a break at a
+# zero width space, no line break beside a joiner, and escapes (not removal) for
+# default-ignorable and bidi code points in notification text. Forwards to
+# lumen-track0. Off by default.
+zero-width-text = ["lumen-track0/zero-width-text"]
 
 [[bin]]
 name = "lumen-term"

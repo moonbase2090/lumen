@@ -55,6 +55,8 @@ jobs:
         run: scripts/test-capture-tests.sh
       - name: Comparison launcher tests
         run: scripts/test-run-comparison.sh
+      - name: Default-ignorable table generator tests
+        run: scripts/test-gen-default-ignorable.sh
       - name: PII / secret scan (repo text and built site)
         env:
           PUBLIC_TEXT_DENYLIST: ${{ secrets.PUBLIC_TEXT_DENYLIST }}
