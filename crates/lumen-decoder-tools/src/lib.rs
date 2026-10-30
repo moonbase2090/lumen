@@ -8,6 +8,8 @@
 //! - [`miri`] checks the record `scripts/decoder-miri.sh` writes.
 //! - [`gate`] says where a format stands against the gate, for the stop rule.
 //! - [`slice`] sizes the last slice so the CPU-hour cap holds.
+//! - [`ckpt`] writes a block of bytes as console lines and reads the newest
+//!   verified one back out of noisy console text.
 //! - [`escape`] reads the sandbox escape result from a test run.
 //! - The `seeds` example writes seed images made by real encoders.
 //!
@@ -16,6 +18,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod ckpt;
 pub mod classify;
 pub mod escape;
 pub mod gate;

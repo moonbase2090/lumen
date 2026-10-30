@@ -56,6 +56,20 @@
 #   --sync-cmd CMD         run after every slice, on SIGTERM/SIGINT and at the end,
 #                          to copy OUT somewhere that outlives the VM. A failure
 #                          is reported and retried at the next slice
+#   --checkpoint-console PATH
+#                          for a VM that can only write to its serial console: every
+#                          --checkpoint-minutes (default 60), and at the end, write one
+#                          self-contained block (CKPT lines, see ckpt.rs) with each
+#                          format's samples, crashes, state and the build identity, and
+#                          the crash inputs if they fit. THE CORPUS IS NOT CARRIED: a
+#                          run restored from a block starts from the seeds, so its
+#                          coverage may dip until the fuzzer finds its way back, while
+#                          its CPU-hours and crash records carry over. A block holds at
+#                          most about 21 KB; when the state is bigger the crash inputs
+#                          are left out, and then the samples and crashes alone
+#   --restore-console FILE restore from the newest verified block in FILE (console text),
+#                          through the same staging directory and build check as
+#                          --restore-cmd
 #   --finish-cmd CMD       run once, only after the ledger is written AND a final
 #                          sync succeeded (for example shutting the VM down)
 # The commands run with `bash -c` and see OUT in the environment. A restored
@@ -76,7 +90,7 @@ IMAGE_PATH_BUILD=""
 RSS_MB=2048
 MIRI_RECORD=""
 TARGET_H=""; RESTORE_CMD=""; SYNC_CMD=""; FINISH_CMD=""
-GATE_RUN=0; CAP_H=1200; MAX_WALL_H=""; PAUSE_AFTER=1032; PRICE=""; STATS_DIR=""; CONSOLE=""; CONSOLE_PREFIX="FUZZ-STATUS"
+GATE_RUN=0; CAP_H=1200; MAX_WALL_H=""; PAUSE_AFTER=1032; PRICE=""; STATS_DIR=""; CONSOLE=""; CONSOLE_PREFIX="FUZZ-STATUS"; CKPT_PATH=""; CKPT_MIN=60; RESTORE_CONSOLE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
@@ -100,6 +114,9 @@ while [ $# -gt 0 ]; do
     --stats-dir) STATS_DIR="$2"; shift 2 ;;
     --console) CONSOLE="$2"; shift 2 ;;
     --console-prefix) CONSOLE_PREFIX="$2"; shift 2 ;;
+    --checkpoint-console) CKPT_PATH="$2"; shift 2 ;;
+    --checkpoint-minutes) CKPT_MIN="$2"; shift 2 ;;
+    --restore-console) RESTORE_CONSOLE="$2"; shift 2 ;;
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -115,7 +132,40 @@ cd "$ROOT"
 # One campaign per directory.
 mkdir "$OUT/.lock" 2>/dev/null || { echo "another run holds $OUT/.lock (remove it if that run is dead)" >&2; exit 5; }
 
+LAST_CKPT=0
+# One console checkpoint block: the small state files, never the corpus. Not
+# fatal: a block that does not fit is reported and the run goes on.
+checkpoint_out() { # [force]
+  [ -n "$CKPT_PATH" ] || return 0
+  local now; now="$(date +%s)"
+  [ "${1:-}" = force ] || [ $(( now - LAST_CKPT )) -ge $(( CKPT_MIN * 60 )) ] || return 0
+  local seq=$(( $(cat "$OUT/ckpt_seq" 2>/dev/null || echo 0) + 1 )) kind=hourly tmp files f fmt rc=1
+  [ "${1:-}" != force ] || kind=final
+  echo "$seq" > "$OUT/ckpt_seq"
+  tmp="$(mktemp -d)"
+  for with in artifacts none; do
+    files=()
+    for f in commit decoder_build image_path_build ckpt_seq slices.log status.json ledger.json build.json; do [ ! -e "$OUT/$f" ] || files+=("$f"); done
+    for fmt in ${FORMATS//,/ }; do
+      for f in samples.jsonl crashes.jsonl replays.jsonl state noprogress nominal.txt gate.json ratio artifacts-seen.txt; do
+        [ ! -e "$OUT/$fmt/$f" ] || files+=("$fmt/$f")
+      done
+      [ "$with" != artifacts ] || [ ! -d "$OUT/$fmt/artifacts" ] || files+=("$fmt/artifacts")
+    done
+    tar czf "$tmp/state.tgz" -C "$OUT" "${files[@]}" 2>/dev/null || continue
+    if "${TOOLS[@]}" ckpt-encode "$CONSOLE_PREFIX" "$(printf '%.8s' "$HEAD_COMMIT")-$seq" "$seq" "$kind" "$tmp/state.tgz" > "$tmp/block.txt" 2>"$tmp/err.txt"; then
+      cat "$tmp/block.txt" >> "$CKPT_PATH" 2>/dev/null || cat "$tmp/block.txt"
+      LAST_CKPT="$now"; rc=0
+      echo "console checkpoint $seq ($kind, $with) written" >&2
+      break
+    fi
+  done
+  [ "$rc" = 0 ] || echo "console checkpoint $seq did not fit: $(cat "$tmp/err.txt")" >&2
+  rm -rf "$tmp"
+  return 0
+}
 sync_out() { # copy OUT off the VM; never fatal by itself
+  checkpoint_out "${1:-}"
   [ -n "$SYNC_CMD" ] || return 0
   bash -c "$SYNC_CMD" || { echo "sync failed: $SYNC_CMD" >&2; return 1; }
 }
@@ -163,6 +213,10 @@ same_build "$OUT" || refuse "$OUT"
 # Restore into a staging directory first and look at it before it touches OUT:
 # a refused resume must leave OUT as it was. The restore command sees the staging
 # directory as OUT.
+if [ -n "$RESTORE_CONSOLE" ]; then
+  [ -z "$RESTORE_CMD" ] || { echo "--restore-console and --restore-cmd are alternatives" >&2; exit 2; }
+  RESTORE_CMD='f="$(mktemp)" && cargo run -q --locked -p lumen-decoder-tools -- ckpt-decode "'"$RESTORE_CONSOLE"'" "$f" && tar xzf "$f" -C "$OUT" --no-same-owner; rc=$?; rm -f "$f"; exit $rc'
+fi
 if [ -n "$RESTORE_CMD" ]; then
   STAGE="$(mktemp -d "$OUT.restore.XXXXXX")"
   echo "restoring previous state into $STAGE: $RESTORE_CMD" >&2
@@ -558,7 +612,7 @@ echo "ledger: $OUT/ledger.json"
 # runs only when the ledger has been carried off.
 ok=0
 for attempt in 1 2 3; do
-  if sync_out; then ok=1; break; fi
+  if sync_out force; then ok=1; break; fi
   sleep 30
 done
 if [ -n "$PAUSED" ]; then
