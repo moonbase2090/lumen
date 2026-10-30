@@ -13,6 +13,7 @@ name = "lumen-holder"
 path = "src/main.rs"
 
 [dependencies]
+lumen-sealed = { path = "../lumen-sealed" }
 zeroize = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
