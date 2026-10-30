@@ -8,7 +8,7 @@ use lumen_arm_b::{Budget, Config, Context, Item, Layer};
 use lumen_detector::TAG;
 use lumen_holder::ffi_linux::{Received, pidfd_open, receive, wait_with_timeout};
 use lumen_holder::protocol::{self, SEALED, SEALED_HEADER_LEN, seal_request};
-use lumen_holder::terminal::start_layer;
+use lumen_holder::terminal::{start_layer, start_layer_with};
 use lumen_seal::{Decision, Reason};
 use lumen_sealed::Receiver;
 use lumen_sealed::types::{KIND_COMMAND_START, KIND_PROMPT, capability_of};
@@ -99,21 +99,56 @@ fn sealed_items(items: Vec<Item>) -> Vec<(u8, Vec<u8>)> {
 }
 
 #[test]
-fn a_layer_that_failed_a_sealing_condition_gets_no_holder_and_no_key() {
+fn a_layer_that_failed_a_sealing_condition_starts_no_holder_and_makes_no_key() {
+    use std::cell::Cell;
     let pidfd = pidfd_open(std::process::id()).unwrap_or_else(|e| unreachable!("{e}"));
-    let refused = start_layer(
-        &Decision::GridOnly(Reason::NotLinux),
-        holder(),
+    let asked_for_a_key = Cell::new(false);
+    // A program that does not exist: if the layer tried to start a holder, the
+    // error would be "not found", not the refusal.
+    let nowhere = Path::new("/nonexistent/lumen-holder");
+    for reason in [Reason::NotLinux, Reason::ShellGone] {
+        let refused = start_layer_with(
+            &Decision::GridOnly(reason),
+            nowhere,
+            &pidfd,
+            std::process::id(),
+            std::process::id(),
+            1,
+            &|| {
+                asked_for_a_key.set(true);
+                Ok(zeroize::Zeroizing::new([0u8; 32]))
+            },
+        );
+        let Err(e) = refused else {
+            unreachable!("a grid-only layer must not start a holder")
+        };
+        assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied, "{e}");
+        assert!(e.to_string().contains("grid-only"), "{e}");
+    }
+    assert!(
+        !asked_for_a_key.get(),
+        "no key was made for a refused layer"
+    );
+    // The same call with `Seal` does reach for the program and the key.
+    let Err(e) = start_layer_with(
+        &Decision::Seal,
+        nowhere,
         &pidfd,
         std::process::id(),
         std::process::id(),
         1,
-    );
-    let Err(e) = refused else {
-        unreachable!("a grid-only layer must not start a holder")
+        &|| {
+            asked_for_a_key.set(true);
+            Ok(zeroize::Zeroizing::new([0u8; 32]))
+        },
+    ) else {
+        unreachable!("there is no such program")
     };
-    assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied);
-    assert!(e.to_string().contains("grid-only"), "{e}");
+    assert_eq!(e.kind(), std::io::ErrorKind::NotFound, "{e}");
+    assert!(
+        asked_for_a_key.get(),
+        "a sealing layer asks for its key first"
+    );
 }
 
 #[test]

@@ -48,13 +48,39 @@ pub fn start_layer(
     terminal: u32,
     layer: u32,
 ) -> io::Result<(Started, Receiver)> {
+    start_layer_with(
+        decision,
+        program,
+        shell_pidfd,
+        shell_pid,
+        terminal,
+        layer,
+        &fresh_root,
+    )
+}
+
+/// [`start_layer`] with the source of the root given, so a test can show that a
+/// refused layer never asks for one. Production uses the system's random source.
+///
+/// # Errors
+///
+/// As [`start_layer`].
+pub fn start_layer_with(
+    decision: &Decision,
+    program: &Path,
+    shell_pidfd: &OwnedFd,
+    shell_pid: u32,
+    terminal: u32,
+    layer: u32,
+    make_root: &dyn Fn() -> io::Result<Zeroizing<[u8; 32]>>,
+) -> io::Result<(Started, Receiver)> {
     if let Decision::GridOnly(reason) = decision {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("the layer is grid-only: {reason:?}"),
         ));
     }
-    let root = fresh_root()?;
+    let root = make_root()?;
     let started = spawn::start(program, shell_pidfd, shell_pid, terminal)?;
     // Dropping `started` on an error closes the EOF pipe, which ends the holder.
     spawn::deliver_key(&started, 1, layer, &root)?;
