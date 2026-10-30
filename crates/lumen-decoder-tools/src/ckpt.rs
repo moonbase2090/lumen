@@ -245,6 +245,10 @@ pub fn decode_all(text: &str) -> Vec<Block> {
     let mut blocks = Vec::new();
     for (id, list) in parts {
         for p in list {
+            // Sizes come from the text, so bound them before any arithmetic on them.
+            if p.bytes > MAX_BYTES || p.chunks > MAX_BLOCK_TEXT {
+                continue;
+            }
             let want_chunks = (p.bytes.div_ceil(3) * 4).div_ceil(CHUNK_CHARS);
             let sized = p.data.iter().all(|(&n, body)| {
                 n < p.chunks

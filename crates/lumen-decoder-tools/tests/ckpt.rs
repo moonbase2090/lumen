@@ -134,6 +134,8 @@ fn a_block_that_lies_about_its_size_is_not_read() {
         ("chunks=5", "chunks=6"),
         ("chunks=5", "chunks=4"),
         ("bytes=3000", "bytes=999999"),
+        ("bytes=3000", "bytes=18446744073709551615"),
+        ("chunks=5", "chunks=18446744073709551615"),
     ] {
         let mut bad = lines.clone();
         assert!(bad[0].contains(from), "{}", bad[0]);
