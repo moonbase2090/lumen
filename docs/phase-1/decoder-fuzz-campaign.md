@@ -1,6 +1,6 @@
 # Decoder fuzz campaign: tools and how to run it
 
-This page describes the pieces that exist for the [decoder gate](../../spec/v0/conformance.md#gate.decoder) and what is still missing. It follows [the fuzz plan](../phase-0.5/decoder-fuzz-plan.md) and [the decoder contract](decoder-contract.md). Nothing here shows that the gate holds: the smoke run below is seconds long, and the gate needs 1000 CPU-hours per format.
+This page describes the pieces that exist for the [decoder gate](../../spec/v0/conformance.md#gate.decoder) and what is still missing. It follows [the fuzz plan](../phase-0.5/decoder-fuzz-plan.md) and [the decoder contract](decoder-contract.md). Nothing here shows that the gate holds: the smoke run below is seconds long, and the release criteria need at least 250 CPU-hours per format, and up to 1200 until the stop rule holds.
 
 ## What exists
 
