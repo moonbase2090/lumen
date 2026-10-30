@@ -44,7 +44,7 @@ Each metric has a unit, a measurement method, the harness that produces it and a
 
 ### 2.2b Simulated-reader spoofing evaluation (proxy, veto only)
 
-This is a provisional proxy. It is not the spoofing study in section 2.2a, and it does not settle the spoofing rule. Its veto is a proposal that needs owner sign-off before it is used (section 4, step 2).
+This is a provisional proxy. It is not the spoofing study in section 2.2a, and it does not settle the spoofing rule. Its veto is a proposal that requires maintainer approval before it is used (section 4, step 2).
 
 - **Unit:** per arm, the fraction of spoofed rendered prompts that the simulated-reader panel accepts as genuine, and the same fraction for the plain-VT control on the same prompts.
 - **Method:** a fixed panel of **10 simulated readers** (proposed), each a distinct, fixed persona, run against the same prompt set at a stated corpus revision. Each reader sees real rendered output only, as screenshots taken from the arm's build with the render conditions in section 2.3. Screenshots are never mocked or edited. Each reader labels every prompt as genuine or spoofed.
@@ -128,7 +128,7 @@ Hardened-mode checks are not preconditions here. The [hardened mode](../../spec/
    - the trust-area-pixel count (section 2.3) is non-zero in arm B;
    - the authority-leak count (section 2.4) is non-zero in arm B;
    - arm B fails the spoofing user study (section 2.2a): its error rate is worse than the plain-VT control, or more than 2 percentage points worse than arm A. **Pending human study:** this clause is decided by the human study, not by the automated metrics. Until the study has run, it is recorded as pending and does not by itself change the outcome.
-   - **Proposed, pending owner sign-off:** the section 2.2b veto applies to either arm. A vetoed arm is out. This is not part of the confirmed phase 0.5 rule until the owner signs it off.
+   - **Proposed, pending maintainer approval:** the section 2.2b veto applies to either arm. A vetoed arm is out. This is not part of the confirmed phase 0.5 rule until it receives maintainer approval.
 3. Arm B must also reach **at least 80%** of sessions (section 2.1, at least 12 of 14). If it does not, the rule does not choose arm B. The automated metrics decide this clause.
 4. If arm B is not chosen, arm A is the default for the sealed path. This document does not decide the default for Track 0 on unsealed layers. The spec's Track 0 default ([trust](../../spec/v0/trust.md)) would have to change for arm A's rule, and that change is a spec revision, outside this comparison.
 5. Failures in arm B on parity (section 2.9), spoof success (section 2.2), DoS (section 2.6) or red-team findings (section 2.7) do not change the choice in steps 2 and 3. They do block acceptance of the result: each must be fixed, or waived in writing, before the result is accepted.
