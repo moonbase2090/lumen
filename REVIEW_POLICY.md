@@ -24,6 +24,7 @@ The PR body has a **Proof** section with real evidence: test output, a CI run li
 - The reviewer names the exact tip commit they reviewed and answers **SHIP** or **CHANGES**. A new commit needs a new review at the new tip.
 - A SHIP carries over a clean rebase when the PR's own diff is unchanged (`git range-diff` or `git patch-id --stable` shows no difference).
 - Trunk PRs are also built and exercised by the reviewer, not just read. Every finding is fixed or explicitly waived in the PR thread.
+- Before SHIP, check whether the PR changes the spec, conformance gates, release criteria or user-visible behavior. If it does, the PR must update `site/` or link a site PR that will merge with it.
 - Docs-only PRs may merge on green checks with no review.
 
 ## 4. Required checks
