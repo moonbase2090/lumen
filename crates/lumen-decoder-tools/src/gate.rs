@@ -4,11 +4,13 @@
 
 use serde_json::Value;
 
-/// CPU-hours of fuzzing a format needs.
-pub const MIN_CPU_HOURS: f64 = 1000.0;
-/// The window in which a new crash fails the gate, and in which no new edge
-/// means the plateau is reached.
+/// The floor: CPU-hours of fuzzing a format needs before it is judged.
+pub const MIN_CPU_HOURS: f64 = 250.0;
+/// The stop rule's window: no new edge in this many CPU-hours means the run
+/// may stop.
 pub const WINDOW_CPU_HOURS: f64 = 168.0;
+/// The cap: a run does not go past this many CPU-hours for one format.
+pub const MAX_CPU_HOURS: f64 = 1200.0;
 
 /// Where a format stands.
 #[derive(Clone, Debug, PartialEq)]
@@ -19,15 +21,16 @@ pub struct Status {
     pub edges: f64,
     /// Crashes recorded.
     pub crashes: usize,
-    /// Crashes in the last window.
-    pub recent_crashes: usize,
+    /// The run went past the cap.
+    pub over_cap: bool,
     /// CPU-hours since the latest crash (all of them if there was none).
     pub hours_since_new_crash: f64,
     /// CPU-hours since coverage last grew.
     pub hours_since_coverage_gain: f64,
     /// No coverage gain over the last window, with a reading from before it.
     pub plateau: bool,
-    /// Every part of the gate holds for this format.
+    /// Every part of the gate holds for this format. Any crash stops it from
+    /// holding, however long ago the crash was found.
     pub holds: bool,
 }
 
@@ -60,13 +63,9 @@ pub fn status_with(
         cpu_hours = cpu_hours.max(num(&s["at_cpu_hour"], "a sample's at_cpu_hour")?);
     }
     let from = cpu_hours - window;
-    let mut recent_crashes = 0;
     let mut last_crash = None::<f64>;
     for c in crashes {
         let at = num(&c["at_cpu_hour"], "a crash's at_cpu_hour")?;
-        if at > from {
-            recent_crashes += 1;
-        }
         last_crash = Some(last_crash.map_or(at, |l| l.max(at)));
     }
     let (mut before, mut overall) = (None::<f64>, 0.0_f64);
@@ -90,12 +89,13 @@ pub fn status_with(
         }
     }
     let plateau = before.is_some_and(|b| b >= overall);
-    let holds = cpu_hours >= min_hours && recent_crashes == 0 && plateau;
+    let over_cap = cpu_hours > MAX_CPU_HOURS;
+    let holds = cpu_hours >= min_hours && crashes.is_empty() && plateau && !over_cap;
     Ok(Status {
         cpu_hours,
         edges: overall,
         crashes: crashes.len(),
-        recent_crashes,
+        over_cap,
         hours_since_new_crash: cpu_hours - last_crash.unwrap_or(0.0),
         hours_since_coverage_gain: cpu_hours - gain_at,
         plateau,

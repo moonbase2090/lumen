@@ -19,22 +19,22 @@ The fuzzing run cannot start until these exist. None of them is in the repositor
 
 ## The run
 
-> **Superseded numbers.** The CPU-hour totals and the plateau in this table are the earlier decoder gate. The fuzzing quantities now live in the [Lumen Term release criteria](../release-criteria.md#decoder-fuzzing) (a floor of 250 CPU-hours per format, a stop after 168 CPU-hours with no new crash or coverage edge, a cap of 1200, continuous fuzzing, a re-fuzz on every decoder version bump); the specification keeps only the testable safety obligations. This page is the phase 0.5 plan.
+> **Superseded numbers.** The CPU-hour totals and the plateau in the earlier version of this table were the earlier decoder gate; the table now states the release criteria's rule. The fuzzing quantities live in the [Lumen Term release criteria](../release-criteria.md#decoder-fuzzing) (a floor of 250 CPU-hours per format, a stop after 168 CPU-hours with no new crash or coverage edge, a cap of 1200, continuous fuzzing, a re-fuzz on every decoder version bump); the specification keeps only the testable safety obligations. This page is the phase 0.5 plan.
 
 When those exist, the run is the one the gate describes, once per format and per platform:
 
 | Part | Requirement | How it is recorded |
 |---|---|---|
-| CPU time | at least 1000 CPU-hours per format | `cpu_hours` in the ledger |
-| Crashes | none new in the last 168 CPU-hours | each crash with the CPU-hour it was found |
-| Coverage | a plateau: no new edges over the last 168 CPU-hours | cumulative edges over CPU-hours |
+| CPU time | a floor of 250 CPU-hours per format and a cap of 1200 | `cpu_hours` in the ledger |
+| Crashes | none: a crash ends the run for that build identity | each crash with the CPU-hour it was found |
+| Coverage | the stop rule: no new edges over the last 168 CPU-hours | cumulative edges over CPU-hours |
 | Seeds | past-CVE inputs included | named in the run record |
 | Sandbox | the escape tests pass in full | test set revision, passed and total |
 | Identities | decoder and terminal image path | `decoder_build` and `image_path_build` in the ledger |
 
 The fuzzing driver writes a ledger in the format `lumen-evidence --decoder` reads ([5.6](comparison-criteria.md)), and that mode applies the thresholds, so the verdict does not depend on who reads the numbers. A changed decoder or image-path identity invalidates the pass and the run repeats for the new identity. Fuzzing continues after release, and a new crash blocks release.
 
-**Size, as arithmetic and not a measurement.** Three formats at 1000 CPU-hours each is 3000 CPU-hours of fuzzing per platform, before the plateau and the 168-hour crash-free window are met. On 32 cores that is about four days of wall time; the plateau may take longer. The ledger, not this estimate, is the record.
+**Size, as arithmetic and not a measurement.** Three formats at the 250 CPU-hour floor is 750 CPU-hours of fuzzing per platform at the least, and at the 1200 CPU-hour cap it is 3600. A run stops earlier than the cap only when the last 168 CPU-hours showed no new edge. On 32 cores the floor is about one day of wall time and the cap about five. The ledger, not this estimate, is the record.
 
 ## What the results say until then
 
