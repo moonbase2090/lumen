@@ -26,6 +26,11 @@ zeroize = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
+lumen-seal = { path = "../lumen-seal" }
+
+[dev-dependencies]
+lumen-arm-b = { path = "../lumen-arm-b" }
+lumen-detector = { path = "../lumen-detector" }
 
 # Not `workspace = true`: this crate has one named FFI module (`ffi_linux`)
 # that needs `unsafe`, so the crate root denies unsafe code instead of
