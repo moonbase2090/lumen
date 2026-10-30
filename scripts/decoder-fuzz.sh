@@ -19,13 +19,14 @@
 #                          in the last 168, coverage flat over the last 168, by the
 #                          judge's rule), or at --cap-cpu-hours; write status.json
 #   --cap-cpu-hours H      cap per format (default 1200). The last slice is sized
-#                          from the CPU-to-wall ratio the earlier slices of that
-#                          format showed (the fuzzer's parent process also uses CPU,
-#                          so CPU time can pass workers x wall) and a fixed startup
-#                          allowance of 5 CPU-seconds per slice, with 3% to spare.
-#                          The counted hours normally end just under the cap, and
-#                          never more than 5% over it unless a slice uses clearly
-#                          more CPU than any before it.
+#                          in crates/lumen-decoder-tools/src/slice.rs from what is
+#                          left of the cap, assuming the worst of two things: a
+#                          startup of 8 CPU-seconds per slice, and a rate of 1.25
+#                          times the highest CPU per worker-second any earlier
+#                          slice showed (the first slice takes at most half of what
+#                          is left). While both hold the counted hours never pass
+#                          the cap, and normally end a few percent under it; when
+#                          one breaks, the cap is passed by about the excess.
 #   --max-wall-hours W     hard stop for the whole call, exit 8
 #   --pause-on-crash-after H  a crash recorded after H CPU-hours of its format
 #                          pauses the run (exit 7, state synced, the finish command
@@ -260,28 +261,11 @@ record_artifacts() { # format, target, cpu-hour
 # pass the cap by more than a rounding) and of the wall-clock limit. Prints the
 # seconds; 0 means the cap or the limit is reached.
 slice_for() { # format -> seconds
-  python3 - "$SLICE" "$WORKERS" "$CAP_H" "$(hours_of "$1" cpu_hours)" "${MAX_WALL_H:-}" "$START_EPOCH" "$GATE_RUN" "$OUT/$1/ratio" <<'PY'
-import math, sys, time
-slice_s, workers, cap, done, maxwall, start, gate, ratio_file = sys.argv[1:9]
-s = float(slice_s)
-if gate == "1":
-    # A slice costs a fixed startup (loading the corpus, starting the sanitizer:
-    # about 3 CPU-seconds measured, 5 allowed) plus a rate per worker-second,
-    # learned from earlier slices (the highest seen, net of the startup) and 1.2
-    # until known. The last slice is sized so both fit in what is left of the cap,
-    # with 3% to spare.
-    startup = 5.0
-    try:
-        ratio = float(open(ratio_file).read())
-    except (OSError, ValueError):
-        ratio = 1.2
-    left = (float(cap) - float(done)) * 3600.0 - startup
-    s = min(s, max(left, 0.0) / (float(workers) * ratio) * 0.97)
-    if maxwall:
-        s = min(s, float(maxwall) * 3600.0 - (time.time() - int(start)))
-# Under 5 s a fuzz run does little more than load its corpus.
-print(0 if s < 5 else int(math.ceil(min(s, float(slice_s)))))
-PY
+  local rate="-" wall="-"
+  if [ "$GATE_RUN" != 1 ]; then echo "$SLICE"; return; fi
+  [ ! -s "$OUT/$1/ratio" ] || rate="$(cat "$OUT/$1/ratio")"
+  [ -z "${MAX_WALL_H:-}" ] || wall="$(python3 -c "import sys,time; print(max(0.0, float(sys.argv[1])*3600.0-(time.time()-int(sys.argv[2]))))" "$MAX_WALL_H" "$START_EPOCH")"
+  "${TOOLS[@]}" slice-seconds "$SLICE" "$WORKERS" "$CAP_H" "$(hours_of "$1" cpu_hours)" "$rate" "$wall"
 }
 
 run_slice() { # format -> 0 normal, 1 interrupted
@@ -320,17 +304,10 @@ run_slice() { # format -> 0 normal, 1 interrupted
   CHILD=""; CUR_TARGET=""; CUR_RAW=""
   # Learn how much CPU a worker-second really costs here: the highest ratio seen.
   if [ "$GATE_RUN" = 1 ] && [ -s "$dir/cpu_seconds" ]; then
-    python3 - "$dir/ratio" "$(cat "$dir/cpu_seconds")" "$WORKERS" "$t0" <<'PY'
-import os, sys, time
-path, cpu, workers, t0 = sys.argv[1], float(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4])
-wall = max(1.0, time.time() - t0)
-ratio = max(0.5, (cpu - 5.0) / (workers * wall))   # net of the startup allowance
-try:
-    ratio = max(ratio, float(open(path).read()))
-except (OSError, ValueError):
-    pass
-open(path, "w").write(f"{ratio:.4f}\n")
-PY
+    local prev="-" wall_s
+    [ ! -s "$dir/ratio" ] || prev="$(cat "$dir/ratio")"
+    wall_s="$(python3 -c "import sys,time; print(max(1.0, time.time()-float(sys.argv[1])))" "$t0")"
+    "${TOOLS[@]}" learn-rate "$prev" "$(cat "$dir/cpu_seconds")" "$WORKERS" "$wall_s" > "$dir/ratio.new" && mv "$dir/ratio.new" "$dir/ratio"
   fi
   if [ "$INTERRUPTED" = 1 ]; then
     # Count the time libFuzzer says it ran, not the full slice.
