@@ -2,6 +2,8 @@
 
 use prismattyc_emulator::{PtySession, pty_size_with_cell_pixels};
 use std::io::{Read, Write};
+#[cfg(all(unix, feature = "multiplexer-client"))]
+use std::os::fd::{OwnedFd, RawFd};
 use std::sync::mpsc::{Receiver, channel};
 use std::thread::JoinHandle;
 
@@ -32,20 +34,7 @@ pub struct Pty {
 }
 
 impl Pty {
-    /// Run `program` on a PTY of `columns` by `rows`.
-    ///
-    /// # Errors
-    ///
-    /// Returns why the PTY or the program could not be started.
-    pub fn spawn<S: AsRef<std::ffi::OsStr>>(
-        columns: usize,
-        rows: usize,
-        program: &str,
-        arguments: &[S],
-    ) -> Result<Self, SpawnError> {
-        let size = pty_size_with_cell_pixels(columns, rows, CELL_PX.0, CELL_PX.1);
-        let mut session =
-            PtySession::spawn(program, arguments, size).map_err(|e| SpawnError(e.to_string()))?;
+    fn from_session(mut session: PtySession) -> Result<Self, SpawnError> {
         let mut reader = session
             .take_reader()
             .map_err(|e| SpawnError(e.to_string()))?;
@@ -68,6 +57,47 @@ impl Pty {
             reader: Some(handle),
             exited: false,
         })
+    }
+
+    /// Run `program` on a PTY of `columns` by `rows`.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the PTY or the program could not be started.
+    pub fn spawn<S: AsRef<std::ffi::OsStr>>(
+        columns: usize,
+        rows: usize,
+        program: &str,
+        arguments: &[S],
+    ) -> Result<Self, SpawnError> {
+        let size = pty_size_with_cell_pixels(columns, rows, CELL_PX.0, CELL_PX.1);
+        let session =
+            PtySession::spawn(program, arguments, size).map_err(|e| SpawnError(e.to_string()))?;
+        Self::from_session(session)
+    }
+
+    /// Run a configured multiplexer client and map its key source into only
+    /// that child at `key_target`.
+    #[cfg(all(unix, feature = "multiplexer-client"))]
+    pub(crate) fn spawn_multiplexer_client<S: AsRef<std::ffi::OsStr>>(
+        columns: usize,
+        rows: usize,
+        program: &str,
+        arguments: &[S],
+        key_source: OwnedFd,
+        key_target: RawFd,
+    ) -> Result<Self, SpawnError> {
+        let size = pty_size_with_cell_pixels(columns, rows, CELL_PX.0, CELL_PX.1);
+        let session = PtySession::spawn_config_with_fds(
+            program,
+            arguments,
+            None,
+            &std::collections::BTreeMap::new(),
+            size,
+            vec![(key_source, key_target)],
+        )
+        .map_err(|e| SpawnError(e.to_string()))?;
+        Self::from_session(session)
     }
 
     /// The bytes the program has written since the last call, without waiting.

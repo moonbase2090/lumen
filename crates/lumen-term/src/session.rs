@@ -3,12 +3,59 @@
 use crate::document::{Block, Document};
 use crate::layer::{Context, Layer};
 use crate::pty::{Pty, SpawnError};
+#[cfg(all(unix, feature = "multiplexer-client"))]
+use std::os::fd::OwnedFd;
+#[cfg(all(unix, feature = "multiplexer-client"))]
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 /// The most columns a session takes, which also bounds the cells a block holds.
 pub const MAX_COLUMNS: usize = 1000;
 /// The most rows a session takes.
 pub const MAX_ROWS: usize = 500;
+
+/// The descriptor on which a spawned Lumen-aware multiplexer client receives
+/// its scoped key. The key bytes never enter argv, the environment or the PTY.
+#[cfg(all(unix, feature = "multiplexer-client"))]
+pub const MULTIPLEXER_KEY_FD: i32 = 3;
+
+/// The executable selected by a multiplexer profile or Attach action.
+///
+/// Construction resolves the configured path before a key fd can be supplied.
+/// The resolved path is the exact program the terminal spawns.
+#[cfg(all(unix, feature = "multiplexer-client"))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MultiplexerClientProgram(String);
+
+#[cfg(all(unix, feature = "multiplexer-client"))]
+impl MultiplexerClientProgram {
+    /// Resolve and check the client executable configured by a profile or
+    /// Attach action.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path cannot be resolved, is not a regular file
+    /// or cannot be represented for the PTY spawn API.
+    pub fn from_profile_path(path: impl AsRef<Path>) -> Result<Self, SpawnError> {
+        let executable = std::fs::canonicalize(path)
+            .map_err(|e| SpawnError(format!("could not resolve multiplexer client: {e}")))?;
+        if !executable.is_file() {
+            return Err(SpawnError(
+                "multiplexer client is not a regular file".to_owned(),
+            ));
+        }
+        let Some(executable) = executable.to_str() else {
+            return Err(SpawnError(
+                "multiplexer client path is not valid Unicode".to_owned(),
+            ));
+        };
+        Ok(Self(executable.to_owned()))
+    }
+
+    fn executable(&self) -> &str {
+        &self.0
+    }
+}
 
 fn check_size(columns: usize, rows: usize) -> Result<(), SpawnError> {
     if (1..=MAX_COLUMNS).contains(&columns) && (1..=MAX_ROWS).contains(&rows) {
@@ -34,6 +81,18 @@ pub struct Session {
 }
 
 impl Session {
+    fn from_pty(mut layer: Box<dyn Layer + Send>, columns: usize, rows: usize, pty: Pty) -> Self {
+        layer.open_container();
+        Self {
+            document: Document::new(columns, rows),
+            layer,
+            pty,
+            clock: Instant::now(),
+            // The program inherits this environment, so these are the layer's.
+            tmux_or_screen: std::env::var_os("TMUX").is_some() || std::env::var_os("STY").is_some(),
+        }
+    }
+
     /// Run `program` with `layer` between its PTY and a document of `columns`
     /// by `rows`. The layer's container is open, as while a command runs.
     ///
@@ -41,7 +100,7 @@ impl Session {
     ///
     /// Returns why the program could not be started.
     pub fn start<S: AsRef<std::ffi::OsStr>>(
-        mut layer: Box<dyn Layer + Send>,
+        layer: Box<dyn Layer + Send>,
         columns: usize,
         rows: usize,
         program: &str,
@@ -49,15 +108,38 @@ impl Session {
     ) -> Result<Self, SpawnError> {
         check_size(columns, rows)?;
         let pty = Pty::spawn(columns, rows, program, arguments)?;
-        layer.open_container();
-        Ok(Self {
-            document: Document::new(columns, rows),
-            layer,
-            pty,
-            clock: Instant::now(),
-            // The program inherits this environment, so these are the layer's.
-            tmux_or_screen: std::env::var_os("TMUX").is_some() || std::env::var_os("STY").is_some(),
-        })
+        Ok(Self::from_pty(layer, columns, rows, pty))
+    }
+
+    /// Spawn the checked multiplexer client with its scoped key source mapped
+    /// to [`MULTIPLEXER_KEY_FD`] in that child only.
+    ///
+    /// `key_source` must already be close-on-exec. It is consumed whether the
+    /// spawn succeeds or fails. The terminal never maps it into an existing
+    /// process, an ordinary session or another concurrent child.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the size, key source, PTY or client spawn was refused.
+    #[cfg(all(unix, feature = "multiplexer-client"))]
+    pub fn start_multiplexer_client<S: AsRef<std::ffi::OsStr>>(
+        layer: Box<dyn Layer + Send>,
+        columns: usize,
+        rows: usize,
+        client: &MultiplexerClientProgram,
+        arguments: &[S],
+        key_source: OwnedFd,
+    ) -> Result<Self, SpawnError> {
+        check_size(columns, rows)?;
+        let pty = Pty::spawn_multiplexer_client(
+            columns,
+            rows,
+            client.executable(),
+            arguments,
+            key_source,
+            MULTIPLEXER_KEY_FD,
+        )?;
+        Ok(Self::from_pty(layer, columns, rows, pty))
     }
 
     /// The document so far.

@@ -4,7 +4,15 @@
 
 use lumen_detector::TAG;
 use lumen_term::session::{MAX_COLUMNS, MAX_ROWS};
+#[cfg(feature = "multiplexer-client")]
+use lumen_term::session::{MULTIPLEXER_KEY_FD, MultiplexerClientProgram};
 use lumen_term::{Block, Layer, Passthrough, Session};
+#[cfg(feature = "multiplexer-client")]
+use std::io::Write;
+#[cfg(feature = "multiplexer-client")]
+use std::os::fd::{AsRawFd, OwnedFd};
+#[cfg(feature = "multiplexer-client")]
+use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
 /// A Track 0 paragraph frame whose bytes survive a terminal line discipline
@@ -77,10 +85,116 @@ fn start(layer: Box<dyn Layer + Send>, cols: usize, rows: usize, script: &str) -
         .unwrap_or_else(|e| unreachable!("sh starts: {e}"))
 }
 
+#[cfg(feature = "multiplexer-client")]
+fn key_source(bytes: &[u8]) -> (OwnedFd, i32) {
+    let (source, mut writer) = UnixStream::pair()
+        .unwrap_or_else(|e| unreachable!("a local socket pair is available: {e}"));
+    writer
+        .write_all(bytes)
+        .unwrap_or_else(|e| unreachable!("the key bytes fit in the socket: {e}"));
+    drop(writer);
+    let source_number = source.as_raw_fd();
+    (source.into(), source_number)
+}
+
+#[cfg(feature = "multiplexer-client")]
+fn multiplexer_client() -> MultiplexerClientProgram {
+    MultiplexerClientProgram::from_profile_path("/bin/sh")
+        .unwrap_or_else(|e| unreachable!("the system shell is a configured client stand-in: {e}"))
+}
+
 #[test]
 fn a_programs_output_reaches_the_grid_through_the_layer() {
     let mut s = start(Box::new(Passthrough), 30, 5, "echo hi from sh");
     assert!(pump_until(&mut s, |s| grid_text(s).contains("hi from sh")));
+}
+
+#[cfg(feature = "multiplexer-client")]
+#[test]
+fn a_spawned_multiplexer_client_reads_its_key_fd() {
+    let (key_source, _) = key_source(b"scoped-key\n");
+    let script =
+        format!("IFS= read -r key <&{MULTIPLEXER_KEY_FD}; printf 'received:%s\\n' \"$key\"");
+    let mut session = Session::start_multiplexer_client(
+        Box::new(Passthrough),
+        40,
+        5,
+        &multiplexer_client(),
+        &["-c", &script],
+        key_source,
+    )
+    .unwrap_or_else(|e| unreachable!("the checked client starts: {e}"));
+    assert!(pump_until(&mut session, |s| grid_text(s)
+        .contains("received:scoped-key")));
+}
+
+#[cfg(feature = "multiplexer-client")]
+#[test]
+fn a_missing_profile_client_is_refused_before_it_can_receive_a_key() {
+    let missing =
+        std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("missing-multiplexer-client");
+    let _ = std::fs::remove_file(&missing);
+    assert!(MultiplexerClientProgram::from_profile_path(missing).is_err());
+}
+
+#[cfg(feature = "multiplexer-client")]
+#[test]
+fn an_inheritable_key_source_is_refused_before_spawn() {
+    let (key_source, _) = key_source(b"not-delivered\n");
+    rustix::io::fcntl_setfd(&key_source, rustix::io::FdFlags::empty())
+        .unwrap_or_else(|e| unreachable!("the test can clear close-on-exec: {e}"));
+    let marker =
+        std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("inheritable-key-source-child-ran");
+    let _ = std::fs::remove_file(&marker);
+    let marker = marker.to_string_lossy().into_owned();
+    let result = Session::start_multiplexer_client(
+        Box::new(Passthrough),
+        40,
+        5,
+        &multiplexer_client(),
+        &["-c", "printf ran > \"$1\"", "sh", &marker],
+        key_source,
+    );
+    assert!(result.is_err());
+    assert!(!std::path::Path::new(&marker).exists());
+}
+
+#[cfg(feature = "multiplexer-client")]
+#[test]
+fn a_concurrent_ordinary_spawn_does_not_inherit_the_key_fd() {
+    let (key_source, source_number) = key_source(b"mapped\n");
+    let mapped_script =
+        format!("IFS= read -r key <&{MULTIPLEXER_KEY_FD}; printf 'mapped:%s\\n' \"$key\"");
+    let plain_script = format!(
+        "if [ -e /dev/fd/{MULTIPLEXER_KEY_FD} ] || [ -e /dev/fd/{source_number} ]; then echo leaked; else echo clean; fi"
+    );
+    let barrier = std::sync::Barrier::new(2);
+    let (mapped, plain) = std::thread::scope(|scope| {
+        let mapped = scope.spawn(|| {
+            barrier.wait();
+            let mut session = Session::start_multiplexer_client(
+                Box::new(Passthrough),
+                40,
+                5,
+                &multiplexer_client(),
+                &["-c", &mapped_script],
+                key_source,
+            )
+            .unwrap_or_else(|e| unreachable!("the mapped client starts: {e}"));
+            pump_until(&mut session, |s| grid_text(s).contains("mapped:mapped"))
+        });
+        let plain = scope.spawn(|| {
+            barrier.wait();
+            let mut session = start(Box::new(Passthrough), 40, 5, &plain_script);
+            pump_until(&mut session, |s| grid_text(s).contains("clean"))
+        });
+        (
+            mapped.join().unwrap_or(false),
+            plain.join().unwrap_or(false),
+        )
+    });
+    assert!(mapped, "the intended child received the key source");
+    assert!(plain, "the ordinary child inherited neither descriptor");
 }
 
 #[test]
