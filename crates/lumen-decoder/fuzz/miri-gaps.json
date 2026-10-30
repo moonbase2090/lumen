@@ -1,7 +1,7 @@
 {
   "written_by": "hand, not by scripts/decoder-miri.sh; the record next to it is written by the script",
   "not_covered": [
-    "The Miri record and the unsafe-line counts in the docs are for zune-jpeg 0.5.15. The decoder now uses 0.5.16-rc3, which has not been run under Miri and whose unsafe code has not been recounted.",
+    "The memory-safety record is for zune-jpeg 0.5.16-rc3 (upstream commit c1c7f49). Nine of its fifteen integration test files did not finish in ten minutes each under the interpreter and are recorded as TIMEOUT; one unit test compares function addresses and fails there for that reason, not on a memory error.",
     "The aarch64 NEON code: Miri aborts on the intrinsics it uses (the failed runs in miri-record.json carry the error).",
     "The AVX2 code on Miri's default target features: Miri reports no AVX2 unless it is compiled in, so the runs force it on; the 'upstream-x86-default' run passes without touching that code.",
     "Inputs the fuzzer finds: Miri ran the crate's tests and the small seeds only, and is far too slow to follow a fuzz run.",

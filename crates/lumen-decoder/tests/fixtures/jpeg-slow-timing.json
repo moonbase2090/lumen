@@ -1,0 +1,101 @@
+{
+  "what": "each fixture run alone through the release (not instrumented) worker",
+  "host": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "date": "2026-10-29",
+  "worker": "cargo build --release -p lumen-decoder --bin lumen-decoder-worker",
+  "command": "scripts/decoder-replay.py target/release/lumen-decoder-worker jpeg FILE",
+  "limit_seconds_cpu": 2.0,
+  "results": [
+    {
+      "format": "jpeg",
+      "peak_rss_kb": 132736,
+      "exit": 0,
+      "status": 0,
+      "stdout_bytes": 52021628,
+      "wall_seconds": 0.441,
+      "cpu_seconds": 0.286,
+      "file": "jpeg-slow-076cecbe.jpg"
+    },
+    {
+      "format": "jpeg",
+      "peak_rss_kb": 40256,
+      "exit": 0,
+      "status": 0,
+      "stdout_bytes": 14859808,
+      "wall_seconds": 0.232,
+      "cpu_seconds": 0.226,
+      "file": "jpeg-slow-3a4dec2c.jpg"
+    },
+    {
+      "format": "jpeg",
+      "peak_rss_kb": 59440,
+      "exit": 0,
+      "status": 4,
+      "stdout_bytes": 28,
+      "wall_seconds": 0.192,
+      "cpu_seconds": 0.189,
+      "file": "jpeg-slow-5053e268.jpg"
+    },
+    {
+      "format": "jpeg",
+      "peak_rss_kb": 168368,
+      "exit": 0,
+      "status": 0,
+      "stdout_bytes": 65217112,
+      "wall_seconds": 0.551,
+      "cpu_seconds": 0.531,
+      "file": "jpeg-slow-5b3a6d3c.jpg"
+    },
+    {
+      "format": "jpeg",
+      "peak_rss_kb": 42768,
+      "exit": 0,
+      "status": 0,
+      "stdout_bytes": 16989728,
+      "wall_seconds": 0.256,
+      "cpu_seconds": 0.25,
+      "file": "jpeg-slow-921f0d68.jpg"
+    },
+    {
+      "format": "jpeg",
+      "peak_rss_kb": 82240,
+      "exit": 0,
+      "status": 4,
+      "stdout_bytes": 28,
+      "wall_seconds": 0.232,
+      "cpu_seconds": 0.23,
+      "file": "jpeg-slow-dd60398b.jpg"
+    },
+    {
+      "format": "jpeg",
+      "peak_rss_kb": 59440,
+      "exit": 0,
+      "status": 4,
+      "stdout_bytes": 28,
+      "wall_seconds": 0.351,
+      "cpu_seconds": 0.349,
+      "file": "jpeg-slow-eedb1710.jpg"
+    },
+    {
+      "format": "jpeg",
+      "peak_rss_kb": 133216,
+      "exit": 0,
+      "status": 0,
+      "stdout_bytes": 52224028,
+      "wall_seconds": 0.197,
+      "cpu_seconds": 0.181,
+      "file": "jpeg-slow-f6afb64c.jpg"
+    },
+    {
+      "format": "jpeg",
+      "peak_rss_kb": 59072,
+      "exit": 0,
+      "status": 4,
+      "stdout_bytes": 28,
+      "wall_seconds": 0.233,
+      "cpu_seconds": 0.231,
+      "file": "jpeg-slow-fa178493.jpg"
+    }
+  ]
+}
