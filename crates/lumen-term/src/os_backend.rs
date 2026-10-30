@@ -75,11 +75,15 @@ const MACOS_SCRIPT: [&str; 3] = [
     "end run",
 ];
 
-/// The Windows script. It is constant: the text arrives in the environment,
-/// already escaped for XML, and is only placed between the text tags.
-const WINDOWS_SCRIPT: &str = "$x = New-Object Windows.Data.Xml.Dom.XmlDocument; \
-$x.LoadXml('<toast><visual><binding template=\"ToastGeneric\"><text>' + $env:LUMEN_NOTIFICATION_TEXT + '</text></binding></visual></toast>'); \
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Lumen').Show([Windows.UI.Notifications.ToastNotification]::new($x))";
+/// The Windows script. It is constant: the text arrives in the environment
+/// and becomes a DOM text node, never script or XML source.
+const WINDOWS_SCRIPT: &str = "[void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime]; \
+[void][Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType=WindowsRuntime]; \
+$x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText01); \
+$t = $x.GetElementsByTagName('text').Item(0); \
+[void]$t.AppendChild($x.CreateTextNode($env:LUMEN_NOTIFICATION_TEXT)); \
+$toast = [Windows.UI.Notifications.ToastNotification]::new($x); \
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Lumen').Show($toast)";
 
 /// Undo [`crate::notify::escape_markup`], for an API that shows plain text.
 /// Only the five entities the escape writes are read; anything else stays as it is.
@@ -143,7 +147,10 @@ pub fn invocation(platform: Platform, note: &OsNotification) -> Invocation {
                 OsString::from("-Command"),
                 OsString::from(WINDOWS_SCRIPT),
             ],
-            env: vec![(WINDOWS_TEXT_VARIABLE.to_owned(), note.text.clone())],
+            env: vec![(
+                WINDOWS_TEXT_VARIABLE.to_owned(),
+                unescape_markup(&note.text),
+            )],
         },
     }
 }

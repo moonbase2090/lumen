@@ -9,10 +9,13 @@
 //! the replayed mark are not measured either.
 
 use crate::HARNESS_VERSION;
-use crate::panes::{Case, Event, PaneCorpus, PaneRect};
+use crate::panes::{Case, Classification, Event, PaneCorpus, PaneRect, ProcessEvent, Scope};
 use lumen_detector::{DEFAULT_MAX_PAYLOAD, Detector, Event as Found};
 use lumen_harness::{EffectLog, HeaderInfo, Recorder, SinkTable};
-use lumen_panes::{Multiplexer, Outcome, PaneTerminal, Rect};
+use lumen_panes::{
+    Multiplexer, Outcome, PaneProcessState, PaneProcessStates, PaneTerminal, ProcessIdentity,
+    Program, Rect,
+};
 use lumen_sealed::{Direction, DirectionKeys, LayerId, LayerRoot, Receiver};
 use lumen_track0::UNSEALED_MIN;
 use std::collections::BTreeMap;
@@ -41,9 +44,9 @@ impl Placement {
     }
 }
 
-/// Why a case about a pane's process is not played.
+/// Why Option B cannot play a case about a pane's process.
 const NOT_RUN_PROCESS: &str =
-    "the model has no pane process state: the terminal's process-state API does not exist yet";
+    "Option B has no per-pane process state; only the sealed Option A client reports it";
 
 /// The gated counts of 7.2 this mode measures.
 pub const MEASURED: [&str; 5] = [
@@ -83,6 +86,14 @@ pub struct CaseResult {
     pub terminal: String,
     /// Why the case was not played, if it was not.
     pub not_run: Option<&'static str>,
+    /// Process-state expectations checked in this case.
+    pub process_expectations: u32,
+    /// Process events or expectations the model could not satisfy.
+    pub process_failures: u32,
+    /// Pane output reads classified at the time they arrived.
+    pub classified_reads: u32,
+    /// The final process records, for tests and evidence inspection.
+    pub process_states: PaneProcessStates,
 }
 
 /// A whole run.
@@ -98,7 +109,10 @@ impl Report {
     /// Violations of forbidden kinds over all cases.
     #[must_use]
     pub fn violations(&self) -> u32 {
-        self.cases.iter().map(|c| c.forbidden).sum()
+        self.cases
+            .iter()
+            .map(|c| c.forbidden.saturating_add(c.process_failures))
+            .sum()
     }
 
     fn sum(&self, f: impl Fn(&CaseResult) -> u32) -> u32 {
@@ -185,6 +199,16 @@ impl Report {
             let _ = writeln!(out, "{k}=not measured ({why})");
         }
         let skipped = self.not_run();
+        let process_expectations = self.sum(|c| c.process_expectations);
+        if process_expectations > 0 {
+            let failures = self.sum(|c| c.process_failures);
+            let status = if failures == 0 { "pass" } else { "FAIL" };
+            let _ = writeln!(
+                out,
+                "pane_process_trust={status} ({process_expectations} expectations, {} output reads classified, {failures} failures)",
+                self.sum(|c| c.classified_reads)
+            );
+        }
         if skipped > 0 {
             let _ = writeln!(
                 out,
@@ -198,8 +222,14 @@ impl Report {
             }
             let _ = writeln!(
                 out,
-                "{} drawn={} forged_seen={} violations={} {}",
-                c.id, c.drawn, c.forged_seen, c.forbidden, c.terminal
+                "{} drawn={} forged_seen={} violations={} process_expectations={} process_failures={} {}",
+                c.id,
+                c.drawn,
+                c.forged_seen,
+                c.forbidden,
+                c.process_expectations,
+                c.process_failures,
+                c.terminal
             );
         }
         out
@@ -260,6 +290,8 @@ struct PlayerA<'a> {
     seen: usize,
     last_frame: Vec<u8>,
     leak: lumen_arm_b::Layer,
+    processes: PaneProcessStates,
+    read_classifications: BTreeMap<u32, Vec<Classification>>,
     result: CaseResult,
 }
 
@@ -280,6 +312,8 @@ impl<'a> PlayerA<'a> {
             seen: 0,
             last_frame: Vec::new(),
             leak: outer_pipeline(),
+            processes: PaneProcessStates::default(),
+            read_classifications: BTreeMap::new(),
             result: CaseResult {
                 id: case.id.clone(),
                 ..CaseResult::default()
@@ -292,6 +326,115 @@ impl<'a> PlayerA<'a> {
         if self.case.forbid.iter().any(|f| f == kind) {
             self.result.forbidden += 1;
         }
+    }
+
+    fn process_failure(&mut self) {
+        self.result.process_failures = self.result.process_failures.saturating_add(1);
+    }
+
+    fn identity(program: &str, start_marker: u64) -> Option<ProcessIdentity> {
+        Program::new(program)
+            .and_then(|program| ProcessIdentity::new(1, start_marker, program))
+            .ok()
+    }
+
+    fn process_event(&mut self, pane: u32, what: &ProcessEvent) {
+        match what {
+            ProcessEvent::Spawn { program, listed } => {
+                let Some(identity) = Self::identity(program, 1) else {
+                    self.process_failure();
+                    return;
+                };
+                self.processes
+                    .insert(pane, PaneProcessState::new(identity, *listed));
+            }
+            ProcessEvent::Exec { program } => {
+                let Some(state) = self.processes.get(pane) else {
+                    self.process_failure();
+                    return;
+                };
+                let Some(identity) = Self::identity(program, state.observed().start_marker())
+                else {
+                    self.process_failure();
+                    return;
+                };
+                if let Some(state) = self.processes.get_mut(pane) {
+                    state.observe_identity(identity);
+                }
+            }
+            ProcessEvent::PidReuse => {
+                let Some(state) = self.processes.get(pane) else {
+                    self.process_failure();
+                    return;
+                };
+                let start_marker = state.observed().start_marker().wrapping_add(1);
+                let program = state.observed().program().clone();
+                let Ok(identity) = ProcessIdentity::new(1, start_marker, program) else {
+                    self.process_failure();
+                    return;
+                };
+                if let Some(state) = self.processes.get_mut(pane) {
+                    state.observe_identity(identity);
+                }
+            }
+            ProcessEvent::JobControl { on } => {
+                let Some(state) = self.processes.get_mut(pane) else {
+                    self.process_failure();
+                    return;
+                };
+                state.observe_job_control(*on);
+            }
+            ProcessEvent::Group { members } => {
+                let Some(state) = self.processes.get_mut(pane) else {
+                    self.process_failure();
+                    return;
+                };
+                if state.observe_foreground_members(*members).is_err() {
+                    self.process_failure();
+                }
+            }
+            ProcessEvent::Foreground { program } => {
+                let Ok(program) = Program::new(program) else {
+                    self.process_failure();
+                    return;
+                };
+                let Some(state) = self.processes.get_mut(pane) else {
+                    self.process_failure();
+                    return;
+                };
+                state.observe_foreground_program(Some(program));
+            }
+        }
+    }
+
+    fn classification(_pane: u32) -> Classification {
+        // v0 classifies every pane's Track 0 as possibly remote. Process state
+        // is still retained so later observations cannot erase distrust facts.
+        Classification::PossiblyRemote
+    }
+
+    fn expect(&mut self, pane: u32, expected: Classification, scope: Scope) {
+        self.result.process_expectations = self.result.process_expectations.saturating_add(1);
+        let holds = match scope {
+            Scope::Now => Self::classification(pane) == expected,
+            Scope::FramesReadEarlier => self
+                .read_classifications
+                .get(&pane)
+                .filter(|reads| !reads.is_empty())
+                .is_some_and(|reads| reads.iter().all(|actual| *actual == expected)),
+        };
+        if !holds {
+            self.process_failure();
+        }
+    }
+
+    fn classify_read(&mut self, pane: u32) {
+        let classification = Self::classification(pane);
+        self.read_classifications
+            .entry(pane)
+            .or_default()
+            .push(classification);
+        self.result.classified_reads = self.result.classified_reads.saturating_add(1);
     }
 
     /// Check every draw the terminal made since the last call.
@@ -347,6 +490,7 @@ impl<'a> PlayerA<'a> {
                 if self.detached {
                     return;
                 }
+                self.classify_read(*pane);
                 self.output(*pane, &read.bytes, read.t_ms);
             }
             Event::Container {
@@ -428,7 +572,12 @@ impl<'a> PlayerA<'a> {
                     self.send_layout(g, &r);
                 }
             }
-            Event::Process { .. } | Event::Expect { .. } => {}
+            Event::Process { pane, what } => self.process_event(*pane, what),
+            Event::Expect {
+                pane,
+                track0,
+                scope,
+            } => self.expect(*pane, *track0, *scope),
             Event::Detach => self.detached = true,
             Event::Reattach => {
                 self.detached = false;
@@ -486,6 +635,7 @@ impl<'a> PlayerA<'a> {
     fn finish(mut self) -> CaseResult {
         let c = self.term.counters();
         self.result.terminal = format!("{c:?}");
+        self.result.process_states = self.processes;
         self.result
     }
 }
@@ -579,7 +729,7 @@ pub fn run_placement<W: Write>(
     let mut cases = Vec::new();
     for case in &corpus.cases {
         rec.case(&case.id)?;
-        if case.script.iter().any(Event::is_process_trust) {
+        if placement == Placement::B && case.script.iter().any(Event::is_process_trust) {
             cases.push(CaseResult {
                 id: case.id.clone(),
                 not_run: Some(NOT_RUN_PROCESS),

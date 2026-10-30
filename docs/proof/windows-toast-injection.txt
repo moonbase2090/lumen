@@ -1,0 +1,29 @@
+Windows toast injection proof
+Revision: 52ec4cf678ebe66560fc34efa2d2ae071754c878
+Profile: dedicated standard Windows test profile
+Test binary SHA-256: 264AF048A47FAFEE7A7073F9B89732AF26DCF827F0BDD497E08B32868E344856
+Visual capture: windows-toast-injection.png
+
+Normal backend tests
+
+running 9 tests
+test hostile_windows_text_is_data_and_runs_nothing ... ignored, live proof requires a dedicated Windows test profile
+test a_sink_counts_what_it_showed_and_what_it_could_not ... ok
+test the_click_token_and_the_layer_never_reach_the_operating_system ... ok
+test the_programs_are_fixed_absolute_paths_started_without_a_shell ... ok
+test the_scripts_and_the_program_are_the_same_whatever_the_text ... ok
+test the_text_is_one_argument_or_one_variable_and_never_part_of_a_script ... ok
+test with_the_setting_on_one_notification_starts_one_program_with_the_composed_text ... ok
+test with_the_setting_off_nothing_is_ever_started ... ok
+test unescape_undoes_the_escape_exactly_for_any_text ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+Live hostile-text toast test
+
+running 1 test
+toast text: double " single ' XML <tag> & command $(Set-Content -LiteralPath $env:LUMEN_INJECTION_MARKER -Value ran) backticks ``
+PowerShell exited successfully; injection marker absent
+test hostile_windows_text_is_data_and_runs_nothing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.16s

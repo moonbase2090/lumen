@@ -12,10 +12,11 @@
 //! cases can only fail an implementation that lets some process state make a
 //! pane's Track 0 local.
 //!
-//! They are corpus only. The model has no pane process state, so placement mode
-//! reports them as not run until the terminal has a process-state API. The
-//! committed JSON file is the output of [`pp1_json`]; a test fails if the two
-//! differ.
+//! Placement A replays the process observations through the terminal's pane
+//! process-state model and checks each read-time or current expectation.
+//! Placement B has no per-pane process state and reports these cases as not
+//! run. The committed JSON file is the output of [`pp1_json`]; a test fails if
+//! the two differ.
 
 use lumen_detector::TAG;
 use serde_json::{Value, json};
