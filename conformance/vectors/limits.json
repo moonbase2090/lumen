@@ -216,15 +216,24 @@
    "id": "image-frame-size",
    "value": "16 MiB (images, Track B)",
    "spec": "transport.md#transport.limits",
-   "status": "pending",
-   "reason": "no Track B decoder yet"
+   "status": "vector",
+   "vectors": [
+    "image-frame-on-track-b-16-mib-ok",
+    "image-frame-on-track-b-16-mib-plus-1",
+    "a-big-frame-that-is-not-a-track-b-image"
+   ],
+   "covers": "model"
   },
   {
    "id": "nesting-depth",
    "value": "32",
    "spec": "transport.md#transport.limits",
-   "status": "pending",
-   "reason": "no nested block parser yet"
+   "status": "vector",
+   "vectors": [
+    "nesting-depth-32-ok",
+    "nesting-depth-33"
+   ],
+   "covers": "model"
   },
   {
    "id": "header-checks",
@@ -258,113 +267,194 @@
    "id": "blocks-per-document",
    "value": "100,000",
    "spec": "security.md#security.limits",
-   "status": "pending",
-   "reason": "no document model yet"
+   "status": "vector",
+   "vectors": [
+    "blocks-local-fills-the-whole-budget",
+    "blocks-one-producer-holds-half-of-the-remainder",
+    "blocks-producers-cannot-reach-the-local-reserve"
+   ],
+   "covers": "model"
   },
   {
    "id": "patches-per-block",
    "value": "10,000 per second",
    "spec": "security.md#security.limits",
-   "status": "pending",
-   "reason": "no patch handling yet; needs a clock"
+   "status": "vector",
+   "vectors": [
+    "patches-per-block-10000-per-second"
+   ],
+   "covers": "model"
   },
   {
    "id": "patches-per-document",
    "value": "50,000 per second",
    "spec": "security.md#security.limits",
-   "status": "pending",
-   "reason": "no patch handling yet; needs a clock"
+   "status": "vector",
+   "vectors": [
+    "patches-per-document-50000-per-second",
+    "a-refused-patch-batch-is-not-counted-by-the-document"
+   ],
+   "covers": "model"
   },
   {
    "id": "shaping-cache",
    "value": "64 MiB",
    "spec": "security.md#security.limits; layout.md#layout.limits",
-   "status": "pending",
-   "reason": "no shaping yet"
+   "status": "vector",
+   "vectors": [
+    "shaping_cache_bytes-local-fills-the-whole-budget",
+    "shaping_cache_bytes-one-producer-holds-half-of-the-remainder",
+    "shaping_cache_bytes-producers-cannot-reach-the-local-reserve"
+   ],
+   "covers": "model"
   },
   {
    "id": "table-size",
    "value": "256 columns, 100,000 cells",
    "spec": "security.md#security.limits",
-   "status": "pending",
-   "reason": "no table block yet"
+   "status": "vector",
+   "vectors": [
+    "table-256-columns-100000-cells-ok",
+    "table-257-columns",
+    "table-100001-cells"
+   ],
+   "covers": "model"
   },
   {
    "id": "grids-per-document",
    "value": "64",
    "spec": "security.md#security.limits",
-   "status": "pending",
-   "reason": "no grid yet"
+   "status": "vector",
+   "vectors": [
+    "grids-local-fills-the-whole-budget",
+    "grids-one-producer-holds-half-of-the-remainder",
+    "grids-producers-cannot-reach-the-local-reserve"
+   ],
+   "covers": "model"
   },
   {
    "id": "grid-cells-per-document",
    "value": "4 million",
    "spec": "security.md#security.limits",
-   "status": "pending",
-   "reason": "no grid yet"
+   "status": "vector",
+   "vectors": [
+    "grid_cells-local-fills-the-whole-budget",
+    "grid_cells-one-producer-holds-half-of-the-remainder",
+    "grid_cells-producers-cannot-reach-the-local-reserve"
+   ],
+   "covers": "model"
   },
   {
    "id": "scrollback-per-document",
    "value": "64 MiB",
    "spec": "security.md#security.limits",
-   "status": "pending",
-   "reason": "no document store yet"
+   "status": "vector",
+   "vectors": [
+    "scrollback_bytes-local-fills-the-whole-budget",
+    "scrollback_bytes-one-producer-holds-half-of-the-remainder",
+    "scrollback_bytes-producers-cannot-reach-the-local-reserve"
+   ],
+   "covers": "model"
   },
   {
    "id": "frames-per-producer",
    "value": "2,000 per second",
    "spec": "security.md#security.limits",
-   "status": "pending",
-   "reason": "needs a clock input in the vector format"
+   "status": "vector",
+   "vectors": [
+    "frames-per-producer-2000-per-second",
+    "the-window-slides",
+    "a-refused-frame-is-not-counted",
+    "a-clock-that-goes-backwards-counts-as-no-time-passing",
+    "producers-have-their-own-windows"
+   ],
+   "covers": "model"
   },
   {
    "id": "bytes-per-producer",
    "value": "8 MiB per second",
    "spec": "security.md#security.limits",
-   "status": "pending",
-   "reason": "needs a clock input in the vector format"
+   "status": "vector",
+   "vectors": [
+    "bytes-per-producer-8-mib-per-second"
+   ],
+   "covers": "model"
   },
   {
    "id": "decoded-images",
    "value": "256 MiB per session",
    "spec": "security.md#security.limits; images.md",
-   "status": "pending",
-   "reason": "no image path yet"
+   "status": "vector",
+   "vectors": [
+    "decoded-images-live-budget-is-256-mib",
+    "a-producer-cannot-hold-the-largest-legal-image",
+    "image-8000-by-4000-is-exactly-32-megapixels",
+    "image-8001-by-4000-is-over-32-megapixels"
+   ],
+   "covers": "model"
   },
   {
    "id": "gpu-textures",
    "value": "512 MiB",
    "spec": "security.md#security.limits",
-   "status": "pending",
-   "reason": "no renderer path yet"
+   "status": "vector",
+   "vectors": [
+    "gpu-textures-are-a-separate-512-mib-budget",
+    "gpu_texture_bytes-local-fills-the-whole-budget",
+    "gpu_texture_bytes-one-producer-holds-half-of-the-remainder",
+    "gpu_texture_bytes-producers-cannot-reach-the-local-reserve"
+   ],
+   "covers": "model"
   },
   {
    "id": "layers",
    "value": "at most 8",
    "spec": "security.md#security.limits",
-   "status": "pending",
-   "reason": "no layer manager yet"
+   "status": "vector",
+   "vectors": [
+    "layers-8-ok",
+    "layers-9"
+   ],
+   "covers": "model"
   },
   {
    "id": "budget-local-reserve",
    "value": "25% of every budget reserved for local use",
    "spec": "security.md#security.budget-shares",
-   "status": "pending",
-   "reason": "needs the budget model in the vector format; Rust counter tests cover frames and bytes meanwhile"
+   "status": "vector",
+   "vectors": [
+    "blocks-producers-cannot-reach-the-local-reserve",
+    "decoded_image_bytes-producers-cannot-reach-the-local-reserve",
+    "gpu_texture_bytes-producers-cannot-reach-the-local-reserve"
+   ],
+   "covers": "model"
   },
   {
    "id": "budget-producer-share",
    "value": "no producer over 50% of the remainder",
    "spec": "security.md#security.budget-shares",
-   "status": "pending",
-   "reason": "needs the budget model in the vector format"
+   "status": "vector",
+   "vectors": [
+    "blocks-one-producer-holds-half-of-the-remainder",
+    "decoded_image_bytes-one-producer-holds-half-of-the-remainder",
+    "gpu_texture_bytes-one-producer-holds-half-of-the-remainder"
+   ],
+   "covers": "model"
   },
   {
    "id": "budget-unsigned-share",
    "value": "25% of each budget for an unauthenticated producer",
    "spec": "trust.md#trust.must4-budgets",
-   "status": "pending",
-   "reason": "needs the budget model in the vector format; Rust counter tests cover frames and bytes meanwhile"
+   "status": "vector",
+   "vectors": [
+    "blocks-unsigned-producers-share-a-quarter",
+    "decoded_image_bytes-unsigned-producers-share-a-quarter",
+    "gpu_texture_bytes-unsigned-producers-share-a-quarter",
+    "unsigned-producer-has-a-quarter-of-each-rate",
+    "unsigned-rates-are-split-across-four-panes",
+    "decoded_image_bytes-the-unsigned-quarter-is-split-across-four-panes"
+   ],
+   "covers": "model"
   },
   {
    "id": "control-channel-message",
@@ -398,8 +488,14 @@
    "id": "grid-winsize",
    "value": "1000 cols x 500 rows",
    "spec": "grid.md",
-   "status": "pending",
-   "reason": "no grid yet"
+   "status": "vector",
+   "vectors": [
+    "grid-1000-by-500-ok",
+    "grid-1001-columns",
+    "grid-501-rows",
+    "grid-zero-columns"
+   ],
+   "covers": "model"
   },
   {
    "id": "sigwinch-rate",
