@@ -5,7 +5,8 @@
 //! `ffi_mem` and `ffi_cred` modules use `unsafe`: they wrap `mmap`, `mlock`,
 //! `munlock`, `mincore`, `madvise` and `getrlimit` (G6) and the socket
 //! credential calls (G1), which have no safe equivalent in the standard
-//! library. Every `unsafe` block there states why it is sound.
+//! library. G9 and G10 keep their Linux calls in named FFI modules beside
+//! their binaries. Every `unsafe` block states why it is sound.
 
 #![deny(unsafe_code)]
 
