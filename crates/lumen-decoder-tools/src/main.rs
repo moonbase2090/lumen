@@ -12,6 +12,10 @@
 //! - `gate-status SAMPLES CRASHES [MIN WINDOW]` prints where a format stands against the gate.
 //! - `slice-seconds SLICE WORKERS CAP DONE RATE|- WALL_LEFT|-` prints the next slice length.
 //! - `learn-rate PREVIOUS|- CPU WORKERS WALL` prints the rate to keep.
+//! - `ckpt-encode PREFIX ID SEQ KIND FILE` prints a console checkpoint block for `FILE`
+//!   (exit 4 if `FILE` is over the size limit).
+//! - `ckpt-decode CONSOLE_TEXT OUT_FILE [KIND]` writes the newest verified block of that
+//!   kind to `OUT_FILE` and prints its id and seq; exit 1 if there is none.
 //! - `annotate LEDGER NAME=FILE...` prints the ledger with a `notes` object.
 //! - `ledger REVISION DECODER_BUILD IMAGE_PATH_BUILD ESCAPE_JSON ENTRY_JSON...`
 //!   prints the ledger.
@@ -21,7 +25,7 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, ExitCode};
 
-use lumen_decoder_tools::{classify, escape, gate, identity, ledger, miri, slice};
+use lumen_decoder_tools::{ckpt, classify, escape, gate, identity, ledger, miri, slice};
 use serde_json::{Value, json};
 
 #[allow(clippy::too_many_lines, reason = "one arm per subcommand")]
@@ -142,6 +146,47 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
                 )
             );
             Ok(ExitCode::SUCCESS)
+        }
+        "ckpt-encode" => {
+            let data = fs::read(arg(5)?)?;
+            match ckpt::encode(arg(1)?, arg(2)?, arg(3)?.parse()?, arg(4)?, &data) {
+                Ok(lines) => {
+                    for line in lines {
+                        println!("{line}");
+                    }
+                    Ok(ExitCode::SUCCESS)
+                }
+                Err(e) => {
+                    eprintln!(
+                        "no checkpoint block: {e:?} (limit {} bytes)",
+                        ckpt::MAX_BYTES
+                    );
+                    Ok(ExitCode::from(4))
+                }
+            }
+        }
+        "ckpt-decode" => {
+            // Console text is not always UTF-8 (serial noise), so read it lossily.
+            let text = String::from_utf8_lossy(&fs::read(arg(1)?)?).into_owned();
+            let kind = args.get(3).map(String::as_str);
+            let found = ckpt::decode_all(&text)
+                .into_iter()
+                .rev()
+                .find(|b| kind.is_none_or(|k| b.kind == k));
+            if let Some(b) = found {
+                fs::write(arg(2)?, &b.data)?;
+                println!(
+                    "id={} seq={} kind={} bytes={}",
+                    b.id,
+                    b.seq,
+                    b.kind,
+                    b.data.len()
+                );
+                Ok(ExitCode::SUCCESS)
+            } else {
+                eprintln!("no complete, verified checkpoint block in {}", arg(1)?);
+                Ok(ExitCode::from(1))
+            }
         }
         "annotate" => {
             let ledger: Value = serde_json::from_str(&fs::read_to_string(arg(1)?)?)?;
