@@ -391,19 +391,47 @@ mod pty {
         assert!(got.chunks(reply.len()).all(|c| c == reply));
     }
 
+    /// A program that asks for colours for as long as it runs and never reads its
+    /// input must not stop typed input from being submitted, however long the
+    /// replies have been filling its PTY. Every send is timed.
     #[test]
-    fn a_program_that_asks_and_never_reads_does_not_stop_the_terminal_taking_its_output() {
-        // The program asks for colours for a couple of seconds and never reads
-        // its input. The rate limit keeps the replies far below what a PTY
-        // holds, so this shows the output keeps flowing, not that a full PTY
-        // would not block: replies are written on their own thread for that.
-        let script = "i=0; while [ $i -lt 40 ]; do printf '\\033]11;?\\033\\\\'; \
+    fn a_program_that_asks_continuously_and_never_reads_does_not_stall_typed_input() {
+        let script = "stty raw -echo; i=0; \
+                      while [ $i -lt 240 ]; do printf '\\033]11;?\\033\\\\'; \
                       printf 'tick%s\\n' $i; i=$((i+1)); sleep 0.05; done; echo FINISHED";
         let mut s = session(Box::new(Passthrough), script);
+        let mut slowest = Duration::ZERO;
+        let mut sends = 0;
+        // Enough per send to fill what a PTY holds in a few seconds, as a paste
+        // into a program that is not reading would.
+        let typed = vec![b'k'; 256];
+        let end = Instant::now() + Duration::from_secs(60);
+        while Instant::now() < end && !grid_text(&s).contains("FINISHED") {
+            s.pump_wait(Duration::from_millis(50));
+            let start = Instant::now();
+            let result = s.send(&typed);
+            slowest = slowest.max(start.elapsed());
+            sends += 1;
+            if let Err(e) = result {
+                assert!(
+                    matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::BrokenPipe
+                    ),
+                    "a send failed for a reason other than an unread queue: {e:?}"
+                );
+            }
+        }
+        eprintln!("{sends} sends, slowest {slowest:?}");
         assert!(
-            pump_until(&mut s, |s| grid_text(s).contains("FINISHED")),
+            grid_text(&s).contains("FINISHED"),
             "the terminal stopped taking output; the grid shows {:?}",
             grid_text(&s)
+        );
+        assert!(sends > 100, "{sends} sends");
+        assert!(
+            slowest < Duration::from_millis(500),
+            "a typed send took {slowest:?} while the program asked and never read"
         );
     }
 }

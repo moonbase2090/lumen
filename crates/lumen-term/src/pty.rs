@@ -1,22 +1,16 @@
 //! A PTY with a reader thread, sized to the block it belongs to.
 
+use crate::writer::InputWriter;
 use prismattyc_emulator::{PtySession, pty_size_with_cell_pixels};
-use std::io::{Read, Write};
+use std::io::Read;
 #[cfg(all(unix, feature = "multiplexer-client"))]
 use std::os::fd::{OwnedFd, RawFd};
 use std::sync::mpsc::{Receiver, channel};
-#[cfg(feature = "colour-replies")]
-use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 /// The cell size, in pixels, told to a program that asks. The window replaces
 /// it with the real one.
 const CELL_PX: (u32, u32) = (8, 16);
-
-/// Replies that can wait to be written; more are dropped.
-#[cfg(feature = "colour-replies")]
-const REPLY_QUEUE: usize = 16;
 
 /// Why a program could not be started or told its size.
 #[derive(Debug)]
@@ -34,9 +28,7 @@ impl std::error::Error for SpawnError {}
 /// owner to take when it chooses.
 pub struct Pty {
     session: PtySession,
-    input: Arc<Mutex<Box<dyn Write + Send>>>,
-    #[cfg(feature = "colour-replies")]
-    replies: SyncSender<Vec<u8>>,
+    input: InputWriter,
     output: Receiver<Vec<u8>>,
     reader: Option<JoinHandle<()>>,
     exited: bool,
@@ -50,24 +42,7 @@ impl Pty {
         let input = session
             .take_input_writer()
             .map_err(|e| SpawnError(e.to_string()))?;
-        let input = Arc::new(Mutex::new(input));
-        #[cfg(feature = "colour-replies")]
-        let replies = {
-            // Replies are written on their own thread through a short queue, so a
-            // program that never reads its input cannot stall the terminal by asking
-            // for more replies than its PTY will take. A full queue drops the reply.
-            let (replies, queued) = sync_channel::<Vec<u8>>(REPLY_QUEUE);
-            let writer = Arc::clone(&input);
-            std::thread::spawn(move || {
-                while let Ok(bytes) = queued.recv() {
-                    let Ok(mut w) = writer.lock() else { break };
-                    if w.write_all(&bytes).and_then(|()| w.flush()).is_err() {
-                        break;
-                    }
-                }
-            });
-            replies
-        };
+        let input = InputWriter::new(input);
         let (send, output) = channel();
         let handle = std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
@@ -80,8 +55,6 @@ impl Pty {
         Ok(Self {
             session,
             input,
-            #[cfg(feature = "colour-replies")]
-            replies,
             output,
             reader: Some(handle),
             exited: false,
@@ -147,29 +120,22 @@ impl Pty {
         bytes
     }
 
-    /// Type `bytes` to the program.
+    /// Type `bytes` to the program. The bytes are queued and written on another
+    /// thread, so this never waits on the program.
     ///
     /// # Errors
     ///
-    /// Returns the write error.
+    /// Returns `WouldBlock` if the program has left a long run of input unread,
+    /// or `BrokenPipe` if the PTY can no longer be written.
     pub fn send(&mut self, bytes: &[u8]) -> std::io::Result<()> {
-        let mut input = self
-            .input
-            .lock()
-            .map_err(|_| std::io::Error::other("the PTY writer is poisoned"))?;
-        input.write_all(bytes)?;
-        input.flush()
+        self.input.typed(bytes)
     }
 
-    #[cfg(feature = "colour-replies")]
     /// Queue the terminal's own reply to the program. Never blocks. Returns
-    /// whether it was queued; it is not when the queue is full or the writer has
-    /// stopped.
+    /// whether it was queued; it is not when too many replies already wait.
+    #[cfg(feature = "colour-replies")]
     pub fn send_reply(&self, bytes: Vec<u8>) -> bool {
-        !matches!(
-            self.replies.try_send(bytes),
-            Err(TrySendError::Full(_) | TrySendError::Disconnected(_))
-        )
+        self.input.reply(bytes)
     }
 
     /// Tell the program its size is now `columns` by `rows`.
