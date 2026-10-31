@@ -33,5 +33,7 @@ pub mod protocol;
 pub mod run;
 #[cfg(target_os = "linux")]
 pub mod spawn;
+#[cfg(all(target_os = "linux", feature = "seal-requests"))]
+pub mod terminal;
 
 pub use layout::{EOF_FD, PIDFD_FD, SEAL_FD, SPAWN_FD};

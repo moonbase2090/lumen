@@ -142,6 +142,13 @@ impl Session {
         Ok(Self::from_pty(layer, columns, rows, pty))
     }
 
+    /// Give the session's layer the receiver for frames sealed to the terminal.
+    /// Only a session whose layer has sealing keys calls this; without it every
+    /// sealed-range frame stays escaped text.
+    pub fn attach_sealed(&mut self, receiver: lumen_sealed::Receiver, cap_of: fn(u8) -> u8) {
+        self.layer.attach_sealed(receiver, cap_of);
+    }
+
     /// The document so far.
     #[must_use]
     pub fn document(&self) -> &Document {

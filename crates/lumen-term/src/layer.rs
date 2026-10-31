@@ -58,6 +58,12 @@ pub trait Layer {
     /// The terminal refused an authenticated sealed frame (a payload it could
     /// not use): count it toward the pin.
     fn sealed_abort(&mut self, now_ms: u64) -> Vec<Piece>;
+    /// Give the layer the receiver for frames sealed to the terminal, and the
+    /// capability byte each frame type is sealed under. A layer without sealing
+    /// keys never has one, and then every sealed-range frame is escaped text.
+    /// The default keeps no receiver, which is the case for a layer with no
+    /// sealing at all.
+    fn attach_sealed(&mut self, _receiver: lumen_sealed::Receiver, _cap_of: fn(u8) -> u8) {}
 }
 
 /// No arm: every byte goes to the grid.
@@ -123,6 +129,10 @@ mod arm_b {
                 .into_iter()
                 .map(piece)
                 .collect()
+        }
+
+        fn attach_sealed(&mut self, receiver: lumen_sealed::Receiver, cap_of: fn(u8) -> u8) {
+            b::Layer::attach_sealed(self, receiver, cap_of);
         }
     }
 

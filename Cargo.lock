@@ -883,6 +883,9 @@ name = "lumen-holder"
 version = "0.0.0"
 dependencies = [
  "libc",
+ "lumen-arm-b",
+ "lumen-detector",
+ "lumen-seal",
  "lumen-sealed",
  "zeroize",
 ]
