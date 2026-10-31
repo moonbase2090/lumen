@@ -1,0 +1,3057 @@
+{
+ "roots": {
+  "lumen-decoder": {
+   "adler2 2.0.1": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "bitflags 2.13.2": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "byteorder-lite 0.1.0": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "cfg-if 1.0.5": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "crc32fast 1.5.3": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 314,
+     "functions": 10,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 119,
+     "functions": 3,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "fdeflate 0.3.7": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "flate2 1.1.10": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 259,
+     "functions": 2,
+     "item_impls": 2,
+     "item_traits": 0,
+     "methods": 4
+    },
+    "unsafe_used": {
+     "exprs": 68,
+     "functions": 1,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "image-webp 0.2.4": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "libc 0.2.191": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 847,
+     "functions": 92,
+     "item_impls": 8,
+     "item_traits": 0,
+     "methods": 137
+    },
+    "unsafe_used": {
+     "exprs": 12,
+     "functions": 1,
+     "item_impls": 2,
+     "item_traits": 0,
+     "methods": 5
+    }
+   },
+   "lumen-decoder 0.0.0": {
+    "forbids_unsafe": false,
+    "source": "Path",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 57,
+     "functions": 0,
+     "item_impls": 1,
+     "item_traits": 0,
+     "methods": 4
+    }
+   },
+   "miniz_oxide 0.8.9": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "miniz_oxide 0.9.1": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "png 0.18.1": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "quick-error 2.0.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "simd-adler32 0.3.10": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 482,
+     "functions": 28,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "zune-core 0.5.3": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "zune-jpeg 0.5.16-rc3": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 190,
+     "functions": 3,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 1107,
+     "functions": 19,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 1
+    }
+   }
+  },
+  "lumen-detector": {
+   "lumen-detector 0.0.0": {
+    "forbids_unsafe": true,
+    "source": "Path",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   }
+  },
+  "lumen-seal": {
+   "libc 0.2.191": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 859,
+     "functions": 93,
+     "item_impls": 10,
+     "item_traits": 0,
+     "methods": 142
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "lumen-seal 0.0.0": {
+    "forbids_unsafe": false,
+    "source": "Path",
+    "unsafe_unused": {
+     "exprs": 5,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   }
+  },
+  "lumen-sealed": {
+   "aead 0.5.2": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "block-buffer 0.10.4": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 16,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "cfg-if 1.0.5": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "chacha20 0.9.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 842,
+     "functions": 13,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "chacha20poly1305 0.10.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "cipher 0.4.4": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 7,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "cpufeatures 0.2.17": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 1,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 11,
+     "functions": 1,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "crypto-common 0.1.7": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "digest 0.10.7": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "generic-array 0.14.7": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 285,
+     "functions": 1,
+     "item_impls": 20,
+     "item_traits": 8,
+     "methods": 5
+    }
+   },
+   "getrandom 0.2.17": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 141,
+     "functions": 3,
+     "item_impls": 1,
+     "item_traits": 0,
+     "methods": 2
+    },
+    "unsafe_used": {
+     "exprs": 51,
+     "functions": 3,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 1
+    }
+   },
+   "hkdf 0.12.4": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "hmac 0.12.1": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "inout 0.1.4": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 126,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 3
+    }
+   },
+   "libc 0.2.191": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 847,
+     "functions": 92,
+     "item_impls": 8,
+     "item_traits": 0,
+     "methods": 137
+    },
+    "unsafe_used": {
+     "exprs": 12,
+     "functions": 1,
+     "item_impls": 2,
+     "item_traits": 0,
+     "methods": 5
+    }
+   },
+   "lumen-sealed 0.0.0": {
+    "forbids_unsafe": true,
+    "source": "Path",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "opaque-debug 0.3.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "poly1305 0.8.0": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 975,
+     "functions": 5,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 12
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "rand_core 0.6.4": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 2,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "sha2 0.10.9": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 703,
+     "functions": 18,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 4,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "subtle 2.6.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 8,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "typenum 1.20.1": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "universal-hash 0.5.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 1,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "zeroize 1.9.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 12,
+     "functions": 0,
+     "item_impls": 1,
+     "item_traits": 0,
+     "methods": 2
+    },
+    "unsafe_used": {
+     "exprs": 26,
+     "functions": 2,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   }
+  },
+  "lumen-term": {
+   "adler2 2.0.1": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "aead 0.5.2": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "ahash 0.8.12": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 22,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "anyhow 1.0.104": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 6,
+     "functions": 3,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 354,
+     "functions": 12,
+     "item_impls": 2,
+     "item_traits": 0,
+     "methods": 12
+    }
+   },
+   "arrayvec 0.7.8": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 342,
+     "functions": 2,
+     "item_impls": 2,
+     "item_traits": 0,
+     "methods": 7
+    }
+   },
+   "as-raw-xcb-connection 1.0.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 2,
+     "functions": 0,
+     "item_impls": 7,
+     "item_traits": 1,
+     "methods": 1
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "bitflags 1.3.2": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "bitflags 2.13.2": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "block-buffer 0.10.4": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 16,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "bytemuck 1.25.2": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 78,
+     "functions": 0,
+     "item_impls": 3,
+     "item_traits": 0,
+     "methods": 1
+    },
+    "unsafe_used": {
+     "exprs": 356,
+     "functions": 18,
+     "item_impls": 153,
+     "item_traits": 9,
+     "methods": 0
+    }
+   },
+   "bytemuck_derive 1.12.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 1,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "bytes 1.12.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 826,
+     "functions": 40,
+     "item_impls": 14,
+     "item_traits": 1,
+     "methods": 20
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "calloop 0.13.0": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 93,
+     "functions": 0,
+     "item_impls": 1,
+     "item_traits": 0,
+     "methods": 5
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "calloop-wayland-source 0.3.0": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "cfg-if 1.0.5": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "chacha20 0.9.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 842,
+     "functions": 13,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "chacha20poly1305 0.10.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "cipher 0.4.4": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 7,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "cpufeatures 0.2.17": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 1,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 11,
+     "functions": 1,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "crc32fast 1.5.3": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 314,
+     "functions": 10,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 119,
+     "functions": 3,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "crypto-common 0.1.7": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "ctor 0.10.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 10,
+     "functions": 23,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "cursor-icon 1.2.0": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "digest 0.10.7": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "dlib 0.5.3": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "downcast-rs 1.2.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "dpi 0.1.2": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "errno 0.3.14": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 68,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 35,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "fastrand 2.5.0": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "fdeflate 0.3.7": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "filedescriptor 0.8.3": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 161,
+     "functions": 0,
+     "item_impls": 2,
+     "item_traits": 0,
+     "methods": 5
+    },
+    "unsafe_used": {
+     "exprs": 110,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 6
+    }
+   },
+   "flate2 1.1.10": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 259,
+     "functions": 2,
+     "item_impls": 2,
+     "item_traits": 0,
+     "methods": 4
+    },
+    "unsafe_used": {
+     "exprs": 68,
+     "functions": 1,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "font-types 0.12.7": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 5,
+     "functions": 0,
+     "item_impls": 3,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "generic-array 0.14.7": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 285,
+     "functions": 1,
+     "item_impls": 20,
+     "item_traits": 8,
+     "methods": 5
+    }
+   },
+   "gethostname 1.1.0": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 8,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "getrandom 0.2.17": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 141,
+     "functions": 3,
+     "item_impls": 1,
+     "item_traits": 0,
+     "methods": 2
+    },
+    "unsafe_used": {
+     "exprs": 51,
+     "functions": 3,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 1
+    }
+   },
+   "getrandom 0.3.4": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 333,
+     "functions": 16,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "hkdf 0.12.4": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "hmac 0.12.1": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "inout 0.1.4": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 126,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 3
+    }
+   },
+   "libc 0.2.191": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 847,
+     "functions": 92,
+     "item_impls": 8,
+     "item_traits": 0,
+     "methods": 137
+    },
+    "unsafe_used": {
+     "exprs": 12,
+     "functions": 1,
+     "item_impls": 2,
+     "item_traits": 0,
+     "methods": 5
+    }
+   },
+   "libloading 0.8.9": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 291,
+     "functions": 4,
+     "item_impls": 12,
+     "item_traits": 0,
+     "methods": 16
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "linux-raw-sys 0.12.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 17551,
+     "functions": 10,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 2286
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "linux-raw-sys 0.4.15": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 4781,
+     "functions": 10,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 314
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "log 0.4.34": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 18,
+     "functions": 2,
+     "item_impls": 1,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "lumen-arm-b 0.0.0": {
+    "forbids_unsafe": true,
+    "source": "Path",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "lumen-detector 0.0.0": {
+    "forbids_unsafe": true,
+    "source": "Path",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "lumen-sealed 0.0.0": {
+    "forbids_unsafe": true,
+    "source": "Path",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "lumen-term 0.0.0": {
+    "forbids_unsafe": false,
+    "source": "Path",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "lumen-track0 0.0.0": {
+    "forbids_unsafe": true,
+    "source": "Path",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "memchr 2.8.3": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 728,
+     "functions": 14,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 65
+    },
+    "unsafe_used": {
+     "exprs": 1712,
+     "functions": 34,
+     "item_impls": 2,
+     "item_traits": 0,
+     "methods": 83
+    }
+   },
+   "memmap2 0.9.11": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 314,
+     "functions": 0,
+     "item_impls": 6,
+     "item_traits": 0,
+     "methods": 18
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "miniz_oxide 0.8.9": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "miniz_oxide 0.9.1": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "nix 0.28.0": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 1530,
+     "functions": 16,
+     "item_impls": 4,
+     "item_traits": 0,
+     "methods": 23
+    },
+    "unsafe_used": {
+     "exprs": 279,
+     "functions": 1,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 1
+    }
+   },
+   "once_cell 1.21.4": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 84,
+     "functions": 0,
+     "item_impls": 6,
+     "item_traits": 0,
+     "methods": 3
+    },
+    "unsafe_used": {
+     "exprs": 44,
+     "functions": 0,
+     "item_impls": 3,
+     "item_traits": 0,
+     "methods": 2
+    }
+   },
+   "opaque-debug 0.3.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "percent-encoding 2.3.2": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 8,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "pin-project-lite 0.2.17": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 180,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 11,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 2
+    }
+   },
+   "png 0.17.16": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "polling 3.11.0": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 414,
+     "functions": 2,
+     "item_impls": 18,
+     "item_traits": 4,
+     "methods": 14
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "poly1305 0.8.0": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 975,
+     "functions": 5,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 12
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "portable-pty 0.9.0": {
+    "forbids_unsafe": false,
+    "source": "Git",
+    "unsafe_unused": {
+     "exprs": 88,
+     "functions": 0,
+     "item_impls": 3,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 145,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "prismattyc-core 0.3.52": {
+    "forbids_unsafe": false,
+    "source": "Git",
+    "unsafe_unused": {
+     "exprs": 8,
+     "functions": 0,
+     "item_impls": 1,
+     "item_traits": 0,
+     "methods": 3
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "prismattyc-emulator 0.3.52": {
+    "forbids_unsafe": false,
+    "source": "Git",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 11,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "prismattyc-protocol 0.3.52": {
+    "forbids_unsafe": false,
+    "source": "Git",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "proc-macro2 1.0.107": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 14,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 3
+    }
+   },
+   "quick-xml 0.41.0": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "quote 1.0.47": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "rand_core 0.6.4": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 2,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "raw-window-handle 0.6.2": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 32,
+     "functions": 0,
+     "item_impls": 2,
+     "item_traits": 2,
+     "methods": 4
+    }
+   },
+   "read-fonts 0.41.0": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "rustix 0.38.44": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 6928,
+     "functions": 381,
+     "item_impls": 4,
+     "item_traits": 0,
+     "methods": 20
+    },
+    "unsafe_used": {
+     "exprs": 541,
+     "functions": 26,
+     "item_impls": 6,
+     "item_traits": 1,
+     "methods": 17
+    }
+   },
+   "rustix 1.1.5": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 7521,
+     "functions": 436,
+     "item_impls": 22,
+     "item_traits": 2,
+     "methods": 62
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "rustversion 1.0.23": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 1,
+     "functions": 1,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "scoped-tls 1.0.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 5,
+     "functions": 0,
+     "item_impls": 1,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "serde 1.0.229": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 5,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "serde_core 1.0.229": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 5,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "serde_derive 1.0.229": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "serial2 0.2.39": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 335,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 187,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 2
+    }
+   },
+   "sha2 0.10.9": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 703,
+     "functions": 18,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 4,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "shell-words 1.1.1": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "simd-adler32 0.3.10": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 482,
+     "functions": 28,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "skrifa 0.44.0": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "slab 0.4.12": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 29,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 3
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "smallvec 1.16.4": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 613,
+     "functions": 1,
+     "item_impls": 7,
+     "item_traits": 1,
+     "methods": 14
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "smithay-client-toolkit 0.19.2": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 42,
+     "functions": 0,
+     "item_impls": 2,
+     "item_traits": 0,
+     "methods": 4
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "smol_str 0.2.2": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 30,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 1
+    }
+   },
+   "softbuffer 0.4.8": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 215,
+     "functions": 1,
+     "item_impls": 7,
+     "item_traits": 0,
+     "methods": 10
+    },
+    "unsafe_used": {
+     "exprs": 72,
+     "functions": 1,
+     "item_impls": 3,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "subtle 2.6.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 8,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "swash 0.2.10": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 351,
+     "functions": 1,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 15
+    }
+   },
+   "syn 2.0.119": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 87,
+     "functions": 0,
+     "item_impls": 3,
+     "item_traits": 0,
+     "methods": 2
+    }
+   },
+   "syn 3.0.9": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 88,
+     "functions": 0,
+     "item_impls": 3,
+     "item_traits": 0,
+     "methods": 2
+    }
+   },
+   "thiserror 1.0.69": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "thiserror-impl 1.0.69": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "tiny-xlib 0.2.5": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 128,
+     "functions": 3,
+     "item_impls": 6,
+     "item_traits": 0,
+     "methods": 9
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "tokio 1.54.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 3081,
+     "functions": 31,
+     "item_impls": 120,
+     "item_traits": 3,
+     "methods": 137
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "tracing 0.1.44": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 17,
+     "functions": 0,
+     "item_impls": 1,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "tracing-core 0.1.36": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 98,
+     "functions": 0,
+     "item_impls": 5,
+     "item_traits": 0,
+     "methods": 2
+    }
+   },
+   "typenum 1.20.1": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "unicode-general-category 1.1.0": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "unicode-ident 1.0.27": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 4,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "unicode-width 0.2.3": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "universal-hash 0.5.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 1,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "vte 0.15.0": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 27,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "wayland-backend 0.3.17": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 946,
+     "functions": 15,
+     "item_impls": 17,
+     "item_traits": 0,
+     "methods": 9
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "wayland-client 0.31.15": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 1,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "wayland-csd-frame 0.3.0": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "wayland-cursor 0.31.14": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "wayland-protocols 0.32.13": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "wayland-protocols-plasma 0.3.12": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "wayland-protocols-wlr 0.3.12": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "wayland-scanner 0.31.11": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 7,
+     "functions": 0,
+     "item_impls": 1,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "wayland-sys 0.31.11": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 18,
+     "functions": 7,
+     "item_impls": 2,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "winit 0.30.13": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 4829,
+     "functions": 32,
+     "item_impls": 27,
+     "item_traits": 0,
+     "methods": 41
+    },
+    "unsafe_used": {
+     "exprs": 459,
+     "functions": 3,
+     "item_impls": 17,
+     "item_traits": 0,
+     "methods": 2
+    }
+   },
+   "x11-dl 2.21.0": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 347,
+     "functions": 3,
+     "item_impls": 2,
+     "item_traits": 0,
+     "methods": 5
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "x11rb 0.13.2": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 325,
+     "functions": 17,
+     "item_impls": 8,
+     "item_traits": 0,
+     "methods": 10
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "x11rb-protocol 0.13.2": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "xcursor 0.3.11": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "xkbcommon-dl 0.4.2": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 3,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "xkeysym 0.2.1": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "yazi 0.2.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "zeno 0.3.3": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    },
+    "unsafe_used": {
+     "exprs": 3,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "zerocopy 0.8.63": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 459,
+     "functions": 12,
+     "item_impls": 75,
+     "item_traits": 29,
+     "methods": 38
+    },
+    "unsafe_used": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "zeroize 1.9.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_unused": {
+     "exprs": 12,
+     "functions": 0,
+     "item_impls": 1,
+     "item_traits": 0,
+     "methods": 2
+    },
+    "unsafe_used": {
+     "exprs": 26,
+     "functions": 2,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   }
+  }
+ },
+ "target": "x86_64-unknown-linux-gnu"
+}
