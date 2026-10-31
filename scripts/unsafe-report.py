@@ -52,6 +52,27 @@ def fresh():
     return {"target": TARGET, "roots": {c: scan(c) for c in ROOTS}}
 
 
+def differences(old, new):
+    """Every difference between two reports: the target, the set of root crates
+    (a root dropped from the list is a difference, not a skipped scan), and each
+    package of each root."""
+    diffs = []
+    if old.get("target") != new.get("target"):
+        diffs.append(f"target: committed {old.get('target')} -> now {new.get('target')}")
+    old_roots, new_roots = old.get("roots", {}), new.get("roots", {})
+    for c in sorted(set(old_roots) | set(new_roots)):
+        if c not in new_roots:
+            diffs.append(f"{c}: committed, not scanned now")
+        elif c not in old_roots:
+            diffs.append(f"{c}: scanned now, not in the committed report")
+        else:
+            a, b = old_roots[c], new_roots[c]
+            for k in sorted(set(a) | set(b)):
+                if a.get(k) != b.get(k):
+                    diffs.append(f"{c}: {k}: committed {a.get(k)} -> now {b.get(k)}")
+    return diffs
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     if mode == "write":
@@ -60,13 +81,7 @@ def main():
             fh.write("\n")
         print("wrote", os.path.relpath(REPORT, ROOT))
     elif mode == "check":
-        new, old = fresh(), json.load(open(REPORT))
-        diffs = []
-        for c in ROOTS:
-            a, b = old["roots"].get(c, {}), new["roots"][c]
-            for k in sorted(set(a) | set(b)):
-                if a.get(k) != b.get(k):
-                    diffs.append(f"{c}: {k}: committed {a.get(k)} -> now {b.get(k)}")
+        diffs = differences(json.load(open(REPORT)), fresh())
         if diffs:
             print("the unsafe-code report changed; review each line, then run `scripts/unsafe-report.py write`:")
             print("\n".join(diffs))

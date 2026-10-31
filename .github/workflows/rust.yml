@@ -73,4 +73,5 @@ jobs:
       - name: Unsafe-code report is unchanged
         run: |
           export PATH="$HOME/.cargo/audit-tools/bin:$PATH"
+          scripts/test-unsafe-report.py
           scripts/unsafe-report.py check

@@ -1,12 +1,12 @@
 # Phase 1 dependency audit gate
 
-What the gate checks, what it does not, and where the unsafe and FFI boundary sits. The gate has two machine checks that run on every pull request (`supply-chain` in `.github/workflows/rust.yml`) and one document, this one, that records the manual part.
+What the gate checks, what it does not, and where the unsafe and FFI boundary sits. The gate has two machine checks that run on every pull request (`supply-chain` in `.github/workflows/rust.yml`) and one document, this one, that records the manual part. The `supply-chain` check is advisory until a maintainer lists it as a required status in the repository settings and the policy: a failing run does not block a merge today.
 
 ## The two checks
 
 1. **`cargo vet --locked`.** Every third-party crate in the lockfile is covered by an audit in `supply-chain/audits.toml` or by an **exemption** in `supply-chain/config.toml`. A new or updated dependency fails the check until someone adds one of the two.
    - **What the numbers mean.** At the first run all 252 third-party packages are exempted and none is audited. **An exemption is not an audit**: it records that the crate was already in the tree when the gate started and has not been reviewed by us. The exemption list is the backlog, not evidence. Importing other projects' public audit lists would cover about 40 of them, but those files carry reviewers' email addresses, which the repository's text rules do not allow; that is a later decision.
-   - **The version policy.** `lumen-term` and `portable-pty` carry `audit-as-crates-io` so that the tool treats them as third-party code to be covered. The other Prismattyc crates the build links are not in the tool's set (they are git dependencies of the same owner), so they are covered by the manual review below and by the pin check, not by this tool.
+   - **The version policy.** `lumen-term` and `portable-pty` carry `audit-as-crates-io` so that the tool treats them as third-party code to be covered. The other Prismattyc crates the build links are not in the tool's set, so they are covered by the manual review below and by the pin check, not by this tool.
 2. **`scripts/unsafe-report.py check`.** For each root crate on the three paths below, the unsafe-code counter runs over the whole dependency tree for the Linux target and the per-package totals (every unsafe item in the source files, not the counter's host-dependent used/unused split) is compared with `docs/phase-1/unsafe-report.json`. Any difference fails: a new dependency with unsafe code, a bumped version, a crate that stops forbidding unsafe, a change in count. After looking at each line, `scripts/unsafe-report.py write` regenerates the file. The counts are the tool's, not a review: they say how much unsafe code there is, and say nothing about whether it is sound.
 
 ## The paths
@@ -42,7 +42,7 @@ The terminal links five crates from the upstream VT core repository at the pinne
 | `prismattyc-emulator` | 2 production sites. `graphics/file_transport.rs`: `libc::geteuid()` for the owner check of a file offered by an image upload (no pointers). `lib.rs`: `libc::fcntl(fd, F_GETFD)` on a descriptor the code owns, to refuse a child descriptor that is not close-on-exec; the code carries a `SAFETY` comment. The other 25 sites in the file are in `#[cfg(test)]` code (test pipes, `std::env::remove_var`). | Both production sites read. |
 | `portable-pty` (vendored) | About 50 sites in 6 files, mostly the PTY plumbing: `openpty` and `from_raw_fd` for the master and slave, `ttyname_r`, `tcgetattr`, the window-size ioctl, `tcgetpgrp`, `fcntl` for close-on-exec, `kill(SIGHUP)`, `strsignal`, and `getpwuid` for the default shell and home directory. The Windows files (`win/`) are not built on the supported platforms. | Classified by the system call each site makes. **Not read line by line**; this is the open item below. |
 
-Because the VT core is first-party for Lumen (same owner, same review policy), its unsafe code is a review obligation here rather than something the tool can waive. The pin is the control: `Cargo.toml` pins the revision, `deny.toml` allows only that repository as a git source, and a change of the revision changes the report (the package versions and counts), which fails the check until this table is looked at again.
+The VT core's unsafe code is a review obligation in this repository: the tool does not cover those crates, so nothing waives it. The pin is the control: `Cargo.toml` pins the revision, `deny.toml` allows only that repository as a git source, and a change of the revision changes the report (the package versions and counts), which fails the check until this table is looked at again.
 
 ## What this does not claim
 
