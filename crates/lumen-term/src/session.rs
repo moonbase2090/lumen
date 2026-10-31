@@ -3,6 +3,10 @@
 use crate::document::{Block, Document};
 use crate::layer::{Context, Layer};
 use crate::pty::{Pty, SpawnError};
+#[cfg(feature = "colour-replies")]
+use crate::raster::Theme;
+#[cfg(feature = "colour-replies")]
+use crate::reply::Replies;
 #[cfg(all(unix, feature = "multiplexer-client"))]
 use std::os::fd::OwnedFd;
 #[cfg(all(unix, feature = "multiplexer-client"))]
@@ -78,6 +82,8 @@ pub struct Session {
     pty: Pty,
     clock: Instant,
     tmux_or_screen: bool,
+    #[cfg(feature = "colour-replies")]
+    replies: Replies,
 }
 
 impl Session {
@@ -88,6 +94,8 @@ impl Session {
             layer,
             pty,
             clock: Instant::now(),
+            #[cfg(feature = "colour-replies")]
+            replies: Replies::new(Theme::light()),
             // The program inherits this environment, so these are the layer's.
             tmux_or_screen: std::env::var_os("TMUX").is_some() || std::env::var_os("STY").is_some(),
         }
@@ -160,6 +168,12 @@ impl Session {
         self.document.take_events()
     }
 
+    /// Answer colour queries from `theme` from now on.
+    #[cfg(feature = "colour-replies")]
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.replies.set_theme(theme);
+    }
+
     /// Milliseconds since the session started: the clock the notifier uses.
     #[must_use]
     pub fn now_ms(&self) -> u64 {
@@ -182,6 +196,16 @@ impl Session {
         }
         let ctx = self.context();
         self.document.receive(self.layer.as_mut(), bytes, ctx);
+        let queries = self.document.take_colour_queries();
+        #[cfg(feature = "colour-replies")]
+        if !queries.is_empty() {
+            let reply = self.replies.answer(&queries, ctx.now_ms);
+            if !reply.is_empty() {
+                self.pty.send_reply(reply);
+            }
+        }
+        #[cfg(not(feature = "colour-replies"))]
+        drop(queries);
         bytes.len()
     }
 

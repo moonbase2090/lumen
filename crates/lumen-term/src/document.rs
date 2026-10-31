@@ -4,6 +4,7 @@ use crate::grid::GridBlock;
 use crate::guard::Guard;
 use crate::isolate::{Isolator, Note, Stats};
 use crate::layer::{Context, Layer, Notice, Piece};
+use crate::reply::ColourQuery;
 use crate::strip::Strip;
 use lumen_track0::Block as Track0Block;
 use std::collections::BTreeSet;
@@ -67,7 +68,11 @@ pub struct Document {
     guard: Guard,
     isolator: Isolator,
     events: Vec<Event>,
+    colour_queries: Vec<ColourQuery>,
 }
+
+/// Most colour queries kept for the owner to answer. Later ones are not kept.
+const MAX_PENDING_QUERIES: usize = 64;
 
 impl Document {
     /// An empty document whose grid blocks are `columns` by `rows`.
@@ -84,6 +89,7 @@ impl Document {
             guard: Guard::new(),
             isolator: Isolator::new(),
             events: Vec::new(),
+            colour_queries: Vec::new(),
         }
     }
 
@@ -128,6 +134,12 @@ impl Document {
         &self.sealed
     }
 
+    /// The colour queries grid output has made since the last call, oldest
+    /// first. The owner answers them with [`crate::reply::Replies`].
+    pub fn take_colour_queries(&mut self) -> Vec<ColourQuery> {
+        std::mem::take(&mut self.colour_queries)
+    }
+
     /// What grid isolation has removed so far.
     #[must_use]
     pub fn isolation(&self) -> Stats {
@@ -139,9 +151,17 @@ impl Document {
         let mut allowed = Vec::with_capacity(bytes.len());
         let mut notes = Vec::new();
         self.isolator.filter(bytes, &mut allowed, &mut notes);
-        for Note::StringTruncated in notes {
-            self.events
-                .push(Event::StringTruncated { cycle: self.cycle });
+        for note in notes {
+            match note {
+                Note::StringTruncated => self
+                    .events
+                    .push(Event::StringTruncated { cycle: self.cycle }),
+                Note::ColourQuery(query) => {
+                    if self.colour_queries.len() < MAX_PENDING_QUERIES {
+                        self.colour_queries.push(query);
+                    }
+                }
+            }
         }
         if !allowed.is_empty() {
             self.grid().feed(&allowed);

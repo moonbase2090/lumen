@@ -247,7 +247,7 @@ fn resolve(colour: Color, default: Rgb, theme: &Theme) -> Rgb {
     }
 }
 
-fn indexed(n: u8, theme: &Theme) -> Rgb {
+pub(crate) fn indexed(n: u8, theme: &Theme) -> Rgb {
     const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
     match n {
         0..=15 => theme.ansi[usize::from(n)],

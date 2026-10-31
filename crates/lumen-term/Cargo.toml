@@ -18,6 +18,10 @@ window = ["dep:winit", "dep:softbuffer"]
 # default-ignorable and bidi code points in notification text. Forwards to
 # lumen-track0. On by default; without it the earlier rules apply.
 zero-width-text = ["lumen-track0/zero-width-text", "lumen-arm-b/zero-width-text"]
+# Answer colour queries (OSC 4, 10, 11, 12, 17, 19 with `?`) from the theme, by
+# writing the fixed reply to the program's PTY. Off by default; turning it on by
+# default is its own change.
+colour-replies = []
 # Spawn a configured Lumen-aware multiplexer client with a child-only key fd.
 # Off by default until the multiplexer conformance gate passes.
 multiplexer-client = []
@@ -44,7 +48,7 @@ rustix = { version = "0.38", default-features = false, features = ["std", "proce
 
 [dev-dependencies]
 # The tests build the window code, so a self-dependency turns the feature on.
-lumen-term = { path = ".", default-features = false, features = ["window"] }
+lumen-term = { path = ".", default-features = false, features = ["window", "colour-replies"] }
 lumen-detector = { path = "../lumen-detector" }
 sha2 = "0.10"
 

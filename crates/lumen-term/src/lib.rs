@@ -29,8 +29,10 @@ pub mod os_backend;
 pub mod policy;
 mod pty;
 pub mod raster;
+pub mod reply;
 pub mod session;
 pub mod strip;
+mod writer;
 
 pub use app::App;
 pub use document::{Block, Document, Event, RichBlock};

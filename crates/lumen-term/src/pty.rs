@@ -1,7 +1,8 @@
 //! A PTY with a reader thread, sized to the block it belongs to.
 
+use crate::writer::InputWriter;
 use prismattyc_emulator::{PtySession, pty_size_with_cell_pixels};
-use std::io::{Read, Write};
+use std::io::Read;
 #[cfg(all(unix, feature = "multiplexer-client"))]
 use std::os::fd::{OwnedFd, RawFd};
 use std::sync::mpsc::{Receiver, channel};
@@ -27,7 +28,7 @@ impl std::error::Error for SpawnError {}
 /// owner to take when it chooses.
 pub struct Pty {
     session: PtySession,
-    input: Box<dyn Write + Send>,
+    input: InputWriter,
     output: Receiver<Vec<u8>>,
     reader: Option<JoinHandle<()>>,
     exited: bool,
@@ -41,6 +42,7 @@ impl Pty {
         let input = session
             .take_input_writer()
             .map_err(|e| SpawnError(e.to_string()))?;
+        let input = InputWriter::new(input);
         let (send, output) = channel();
         let handle = std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
@@ -118,14 +120,22 @@ impl Pty {
         bytes
     }
 
-    /// Type `bytes` to the program.
+    /// Type `bytes` to the program. The bytes are queued and written on another
+    /// thread, so this never waits on the program.
     ///
     /// # Errors
     ///
-    /// Returns the write error.
+    /// Returns `WouldBlock` if the program has left a long run of input unread,
+    /// or `BrokenPipe` if the PTY can no longer be written.
     pub fn send(&mut self, bytes: &[u8]) -> std::io::Result<()> {
-        self.input.write_all(bytes)?;
-        self.input.flush()
+        self.input.typed(bytes)
+    }
+
+    /// Queue the terminal's own reply to the program. Never blocks. Returns
+    /// whether it was queued; it is not when too many replies already wait.
+    #[cfg(feature = "colour-replies")]
+    pub fn send_reply(&self, bytes: Vec<u8>) -> bool {
+        self.input.reply(bytes)
     }
 
     /// Tell the program its size is now `columns` by `rows`.
