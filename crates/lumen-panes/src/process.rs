@@ -48,7 +48,7 @@ impl Program {
     /// Returns [`ProcessStateError::RelativeProgram`] for a relative path.
     pub fn new(path: impl Into<PathBuf>) -> Result<Self, ProcessStateError> {
         let path = path.into();
-        if !path.is_absolute() {
+        if !is_absolute_program_path(&path) {
             return Err(ProcessStateError::RelativeProgram);
         }
         Ok(Self(path))
@@ -59,6 +59,27 @@ impl Program {
     pub fn as_path(&self) -> &Path {
         &self.0
     }
+}
+
+/// The pane corpus is replayed unchanged on every host, so it can contain an
+/// absolute path in either platform's syntax. Native paths are handled by
+/// [`Path::is_absolute`]; the lexical checks recognize the other platform's
+/// rooted forms without accepting Windows drive-relative or root-relative
+/// paths.
+fn is_absolute_program_path(path: &Path) -> bool {
+    if path.is_absolute() {
+        return true;
+    }
+    let Some(text) = path.to_str() else {
+        return false;
+    };
+    if text.starts_with('/') || text.starts_with(r"\\") {
+        return true;
+    }
+    let bytes = text.as_bytes();
+    bytes.first().is_some_and(u8::is_ascii_alphabetic)
+        && bytes.get(1) == Some(&b':')
+        && matches!(bytes.get(2), Some(b'/' | b'\\'))
 }
 
 /// The identity of one observed process. The start marker disambiguates pid

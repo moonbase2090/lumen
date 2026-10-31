@@ -23,6 +23,25 @@ fn process_identity_rejects_ambiguous_boundary_values() {
 }
 
 #[test]
+fn program_paths_are_absolute_independent_of_the_replay_host() {
+    for path in [
+        "/bin/zsh",
+        r"C:\Windows\System32\cmd.exe",
+        "C:/Windows/System32/cmd.exe",
+        r"\\server\share\program.exe",
+    ] {
+        assert!(Program::new(path).is_ok(), "absolute path: {path}");
+    }
+    for path in ["bin/zsh", r"C:program.exe", r"\Windows\program.exe"] {
+        assert_eq!(
+            Program::new(path),
+            Err(ProcessStateError::RelativeProgram),
+            "ambiguous path: {path}"
+        );
+    }
+}
+
+#[test]
 fn an_exec_stays_recorded_after_the_original_program_returns() {
     let spawn = identity(41, 90, "/bin/zsh");
     let mut state = PaneProcessState::new(spawn.clone(), true);
