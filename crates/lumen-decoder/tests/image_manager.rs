@@ -382,7 +382,8 @@ fn a_declared_size_over_the_limits_is_refused_before_anything_is_reserved() {
         (5, 0),
         (65536, 1),
         (1, 65536),
-        (8001, 4000),
+        (4001, 4000),
+        (641, 24961),
         (u32::MAX, u32::MAX),
     ] {
         assert_eq!(
@@ -461,19 +462,82 @@ fn a_sealed_producer_may_use_the_whole_session_budget_but_not_more() {
     let (mut m, _d, _s) = held(Limits::default());
     m.register(Producer(1), SEALED);
     m.register(Producer(2), SEALED);
-    // 8000 x 4000 x 4 = 128,000,000: two fit in 268,435,456, a third does not.
+    // 4000 x 4000 x 4 = 64,000,000: four fit in 268,435,456, a fifth does not.
+    for (producer, id) in [(1, 1), (2, 1), (1, 2), (2, 2)] {
+        assert_eq!(
+            m.submit(
+                Producer(producer),
+                id,
+                Format::Png,
+                (4000, 4000),
+                bytes_for(1)
+            ),
+            Submit::Queued,
+            "producer {producer}, image {id}"
+        );
+    }
     assert_eq!(
-        m.submit(Producer(1), 1, Format::Png, (8000, 4000), bytes_for(1)),
-        Submit::Queued
-    );
-    assert_eq!(
-        m.submit(Producer(2), 1, Format::Png, (8000, 4000), bytes_for(2)),
-        Submit::Queued
-    );
-    assert_eq!(
-        m.submit(Producer(1), 2, Format::Png, (8000, 4000), bytes_for(1)),
+        m.submit(Producer(1), 3, Format::Png, (4000, 4000), bytes_for(1)),
         Submit::AltText(AltReason::OverBudget)
     );
+}
+
+// ---- the largest legal image ---------------------------------------------
+
+/// The pixel counts that are the largest legal image, in every shape the side
+/// limit allows that the spec's numbers make easy to write down.
+const LARGEST: [(u32, u32); 4] = [(4000, 4000), (3200, 5000), (250, 64000), (64000, 250)];
+
+#[test]
+fn the_largest_legal_image_fits_one_producers_whole_budget_whatever_its_shape() {
+    use lumen_decoder::limits;
+    // The number the spec fixes, and the share of one unsigned producer it must fit.
+    let limits_default = Limits::default();
+    let unsigned_share = limits_default.session_bytes / 100 * limits_default.unsigned_percent;
+    assert_eq!(limits::MAX_PIXELS, 16_000_000);
+    assert_eq!(limits::MAX_PIXELS * 4, 64_000_000);
+    assert!(limits::MAX_PIXELS * 4 <= unsigned_share, "{unsigned_share}");
+    for (trust, name) in [(UNSIGNED, "unsigned"), (SEALED, "sealed")] {
+        for hint in LARGEST {
+            assert_eq!(u64::from(hint.0) * u64::from(hint.1), limits::MAX_PIXELS);
+            let (mut m, d, _s) = held(Limits::default());
+            m.register(Producer(1), trust);
+            assert_eq!(
+                m.submit(Producer(1), 1, Format::Png, hint, bytes_for(1)),
+                Submit::Queued,
+                "{name} {hint:?}: the largest legal image was not accepted"
+            );
+            assert_eq!(m.session_bytes(), 64_000_000, "{name} {hint:?}");
+            drop(d);
+        }
+    }
+}
+
+#[test]
+fn an_image_one_pixel_over_the_limit_is_refused_before_anything_is_reserved_or_decoded() {
+    // 641 x 24961 = 16,000,001: one pixel over, and inside the side limit.
+    assert_eq!(641_u64 * 24_961, 16_000_001);
+    for (trust, name) in [(UNSIGNED, "unsigned"), (SEALED, "sealed")] {
+        let (mut m, d, _s) = held(Limits::default());
+        m.register(Producer(1), trust);
+        assert_eq!(
+            m.submit(Producer(1), 1, Format::Png, (641, 24961), bytes_for(1)),
+            Submit::AltText(AltReason::InvalidHint),
+            "{name}"
+        );
+        assert_eq!(m.session_bytes(), 0, "{name}: nothing was reserved");
+        assert_eq!(
+            d.0.started.load(Ordering::SeqCst),
+            0,
+            "{name}: a decoder was started"
+        );
+        // And the refusal does not degrade the producer: a legal image is accepted next.
+        assert_eq!(
+            m.submit(Producer(1), 2, Format::Png, (4000, 4000), bytes_for(1)),
+            Submit::Queued,
+            "{name}"
+        );
+    }
 }
 
 // ---- queue and concurrency ---------------------------------------------

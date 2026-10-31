@@ -56,9 +56,9 @@ Statuses 1 to 5 are not crashes: the terminal shows the alt text. That holds onl
 
 The worker is hostile by assumption, and the terminal does not rely on any of the above being true.
 
-1. **Before it starts the worker**, the terminal reserves from the session budget the bytes the image may use, from the hint: `hint_width * hint_height * 4`, in checked 64-bit arithmetic, and refuses the image if the hint is over 32 megapixels, over 65535 on a side or zero. The reservation is released when the worker is done.
+1. **Before it starts the worker**, the terminal reserves from the session budget the bytes the image may use, from the hint: `hint_width * hint_height * 4`, in checked 64-bit arithmetic, and refuses the image if the hint is over 16 megapixels, over 65535 on a side or zero. The reservation is released when the worker is done.
 2. It reads **at most `hint_width * hint_height * 4 + 4096` bytes** of stdout, and stops reading at that cap ([budget](../../spec/v0/images.md#images.budget)). It never grows a buffer on the worker's say-so.
-3. It validates `magic`, `status`, `width`, `height`, `stride` and `data_len` ([validate](../../spec/v0/images.md#images.validate)): `width` and `height` are each in 1 to 65535, their product is at most 32 megapixels, `stride == width * 4`, `data_len == stride * height`, and `data_len` is within the reservation. The count of bytes actually received must equal `data_len` exactly. All of it in checked 64-bit arithmetic.
+3. It validates `magic`, `status`, `width`, `height`, `stride` and `data_len` ([validate](../../spec/v0/images.md#images.validate)): `width` and `height` are each in 1 to 65535, their product is at most 16 megapixels, `stride == width * 4`, `data_len == stride * height`, and `data_len` is within the reservation. The count of bytes actually received must equal `data_len` exactly. All of it in checked 64-bit arithmetic.
 4. Only after step 3 does it allocate or upload anything. A mismatch is a crash.
 
 The worker may decode an image whose true size differs from the hint. It is fine for the true size to be **smaller** than the hint. It is a crash if it is larger than the reservation.
@@ -70,7 +70,7 @@ The worker may decode an image whose true size differs from the hint. It is fine
 | Address space (memory) | 512 MiB | resource limit set in the worker before it reads any input, and the terminal's own check on process memory where the platform allows |
 | CPU time | 2 s per image | CPU resource limit, plus a 4 s wall-clock timeout in the terminal for a worker that sleeps |
 | Input size | 64 MiB | worker, before reading the payload |
-| Output | 32 megapixels, 65535 per side | worker, on the header, before it allocates pixels |
+| Output | 16 megapixels, 65535 per side | worker, on the header, before it allocates pixels |
 | Open files | stdin, stdout and stderr only | descriptors closed or limited to zero further files |
 | Processes | none beyond itself | process-count limit where supported, and a kill of the whole group by the terminal |
 | Filesystem | none | sandbox profile |
@@ -117,7 +117,7 @@ All three licences are covered by `deny.toml`, as `MIT`, `Apache-2.0` or `Zlib`.
 
 ## What the tests and the fuzz run use
 
-- **Sandbox suite (G4).** Runs the real worker and the real terminal-side runner. It covers: a hint that lies about size in both directions, a decoded size past 32 megapixels or 65535 on a side, a 64-bit overflow in `width * height * 4`, a worker that writes more or less than `data_len`, a stderr flood, a worker that hangs, a worker that spawns a child (the group is killed, nothing survives), an attempt to open a file or a socket from inside the sandbox, and peak terminal memory under a lying worker. Each runs on Linux and macOS; the Windows test profile runs the subset its platform supports.
+- **Sandbox suite (G4).** Runs the real worker and the real terminal-side runner. It covers: a hint that lies about size in both directions, a decoded size past 16 megapixels or 65535 on a side, a 64-bit overflow in `width * height * 4`, a worker that writes more or less than `data_len`, a stderr flood, a worker that hangs, a worker that spawns a child (the group is killed, nothing survives), an attempt to open a file or a socket from inside the sandbox, and peak terminal memory under a lying worker. Each runs on Linux and macOS; the Windows test profile runs the subset its platform supports.
 - **Fuzz targets.** One per format, calling the worker's decode function directly, built with ASan and UBSan, plus stateful targets for the terminal-side reply validation. The build identities are the ones in the unlock rule, and a changed lockfile re-runs the gate.
 
 ## Out of scope here

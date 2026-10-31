@@ -1649,13 +1649,13 @@
   },
   {
    "id": "decoded-images-live-budget-is-256-mib",
-   "note": "two of the largest legal images (128,000,000 bytes each) fit in the 256 MiB, a third does not, and closing one makes room",
+   "note": "four of the largest legal images (64,000,000 bytes each) fit in the 256 MiB, a fifth does not, and closing one makes room",
    "ops": [
     {
      "op": "reserve",
      "resource": "decoded_image_bytes",
      "who": "local",
-     "amount": 128000000,
+     "amount": 64000000,
      "expect": "ok",
      "tag": "i1"
     },
@@ -1663,7 +1663,7 @@
      "op": "reserve",
      "resource": "decoded_image_bytes",
      "who": "local",
-     "amount": 128000000,
+     "amount": 64000000,
      "expect": "ok",
      "tag": "i2"
     },
@@ -1671,7 +1671,21 @@
      "op": "reserve",
      "resource": "decoded_image_bytes",
      "who": "local",
-     "amount": 128000000,
+     "amount": 64000000,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 64000000,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 64000000,
      "expect": "over_capacity"
     },
     {
@@ -1682,27 +1696,55 @@
      "op": "reserve",
      "resource": "decoded_image_bytes",
      "who": "local",
-     "amount": 128000000,
+     "amount": 64000000,
      "expect": "ok"
     }
    ]
   },
   {
-   "id": "a-producer-cannot-hold-the-largest-legal-image",
-   "note": "a producer holds at most 37.5% of 256 MiB (100,663,296 bytes), which is under the 128,000,000 bytes of the largest legal image: that image is refused by the producer share",
+   "id": "the-largest-legal-image-fits-one-producers-budget",
+   "note": "64,000,000 bytes is under an unsigned producer's share (25% of 256 MiB, 67,108,864) and a sealed producer's (37.5%, 100,663,296); with the first unsigned image held, another unsigned producer that would take the pool one byte past its quarter is refused by it",
    "ops": [
     {
      "op": "reserve",
      "resource": "decoded_image_bytes",
-     "who": "signed:1",
-     "amount": 128000000,
-     "expect": "producer_share"
+     "who": "unsigned:1",
+     "amount": 64000000,
+     "expect": "ok"
     },
     {
      "op": "reserve",
      "resource": "decoded_image_bytes",
-     "who": "signed:1",
-     "amount": 100663296,
+     "who": "signed:2",
+     "amount": 64000000,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "unsigned:3",
+     "amount": 3108865,
+     "expect": "unsigned_share"
+    }
+   ]
+  },
+  {
+   "id": "with-four-panes-an-unsigned-producer-cannot-hold-the-largest-legal-image",
+   "note": "the unsigned quarter is split across 4 panes, 16,777,216 bytes each, which is under 64,000,000: the image is refused by the unsigned share (a consequence of the split)",
+   "panes": 4,
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "unsigned:1",
+     "amount": 64000000,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "unsigned:1",
+     "amount": 16777216,
      "expect": "ok"
     }
    ]
@@ -2294,43 +2336,64 @@
    "expect": false
   },
   {
-   "id": "image-8000-by-4000-is-exactly-32-megapixels",
+   "id": "image-4000-square-is-exactly-16-megapixels",
    "check": "image",
-   "width": 8000,
+   "width": 4000,
    "height": 4000,
    "expect": {
     "ok": {
-     "bytes": 128000000,
-     "read_limit": 128004096
+     "bytes": 64000000,
+     "read_limit": 64004096
     }
    }
   },
   {
-   "id": "image-8001-by-4000-is-over-32-megapixels",
+   "id": "image-3200-by-5000-is-exactly-16-megapixels",
    "check": "image",
-   "width": 8001,
+   "width": 3200,
+   "height": 5000,
+   "expect": {
+    "ok": {
+     "bytes": 64000000,
+     "read_limit": 64004096
+    }
+   }
+  },
+  {
+   "id": "image-250-by-64000-is-exactly-16-megapixels",
+   "check": "image",
+   "width": 250,
+   "height": 64000,
+   "expect": {
+    "ok": {
+     "bytes": 64000000,
+     "read_limit": 64004096
+    }
+   }
+  },
+  {
+   "id": "image-641-by-24961-is-one-pixel-over-16-megapixels",
+   "check": "image",
+   "width": 641,
+   "height": 24961,
+   "expect": {
+    "refused": "pixels"
+   }
+  },
+  {
+   "id": "image-4001-by-4000-is-over-16-megapixels",
+   "check": "image",
+   "width": 4001,
    "height": 4000,
    "expect": {
     "refused": "pixels"
    }
   },
   {
-   "id": "image-5656-square-ok",
+   "id": "image-8000-by-4000-is-over-16-megapixels",
    "check": "image",
-   "width": 5656,
-   "height": 5656,
-   "expect": {
-    "ok": {
-     "bytes": 127961344,
-     "read_limit": 127965440
-    }
-   }
-  },
-  {
-   "id": "image-5657-square-is-over-32-megapixels",
-   "check": "image",
-   "width": 5657,
-   "height": 5657,
+   "width": 8000,
+   "height": 4000,
    "expect": {
     "refused": "pixels"
    }
