@@ -1,0 +1,166 @@
+﻿commit=e083c07812128f77669f82c56ab6f6664abd8768
+profile=isolated-test-profile
+started_utc=2026-10-31T03:31:24.2368675Z
+manifest_entries=11
+BEGIN lumen-sealed-unit
+
+running 28 tests
+test payload::tests::a_header_that_fails_is_reported_as_a_header_error ... ok
+test payload::tests::an_empty_payload_round_trips ... ok
+test payload::tests::a_different_capability_fails ... ok
+test payload::tests::a_replayed_frame_is_refused ... ok
+test payload::tests::a_body_of_the_wrong_length_is_refused ... ok
+test tests::nonzero_padding_is_refused_as_padding ... ok
+test payload::tests::sealed_payload_matches_known_answer ... ok
+test payload::tests::seal_then_open_round_trips ... ok
+test payload::tests::each_frame_uses_a_new_sequence_number_and_nonce ... ok
+test payload::tests::the_sender_stops_after_the_last_sequence_number ... ok
+test tests::a_sealed_header_verifies ... ok
+test tests::a_refused_header_does_not_advance_the_sequence ... ok
+test tests::derivation_matches_known_answers ... ok
+test tests::a_valid_tag_for_another_layer_or_direction_is_refused ... ok
+test tests::keys_differ_by_purpose_layer_and_direction ... ok
+test tests::only_app_origin_is_valid ... ok
+test tests::a_header_under_other_keys_is_refused ... ok
+test tests::debug_output_redacts_key_material ... ok
+test tests::a_verified_header_lets_the_body_open_later ... ok
+test tests::sealed_header_matches_known_answer ... ok
+test payload::tests::sealed_payload_in_the_other_direction_matches_known_answer ... ok
+test tests::short_input_is_refused ... ok
+test tests::declared_length_is_capped ... ok
+test tests::sequence_must_strictly_increase_and_gaps_are_allowed ... ok
+test tests::unsealed_type_bytes_are_refused ... ok
+test payload::tests::flipping_any_body_byte_fails_the_aead ... ok
+test tests::flipping_any_header_byte_is_refused ... ok
+test payload::tests::the_payload_limit_includes_the_tag ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+END lumen-sealed-unit exit=0
+BEGIN lumen-sealed-types
+
+running 4 tests
+test the_capability_byte_is_fixed_by_the_type ... ok
+test well_formed_payloads_parse ... ok
+test malformed_payloads_are_refused_with_the_reason ... ok
+test no_payload_makes_the_parser_panic ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+END lumen-sealed-types exit=0
+BEGIN lumen-panes-unit
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+END lumen-panes-unit exit=0
+BEGIN lumen-panes-identity
+
+running 16 tests
+test a_pane_id_gives_the_same_colour_every_time_and_different_ids_differ ... ok
+test a_pane_with_a_distant_colour_has_no_glyph ... ok
+test a_pane_that_moves_leaves_its_old_position_to_the_next_one ... ok
+test a_position_taken_by_another_pane_soon_after_shows_the_changed_marker ... ok
+test hue_distance_goes_the_short_way_round ... ok
+test every_hue_is_a_valid_colour_at_the_fixed_saturation_and_lightness ... ok
+test glyphs_do_not_cross_windows ... ok
+test labels_come_in_index_order_for_the_visible_panes_only ... ok
+test panes_are_indexed_in_reading_order ... ok
+test the_colour_derivation_is_pinned ... ok
+test closeness_has_a_threshold_at_the_documented_angle ... ok
+test panes_with_close_colours_each_get_a_different_glyph ... ok
+test the_label_text_is_position_and_glyph_and_nothing_a_program_wrote ... ok
+test the_same_pane_coming_back_is_not_a_change ... ok
+test a_position_taken_after_the_window_has_no_marker ... ok
+test reapplying_the_same_layout_does_not_clear_or_restart_the_marker ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+END lumen-panes-identity exit=0
+BEGIN lumen-panes-containers
+
+running 21 tests
+test pane_ids_are_never_reused ... ok
+test a_layout_that_ends_exactly_at_the_edge_is_valid_and_one_cell_past_is_not ... ok
+test a_container_for_an_unlisted_pane_or_with_another_rectangle_is_dropped ... ok
+test a_container_for_a_listed_pane_at_the_current_generation_is_drawn_in_its_rectangle ... ok
+test a_layout_must_have_a_greater_generation_than_any_accepted ... ok
+test a_resize_discards_the_layout_and_needs_a_greater_generation ... ok
+test no_container_is_drawn_before_a_layout ... ok
+test rect_validity_and_overlap_edges ... ok
+test a_type_the_keys_do_not_cover_desynchronises_the_layer ... ok
+test content_that_does_not_parse_is_dropped_not_drawn ... ok
+test pane_clients_cannot_send_notification_or_clipboard_frames ... ok
+test a_malformed_container_is_a_failed_frame_and_is_not_drawn ... ok
+test a_new_layout_replaces_the_visible_set ... ok
+test frames_under_other_keys_tampered_or_replayed_are_refused ... ok
+test stale_and_early_containers_are_counted_not_drawn_and_do_not_count_toward_the_pin ... ok
+test pane_content_cannot_send_osc52_or_change_the_outer_title ... ok
+test multiplexer_and_ordinary_layer_keys_are_separate_purposes ... ok
+test every_draw_lies_inside_its_panes_rectangle_and_the_area ... ok
+test a_malformed_layout_is_a_failed_frame_and_changes_nothing ... ok
+test non_pane_command_and_grant_types_force_text_fallback ... ok
+test layout_length_and_count_limits_are_checked ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+END lumen-panes-containers exit=0
+BEGIN lumen-panes-process
+
+running 7 tests
+test a_changed_start_marker_stays_recorded_as_pid_reuse ... ok
+test an_exec_stays_recorded_after_the_original_program_returns ... ok
+test pane_records_are_isolated_and_hidden_panes_are_not_removed ... ok
+test job_control_loss_and_a_wide_group_are_latched ... ok
+test program_paths_are_absolute_independent_of_the_replay_host ... ok
+test the_latest_foreground_program_is_kept_without_changing_the_spawn_record ... ok
+test process_identity_rejects_ambiguous_boundary_values ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+END lumen-panes-process exit=0
+BEGIN pane-process-corpus
+
+running 10 tests
+test a_local_expectation_fails_the_v0_pane_model ... ok
+test a_mixed_corpus_plays_the_ordinary_cases_and_skips_only_the_process_ones ... ok
+test the_cases_the_gate_names_are_all_there ... ok
+test no_case_expects_a_pane_to_be_local_because_there_is_no_local_signal_for_panes_in_v0 ... ok
+test the_corpus_loads_and_every_case_spawns_a_process_and_expects_something ... ok
+test option_b_still_reports_process_cases_as_not_measured ... ok
+test the_committed_file_is_what_the_generator_prints ... ok
+test option_a_plays_every_process_case_and_checks_every_expectation ... ok
+test option_a_records_each_sticky_process_fact ... ok
+test the_binary_measures_process_cases_only_under_option_a ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+END pane-process-corpus exit=0
+BEGIN placement-a-pp-1
+commit=e083c07812128f77669f82c56ab6f6664abd8768 features=placement-a harness=lumen-evidence-2 corpus=pp-1 session_matrix=none sinks=none
+7.2 model level, cases=8 not_run=0 violations=0 of 8 run
+draw_outside_rect=0
+draw_hidden_pane=0
+stale_generation_drawn=0
+forged_container_drawn=0
+replayed_frame_accepted=0
+stale_generation_drop=0/0 out-of-generation containers dropped (need all)
+replay_refused=0/0 replayed frames refused (need all)
+forged_passthrough_opened=0 of 0 pane-written sealed-looking frames, fed to the outer pipeline
+key_reuse=not measured (the model picks fresh keys on reattach, so reuse is not a property it can show)
+unmarked_replay=not measured (the pane frames carry no replayed flag in this profile)
+trust_margin_pixels=not measured (nothing is drawn)
+key_custody=not measured (the model is one process)
+pane_reach=not measured (needs the screenshot oracle)
+pane_process_trust=pass (12 expectations, 12 output reads classified, 0 failures)
+first-command-not-a-listed-shell drawn=1 forged_seen=0 violations=0 process_expectations=1 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 1, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+listed-shell-with-every-condition-holding drawn=1 forged_seen=0 violations=0 process_expectations=1 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 1, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+exec-in-the-pane-shell drawn=2 forged_seen=0 violations=0 process_expectations=2 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 2, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+recorded-pid-reused-by-another-process drawn=1 forged_seen=0 violations=0 process_expectations=1 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 1, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+job-control-off drawn=2 forged_seen=0 violations=0 process_expectations=2 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 2, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+second-process-in-the-foreground-group drawn=2 forged_seen=0 violations=0 process_expectations=2 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 2, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+frame-read-while-ssh-was-in-the-foreground drawn=2 forged_seen=0 violations=0 process_expectations=2 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 2, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+track-0-printed-by-the-shell-itself drawn=1 forged_seen=0 violations=0 process_expectations=1 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 1, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+END placement-a-pp-1 exit=0
+finished_utc=2026-10-31T03:31:24.5697759Z

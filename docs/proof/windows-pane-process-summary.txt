@@ -1,0 +1,24 @@
+commit=e083c07812128f77669f82c56ab6f6664abd8768 features=placement-a harness=lumen-evidence-2 corpus=pp-1 session_matrix=none sinks=none
+7.2 model level, cases=8 not_run=0 violations=0 of 8 run
+draw_outside_rect=0
+draw_hidden_pane=0
+stale_generation_drawn=0
+forged_container_drawn=0
+replayed_frame_accepted=0
+stale_generation_drop=0/0 out-of-generation containers dropped (need all)
+replay_refused=0/0 replayed frames refused (need all)
+forged_passthrough_opened=0 of 0 pane-written sealed-looking frames, fed to the outer pipeline
+key_reuse=not measured (the model picks fresh keys on reattach, so reuse is not a property it can show)
+unmarked_replay=not measured (the pane frames carry no replayed flag in this profile)
+trust_margin_pixels=not measured (nothing is drawn)
+key_custody=not measured (the model is one process)
+pane_reach=not measured (needs the screenshot oracle)
+pane_process_trust=pass (12 expectations, 12 output reads classified, 0 failures)
+first-command-not-a-listed-shell drawn=1 forged_seen=0 violations=0 process_expectations=1 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 1, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+listed-shell-with-every-condition-holding drawn=1 forged_seen=0 violations=0 process_expectations=1 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 1, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+exec-in-the-pane-shell drawn=2 forged_seen=0 violations=0 process_expectations=2 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 2, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+recorded-pid-reused-by-another-process drawn=1 forged_seen=0 violations=0 process_expectations=1 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 1, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+job-control-off drawn=2 forged_seen=0 violations=0 process_expectations=2 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 2, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+second-process-in-the-foreground-group drawn=2 forged_seen=0 violations=0 process_expectations=2 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 2, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+frame-read-while-ssh-was-in-the-foreground drawn=2 forged_seen=0 violations=0 process_expectations=2 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 2, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
+track-0-printed-by-the-shell-itself drawn=1 forged_seen=0 violations=0 process_expectations=1 process_failures=0 Counters { layouts_accepted: 1, layouts_stale: 0, containers_drawn: 1, containers_stale: 0, containers_early: 0, containers_dropped: 0, containers_unparsed: 0, malformed: 0, refused: 0, other_type: 0, failed_frames: 0, resets: 0 }
