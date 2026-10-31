@@ -101,6 +101,26 @@ pub fn map_key(key: &WinitKey, text: Option<&str>, state: ModifiersState) -> Opt
     Some((mapped, mods))
 }
 
+/// Typed input the window sends to the program.
+#[derive(Debug, Clone, Copy)]
+pub enum Input<'a> {
+    /// A key with its modifiers.
+    Key(Key, Mods),
+    /// Text typed or pasted as a whole.
+    Text(&'a str),
+}
+
+/// Send `input` to the program. Returns whether the window must draw again
+/// because the user now has something to see: when the input was not sent, the
+/// app has put a notice on screen and the window must show it.
+pub fn send_input(app: &mut App, input: Input<'_>) -> bool {
+    let sent = match input {
+        Input::Key(key, mods) => app.key(key, mods),
+        Input::Text(text) => app.text(text),
+    };
+    sent.is_err()
+}
+
 /// A frame as the 0RGB words softbuffer wants.
 #[must_use]
 pub fn to_xrgb(frame: &Frame) -> Vec<u32> {
@@ -247,12 +267,15 @@ impl ApplicationHandler for Host {
                 if let Some((key, mods)) =
                     map_key(&event.logical_key, event.text.as_deref(), self.modifiers)
                 {
-                    let _ = run.app.key(key, mods);
+                    if send_input(&mut run.app, Input::Key(key, mods)) {
+                        run.window.request_redraw();
+                    }
                 } else if let Some(text) = event.text.as_deref()
                     && !self.modifiers.super_key()
                     && text.chars().count() > 1
+                    && send_input(&mut run.app, Input::Text(text))
                 {
-                    let _ = run.app.text(text);
+                    run.window.request_redraw();
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
