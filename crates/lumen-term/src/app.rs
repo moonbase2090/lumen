@@ -313,7 +313,7 @@ impl App {
         if bytes.is_empty() {
             return Ok(());
         }
-        let sent = self.session.send(&bytes);
+        let sent = self.send(&bytes);
         self.note_input(&sent);
         sent
     }
@@ -324,9 +324,23 @@ impl App {
     ///
     /// Returns the write error.
     pub fn text(&mut self, text: &str) -> std::io::Result<()> {
-        let sent = self.session.send(text.as_bytes());
+        let sent = self.send(text.as_bytes());
         self.note_input(&sent);
         sent
+    }
+
+    /// Write to the program, unless it has ended. Whether a write to a PTY whose
+    /// program is gone fails depends on the operating system (it does at once on
+    /// macOS and can succeed into a buffer on Linux), so the app asks the session
+    /// whether the program has ended and does not leave the answer to the write.
+    fn send(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        if self.session.has_exited() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "the program has ended",
+            ));
+        }
+        self.session.send(bytes)
     }
 
     /// Keep what the user must be told when typed input was not sent: a refusal
