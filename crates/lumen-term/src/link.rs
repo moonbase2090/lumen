@@ -447,31 +447,63 @@ fn push_addresses(into: &mut Vec<String>, encoded: &str) -> Result<(), Refusal> 
     Ok(())
 }
 
+/// Whether `text` ends in a dotted name whose last label is alphabetic and at
+/// least two characters: `example.com`, not `example` or `1.2`.
+fn dotted_name(text: &str) -> bool {
+    let mut labels = text.rsplit('.');
+    let last_ok = labels
+        .next()
+        .is_some_and(|t| t.chars().count() >= 2 && t.chars().all(char::is_alphabetic));
+    last_ok && text.contains('.') && !text.starts_with('.')
+}
+
 /// Whether `visible` looks like a URL: a web scheme, a leading `www.`, or a
-/// dotted name with an alphabetic last label and an optional path.
+/// dotted name with an optional path. Text with an `@` is an address unless the
+/// part before the `@` is itself a dotted name or a path follows, because a
+/// domain name written before the `@`, or a path after it, is how the real host
+/// is hidden behind user-info syntax.
 fn looks_like_url(visible: &str) -> bool {
     let text = visible.trim();
-    if text.is_empty() || text.chars().any(char::is_whitespace) || text.contains('@') {
+    if text.is_empty() || text.chars().any(char::is_whitespace) {
         return false;
     }
     let lower = text.to_ascii_lowercase();
     if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("www.") {
         return true;
     }
-    let host = text.split(['/', '?', '#', ':']).next().unwrap_or("");
-    let mut labels = host.rsplit('.');
-    let tld_ok = labels
-        .next()
-        .is_some_and(|t| t.chars().count() >= 2 && t.chars().all(char::is_alphabetic));
-    tld_ok && host.contains('.') && !host.starts_with('.')
+    if let Some((user, rest)) = text.split_once('@') {
+        return dotted_name(user) || rest.contains(['/', '?', '#']);
+    }
+    dotted_name(text.split(['/', '?', '#', ':']).next().unwrap_or(""))
+}
+
+/// The addresses of a `mailto` target as shown, decoded, lower case.
+fn mail_addresses(shown: &str) -> Vec<String> {
+    let list = shown.strip_prefix("mailto:").unwrap_or(shown);
+    let list = list.split('?').next().unwrap_or("");
+    list.split(',')
+        .filter_map(|a| decode(a).ok())
+        .map(|a| a.to_lowercase())
+        .collect()
 }
 
 /// Whether the visible text looks like a URL and differs from `target`.
 fn mismatch(target: &Checked, visible: &str) -> bool {
-    if !looks_like_url(visible) {
+    let text = visible.trim();
+    if target.kind == Kind::Mail {
+        // The address itself, with or without `mailto:`, is what a mail link
+        // should say.
+        let bare = match text.get(..7) {
+            Some(head) if head.eq_ignore_ascii_case("mailto:") => &text[7..],
+            _ => text,
+        };
+        if mail_addresses(&target.shown).contains(&bare.to_lowercase()) {
+            return false;
+        }
+    }
+    if !looks_like_url(text) {
         return false;
     }
-    let text = visible.trim();
     let lower = text.to_ascii_lowercase();
     let candidate = if lower.starts_with("http://") || lower.starts_with("https://") {
         text.to_owned()
@@ -492,6 +524,8 @@ fn mismatch(target: &Checked, visible: &str) -> bool {
             };
             plain(&c.shown) != plain(&target.shown)
         }
+        // Text that looks like a URL but is not a clean one (a user name in it,
+        // a bad host) is not the target.
         _ => true,
     }
 }

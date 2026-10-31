@@ -149,3 +149,31 @@ fn the_held_choices_are_stripped_of_bidi_and_invisible_characters_too() {
     assert_eq!(h.single_line.text, "ls rm");
     assert_eq!(h.as_written.text, "ls\nrm");
 }
+
+#[test]
+fn the_confirmation_cannot_reorder_or_hide_text_with_bidi_or_invisible_characters() {
+    let text = "echo a\u{202e}b\u{2066}c\u{200f}d\u{200b}e\u{200d}f\u{feff}g\u{e0041}h\u{61c}i\n";
+    let h = held(text);
+    for escape in [
+        "\u{27e8}U+202E\u{27e9}",
+        "\u{27e8}U+2066\u{27e9}",
+        "\u{27e8}U+200F\u{27e9}",
+        "\u{27e8}U+200B\u{27e9}",
+        "\u{27e8}U+200D\u{27e9}",
+        "\u{27e8}U+FEFF\u{27e9}",
+        "\u{27e8}U+E0041\u{27e9}",
+        "\u{27e8}U+061C\u{27e9}",
+    ] {
+        assert!(h.preview.contains(escape), "{escape} in {}", h.preview);
+    }
+    assert!(
+        !h.preview
+            .chars()
+            .any(|c| lumen_track0::is_bidi(c) || lumen_track0::is_default_ignorable(c)),
+        "no bidi or invisible code point survives raw in the preview: {}",
+        h.preview
+    );
+    // The choices the user can make are still stripped and counted as before.
+    assert_eq!(h.single_line.text, "echo abcdefghi ");
+    assert!(h.single_line.stripped > 0);
+}

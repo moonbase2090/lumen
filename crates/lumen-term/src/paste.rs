@@ -13,6 +13,7 @@
 //! program.
 
 use crate::copy::{Kind, strip};
+use lumen_track0::{is_bidi, is_default_ignorable};
 use std::fmt::Write as _;
 
 /// The bracketed-paste end marker.
@@ -98,14 +99,15 @@ fn finish(text: &str, keep: bool) -> Pasted {
     }
 }
 
-/// Every control character as `⟨U+XXXX⟩`, except tab; a line feed is followed by
+/// Every control, bidirectional and default-ignorable code point as `⟨U+XXXX⟩`
+/// (so the preview cannot reorder or hide text), except tab; a line feed is followed by
 /// a real line break so the lines stay readable.
 fn preview(text: &str) -> String {
     let mut out = String::new();
     for c in text.chars() {
         if c == '\t' {
             out.push(c);
-        } else if c.is_control() {
+        } else if c.is_control() || is_bidi(c) || is_default_ignorable(c) {
             let _ = write!(out, "\u{27e8}U+{:04X}\u{27e9}", u32::from(c));
             if c == '\n' {
                 out.push('\n');

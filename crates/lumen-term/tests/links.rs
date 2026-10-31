@@ -209,6 +209,14 @@ fn a_visible_text_that_looks_like_a_different_url_raises_the_mismatch_flag() {
     assert!(!flag("https://example.com/", "Download the report (PDF)"));
     assert!(!flag("https://example.com/", ""));
     assert!(!flag("mailto:a@lumenprotocol.org", "a@lumenprotocol.org"));
+    assert!(
+        !flag("mailto:a@lumenprotocol.org", "mailto:A@lumenprotocol.org"),
+        "the address, in any case"
+    );
+    assert!(
+        !flag("https://lumenprotocol.org/", "alice@lumenprotocol.org"),
+        "an address is not a URL claim"
+    );
 }
 
 #[test]
@@ -294,4 +302,52 @@ fn a_plain_copy_of_a_link_gives_its_visible_text_and_the_target_needs_the_confir
     assert_eq!(copy_plain("https://bank.example/"), "https://bank.example/");
     assert_eq!(copy_target(&c, false), None, "no confirmation, no target");
     assert_eq!(copy_target(&c, true), Some("https://evil.example/"));
+}
+
+#[test]
+fn user_info_syntax_in_the_visible_text_cannot_hide_the_real_host() {
+    let at = '@';
+    let flag = |target: &str, visible: &str| confirm(target, visible).mismatch;
+    // Read quickly, the visible text names the bank; the host is the other one.
+    assert!(flag(
+        "https://evil.example/",
+        &format!("https://bank.example{at}evil.example/")
+    ));
+    assert!(flag(
+        "https://evil.example/",
+        &format!("bank.example{at}evil.example")
+    ));
+    assert!(flag(
+        "https://evil.example/",
+        &format!("www.bank.example{at}evil.example/login")
+    ));
+    assert!(flag(
+        "https://evil.example/",
+        &format!("alice{at}evil.example/login")
+    ));
+    assert!(flag(
+        "https://evil.example/",
+        &format!("https://bank.example{at}bank.example/")
+    ));
+    // Even when the part after the `@` is the target's host, a user name in the
+    // visible text is not the target.
+    assert!(flag(
+        "https://evil.example/",
+        &format!("https://evil.example{at}evil.example/")
+    ));
+    // A mail link whose visible text is a URL-with-user-info is flagged too.
+    assert!(flag(
+        "mailto:a@lumenprotocol.org",
+        &format!("bank.example{at}evil.example/x")
+    ));
+}
+
+#[test]
+fn a_mail_link_that_names_its_own_address_is_not_flagged_even_with_a_dotted_name_before_the_at() {
+    let flag = |target: &str, visible: &str| confirm(target, visible).mismatch;
+    let target = "mailto:john.smith@lumenprotocol.org";
+    assert!(!flag(target, "john.smith@lumenprotocol.org"));
+    assert!(!flag(target, "mailto:John.Smith@lumenprotocol.org"));
+    // A different dotted address as the visible text is a claim about another place.
+    assert!(flag(target, "jane.doe@lumenprotocol.org"));
 }
