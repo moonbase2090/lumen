@@ -14,7 +14,7 @@ Lumen is a new protocol rather than another escape-code extension. Grid blocks g
 
 ## Status
 
-`lumen-term` has native window backends for Linux and Windows behind the off-by-default `window` feature. A dedicated standard Windows test profile built the binary and captured a real native window.
+`lumen-term` has a native window backend behind the off-by-default `window` feature. It is implemented and tested on Linux and Windows; a dedicated standard Windows test profile built the binary and captured a real native window. macOS is not yet proven.
 
 The current public draft is **Lumen Protocol v0, revision 25 (frozen snapshot)**. It is not stable, and breaking changes are expected. [Read the spec](@/spec/v0/_index.md).
 
