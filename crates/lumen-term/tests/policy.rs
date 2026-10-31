@@ -1,6 +1,8 @@
 //! The policy file: where it is read from, what it may say, and when it is ignored.
 
-use lumen_term::policy::{Ignored, MAX_BYTES, Policy, load_as, load_from, parse};
+use lumen_term::policy::parse;
+#[cfg(unix)]
+use lumen_term::policy::{Ignored, MAX_BYTES, Policy, load_as, load_from};
 
 #[test]
 fn the_defaults_are_all_off_and_a_file_may_turn_settings_on() {
