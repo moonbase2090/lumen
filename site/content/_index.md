@@ -14,6 +14,8 @@ Lumen is a new protocol rather than another escape-code extension. Grid blocks g
 
 ## Status
 
+`lumen-term` has native window backends for Linux and Windows behind the off-by-default `window` feature. A dedicated standard Windows test profile built the binary and captured a real native window.
+
 The current public draft is **Lumen Protocol v0, revision 25 (frozen snapshot)**. It is not stable, and breaking changes are expected. [Read the spec](@/spec/v0/_index.md).
 
 Lumen is in Phase 0.5. The Lumen maintainers adopted Arm B for v0: Track 0 rich everywhere, with the sealed upgrade, and multiplexer panes keep the sealed relay. The evidence, and what is not yet measured, is in [the decision record](https://github.com/moonbase2090/lumen/blob/main/docs/phase-0.5/decision.md).

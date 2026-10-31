@@ -1,0 +1,9 @@
+Windows window proof
+Revision: b638a6f4748b46a03a82b9bbbd618579cfe47a85
+Profile: dedicated standard Windows test profile
+Binary SHA-256: E588F7BBCA4A778B671E42F2F62ADF10C0ED37BBDA2EDF1CA9BBE8B759869329
+Window handle created: true
+Window rectangle: 656x439
+Window process terminated after capture: true
+Capture SHA-256: 145E98D09B597027EF721F4E2C7E4F7A1D91453029CE8A78147705613EB3D4C9
+Capture: windows-window.png
