@@ -50,3 +50,28 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache the audit tools
+        id: tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/audit-tools
+          key: audit-tools-vet-0.10.3-geiger-0.14.0
+      - name: Install the audit tools
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: cargo install --locked --root ~/.cargo/audit-tools cargo-vet@0.10.3 cargo-geiger@0.14.0
+      - name: Dependency audit (every dependency is audited, imported or exempted)
+        run: |
+          export PATH="$HOME/.cargo/audit-tools/bin:$PATH"
+          cargo vet --locked
+      - name: Unsafe-code report is unchanged
+        run: |
+          export PATH="$HOME/.cargo/audit-tools/bin:$PATH"
+          scripts/test-unsafe-report.py
+          scripts/unsafe-report.py check
