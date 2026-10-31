@@ -8,8 +8,9 @@ pub const CPU_SECONDS: u64 = 2;
 pub const WALL_MILLIS: u64 = 4000;
 /// Largest encoded input, in bytes (64 MiB).
 pub const MAX_INPUT_BYTES: u64 = 64 * 1024 * 1024;
-/// Largest image, in pixels (32 megapixels).
-pub const MAX_PIXELS: u64 = 32_000_000;
+/// Largest image, in pixels (16 megapixels). Four bytes a pixel, that is 64,000,000
+/// bytes, which fits the share of one unsigned producer (25% of 256 MiB).
+pub const MAX_PIXELS: u64 = 16_000_000;
 /// Largest side, in pixels.
 pub const MAX_SIDE: u64 = 65535;
 /// Slack the host allows on top of the reserved pixel bytes when reading.

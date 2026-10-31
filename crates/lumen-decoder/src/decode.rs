@@ -203,4 +203,4 @@ fn webp(bytes: &[u8]) -> Result<Decoded, Status> {
 }
 
 #[allow(dead_code)]
-const _: () = assert!(MAX_PIXELS == 32_000_000);
+const _: () = assert!(MAX_PIXELS == 16_000_000);

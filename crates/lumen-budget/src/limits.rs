@@ -42,8 +42,9 @@ pub const DECODED_IMAGE_BYTES: u64 = 256 * MIB;
 pub const GPU_TEXTURE_BYTES: u64 = 512 * MIB;
 /// Layers.
 pub const LAYERS: u64 = 8;
-/// Pixels of an image (32 megapixels, as the decoder counts them).
-pub const IMAGE_PIXELS: u64 = 32_000_000;
+/// Pixels of an image (16 megapixels, as the decoder counts them). Four bytes a
+/// pixel, that is 64,000,000 bytes, which fits the share of one unsigned producer.
+pub const IMAGE_PIXELS: u64 = 16_000_000;
 /// Pixels along either side of an image.
 pub const IMAGE_SIDE: u64 = 65_535;
 /// Bytes the terminal reads from the decoder beyond width times height times 4.
