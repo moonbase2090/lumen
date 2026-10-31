@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dev-dependencies]
+lumen-budget = { path = "../lumen-budget" }
 lumen-detector = { path = "../lumen-detector" }
 lumen-track0 = { path = "../lumen-track0" }
 serde_json = "1"

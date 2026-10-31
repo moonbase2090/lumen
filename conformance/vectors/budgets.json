@@ -1,0 +1,2399 @@
+{
+ "suite": "budgets",
+ "spec": "security.md#security.limits",
+ "notes": [
+  "Sizes are bytes. 'who' is local, signed:<id> or unsigned:<id>. 'amount' is a number or, past 2^53, a decimal string.",
+  "The shares are integers: the local reserve is a quarter of the budget rounded up, a producer holds at most half of the rest (rounded down), unsigned producers hold at most a quarter (rounded down) between them and that quarter divided by the visible panes each.",
+  "Rates are sliding windows of 1000 ms. A value taken at t counts until t+1000. A refused amount is not counted. A clock that goes backwards counts as no time passing.",
+  "An unsigned producer's rates are a quarter of 2000 frames and 8 MiB per second, divided by the visible panes."
+ ],
+ "ledger_vectors": [
+  {
+   "id": "blocks-local-fills-the-whole-budget",
+   "note": "the terminal may use all of it when producers hold nothing; one more is over capacity; releasing makes room",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "local",
+     "amount": 100000,
+     "expect": "ok",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "blocks",
+     "expect": 100000
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    },
+    {
+     "op": "release",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "blocks",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "local",
+     "amount": 1,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "blocks-one-producer-holds-half-of-the-remainder",
+   "note": "a producer may hold 37500 (half of 75000); one more is the producer share",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "signed:1",
+     "amount": 37500,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "used",
+     "resource": "blocks",
+     "expect": 37500
+    }
+   ]
+  },
+  {
+   "id": "blocks-producers-cannot-reach-the-local-reserve",
+   "note": "two producers fill 75000 of 75000; a third that would pass 75000 is refused by the reserve; the terminal still gets exactly 25000",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "signed:1",
+     "amount": 37500,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "signed:2",
+     "amount": 37500,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "signed:3",
+     "amount": 1,
+     "expect": "local_reserve"
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "local",
+     "amount": 25000,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    }
+   ]
+  },
+  {
+   "id": "blocks-unsigned-producers-share-a-quarter",
+   "note": "an unsigned producer may hold 25000 (a quarter, rounded down) and a second gets none of it; a sealed producer is not held to it",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "unsigned:1",
+     "amount": 25000,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "unsigned:2",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "signed:3",
+     "amount": 37500,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "blocks-the-unsigned-quarter-is-split-across-four-panes",
+   "note": "with 4 visible panes each unsigned producer may hold 6250",
+   "panes": 4,
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "unsigned:1",
+     "amount": 6250,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "unsigned:2",
+     "amount": 6250,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "unsigned:3",
+     "amount": 6250,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "unsigned:4",
+     "amount": 6250,
+     "expect": "ok"
+    },
+    {
+     "op": "used",
+     "resource": "blocks",
+     "expect": 25000
+    }
+   ]
+  },
+  {
+   "id": "blocks-release-gives-the-share-back",
+   "note": "a producer at its share is refused, and is served again after releasing",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "signed:1",
+     "amount": 37500,
+     "expect": "ok",
+     "tag": "a"
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "release",
+     "tag": "a"
+    },
+    {
+     "op": "used",
+     "resource": "blocks",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "signed:1",
+     "amount": 37500,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "grids-local-fills-the-whole-budget",
+   "note": "the terminal may use all of it when producers hold nothing; one more is over capacity; releasing makes room",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "local",
+     "amount": 64,
+     "expect": "ok",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "grids",
+     "expect": 64
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    },
+    {
+     "op": "release",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "grids",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "local",
+     "amount": 1,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "grids-one-producer-holds-half-of-the-remainder",
+   "note": "a producer may hold 24 (half of 48); one more is the producer share",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "signed:1",
+     "amount": 24,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "used",
+     "resource": "grids",
+     "expect": 24
+    }
+   ]
+  },
+  {
+   "id": "grids-producers-cannot-reach-the-local-reserve",
+   "note": "two producers fill 48 of 48; a third that would pass 48 is refused by the reserve; the terminal still gets exactly 16",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "signed:1",
+     "amount": 24,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "signed:2",
+     "amount": 24,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "signed:3",
+     "amount": 1,
+     "expect": "local_reserve"
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "local",
+     "amount": 16,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    }
+   ]
+  },
+  {
+   "id": "grids-unsigned-producers-share-a-quarter",
+   "note": "an unsigned producer may hold 16 (a quarter, rounded down) and a second gets none of it; a sealed producer is not held to it",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "unsigned:1",
+     "amount": 16,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "unsigned:2",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "signed:3",
+     "amount": 24,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "grids-the-unsigned-quarter-is-split-across-four-panes",
+   "note": "with 4 visible panes each unsigned producer may hold 4",
+   "panes": 4,
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "unsigned:1",
+     "amount": 4,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "unsigned:2",
+     "amount": 4,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "unsigned:3",
+     "amount": 4,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "unsigned:4",
+     "amount": 4,
+     "expect": "ok"
+    },
+    {
+     "op": "used",
+     "resource": "grids",
+     "expect": 16
+    }
+   ]
+  },
+  {
+   "id": "grids-release-gives-the-share-back",
+   "note": "a producer at its share is refused, and is served again after releasing",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "signed:1",
+     "amount": 24,
+     "expect": "ok",
+     "tag": "a"
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "release",
+     "tag": "a"
+    },
+    {
+     "op": "used",
+     "resource": "grids",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "grids",
+     "who": "signed:1",
+     "amount": 24,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "grid_cells-local-fills-the-whole-budget",
+   "note": "the terminal may use all of it when producers hold nothing; one more is over capacity; releasing makes room",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "local",
+     "amount": 4000000,
+     "expect": "ok",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "grid_cells",
+     "expect": 4000000
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    },
+    {
+     "op": "release",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "grid_cells",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "local",
+     "amount": 1,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "grid_cells-one-producer-holds-half-of-the-remainder",
+   "note": "a producer may hold 1500000 (half of 3000000); one more is the producer share",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "signed:1",
+     "amount": 1500000,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "used",
+     "resource": "grid_cells",
+     "expect": 1500000
+    }
+   ]
+  },
+  {
+   "id": "grid_cells-producers-cannot-reach-the-local-reserve",
+   "note": "two producers fill 3000000 of 3000000; a third that would pass 3000000 is refused by the reserve; the terminal still gets exactly 1000000",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "signed:1",
+     "amount": 1500000,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "signed:2",
+     "amount": 1500000,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "signed:3",
+     "amount": 1,
+     "expect": "local_reserve"
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "local",
+     "amount": 1000000,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    }
+   ]
+  },
+  {
+   "id": "grid_cells-unsigned-producers-share-a-quarter",
+   "note": "an unsigned producer may hold 1000000 (a quarter, rounded down) and a second gets none of it; a sealed producer is not held to it",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "unsigned:1",
+     "amount": 1000000,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "unsigned:2",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "signed:3",
+     "amount": 1500000,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "grid_cells-the-unsigned-quarter-is-split-across-four-panes",
+   "note": "with 4 visible panes each unsigned producer may hold 250000",
+   "panes": 4,
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "unsigned:1",
+     "amount": 250000,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "unsigned:2",
+     "amount": 250000,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "unsigned:3",
+     "amount": 250000,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "unsigned:4",
+     "amount": 250000,
+     "expect": "ok"
+    },
+    {
+     "op": "used",
+     "resource": "grid_cells",
+     "expect": 1000000
+    }
+   ]
+  },
+  {
+   "id": "grid_cells-release-gives-the-share-back",
+   "note": "a producer at its share is refused, and is served again after releasing",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "signed:1",
+     "amount": 1500000,
+     "expect": "ok",
+     "tag": "a"
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "release",
+     "tag": "a"
+    },
+    {
+     "op": "used",
+     "resource": "grid_cells",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "grid_cells",
+     "who": "signed:1",
+     "amount": 1500000,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "scrollback_bytes-local-fills-the-whole-budget",
+   "note": "the terminal may use all of it when producers hold nothing; one more is over capacity; releasing makes room",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "local",
+     "amount": 67108864,
+     "expect": "ok",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "scrollback_bytes",
+     "expect": 67108864
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    },
+    {
+     "op": "release",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "scrollback_bytes",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "scrollback_bytes-one-producer-holds-half-of-the-remainder",
+   "note": "a producer may hold 25165824 (half of 50331648); one more is the producer share",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "signed:1",
+     "amount": 25165824,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "used",
+     "resource": "scrollback_bytes",
+     "expect": 25165824
+    }
+   ]
+  },
+  {
+   "id": "scrollback_bytes-producers-cannot-reach-the-local-reserve",
+   "note": "two producers fill 50331648 of 50331648; a third that would pass 50331648 is refused by the reserve; the terminal still gets exactly 16777216",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "signed:1",
+     "amount": 25165824,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "signed:2",
+     "amount": 25165824,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "signed:3",
+     "amount": 1,
+     "expect": "local_reserve"
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "local",
+     "amount": 16777216,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    }
+   ]
+  },
+  {
+   "id": "scrollback_bytes-unsigned-producers-share-a-quarter",
+   "note": "an unsigned producer may hold 16777216 (a quarter, rounded down) and a second gets none of it; a sealed producer is not held to it",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "unsigned:1",
+     "amount": 16777216,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "unsigned:2",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "signed:3",
+     "amount": 25165824,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "scrollback_bytes-the-unsigned-quarter-is-split-across-four-panes",
+   "note": "with 4 visible panes each unsigned producer may hold 4194304",
+   "panes": 4,
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "unsigned:1",
+     "amount": 4194304,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "unsigned:2",
+     "amount": 4194304,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "unsigned:3",
+     "amount": 4194304,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "unsigned:4",
+     "amount": 4194304,
+     "expect": "ok"
+    },
+    {
+     "op": "used",
+     "resource": "scrollback_bytes",
+     "expect": 16777216
+    }
+   ]
+  },
+  {
+   "id": "scrollback_bytes-release-gives-the-share-back",
+   "note": "a producer at its share is refused, and is served again after releasing",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "signed:1",
+     "amount": 25165824,
+     "expect": "ok",
+     "tag": "a"
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "release",
+     "tag": "a"
+    },
+    {
+     "op": "used",
+     "resource": "scrollback_bytes",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "scrollback_bytes",
+     "who": "signed:1",
+     "amount": 25165824,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "shaping_cache_bytes-local-fills-the-whole-budget",
+   "note": "the terminal may use all of it when producers hold nothing; one more is over capacity; releasing makes room",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "local",
+     "amount": 67108864,
+     "expect": "ok",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "shaping_cache_bytes",
+     "expect": 67108864
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    },
+    {
+     "op": "release",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "shaping_cache_bytes",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "shaping_cache_bytes-one-producer-holds-half-of-the-remainder",
+   "note": "a producer may hold 25165824 (half of 50331648); one more is the producer share",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "signed:1",
+     "amount": 25165824,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "used",
+     "resource": "shaping_cache_bytes",
+     "expect": 25165824
+    }
+   ]
+  },
+  {
+   "id": "shaping_cache_bytes-producers-cannot-reach-the-local-reserve",
+   "note": "two producers fill 50331648 of 50331648; a third that would pass 50331648 is refused by the reserve; the terminal still gets exactly 16777216",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "signed:1",
+     "amount": 25165824,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "signed:2",
+     "amount": 25165824,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "signed:3",
+     "amount": 1,
+     "expect": "local_reserve"
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "local",
+     "amount": 16777216,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    }
+   ]
+  },
+  {
+   "id": "shaping_cache_bytes-unsigned-producers-share-a-quarter",
+   "note": "an unsigned producer may hold 16777216 (a quarter, rounded down) and a second gets none of it; a sealed producer is not held to it",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "unsigned:1",
+     "amount": 16777216,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "unsigned:2",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "signed:3",
+     "amount": 25165824,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "shaping_cache_bytes-the-unsigned-quarter-is-split-across-four-panes",
+   "note": "with 4 visible panes each unsigned producer may hold 4194304",
+   "panes": 4,
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "unsigned:1",
+     "amount": 4194304,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "unsigned:2",
+     "amount": 4194304,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "unsigned:3",
+     "amount": 4194304,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "unsigned:4",
+     "amount": 4194304,
+     "expect": "ok"
+    },
+    {
+     "op": "used",
+     "resource": "shaping_cache_bytes",
+     "expect": 16777216
+    }
+   ]
+  },
+  {
+   "id": "shaping_cache_bytes-release-gives-the-share-back",
+   "note": "a producer at its share is refused, and is served again after releasing",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "signed:1",
+     "amount": 25165824,
+     "expect": "ok",
+     "tag": "a"
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "release",
+     "tag": "a"
+    },
+    {
+     "op": "used",
+     "resource": "shaping_cache_bytes",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "shaping_cache_bytes",
+     "who": "signed:1",
+     "amount": 25165824,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "decoded_image_bytes-local-fills-the-whole-budget",
+   "note": "the terminal may use all of it when producers hold nothing; one more is over capacity; releasing makes room",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 268435456,
+     "expect": "ok",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "decoded_image_bytes",
+     "expect": 268435456
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    },
+    {
+     "op": "release",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "decoded_image_bytes",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "decoded_image_bytes-one-producer-holds-half-of-the-remainder",
+   "note": "a producer may hold 100663296 (half of 201326592); one more is the producer share",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "signed:1",
+     "amount": 100663296,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "used",
+     "resource": "decoded_image_bytes",
+     "expect": 100663296
+    }
+   ]
+  },
+  {
+   "id": "decoded_image_bytes-producers-cannot-reach-the-local-reserve",
+   "note": "two producers fill 201326592 of 201326592; a third that would pass 201326592 is refused by the reserve; the terminal still gets exactly 67108864",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "signed:1",
+     "amount": 100663296,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "signed:2",
+     "amount": 100663296,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "signed:3",
+     "amount": 1,
+     "expect": "local_reserve"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 67108864,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    }
+   ]
+  },
+  {
+   "id": "decoded_image_bytes-unsigned-producers-share-a-quarter",
+   "note": "an unsigned producer may hold 67108864 (a quarter, rounded down) and a second gets none of it; a sealed producer is not held to it",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "unsigned:1",
+     "amount": 67108864,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "unsigned:2",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "signed:3",
+     "amount": 100663296,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "decoded_image_bytes-the-unsigned-quarter-is-split-across-four-panes",
+   "note": "with 4 visible panes each unsigned producer may hold 16777216",
+   "panes": 4,
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "unsigned:1",
+     "amount": 16777216,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "unsigned:2",
+     "amount": 16777216,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "unsigned:3",
+     "amount": 16777216,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "unsigned:4",
+     "amount": 16777216,
+     "expect": "ok"
+    },
+    {
+     "op": "used",
+     "resource": "decoded_image_bytes",
+     "expect": 67108864
+    }
+   ]
+  },
+  {
+   "id": "decoded_image_bytes-release-gives-the-share-back",
+   "note": "a producer at its share is refused, and is served again after releasing",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "signed:1",
+     "amount": 100663296,
+     "expect": "ok",
+     "tag": "a"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "release",
+     "tag": "a"
+    },
+    {
+     "op": "used",
+     "resource": "decoded_image_bytes",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "signed:1",
+     "amount": 100663296,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "gpu_texture_bytes-local-fills-the-whole-budget",
+   "note": "the terminal may use all of it when producers hold nothing; one more is over capacity; releasing makes room",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "local",
+     "amount": 536870912,
+     "expect": "ok",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "gpu_texture_bytes",
+     "expect": 536870912
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    },
+    {
+     "op": "release",
+     "tag": "all"
+    },
+    {
+     "op": "used",
+     "resource": "gpu_texture_bytes",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "gpu_texture_bytes-one-producer-holds-half-of-the-remainder",
+   "note": "a producer may hold 201326592 (half of 402653184); one more is the producer share",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "signed:1",
+     "amount": 201326592,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "used",
+     "resource": "gpu_texture_bytes",
+     "expect": 201326592
+    }
+   ]
+  },
+  {
+   "id": "gpu_texture_bytes-producers-cannot-reach-the-local-reserve",
+   "note": "two producers fill 402653184 of 402653184; a third that would pass 402653184 is refused by the reserve; the terminal still gets exactly 134217728",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "signed:1",
+     "amount": 201326592,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "signed:2",
+     "amount": 201326592,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "signed:3",
+     "amount": 1,
+     "expect": "local_reserve"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "local",
+     "amount": 134217728,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    }
+   ]
+  },
+  {
+   "id": "gpu_texture_bytes-unsigned-producers-share-a-quarter",
+   "note": "an unsigned producer may hold 134217728 (a quarter, rounded down) and a second gets none of it; a sealed producer is not held to it",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "unsigned:1",
+     "amount": 134217728,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "unsigned:2",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "signed:3",
+     "amount": 201326592,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "gpu_texture_bytes-the-unsigned-quarter-is-split-across-four-panes",
+   "note": "with 4 visible panes each unsigned producer may hold 33554432",
+   "panes": 4,
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "unsigned:1",
+     "amount": 33554432,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "unsigned:1",
+     "amount": 1,
+     "expect": "unsigned_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "unsigned:2",
+     "amount": 33554432,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "unsigned:3",
+     "amount": 33554432,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "unsigned:4",
+     "amount": 33554432,
+     "expect": "ok"
+    },
+    {
+     "op": "used",
+     "resource": "gpu_texture_bytes",
+     "expect": 134217728
+    }
+   ]
+  },
+  {
+   "id": "gpu_texture_bytes-release-gives-the-share-back",
+   "note": "a producer at its share is refused, and is served again after releasing",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "signed:1",
+     "amount": 201326592,
+     "expect": "ok",
+     "tag": "a"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "signed:1",
+     "amount": 1,
+     "expect": "producer_share"
+    },
+    {
+     "op": "release",
+     "tag": "a"
+    },
+    {
+     "op": "used",
+     "resource": "gpu_texture_bytes",
+     "expect": 0
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "signed:1",
+     "amount": 201326592,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "amounts-that-overflow-are-refused",
+   "note": "64-bit checked arithmetic: u64::MAX is over capacity for the terminal and for producers, and nothing is reserved",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": "18446744073709551615",
+     "expect": "over_capacity"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "signed:1",
+     "amount": "18446744073709551615",
+     "expect": "over_capacity"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": "18446744073709551615",
+     "expect": "over_capacity"
+    },
+    {
+     "op": "used",
+     "resource": "decoded_image_bytes",
+     "expect": 1
+    }
+   ]
+  },
+  {
+   "id": "a-zero-reservation-is-granted-and-holds-nothing",
+   "note": "zero costs nothing",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "blocks",
+     "who": "unsigned:1",
+     "amount": 0,
+     "expect": "ok"
+    },
+    {
+     "op": "used",
+     "resource": "blocks",
+     "expect": 0
+    }
+   ]
+  },
+  {
+   "id": "decoded-images-live-budget-is-256-mib",
+   "note": "two of the largest legal images (128,000,000 bytes each) fit in the 256 MiB, a third does not, and closing one makes room",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 128000000,
+     "expect": "ok",
+     "tag": "i1"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 128000000,
+     "expect": "ok",
+     "tag": "i2"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 128000000,
+     "expect": "over_capacity"
+    },
+    {
+     "op": "release",
+     "tag": "i1"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 128000000,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "a-producer-cannot-hold-the-largest-legal-image",
+   "note": "a producer holds at most 37.5% of 256 MiB (100,663,296 bytes), which is under the 128,000,000 bytes of the largest legal image: that image is refused by the producer share",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "signed:1",
+     "amount": 128000000,
+     "expect": "producer_share"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "signed:1",
+     "amount": 100663296,
+     "expect": "ok"
+    }
+   ]
+  },
+  {
+   "id": "gpu-textures-are-a-separate-512-mib-budget",
+   "note": "a full decoded-image budget leaves the 512 MiB of textures untouched",
+   "ops": [
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 268435456,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "local",
+     "amount": 536870912,
+     "expect": "ok"
+    },
+    {
+     "op": "reserve",
+     "resource": "gpu_texture_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    },
+    {
+     "op": "reserve",
+     "resource": "decoded_image_bytes",
+     "who": "local",
+     "amount": 1,
+     "expect": "over_capacity"
+    }
+   ]
+  }
+ ],
+ "rate_vectors": [
+  {
+   "id": "frames-per-producer-2000-per-second",
+   "note": "a signed producer: 2000 one-byte frames at t=0, the next is refused up to t=999, and served at t=1000",
+   "panes": 1,
+   "ops": [
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": true,
+     "count": 2000
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": false
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 999,
+     "bytes": 1,
+     "expect": false
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 1000,
+     "bytes": 1,
+     "expect": true,
+     "count": 2000
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 1000,
+     "bytes": 1,
+     "expect": false
+    }
+   ]
+  },
+  {
+   "id": "bytes-per-producer-8-mib-per-second",
+   "note": "eight frames of 1 MiB fill the second; one more byte is refused; it is served when the window has passed",
+   "panes": 1,
+   "ops": [
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 0,
+     "bytes": 1048576,
+     "expect": true,
+     "count": 8
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": false
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 999,
+     "bytes": 1,
+     "expect": false
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 1000,
+     "bytes": 1,
+     "expect": true
+    }
+   ]
+  },
+  {
+   "id": "unsigned-producer-has-a-quarter-of-each-rate",
+   "note": "500 frames and 2 MiB per second, not 2000 and 8 MiB",
+   "panes": 1,
+   "ops": [
+    {
+     "op": "frame",
+     "who": "unsigned:1",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": true,
+     "count": 500
+    },
+    {
+     "op": "frame",
+     "who": "unsigned:1",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": false
+    },
+    {
+     "op": "frame",
+     "who": "unsigned:2",
+     "at_ms": 0,
+     "bytes": 1048576,
+     "expect": true,
+     "count": 2
+    },
+    {
+     "op": "frame",
+     "who": "unsigned:2",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": false
+    }
+   ]
+  },
+  {
+   "id": "unsigned-rates-are-split-across-four-panes",
+   "note": "with 4 visible panes: 125 frames and 512 KiB per second",
+   "panes": 4,
+   "ops": [
+    {
+     "op": "frame",
+     "who": "unsigned:1",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": true,
+     "count": 125
+    },
+    {
+     "op": "frame",
+     "who": "unsigned:1",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": false
+    },
+    {
+     "op": "frame",
+     "who": "unsigned:2",
+     "at_ms": 0,
+     "bytes": 524288,
+     "expect": true
+    },
+    {
+     "op": "frame",
+     "who": "unsigned:2",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": false
+    }
+   ]
+  },
+  {
+   "id": "the-window-slides",
+   "note": "1000 frames at t=0 and 1000 at t=600 fill the window; at t=700 none fit; at t=1000 the first 1000 have left and 1000 fit again",
+   "panes": 1,
+   "ops": [
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": true,
+     "count": 1000
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 600,
+     "bytes": 1,
+     "expect": true,
+     "count": 1000
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 700,
+     "bytes": 1,
+     "expect": false
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 1000,
+     "bytes": 1,
+     "expect": true,
+     "count": 1000
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 1000,
+     "bytes": 1,
+     "expect": false
+    }
+   ]
+  },
+  {
+   "id": "a-refused-frame-is-not-counted",
+   "note": "1999 frames, then a frame over the byte limit is refused, then the 2000th frame is still served",
+   "panes": 1,
+   "ops": [
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": true,
+     "count": 1999
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 1,
+     "bytes": 9437184,
+     "expect": false
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 2,
+     "bytes": 1,
+     "expect": true
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 3,
+     "bytes": 1,
+     "expect": false
+    }
+   ]
+  },
+  {
+   "id": "a-clock-that-goes-backwards-counts-as-no-time-passing",
+   "note": "full at t=1000; a read stamped t=500 is refused, it does not reopen the window",
+   "panes": 1,
+   "ops": [
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 1000,
+     "bytes": 1,
+     "expect": true,
+     "count": 2000
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 500,
+     "bytes": 1,
+     "expect": false
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 1999,
+     "bytes": 1,
+     "expect": false
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 2000,
+     "bytes": 1,
+     "expect": true
+    }
+   ]
+  },
+  {
+   "id": "producers-have-their-own-windows",
+   "note": "one producer being at its limit does not limit another",
+   "panes": 1,
+   "ops": [
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": true,
+     "count": 2000
+    },
+    {
+     "op": "frame",
+     "who": "signed:1",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": false
+    },
+    {
+     "op": "frame",
+     "who": "signed:2",
+     "at_ms": 0,
+     "bytes": 1,
+     "expect": true,
+     "count": 2000
+    }
+   ]
+  },
+  {
+   "id": "patches-per-block-10000-per-second",
+   "note": "one block takes 10,000 patches a second and no more",
+   "panes": 1,
+   "ops": [
+    {
+     "op": "patch",
+     "block": 1,
+     "at_ms": 0,
+     "n": 10000,
+     "expect": true
+    },
+    {
+     "op": "patch",
+     "block": 1,
+     "at_ms": 0,
+     "n": 1,
+     "expect": false
+    },
+    {
+     "op": "patch",
+     "block": 1,
+     "at_ms": 1000,
+     "n": 10000,
+     "expect": true
+    }
+   ]
+  },
+  {
+   "id": "patches-per-document-50000-per-second",
+   "note": "five blocks at their limit use the 50,000 of the document; a sixth is refused by the document, and served when the window has passed",
+   "panes": 1,
+   "ops": [
+    {
+     "op": "patch",
+     "block": 1,
+     "at_ms": 0,
+     "n": 10000,
+     "expect": true
+    },
+    {
+     "op": "patch",
+     "block": 2,
+     "at_ms": 0,
+     "n": 10000,
+     "expect": true
+    },
+    {
+     "op": "patch",
+     "block": 3,
+     "at_ms": 0,
+     "n": 10000,
+     "expect": true
+    },
+    {
+     "op": "patch",
+     "block": 4,
+     "at_ms": 0,
+     "n": 10000,
+     "expect": true
+    },
+    {
+     "op": "patch",
+     "block": 5,
+     "at_ms": 0,
+     "n": 10000,
+     "expect": true
+    },
+    {
+     "op": "patch",
+     "block": 6,
+     "at_ms": 0,
+     "n": 1,
+     "expect": false
+    },
+    {
+     "op": "patch",
+     "block": 6,
+     "at_ms": 1000,
+     "n": 1,
+     "expect": true
+    }
+   ]
+  },
+  {
+   "id": "a-refused-patch-batch-is-not-counted-by-the-document",
+   "note": "a batch the block refuses does not use the document's allowance",
+   "panes": 1,
+   "ops": [
+    {
+     "op": "patch",
+     "block": 1,
+     "at_ms": 0,
+     "n": 10001,
+     "expect": false
+    },
+    {
+     "op": "patch",
+     "block": 2,
+     "at_ms": 0,
+     "n": 10000,
+     "expect": true
+    },
+    {
+     "op": "patch",
+     "block": 3,
+     "at_ms": 0,
+     "n": 10000,
+     "expect": true
+    },
+    {
+     "op": "patch",
+     "block": 4,
+     "at_ms": 0,
+     "n": 10000,
+     "expect": true
+    },
+    {
+     "op": "patch",
+     "block": 5,
+     "at_ms": 0,
+     "n": 10000,
+     "expect": true
+    },
+    {
+     "op": "patch",
+     "block": 6,
+     "at_ms": 0,
+     "n": 10000,
+     "expect": true
+    },
+    {
+     "op": "patch",
+     "block": 7,
+     "at_ms": 0,
+     "n": 1,
+     "expect": false
+    }
+   ]
+  }
+ ],
+ "item_vectors": [
+  {
+   "id": "frame-size-1-mib-ok",
+   "check": "frame_size",
+   "len": 1048576,
+   "images_track_b": false,
+   "expect": true
+  },
+  {
+   "id": "frame-size-1-mib-plus-1",
+   "check": "frame_size",
+   "len": 1048577,
+   "images_track_b": false,
+   "expect": false
+  },
+  {
+   "id": "image-frame-on-track-b-16-mib-ok",
+   "check": "frame_size",
+   "len": 16777216,
+   "images_track_b": true,
+   "expect": true
+  },
+  {
+   "id": "image-frame-on-track-b-16-mib-plus-1",
+   "check": "frame_size",
+   "len": 16777217,
+   "images_track_b": true,
+   "expect": false
+  },
+  {
+   "id": "a-big-frame-that-is-not-a-track-b-image",
+   "check": "frame_size",
+   "len": 2097152,
+   "images_track_b": false,
+   "expect": false
+  },
+  {
+   "id": "nesting-depth-32-ok",
+   "check": "nesting",
+   "depth": 32,
+   "expect": true
+  },
+  {
+   "id": "nesting-depth-33",
+   "check": "nesting",
+   "depth": 33,
+   "expect": false
+  },
+  {
+   "id": "table-256-columns-100000-cells-ok",
+   "check": "table",
+   "columns": 256,
+   "cells": 100000,
+   "expect": true
+  },
+  {
+   "id": "table-257-columns",
+   "check": "table",
+   "columns": 257,
+   "cells": 1,
+   "expect": false
+  },
+  {
+   "id": "table-100001-cells",
+   "check": "table",
+   "columns": 1,
+   "cells": 100001,
+   "expect": false
+  },
+  {
+   "id": "grid-1000-by-500-ok",
+   "check": "grid",
+   "columns": 1000,
+   "rows": 500,
+   "expect": true
+  },
+  {
+   "id": "grid-1001-columns",
+   "check": "grid",
+   "columns": 1001,
+   "rows": 500,
+   "expect": false
+  },
+  {
+   "id": "grid-501-rows",
+   "check": "grid",
+   "columns": 1000,
+   "rows": 501,
+   "expect": false
+  },
+  {
+   "id": "grid-zero-columns",
+   "check": "grid",
+   "columns": 0,
+   "rows": 1,
+   "expect": false
+  },
+  {
+   "id": "layers-8-ok",
+   "check": "layers",
+   "layers": 8,
+   "expect": true
+  },
+  {
+   "id": "layers-9",
+   "check": "layers",
+   "layers": 9,
+   "expect": false
+  },
+  {
+   "id": "image-8000-by-4000-is-exactly-32-megapixels",
+   "check": "image",
+   "width": 8000,
+   "height": 4000,
+   "expect": {
+    "ok": {
+     "bytes": 128000000,
+     "read_limit": 128004096
+    }
+   }
+  },
+  {
+   "id": "image-8001-by-4000-is-over-32-megapixels",
+   "check": "image",
+   "width": 8001,
+   "height": 4000,
+   "expect": {
+    "refused": "pixels"
+   }
+  },
+  {
+   "id": "image-5656-square-ok",
+   "check": "image",
+   "width": 5656,
+   "height": 5656,
+   "expect": {
+    "ok": {
+     "bytes": 127961344,
+     "read_limit": 127965440
+    }
+   }
+  },
+  {
+   "id": "image-5657-square-is-over-32-megapixels",
+   "check": "image",
+   "width": 5657,
+   "height": 5657,
+   "expect": {
+    "refused": "pixels"
+   }
+  },
+  {
+   "id": "image-65535-by-1-ok",
+   "check": "image",
+   "width": 65535,
+   "height": 1,
+   "expect": {
+    "ok": {
+     "bytes": 262140,
+     "read_limit": 266236
+    }
+   }
+  },
+  {
+   "id": "image-65536-wide",
+   "check": "image",
+   "width": 65536,
+   "height": 1,
+   "expect": {
+    "refused": "side"
+   }
+  },
+  {
+   "id": "image-65535-square",
+   "check": "image",
+   "width": 65535,
+   "height": 65535,
+   "expect": {
+    "refused": "pixels"
+   }
+  },
+  {
+   "id": "image-zero-width",
+   "check": "image",
+   "width": 0,
+   "height": 10,
+   "expect": {
+    "refused": "side"
+   }
+  },
+  {
+   "id": "image-4-gigapixel-side-does-not-overflow",
+   "check": "image",
+   "width": 4294967296,
+   "height": 4294967296,
+   "expect": {
+    "refused": "side"
+   }
+  },
+  {
+   "id": "image-1-by-1",
+   "check": "image",
+   "width": 1,
+   "height": 1,
+   "expect": {
+    "ok": {
+     "bytes": 4,
+     "read_limit": 4100
+    }
+   }
+  }
+ ]
+}

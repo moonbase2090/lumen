@@ -809,9 +809,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumen-budget"
+version = "0.0.0"
+
+[[package]]
 name = "lumen-conformance"
 version = "0.0.0"
 dependencies = [
+ "lumen-budget",
  "lumen-detector",
  "lumen-track0",
  "serde_json",
