@@ -20,7 +20,7 @@ import time
 
 SIGNATURE = {"png": b"\x89PNG\r\n\x1a\n", "jpeg": b"\xff\xd8\xff", "webp": b"RIFF\0\0\0\0WEBP"}
 FORMAT_BYTE = {"png": 1, "jpeg": 2, "webp": 3}
-HINT = (8000, 4000)  # 32 megapixels, the largest reservation allowed
+HINT = (4000, 4000)  # 16 megapixels, the largest reservation allowed
 
 
 def main(worker, fmt, artifact):

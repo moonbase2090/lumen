@@ -387,9 +387,11 @@
    "status": "vector",
    "vectors": [
     "decoded-images-live-budget-is-256-mib",
-    "a-producer-cannot-hold-the-largest-legal-image",
-    "image-8000-by-4000-is-exactly-32-megapixels",
-    "image-8001-by-4000-is-over-32-megapixels"
+    "the-largest-legal-image-fits-one-producers-budget",
+    "with-four-panes-an-unsigned-producer-cannot-hold-the-largest-legal-image",
+    "image-4000-square-is-exactly-16-megapixels",
+    "image-641-by-24961-is-one-pixel-over-16-megapixels",
+    "image-4001-by-4000-is-over-16-megapixels"
    ],
    "covers": "model"
   },

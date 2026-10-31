@@ -183,12 +183,14 @@ fn hints_over_the_limits_never_start_a_worker() -> R {
             "{hint:?}"
         );
     }
-    // 32 megapixels exactly is allowed through to a worker (which then fails to start).
+    // 16 megapixels exactly is allowed through to a worker (which then fails to start).
     assert_eq!(
-        r.decode(Format::Png, (8000, 4000), &png),
+        r.decode(Format::Png, (4000, 4000), &png),
         Outcome::Crash(Crash::Spawn)
     );
-    assert_eq!(r.decode(Format::Png, (8001, 4000), &png), Outcome::Refused);
+    assert_eq!(r.decode(Format::Png, (4001, 4000), &png), Outcome::Refused);
+    // One pixel over: 641 x 24961 is 16,000,001.
+    assert_eq!(r.decode(Format::Png, (641, 24961), &png), Outcome::Refused);
     Ok(())
 }
 
@@ -207,8 +209,8 @@ fn the_worker_bounds_declared_dimensions_before_allocating() {
     // Past the side limit as well.
     let o = real().decode(Format::Png, (1, 1), &png_declaring(65536, 1));
     assert_eq!(o, Outcome::Rejected(Status::TooLarge));
-    // 32 megapixels + 1 within the side limit: 8001 x 4000.
-    let o = real().decode(Format::Png, (1, 1), &png_declaring(8001, 4000));
+    // 16 megapixels + 1 within the side limit: 641 x 24961.
+    let o = real().decode(Format::Png, (1, 1), &png_declaring(641, 24961));
     assert_eq!(o, Outcome::Rejected(Status::TooLarge));
 }
 

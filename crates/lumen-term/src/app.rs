@@ -8,7 +8,7 @@ use crate::document::Event;
 use crate::keys::{self, Key, Mods};
 use crate::layer::Layer;
 use crate::layout::{GUTTER_COLUMNS, HEADER_ROWS, STRIP_COLLAPSED_ROWS};
-use crate::notify::{Desk, Notifier, OsSink, Place, Settings};
+use crate::notify::{Desk, Notifier, OsSink, Place, Settings, Toast};
 use crate::pty::SpawnError;
 use crate::raster::{Frame, Renderer, Window};
 use crate::session::{MAX_COLUMNS, MAX_ROWS, Session};
@@ -22,7 +22,43 @@ pub struct App {
     notifier: Notifier,
     sink: Box<dyn OsSink + Send>,
     desk: Desk,
+    input_notice: Option<InputNotice>,
 }
+
+/// How long the notice that input was not sent stays after the last refusal.
+pub const INPUT_NOTICE_MS: u64 = 4000;
+
+/// Why input could not be sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Refusal {
+    /// The program has left too much of what was typed unread.
+    NotReading,
+    /// The program's input can no longer be written.
+    Gone,
+}
+
+/// The terminal's own notice that typed input was not sent. It is drawn as a
+/// toast, in the notification area and never in the trust margin, and its text
+/// is fixed here: the program cannot choose a word of it.
+#[derive(Debug, Clone, Copy)]
+struct InputNotice {
+    reason: Refusal,
+    refused: u64,
+    last_ms: u64,
+}
+
+impl InputNotice {
+    fn text(&self) -> String {
+        let why = match self.reason {
+            Refusal::NotReading => "the program is not reading its input",
+            Refusal::Gone => "the program is no longer reading",
+        };
+        format!("Input not sent: {why} ({} dropped)", self.refused)
+    }
+}
+
+/// The layer id of the terminal's own toast: not the id of any layer.
+const TERMINAL_LAYER: u32 = 0;
 
 /// The label of the one layer a window has: its position in the layout, which a
 /// program cannot choose.
@@ -125,6 +161,7 @@ impl App {
             // Focused until the window says otherwise: a notification that
             // would be an OS one needs the window to be shown unfocused.
             desk: Desk::default(),
+            input_notice: None,
         };
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
         Ok(app)
@@ -175,6 +212,24 @@ impl App {
         self.notifier.route(now, LAYER, events, self.sink.as_mut());
     }
 
+    /// The toasts that are drawn, top down: the terminal's own notice that input
+    /// was not sent, if there is one, then the notifier's. The terminal's is
+    /// first so that nothing a program does can push it out of the area.
+    #[must_use]
+    pub fn toasts(&self) -> Vec<Toast> {
+        let mut toasts = Vec::with_capacity(self.notifier.shown().len() + 1);
+        if let Some(notice) = &self.input_notice {
+            toasts.push(Toast {
+                layer: TERMINAL_LAYER,
+                text: notice.text(),
+                unsigned: false,
+                shown_ms: notice.last_ms,
+            });
+        }
+        toasts.extend_from_slice(self.notifier.shown());
+        toasts
+    }
+
     /// The user pressed the primary button at pixel `(x, y)`. A press on a toast
     /// dismisses it and returns `true` (the window draws again); a press
     /// anywhere else does nothing here. Only the user's own action dismisses a
@@ -182,27 +237,44 @@ impl App {
     pub fn click(&mut self, x: u32, y: u32) -> bool {
         match self.click_would_hit(x, y) {
             Some(index) => {
-                self.notifier.dismiss(index);
+                if self.input_notice.take().is_some() {
+                    if index > 0 {
+                        self.notifier.dismiss(index - 1);
+                    }
+                } else {
+                    self.notifier.dismiss(index);
+                }
                 true
             }
             None => false,
         }
     }
 
-    /// Which toast a press at pixel `(x, y)` would dismiss, without dismissing it.
+    /// Which toast a press at pixel `(x, y)` would dismiss, without dismissing
+    /// it, as its index in [`toasts`](Self::toasts). With no notice that input
+    /// was not sent, that is its index in the notifier's.
     #[must_use]
     pub fn click_would_hit(&self, x: u32, y: u32) -> Option<usize> {
         let (columns, rows) = cells_for(self.width, self.height, self.renderer.cell());
         let win = window_for(columns, rows);
-        self.renderer.toast_at(&win, self.notifier.shown(), x, y)
+        self.renderer.toast_at(&win, &self.toasts(), x, y)
     }
 
     /// Remove the toasts whose time is up. Returns whether any was removed, so
     /// the window knows to draw again.
     pub fn tick(&mut self) -> bool {
         let before = self.notifier.shown().len();
-        self.notifier.tick(self.session.now_ms());
-        self.notifier.shown().len() != before
+        let now = self.session.now_ms();
+        self.notifier.tick(now);
+        let mut changed = self.notifier.shown().len() != before;
+        if self
+            .input_notice
+            .is_some_and(|n| now.saturating_sub(n.last_ms) >= INPUT_NOTICE_MS)
+        {
+            self.input_notice = None;
+            changed = true;
+        }
+        changed
     }
 
     /// The notifier, for reading what is shown and counted.
@@ -241,7 +313,9 @@ impl App {
         if bytes.is_empty() {
             return Ok(());
         }
-        self.session.send(&bytes)
+        let sent = self.send(&bytes);
+        self.note_input(&sent);
+        sent
     }
 
     /// Text was pasted or typed as a whole (an input method's result).
@@ -250,7 +324,48 @@ impl App {
     ///
     /// Returns the write error.
     pub fn text(&mut self, text: &str) -> std::io::Result<()> {
-        self.session.send(text.as_bytes())
+        let sent = self.send(text.as_bytes());
+        self.note_input(&sent);
+        sent
+    }
+
+    /// Write to the program, unless it has ended. Whether a write to a PTY whose
+    /// program is gone fails depends on the operating system (it does at once on
+    /// macOS and can succeed into a buffer on Linux), so the app asks the session
+    /// whether the program has ended and does not leave the answer to the write.
+    fn send(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        if self.session.has_exited() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "the program has ended",
+            ));
+        }
+        self.session.send(bytes)
+    }
+
+    /// Keep what the user must be told when typed input was not sent: a refusal
+    /// is counted and shown as a toast, and is never silent.
+    fn note_input(&mut self, sent: &std::io::Result<()>) {
+        let Err(e) = sent else { return };
+        let reason = if e.kind() == std::io::ErrorKind::WouldBlock {
+            Refusal::NotReading
+        } else {
+            Refusal::Gone
+        };
+        let now = self.session.now_ms();
+        let refused = self.input_notice.map_or(0, |n| n.refused).saturating_add(1);
+        self.input_notice = Some(InputNotice {
+            reason,
+            refused,
+            last_ms: now,
+        });
+    }
+
+    /// Whether the user has been told, and not yet dismissed or let expire, that
+    /// typed input was not sent. For tests and the window.
+    #[must_use]
+    pub fn input_refused(&self) -> bool {
+        self.input_notice.is_some()
     }
 
     /// Take what the program has written. Returns the bytes handled.
@@ -277,7 +392,7 @@ impl App {
             .render_window_with(
                 self.session.document(),
                 &window_for(columns, rows),
-                self.notifier.shown(),
+                &self.toasts(),
             )
             .viewport(self.width, self.height, self.renderer.theme().background)
     }

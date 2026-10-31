@@ -15,6 +15,8 @@
 
 pub mod app;
 pub mod cli;
+#[cfg(feature = "links-clipboard")]
+pub mod copy;
 pub mod document;
 pub mod grid;
 pub mod guard;
@@ -24,8 +26,12 @@ pub mod isolate;
 pub mod keys;
 pub mod layer;
 pub mod layout;
+#[cfg(feature = "links-clipboard")]
+pub mod link;
 pub mod notify;
 pub mod os_backend;
+#[cfg(feature = "links-clipboard")]
+pub mod paste;
 pub mod policy;
 mod pty;
 pub mod raster;

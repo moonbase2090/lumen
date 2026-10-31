@@ -231,6 +231,7 @@ fn the_limits_are_the_numbers_of_the_spec_table() {
     assert_eq!(limits::DECODED_IMAGE_BYTES, 256 * MIB);
     assert_eq!(limits::GPU_TEXTURE_BYTES, 512 * MIB);
     assert_eq!(limits::LAYERS, 8);
+    assert_eq!(limits::IMAGE_PIXELS, 16_000_000);
     // And the model's capacities are those numbers.
     for (r, want) in [
         (Resource::Blocks, 100_000),
@@ -266,4 +267,39 @@ fn every_resource_has_its_own_vectors() {
             assert!(text_of.contains(&id), "no vector {id}");
         }
     }
+}
+
+/// The largest legal image (the pixel limit at four bytes a pixel) fits the
+/// share of one producer of either kind, with one visible pane. If either the
+/// pixel limit or the shares change so that it does not, this fails.
+#[test]
+fn the_largest_legal_image_fits_one_producers_budget() {
+    let largest = limits::IMAGE_PIXELS * 4;
+    for (who, name) in [
+        (
+            Claimant::Producer {
+                id: 1,
+                sealed: false,
+            },
+            "unsigned",
+        ),
+        (
+            Claimant::Producer {
+                id: 1,
+                sealed: true,
+            },
+            "sealed",
+        ),
+    ] {
+        let mut ledger = Ledger::new();
+        assert!(
+            ledger
+                .reserve(Resource::DecodedImageBytes, who, largest)
+                .is_ok(),
+            "{name}: the largest legal image ({largest} bytes) does not fit one producer's budget"
+        );
+    }
+    // And the boundary is tight enough to mean something: the pixel limit is not
+    // so low that a whole other image would also fit the unsigned share.
+    assert!(largest * 2 > Resource::DecodedImageBytes.capacity() / 4);
 }

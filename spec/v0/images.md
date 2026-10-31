@@ -13,7 +13,7 @@ Images are decoded only by an out-of-process decoder. The decoder runs under sec
 
 ## Input limits {#images.input}
 
-Only PNG, JPEG and WebP are accepted, at most 32 megapixels and at most 65535 px on each side. The declared size is only a hint until the decoder has bounded it.
+Only PNG, JPEG and WebP are accepted, at most 16 megapixels (16,000,000 pixels) and at most 65535 px on each side. The declared size is only a hint until the decoder has bounded it. The pixel limit is set so that the largest legal image, which reserves 64,000,000 bytes, fits within the [budget share](@/spec/v0/security.md#security.budget-shares) of one unsigned producer (25% of 256 MiB, 67,108,864 bytes) and so of any larger share. An image whose declared width times height is over the limit is refused before a decoder is started or any budget is reserved.
 
 ## Output format {#images.output}
 
