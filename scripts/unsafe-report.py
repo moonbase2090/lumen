@@ -7,7 +7,7 @@
 For each root crate on the frame, key and parser paths it runs the unsafe-code
 counter over the whole dependency tree for the Linux target (so the numbers do not
 depend on the host) and keeps, per package: version, where it comes from, the
-count of unsafe items the counter finds reachable ("used") and not reached ("unused"; both are code in the crate), and whether the crate
+count of unsafe items in the crate's source (the counter's "used" and "unused" added up: its split depends on the host), and whether the crate
 forbids unsafe code. `check` fails on any difference, so a new dependency with
 unsafe code, a bumped version, or a crate that stops forbidding unsafe is
 looked at by a person before the report is regenerated and committed.
@@ -40,8 +40,9 @@ def scan(crate):
         kind = next(iter(source)) if isinstance(source, dict) else str(source)
         packages[f'{ident["name"]} {ident["version"]}'] = {
             "source": kind,
-            "unsafe_used": {k: v["unsafe_"] for k, v in sorted(used.items())},
-            "unsafe_unused": {k: v["unsafe_"] for k, v in sorted(unused.items())},
+            # Used plus unused: the split depends on the host the counter runs on,
+            # the total (every unsafe item in the crate's source files) does not.
+            "unsafe_items": {k: used[k]["unsafe_"] + unused[k]["unsafe_"] for k in sorted(used)},
             "forbids_unsafe": p["unsafety"]["forbids_unsafe"],
         }
     return dict(sorted(packages.items()))

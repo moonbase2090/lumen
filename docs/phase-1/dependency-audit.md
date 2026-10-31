@@ -4,10 +4,10 @@ What the gate checks, what it does not, and where the unsafe and FFI boundary si
 
 ## The two checks
 
-1. **`cargo vet --locked`.** Every third-party crate in the lockfile is covered by an audit in `supply-chain/audits.toml`, by an audit imported from the lists in `supply-chain/config.toml` (Bytecode Alliance, Google, ISRG, Mozilla; copied into `supply-chain/imports.lock` so the result does not move under us), or by an **exemption**. A new or updated dependency fails the check until someone adds one of the three.
-   - **What the numbers mean.** At the first run, 41 crates were fully covered by imported audits, 2 partially, and 209 are exempted. **An exemption is not an audit**: it records that the crate was already in the tree when the gate started and has not been reviewed by us. The exemption list is the audit backlog, not evidence.
+1. **`cargo vet --locked`.** Every third-party crate in the lockfile is covered by an audit in `supply-chain/audits.toml` or by an **exemption** in `supply-chain/config.toml`. A new or updated dependency fails the check until someone adds one of the two.
+   - **What the numbers mean.** At the first run all 252 third-party packages are exempted and none is audited. **An exemption is not an audit**: it records that the crate was already in the tree when the gate started and has not been reviewed by us. The exemption list is the backlog, not evidence. Importing other projects' public audit lists would cover about 40 of them, but those files carry reviewers' email addresses, which the repository's text rules do not allow; that is a later decision.
    - **The version policy.** `lumen-term` and `portable-pty` carry `audit-as-crates-io` so that the tool treats them as third-party code to be covered. The other Prismattyc crates the build links are not in the tool's set (they are git dependencies of the same owner), so they are covered by the manual review below and by the pin check, not by this tool.
-2. **`scripts/unsafe-report.py check`.** For each root crate on the three paths below, the unsafe-code counter runs over the whole dependency tree for the Linux target and the result is compared with `docs/phase-1/unsafe-report.json`. Any difference fails: a new dependency with unsafe code, a bumped version, a crate that stops forbidding unsafe, a change in count. After looking at each line, `scripts/unsafe-report.py write` regenerates the file. The counts are the tool's, not a review: they say how much unsafe code there is, and say nothing about whether it is sound.
+2. **`scripts/unsafe-report.py check`.** For each root crate on the three paths below, the unsafe-code counter runs over the whole dependency tree for the Linux target and the per-package totals (every unsafe item in the source files, not the counter's host-dependent used/unused split) is compared with `docs/phase-1/unsafe-report.json`. Any difference fails: a new dependency with unsafe code, a bumped version, a crate that stops forbidding unsafe, a change in count. After looking at each line, `scripts/unsafe-report.py write` regenerates the file. The counts are the tool's, not a review: they say how much unsafe code there is, and say nothing about whether it is sound.
 
 ## The paths
 
@@ -46,11 +46,11 @@ Because the VT core is first-party for Lumen (same owner, same review policy), i
 
 ## What this does not claim
 
-- That the 209 exempted dependencies are audited. They are not.
+- That the 252 exempted dependencies are audited. They are not.
 - That any unsafe code in the report is sound. The report counts.
 - That the `portable-pty` sites are reviewed beyond their call names, or that the `zune-jpeg`, `png`, `image-webp` and RustCrypto code has been reviewed by us: the decoder's protection against bugs in them is the process sandbox and the fuzz campaign (`decoder-fuzz-campaign.md`), not an audit.
 
 ## Open items
 
 - Read the `portable-pty` unsafe sites line by line and record the result in the table above.
-- Turn the exemptions for the crates on the three paths into audits or imports, starting with the decoder's libraries and the sealed channel's cryptographic crates, and shrink the exemption list as that is done.
+- Turn the exemptions for the crates on the three paths into audits, starting with the decoder's libraries and the sealed channel's cryptographic crates, and shrink the exemption list as that is done.
