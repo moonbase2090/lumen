@@ -126,6 +126,10 @@ pub enum Denied {
 pub enum ReleaseError {
     /// The ticket is from another ledger.
     Foreign,
+    /// The ledger does not hold what the ticket says. A ticket from this
+    /// ledger cannot cause this; it is checked so that a broken invariant is an
+    /// error and never an underflow.
+    Unaccounted,
 }
 
 static NEXT_LEDGER: AtomicU64 = AtomicU64::new(1);
@@ -149,7 +153,7 @@ impl Ticket {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 struct Pool {
     total: u64,
     producers: BTreeMap<u32, u64>,
@@ -166,7 +170,11 @@ struct Pool {
 /// - one producer holds at most half of the rest, rounded down;
 /// - unsigned producers hold at most a quarter of the budget, rounded down,
 ///   between them, and each at most that quarter divided by the visible panes.
-#[derive(Debug, Clone)]
+///
+/// A ledger is not `Clone`. A ticket is bound to the ledger that issued it, and a
+/// copy would hold the same accounting under the same identity, so it would
+/// accept the original's tickets and corrupt both.
+#[derive(Debug)]
 pub struct Ledger {
     id: u64,
     pools: [Pool; 7],
@@ -265,21 +273,40 @@ impl Ledger {
             return Err(ReleaseError::Foreign);
         }
         let pool = &mut self.pools[ticket.resource.index()];
-        // The ledger issued the ticket for this amount, so none of these can
-        // go below zero.
-        pool.total -= ticket.amount;
+        let amount = ticket.amount;
+        // Work out every new figure first, so a failure changes nothing.
+        let total = pool
+            .total
+            .checked_sub(amount)
+            .ok_or(ReleaseError::Unaccounted)?;
         if let Claimant::Producer { id, sealed } = ticket.claimant {
-            pool.producer_total -= ticket.amount;
-            if !sealed {
-                pool.unsigned_total -= ticket.amount;
-            }
-            let left = pool.producers.get(&id).copied().unwrap_or(0) - ticket.amount;
+            let producer_total = pool
+                .producer_total
+                .checked_sub(amount)
+                .ok_or(ReleaseError::Unaccounted)?;
+            let unsigned_total = if sealed {
+                pool.unsigned_total
+            } else {
+                pool.unsigned_total
+                    .checked_sub(amount)
+                    .ok_or(ReleaseError::Unaccounted)?
+            };
+            let left = pool
+                .producers
+                .get(&id)
+                .copied()
+                .unwrap_or(0)
+                .checked_sub(amount)
+                .ok_or(ReleaseError::Unaccounted)?;
+            pool.producer_total = producer_total;
+            pool.unsigned_total = unsigned_total;
             if left == 0 {
                 pool.producers.remove(&id);
             } else {
                 pool.producers.insert(id, left);
             }
         }
+        pool.total = total;
         Ok(())
     }
 

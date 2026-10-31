@@ -142,3 +142,40 @@ fn a_ticket_from_another_ledger_is_refused() {
     assert_eq!(b.used(Resource::Blocks), 0);
     assert_eq!(a.used(Resource::Blocks), 5);
 }
+
+/// `Ledger` must not be `Clone`: a copy would share the original's identity and
+/// accept its tickets. If it becomes `Clone`, both impls below apply and this
+/// does not compile.
+mod ledger_is_not_clone {
+    trait AmbiguousIfClone<A> {
+        fn check() {}
+    }
+    impl<T: ?Sized> AmbiguousIfClone<()> for T {}
+    impl<T: Clone> AmbiguousIfClone<u8> for T {}
+    const _: fn() = || {
+        let _ = <lumen_budget::Ledger as AmbiguousIfClone<_>>::check;
+    };
+}
+
+#[test]
+fn tickets_of_two_ledgers_are_never_interchangeable() {
+    // Two ledgers set up the same way, each with a live ticket of the same
+    // amount: neither accepts the other's, and each keeps its own accounting.
+    let mut a = Ledger::new();
+    let mut b = Ledger::new();
+    let who = Claimant::Producer {
+        id: 1,
+        sealed: false,
+    };
+    let (Ok(ta), Ok(tb)) = (
+        a.reserve(Resource::DecodedImageBytes, who, 1000),
+        b.reserve(Resource::DecodedImageBytes, who, 1000),
+    ) else {
+        unreachable!("a small reservation is granted")
+    };
+    assert!(b.release(ta).is_err());
+    assert!(a.release(tb).is_err());
+    assert_eq!(a.used(Resource::DecodedImageBytes), 1000);
+    assert_eq!(b.used(Resource::DecodedImageBytes), 1000);
+    assert_eq!(a.used_by_producer(Resource::DecodedImageBytes, 1), 1000);
+}
