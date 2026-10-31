@@ -33,6 +33,8 @@ pub const STRING_CAP: usize = 4096;
 pub enum Note {
     /// A string reached [`STRING_CAP`] and the rest of it is being discarded.
     StringTruncated,
+    /// An allowed OSC sequence that is exactly one colour query.
+    ColourQuery(crate::reply::ColourQuery),
 }
 
 /// What the filter has removed so far, for tests and the log.
@@ -222,6 +224,9 @@ impl Isolator {
         };
         if let Some(end) = terminator {
             if allowed_osc(&body) {
+                if let Some(query) = crate::reply::parse_query(&body) {
+                    notes.push(Note::ColourQuery(query));
+                }
                 out.extend_from_slice(&[ESC, b']']);
                 out.extend_from_slice(&body);
                 out.extend_from_slice(end);
