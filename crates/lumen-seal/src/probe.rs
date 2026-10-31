@@ -17,7 +17,8 @@ pub trait Probe {
     fn legacy_tiocsti(&self) -> Option<u32>;
     /// `kernel.perf_event_paranoid`, which can be negative.
     fn perf_paranoid(&self) -> Option<i64>;
-    /// The text of `/proc/<pid>/<name>` (`comm`, `status`, `uid_map`, `gid_map`).
+    /// The text of `/proc/<pid>/<name>` (`comm`, `cmdline`, `stat`, `status`,
+    /// `uid_map`, `gid_map`). A non-UTF-8 value is unreadable and fails closed.
     fn proc_text(&self, pid: u32, name: &str) -> Option<String>;
     /// Whether `/proc/<pid>/ns/user` is the same namespace as the terminal's
     /// own, and has no parent namespace (the initial user namespace).

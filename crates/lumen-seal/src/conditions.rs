@@ -17,6 +17,9 @@
 //! 8. The shell's `CapInh`, `CapPrm`, `CapEff` and `CapAmb` all lack
 //!    `CAP_SYS_PTRACE` (bit 19). `CapBnd` is not used.
 //! 9. The terminal's pidfd for the shell is still unreadable after the reads.
+//! 10. The ready-point process start time, `comm` and `argv[0]` are recorded
+//!     per shell and still match at every command start. A mismatch latches
+//!     that shell grid-only even if it later execs back to the original image.
 //!
 //! The optional `require_yama_scope = 2` and `require_perf_block` settings are
 //! not implemented: the floors here are the fixed ones above, and the settings
@@ -28,8 +31,10 @@
 //! latch, since it shows nothing about the value.
 
 use crate::probe::Probe;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::os::fd::RawFd;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// `CAP_SYS_PTRACE`.
@@ -65,6 +70,10 @@ pub enum Reason {
     NotListed,
     /// `/proc/<pid>/comm` is not the listed name, or cannot be read.
     CommMismatch,
+    /// The shell's ready-point process identity is unavailable.
+    ShellIdentityUnreadable,
+    /// The spawned shell has executed another program or its pid was reused.
+    ShellReplaced,
     /// Yama `ptrace_scope` is below 1.
     YamaTooLow(u32),
     /// Yama `ptrace_scope` cannot be read.
@@ -99,6 +108,10 @@ impl fmt::Display for Reason {
             Reason::NotDirect => write!(f, "the shell was not started directly"),
             Reason::NotListed => write!(f, "the shell is not on the list"),
             Reason::CommMismatch => write!(f, "the running program is not the listed shell"),
+            Reason::ShellIdentityUnreadable => {
+                write!(f, "the shell process identity cannot be read")
+            }
+            Reason::ShellReplaced => write!(f, "the shell executed another program"),
             Reason::YamaTooLow(v) => write!(f, "ptrace_scope is {v}, below 1"),
             Reason::YamaUnreadable => write!(f, "ptrace_scope cannot be read"),
             Reason::PerfParanoidTooLow(v) => write!(f, "perf_event_paranoid is {v}, below 1"),
@@ -136,6 +149,48 @@ impl Decision {
 #[derive(Debug, Default)]
 pub struct Sealer {
     latched: AtomicBool,
+    shells: Mutex<BTreeMap<u32, ShellState>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ShellState {
+    Active(ProcessIdentity),
+    Replaced,
+}
+
+/// The ready-point fields that distinguish the spawned shell from a later
+/// program at the same pid.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProcessIdentity {
+    start_time: u64,
+    comm: String,
+    argv0: String,
+}
+
+fn process_identity(probe: &dyn Probe, pid: u32) -> Option<ProcessIdentity> {
+    let comm = probe.proc_text(pid, "comm")?;
+    let comm = comm.strip_suffix('\n').unwrap_or(&comm).to_owned();
+    let cmdline = probe.proc_text(pid, "cmdline")?;
+    let argv0 = cmdline.split('\0').next()?.to_owned();
+    if argv0.is_empty() {
+        return None;
+    }
+    let stat = probe.proc_text(pid, "stat")?;
+    // `/proc/<pid>/stat` fields after the final `)` begin at field 3. Start
+    // time is field 22, so it is item 19 in that suffix. A process name may
+    // contain spaces and parentheses, which is why this starts at the last `)`.
+    let start_time = stat
+        .rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .nth(19)?
+        .parse()
+        .ok()?;
+    Some(ProcessIdentity {
+        start_time,
+        comm,
+        argv0,
+    })
 }
 
 fn basename(path: &str) -> &str {
@@ -217,14 +272,39 @@ impl Sealer {
         if let Some(reason) = Self::namespace(probe, shell) {
             return Decision::GridOnly(reason);
         }
+        self.record_process_identity(probe, shell)
+    }
+
+    /// Record the shell's ready-point process identity and confirm that its
+    /// pidfd still names a live process. The full [`ready`](Self::ready)
+    /// decision calls this after its other checks. G9 calls it directly so
+    /// the exec gate does not depend on unrelated host sysctls.
+    pub fn record_process_identity(&self, probe: &dyn Probe, shell: &Shell<'_>) -> Decision {
+        let Some(identity) = process_identity(probe, shell.pid) else {
+            return Decision::GridOnly(Reason::ShellIdentityUnreadable);
+        };
         if probe.shell_alive(shell.pidfd) != Some(true) {
             return Decision::GridOnly(Reason::ShellGone);
         }
-        Decision::Seal
+        let Ok(mut shells) = self.shells.lock() else {
+            return Decision::GridOnly(Reason::ShellIdentityUnreadable);
+        };
+        match shells.get(&shell.pid) {
+            None => {
+                shells.insert(shell.pid, ShellState::Active(identity));
+                Decision::Seal
+            }
+            Some(ShellState::Active(recorded)) if recorded == &identity => Decision::Seal,
+            Some(ShellState::Active(_) | ShellState::Replaced) => {
+                shells.insert(shell.pid, ShellState::Replaced);
+                Decision::GridOnly(Reason::ShellReplaced)
+            }
+        }
     }
 
-    /// The checks at every command start: the latch, the three system-wide
-    /// settings and that the shell is still the process it was.
+    /// The checks at every command start: the terminal-wide latch, the three
+    /// system settings, and the ready-point identity and liveness of this
+    /// shell. An identity mismatch latches this shell as replaced.
     pub fn recheck(&self, probe: &dyn Probe, shell: &Shell<'_>) -> Decision {
         if !probe.is_linux() {
             return Decision::GridOnly(Reason::NotLinux);
@@ -234,6 +314,33 @@ impl Sealer {
         }
         if let Some(reason) = self.settings(probe) {
             return Decision::GridOnly(reason);
+        }
+        self.recheck_process_identity(probe, shell)
+    }
+
+    /// Compare the live shell with its ready-point identity and latch a
+    /// mismatch for this pid. The full [`recheck`](Self::recheck) decision
+    /// calls this after its system-setting checks.
+    pub fn recheck_process_identity(&self, probe: &dyn Probe, shell: &Shell<'_>) -> Decision {
+        let Some(current) = process_identity(probe, shell.pid) else {
+            return Decision::GridOnly(Reason::ShellIdentityUnreadable);
+        };
+        let Ok(mut shells) = self.shells.lock() else {
+            return Decision::GridOnly(Reason::ShellIdentityUnreadable);
+        };
+        match shells.get_mut(&shell.pid) {
+            Some(ShellState::Active(recorded)) if recorded == &current => {}
+            Some(state) => {
+                let reason = match state {
+                    ShellState::Active(recorded) if recorded.comm != current.comm => {
+                        Reason::CommMismatch
+                    }
+                    ShellState::Active(_) | ShellState::Replaced => Reason::ShellReplaced,
+                };
+                *state = ShellState::Replaced;
+                return Decision::GridOnly(reason);
+            }
+            None => return Decision::GridOnly(Reason::ShellReplaced),
         }
         if probe.shell_alive(shell.pidfd) != Some(true) {
             return Decision::GridOnly(Reason::ShellGone);

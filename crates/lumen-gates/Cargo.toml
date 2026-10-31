@@ -1,6 +1,6 @@
 [package]
 name = "lumen-gates"
-description = "Phase 0.5 OS gate experiments (G1, G6, G7)"
+description = "Phase 0.5 OS gate experiments (G1, G6, G7, G9, G10)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,10 @@ publish.workspace = true
 
 [dependencies]
 libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+lumen-holder = { path = "../lumen-holder" }
+lumen-seal = { path = "../lumen-seal" }
 
 # Not `workspace = true`: this crate has one named FFI module (`ffi_mem`) that
 # needs `unsafe`, so the crate root denies unsafe code instead of forbidding it.
