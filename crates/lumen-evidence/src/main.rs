@@ -45,12 +45,21 @@
 //! against a baseline, over the corpus. Exits 0 for a measured zero, 1 for a
 //! non-zero count and 3 when the baseline was not stable or nothing was measured.
 //!
+//! `lumen-evidence --readers DIR [--scale N] [--labels FILE] --commit SHA --out DIR`
+//!
+//! Reader screenshot mode (criteria 2.2b): renders the prompt set in Arm B and in
+//! a plain-VT control and writes the screenshots and `readers/manifest.json`. With
+//! `--labels`, scores the simulated readers' labels. Exits 3 without labels (the
+//! screenshots are inputs, not a measurement), 1 when Arm B is above the control
+//! and 0 otherwise.
+//!
 //! `lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]`
 //!
 //! Reach mode (criteria 2.1): replays the session matrix and reports how many
 //! sessions show what the arm specifies. Exits 0 when the run completes,
 //! whatever the count; the count is the result.
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -61,7 +70,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR\n       lumen-evidence --parity --channels FILE --commit SHA --out DIR\n       lumen-evidence --screenshots --corpus DIR [--corpus DIR ...] [--scale N] [--terminal PATH] --commit SHA --out DIR\n       lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR\n       lumen-evidence --render-log [--log FILE] --commit SHA --out DIR\n       lumen-evidence --panes DIR --placement a|b --commit SHA --out DIR";
+const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR\n       lumen-evidence --parity --channels FILE --commit SHA --out DIR\n       lumen-evidence --screenshots --corpus DIR [--corpus DIR ...] [--scale N] [--terminal PATH] --commit SHA --out DIR\n       lumen-evidence --readers DIR [--scale N] [--labels FILE] --commit SHA --out DIR\n       lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR\n       lumen-evidence --render-log [--log FILE] --commit SHA --out DIR\n       lumen-evidence --panes DIR --placement a|b --commit SHA --out DIR";
 
 /// Write the log and summary for a finished run and print the summary.
 fn finish(out: &std::path::Path, summary: &str) -> Result<(), String> {
@@ -285,6 +294,47 @@ fn screenshots(
     Ok(ExitCode::from(report.exit_code()))
 }
 
+fn readers(
+    dir: &str,
+    labels: Option<&str>,
+    commit: &str,
+    out: &std::path::Path,
+    scale: &str,
+) -> Result<ExitCode, String> {
+    let scale: u32 = scale
+        .parse()
+        .ok()
+        .filter(|s| (1..=4).contains(s))
+        .ok_or_else(|| format!("--scale {scale:?} must be 1 to 4 (criteria 2.3 names 2)"))?;
+    let prompts = lumen_evidence::readers::load_prompts(&PathBuf::from(dir))?;
+    std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
+    let shots = lumen_evidence::readers::render_prompts(&prompts, scale, out)?;
+    let mut text = format!(
+        "commit={commit} harness={} corpus={} scale={scale}\n{} shots written under readers/ (arm-b and plain-vt; arm A has no layer in the terminal, so it is not rendered)\n",
+        lumen_evidence::HARNESS_VERSION,
+        prompts.revision,
+        shots.manifest["shots"].as_array().map_or(0, Vec::len),
+    );
+    for id in &shots.same_frame {
+        let _ = writeln!(text, "same frame in both renderings: {id}");
+    }
+    let code = if let Some(file) = labels {
+        let raw = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+        let given: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| format!("{file}: {e}"))?;
+        let score = lumen_evidence::readers::score(&shots.manifest, &given)?;
+        text.push_str(&score.summary());
+        ExitCode::from(u8::from(score.vetoed() == Some(true)))
+    } else {
+        text.push_str(
+            "2.2b=not measured (the screenshots are written; no reader labels were given)\n",
+        );
+        ExitCode::from(3)
+    };
+    finish(out, &text)?;
+    Ok(code)
+}
+
 fn reach(matrix: &str, commit: &str, out: &std::path::Path, arm: &str) -> Result<ExitCode, String> {
     let arm = match arm {
         "b" => lumen_evidence::matrix::ReachArm::B,
@@ -335,6 +385,19 @@ fn main() -> ExitCode {
                 _ => Err("--panes needs a directory and --placement a|b".to_owned()),
             }
         }
+        (None, None) if args.iter().any(|a| a == "--readers") => match arg(&args, "--readers") {
+            Some(dir) => {
+                let scale = arg(&args, "--scale").unwrap_or_else(|| "2".to_owned());
+                readers(
+                    &dir,
+                    arg(&args, "--labels").as_deref(),
+                    &commit,
+                    &out,
+                    &scale,
+                )
+            }
+            None => Err("--readers needs a directory".to_owned()),
+        },
         (None, None) if args.iter().any(|a| a == "--parity") => match arg(&args, "--channels") {
             Some(f) => parity(&f, &commit, &out),
             None => Err("--parity needs --channels".to_owned()),

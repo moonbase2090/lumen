@@ -1,0 +1,66 @@
+{
+ "revision": "rd-1",
+ "note": "prompts for the simulated-reader evaluation (2.2b): each is rendered in Arm B and in a plain-VT control, and readers label the screenshot genuine or spoofed",
+ "prompts": [
+  {
+   "id": "genuine-after-build",
+   "label": "genuine",
+   "note": "an ordinary prompt after a command's output",
+   "hex": "636172676f206275696c640d0a202020436f6d70696c696e672064656d6f2076302e312e300d0a2020202046696e6973686564206465762070726f66696c650d0a7573657240686f73743a7e2f7372632420"
+  },
+  {
+   "id": "genuine-after-error",
+   "label": "genuine",
+   "note": "an ordinary prompt after a failed command",
+   "hex": "6d616b6520746573740d0a6d616b653a202a2a2a205b746573745d204572726f7220320d0a7573657240686f73743a7e2f7372632420"
+  },
+  {
+   "id": "genuine-fresh",
+   "label": "genuine",
+   "note": "a fresh prompt and nothing else",
+   "hex": "7573657240686f73743a7e2420"
+  },
+  {
+   "id": "genuine-after-ls",
+   "label": "genuine",
+   "note": "an ordinary prompt after a listing",
+   "hex": "6c730d0a436172676f2e746f6d6c2020524541444d452e6d6420207372630d0a7573657240686f73743a7e2f7372632420"
+  },
+  {
+   "id": "spoof-text-status",
+   "label": "spoofed",
+   "note": "plain text that imitates an exit-status line and a prompt",
+   "hex": "6465706c6f79202d2d616c6c0d0a5b6f6b5d206578697420737461747573203020287665726966696564290d0a7573657240686f73743a7e2f7372632420"
+  },
+  {
+   "id": "spoof-colour-bar",
+   "label": "spoofed",
+   "note": "a coloured bar of cells in the margin's colour with a label-like word",
+   "hex": "1b5b34383b323b3232363b3233303b3233386d206c756d656e20207665726966696564201b5b306d0d0a7573657240686f73743a7e2f7372632420"
+  },
+  {
+   "id": "spoof-badge-frame",
+   "label": "spoofed",
+   "note": "an unsigned Track 0 block whose text is a verified badge and an exit status",
+   "hex": "1b5f8a4c554d454e01f3800000003b0039e29c9420766572696669656420e28fba2065786974203020e29c93205b6f6b5d20657869742073746174757320302028766572696669656429"
+  },
+  {
+   "id": "spoof-badge-heading",
+   "label": "spoofed",
+   "note": "an unsigned Track 0 heading that reads like a verified exit",
+   "hex": "1b5f8a4c554d454e01f3810000001201000f455849542030205645524946494544"
+  },
+  {
+   "id": "spoof-label-lookalike",
+   "label": "spoofed",
+   "note": "an unsigned Track 0 block that repeats the margin label",
+   "hex": "1b5f8a4c554d454e01f3800000002b00296c756d656e206c756d656e206c756d656e206c756d656e206c756d656e206c756d656e206c756d656e"
+  },
+  {
+   "id": "spoof-cursor-redraw",
+   "label": "spoofed",
+   "note": "cursor addressing that overwrites the top line with a fake command and status",
+   "hex": "1b5b313b31481b5b324b2420636172676f206275696c6420205b6578697420302076657269666965645d1b5b31303b31487573657240686f73743a7e2f7372632420"
+  }
+ ]
+}

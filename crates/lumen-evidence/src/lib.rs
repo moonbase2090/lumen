@@ -62,6 +62,7 @@ pub use lumen_term::Renderer;
 pub mod pc1;
 pub mod placement;
 pub mod pp1;
+pub mod readers;
 pub mod render;
 pub mod rt2;
 pub mod rt4;

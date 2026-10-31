@@ -173,6 +173,9 @@ if [[ -n "$terminal" ]]; then
   run_mode pixels-terminal "$BIN" --screenshots --corpus "$ROOT/docs/phase-0.5/corpus-pixel" --scale 2 --terminal "$terminal" --commit "$commit" --out "$out/pixels-terminal"
 fi
 
+# 2.2b: the screenshots for the simulated-reader panel (not scored here: no labels).
+run_mode readers "$BIN" --readers "$ROOT/docs/phase-0.5/corpus-readers" --scale 2 --commit "$commit" --out "$out/readers"
+
 for placement in a b; do
   run_mode "panes-$placement" "$BIN" --panes "$ROOT/docs/phase-0.5/corpus-panes" --placement "$placement" --commit "$commit" --out "$out/panes-$placement"
 done
