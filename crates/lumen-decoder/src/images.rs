@@ -6,10 +6,10 @@
 //!   so for the build; otherwise the alt text is shown.
 //! - **Possibly remote.** An image in Track 0 on an SSH session is never decoded.
 //! - **Reserve first.** Each image reserves `width * height * 4` bytes of the
-//!   decoded-image budget (256 MiB per session, 25% of that for an unsigned
-//!   producer) when it is submitted, before any decoder runs; queued images
-//!   count. The declared size is only a hint, and the decoded size replaces the
-//!   reservation once known.
+//!   decoded-image budget (256 MiB per session, 37.5% for one sealed producer
+//!   and 25% for unsigned producers) when it is submitted, before any decoder
+//!   runs; queued images count. The declared size is only a hint, and the
+//!   decoded size replaces the reservation once known.
 //! - **Concurrency.** At most 1 decode in flight per producer and 2 across the
 //!   terminal; a producer can have 8 images waiting; past that, alt text.
 //! - **Failure.** A decoder crash (including a reply that fails validation) puts
@@ -49,7 +49,7 @@ pub enum Trust {
         /// Whether the layer is, or may be, an SSH session.
         ssh_session: bool,
     },
-    /// A sealed layer: the whole budget, and no SSH rule.
+    /// A sealed layer: half the producer pool, and no SSH rule.
     Sealed,
 }
 
@@ -292,7 +292,10 @@ impl<T: TextureSink> ImageManager<T> {
 
     fn share(&self, trust: Trust) -> u64 {
         match trust {
-            Trust::Sealed => self.limits.session_bytes,
+            Trust::Sealed => {
+                let local_reserve = self.limits.session_bytes.div_ceil(4);
+                (self.limits.session_bytes - local_reserve) / 2
+            }
             Trust::Unsigned { .. } => {
                 self.limits.session_bytes / 100 * self.limits.unsigned_percent
             }
