@@ -2,3 +2,6 @@
 
 # Local evidence output
 out/
+
+__pycache__/
+*.pyc
