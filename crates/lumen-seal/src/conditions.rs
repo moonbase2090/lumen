@@ -27,9 +27,8 @@
 //! if the value rises again. A read that fails is a failed check but does not
 //! latch, since it shows nothing about the value.
 
-use crate::probe::Probe;
+use crate::probe::{PidFd, Probe};
 use std::fmt;
-use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// `CAP_SYS_PTRACE`.
@@ -44,7 +43,7 @@ pub struct Shell<'a> {
     /// The pid from the terminal's own spawn (never one read from elsewhere).
     pub pid: u32,
     /// The terminal's pidfd for that spawn.
-    pub pidfd: Option<RawFd>,
+    pub pidfd: Option<PidFd>,
     /// The absolute path the terminal executed.
     pub path: &'a str,
     /// Whether the terminal executed that path directly, with no wrapper, no

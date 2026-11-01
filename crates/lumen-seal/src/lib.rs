@@ -28,4 +28,4 @@ pub mod ffi_linux;
 pub mod probe;
 
 pub use conditions::{Decision, Reason, Sealer, Shell};
-pub use probe::{FsProbe, Probe};
+pub use probe::{FsProbe, PidFd, Probe};

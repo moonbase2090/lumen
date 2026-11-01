@@ -11,8 +11,8 @@ publish.workspace = true
 [dependencies]
 libc = "0.2"
 
-# Not `workspace = true`: this crate has one named FFI module (`ffi_mem`) that
-# needs `unsafe`, so the crate root denies unsafe code instead of forbidding it.
+# Not `workspace = true`: this crate has named FFI modules that need `unsafe`,
+# so the crate root denies unsafe code instead of forbidding it.
 [lints.rust]
 missing_docs = "deny"
 unsafe_code = "deny"

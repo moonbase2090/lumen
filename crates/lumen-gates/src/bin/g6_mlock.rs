@@ -9,15 +9,19 @@
 
 use std::process::ExitCode;
 
+#[cfg(unix)]
 use lumen_gates::ffi_mem::{Region, effective_uid, memlock_limit, page_size};
 
 /// Most pages the headroom probe tries to lock (1 MiB at 4 KiB pages).
+#[cfg(unix)]
 const PROBE_PAGES: usize = 256;
 
+#[cfg(unix)]
 fn fmt_limit(v: Option<u64>) -> String {
     v.map_or_else(|| "unlimited".to_owned(), |n| format!("{n} bytes"))
 }
 
+#[cfg(unix)]
 fn main() -> ExitCode {
     let page = match page_size() {
         Ok(p) => p,
@@ -92,4 +96,10 @@ fn main() -> ExitCode {
         println!("G6 FAIL");
         ExitCode::FAILURE
     }
+}
+
+#[cfg(not(unix))]
+fn main() -> ExitCode {
+    println!("G6 SKIP unsupported platform");
+    ExitCode::FAILURE
 }
