@@ -13,10 +13,12 @@
     unsafe_code,
     reason = "FFI wrappers for memory locking; see the module docs"
 )]
+#[cfg(unix)]
 pub mod ffi_mem;
 
 #[allow(
     unsafe_code,
     reason = "FFI wrappers for socket credentials; see the module docs"
 )]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod ffi_cred;

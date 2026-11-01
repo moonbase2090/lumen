@@ -4,8 +4,10 @@
 //! a read error, a platform without the call). The conditions treat that as a
 //! failed check, so nothing here ever defaults to "fine".
 
-use std::os::fd::RawFd;
 use std::path::PathBuf;
+
+/// A Linux pidfd number. It is never populated on other platforms.
+pub type PidFd = std::os::raw::c_int;
 
 /// The facts the sealing conditions are decided on.
 pub trait Probe {
@@ -25,7 +27,7 @@ pub trait Probe {
     /// Whether the shell is still the process it was, by the terminal's own
     /// pidfd for it: the descriptor is still unreadable. `None` when there is
     /// no pidfd to ask.
-    fn shell_alive(&self, pidfd: Option<RawFd>) -> Option<bool>;
+    fn shell_alive(&self, pidfd: Option<PidFd>) -> Option<bool>;
 }
 
 /// The probe that reads a Linux system.
@@ -109,12 +111,12 @@ impl Probe for FsProbe {
     }
 
     #[cfg(target_os = "linux")]
-    fn shell_alive(&self, pidfd: Option<RawFd>) -> Option<bool> {
+    fn shell_alive(&self, pidfd: Option<PidFd>) -> Option<bool> {
         crate::ffi_linux::pidfd_is_unreadable(pidfd?)
     }
 
     #[cfg(not(target_os = "linux"))]
-    fn shell_alive(&self, _pidfd: Option<RawFd>) -> Option<bool> {
+    fn shell_alive(&self, _pidfd: Option<PidFd>) -> Option<bool> {
         None
     }
 }

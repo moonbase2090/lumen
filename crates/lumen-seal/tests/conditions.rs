@@ -2,10 +2,9 @@
 //! test says. Every row fails exactly one check and says which.
 
 use lumen_seal::conditions::{capability_failure, is_identity_map};
-use lumen_seal::{Decision, Probe, Reason, Sealer, Shell};
+use lumen_seal::{Decision, PidFd, Probe, Reason, Sealer, Shell};
 use std::cell::Cell;
 use std::fmt::Write as _;
-use std::os::fd::RawFd;
 
 const SHELL_PATH: &str = "/bin/zsh";
 const LISTED: [&str; 2] = ["/bin/zsh", "/bin/bash"];
@@ -72,7 +71,7 @@ impl Probe for Fake {
     fn initial_user_namespace(&self, _pid: u32) -> Option<bool> {
         self.namespace
     }
-    fn shell_alive(&self, _pidfd: Option<RawFd>) -> Option<bool> {
+    fn shell_alive(&self, _pidfd: Option<PidFd>) -> Option<bool> {
         self.alive
     }
 }
