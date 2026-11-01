@@ -424,11 +424,11 @@ fn queued_images_count_against_the_budget() {
     // The decoder is blocked, so everything stays queued or in flight.
     for id in 0..2 {
         assert_eq!(
-            m.submit(Producer(1), id, Format::Png, (4000, 4000), bytes_for(1)),
+            m.submit(Producer(1), id, Format::Png, (2000, 4000), bytes_for(1)),
             Submit::Queued
         );
     }
-    assert_eq!(m.session_bytes(), 128_000_000);
+    assert_eq!(m.session_bytes(), 64_000_000);
 }
 
 #[test]
@@ -457,28 +457,37 @@ fn an_unsigned_producer_gets_a_quarter_of_the_budget_and_degrades_past_it() {
     d.release();
 }
 
-#[test]
-fn a_sealed_producer_may_use_the_whole_session_budget_but_not_more() {
-    let (mut m, _d, _s) = held(Limits::default());
-    m.register(Producer(1), SEALED);
-    m.register(Producer(2), SEALED);
-    // 4000 x 4000 x 4 = 64,000,000: four fit in 268,435,456, a fifth does not.
-    for (producer, id) in [(1, 1), (2, 1), (1, 2), (2, 2)] {
+fn fill_sealed_producer_share(m: &mut ImageManager<Sink>) {
+    // 64,000,000 + 36,663,296 = 96 MiB exactly.
+    for (id, hint) in [(1, (4000, 4000)), (2, (1024, 8951))] {
         assert_eq!(
-            m.submit(
-                Producer(producer),
-                id,
-                Format::Png,
-                (4000, 4000),
-                bytes_for(1)
-            ),
+            m.submit(Producer(1), id, Format::Png, hint, bytes_for(1)),
             Submit::Queued,
-            "producer {producer}, image {id}"
+            "image {id}"
         );
     }
+}
+
+#[test]
+fn a_sealed_producer_may_reserve_exactly_96_mib() {
+    let (mut m, _d, _s) = held(Limits::default());
+    m.register(Producer(1), SEALED);
+    fill_sealed_producer_share(&mut m);
+    assert_eq!(m.session_bytes(), 96 * 1024 * 1024);
+}
+
+#[test]
+fn a_sealed_producer_degrades_when_one_pixel_would_exceed_96_mib() {
+    let (mut m, _d, _s) = held(Limits::default());
+    m.register(Producer(1), SEALED);
+    fill_sealed_producer_share(&mut m);
     assert_eq!(
-        m.submit(Producer(1), 3, Format::Png, (4000, 4000), bytes_for(1)),
+        m.submit(Producer(1), 3, Format::Png, (1, 1), bytes_for(1)),
         Submit::AltText(AltReason::OverBudget)
+    );
+    assert_eq!(
+        m.submit(Producer(1), 4, Format::Png, (1, 1), bytes_for(1)),
+        Submit::AltText(AltReason::Degraded)
     );
 }
 
