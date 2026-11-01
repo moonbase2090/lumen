@@ -583,6 +583,13 @@ for f in "${FMTS[@]}"; do
   fi
 done
 
+# A slice can finish after its last in-slice scan, and the final sync can bring
+# back an input that another shard found. Record every format once more before
+# the ledger reads crashes.jsonl.
+for f in "${FMTS[@]}"; do
+  record_artifacts "$f" "decode_$f" "$(cpu_hours_of "$OUT/$f/samples.jsonl")"
+done
+
 # The sandbox escape result: the G4 suite at this revision.
 cargo test --locked -p lumen-decoder --test g4_sandbox 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > "$OUT/g4.log" || true
 ESC_REV="$(git -C "$ROOT" hash-object crates/lumen-decoder/tests/g4_sandbox.rs | cut -c1-12)"
