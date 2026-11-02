@@ -25,11 +25,11 @@ The figures here come from the third run recorded in the results files. The deci
 - **Step 3.** Arm B meets 12/14 on the item-kind oracle only.
 - **Step 5.** Parity, 2.2, 2.6 and 2.7 are at declaration, byte-pipeline, proxy and unreviewed level; each must be fixed or waived in writing before acceptance.
 
-**Outcome.** The rule has no outcome yet: 2.2a, 2.3 and 2.9 are not measured and 2.1 is partial. The maintainers chose Arm B anyway (Track 0 on every layer, as the spec's Track 0 rules describe), and Arm A is frozen as the evidence record. The measured clauses give no reason to reverse that choice: they are at parity on safety and reach, and Arm B is smaller by 141 lines. The latency proxies are equal within noise in this run. They do not show Arm B passes the open clauses, and no waiver is recorded.
+**Outcome.** The rule has no outcome yet: 2.2a, 2.3 and 2.9 are not measured and 2.1 is partial. The Lumen maintainers chose Arm B anyway (Track 0 on every layer, as the spec's Track 0 rules describe), and Arm A is frozen as the evidence record. The measured clauses give no reason to reverse that choice: they are at parity on safety and reach, and Arm B is smaller by 141 lines. The latency proxies are equal within noise in this run. They do not show Arm B passes the open clauses, and no waiver is recorded.
 
 ## Fork 2: multiplexer placement (Option A sealed relay against Option B unsealed producer)
 
-At the model level, Option A had 0 violations over 18 cases, and in the six hostile-multiplexer cases dropped 3 of 3 stale-generation containers, refused 2 of 2 replays and opened 0 of 4 pane-written sealed-looking frames. Option B had 0 violations, but draws no per-pane containers, so its zeros have nothing to count. Key reuse, the replayed mark, trust-margin pixels in panes, key custody and pane reach are not measured, so no platform has a 7.3 outcome. The maintainers keep placement A for multiplexer panes; that is a judgement, not a rule outcome.
+At the model level, Option A had 0 violations over 18 cases, and in the six hostile-multiplexer cases dropped 3 of 3 stale-generation containers, refused 2 of 2 replays and opened 0 of 4 pane-written sealed-looking frames. Option B had 0 violations, but draws no per-pane containers, so its zeros have nothing to count. Key reuse, the replayed mark, trust-margin pixels in panes, key custody and pane reach are not measured, so no platform has a 7.3 outcome. The Lumen maintainers keep placement A for multiplexer panes; that is a judgement, not a rule outcome.
 
 ## What would close the open clauses
 
