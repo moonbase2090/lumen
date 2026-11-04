@@ -59,4 +59,4 @@ The implementation ships a dependency list that marks each C dependency and wher
 
 ## Release hygiene {#security.release}
 
-Release builds MUST pass an automated scan for personal identifiers, and a finding blocks the release. The only allowlisted string is the publisher name, "Moonbase 2090 LLC".
+Release builds MUST pass an automated scan for personal identifiers, and a finding blocks the release. The allowlist has one entry, the publisher name "Moonbase 2090 LLC". A finding is allowlisted only when its full span is exactly that entry, compared case-sensitively. A partial, longer or differently cased span is not allowlisted. An allowlisted span excuses only itself: the rest of the line that contains it is still scanned, and any other finding on that line blocks the release.
