@@ -32,6 +32,7 @@ impl Relationship {
         Self::ChildToParent,
     ];
 
+    #[cfg(target_os = "linux")]
     fn name(self) -> &'static str {
         match self {
             Self::ParentToChild => "parent-to-child",
@@ -41,6 +42,7 @@ impl Relationship {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Operation {
     PtraceAttach,
@@ -49,6 +51,7 @@ enum Operation {
     PidfdGetfd,
 }
 
+#[cfg(target_os = "linux")]
 impl Operation {
     const ALL: [Self; 4] = [
         Self::PtraceAttach,
@@ -76,6 +79,7 @@ enum Outcome {
 }
 
 impl Outcome {
+    #[cfg(target_os = "linux")]
     fn from_error(error: &std::io::Error) -> Self {
         match error.raw_os_error() {
             Some(libc::ENOSYS) => Self::Unsupported,
