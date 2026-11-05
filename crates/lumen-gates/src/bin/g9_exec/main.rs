@@ -33,8 +33,8 @@ mod linux {
     use std::process::{Child, Command, ExitCode, Stdio};
 
     const SEAL_FD: i32 = 2;
-    const REPLACEMENT: &str =
-        "if [ -e /proc/self/fd/2 ]; then echo seal-fd=open; else echo seal-fd=closed; fi; sleep 2";
+    const REPLACEMENT: &str = "if [ -S /proc/self/fd/2 ]; then echo seal-channel=socket; \
+        else echo seal-channel=gone; fi; sleep 2";
 
     #[derive(Clone, Copy, Debug)]
     enum ExecForm {
@@ -177,7 +177,7 @@ mod linux {
         );
         println!(
             "G9 {} {}: replacement={replacement:?} seal_closed={closed} notice={decision:?}",
-            if closed && noticed && replacement == "seal-fd=closed" {
+            if closed && noticed && replacement == "seal-channel=gone" {
                 "ok"
             } else {
                 "FAIL"
@@ -185,7 +185,7 @@ mod linux {
             form.name()
         );
         end(&mut child);
-        closed && noticed && replacement == "seal-fd=closed"
+        closed && noticed && replacement == "seal-channel=gone"
     }
 
     pub fn run() -> ExitCode {

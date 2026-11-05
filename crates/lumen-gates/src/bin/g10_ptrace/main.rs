@@ -113,7 +113,6 @@ fn expected_allowed(scope: u32, relationship: Relationship) -> bool {
     match scope {
         0 => true,
         1 => relationship == Relationship::ParentToChild,
-        2 | 3 => false,
         _ => false,
     }
 }

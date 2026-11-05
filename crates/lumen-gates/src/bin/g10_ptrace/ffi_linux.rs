@@ -76,7 +76,7 @@ pub fn process_vm_read(pid: u32, address: usize) -> io::Result<u64> {
     if read < 0 {
         return Err(io::Error::last_os_error());
     }
-    if read as usize != std::mem::size_of::<u64>() {
+    if usize::try_from(read).ok() != Some(std::mem::size_of::<u64>()) {
         return Err(io::Error::new(
             io::ErrorKind::UnexpectedEof,
             "process_vm_readv returned a short value",
@@ -89,7 +89,11 @@ pub fn process_vm_read(pid: u32, address: usize) -> io::Result<u64> {
 pub fn pidfd_open(pid: u32) -> io::Result<OwnedFd> {
     // SAFETY: the syscall takes only integer arguments and returns a new fd.
     let fd = last_if_negative(unsafe {
-        libc::syscall(libc::SYS_pidfd_open, pid as libc::c_long, 0 as libc::c_long)
+        libc::syscall(
+            libc::SYS_pidfd_open,
+            libc::c_long::from(pid),
+            libc::c_long::from(0),
+        )
     })?;
     // SAFETY: the syscall just returned this descriptor and nothing else owns it.
     Ok(unsafe { OwnedFd::from_raw_fd(fd as RawFd) })
@@ -102,9 +106,9 @@ pub fn pidfd_getfd(pidfd: RawFd, target_fd: RawFd) -> io::Result<OwnedFd> {
     let fd = last_if_negative(unsafe {
         libc::syscall(
             libc::SYS_pidfd_getfd,
-            pidfd as libc::c_long,
-            target_fd as libc::c_long,
-            0 as libc::c_long,
+            libc::c_long::from(pidfd),
+            libc::c_long::from(target_fd),
+            libc::c_long::from(0),
         )
     })?;
     // SAFETY: the syscall just returned this descriptor and nothing else owns it.
