@@ -10,6 +10,7 @@ const SHELL_PATH: &str = "/bin/zsh";
 const LISTED: [&str; 2] = ["/bin/zsh", "/bin/bash"];
 const IDENTITY: &str = "         0          0 4294967295\n";
 const NO_CAPS: &str = "Name:\tzsh\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapBnd:\t000001ffffffffff\nCapAmb:\t0000000000000000\n";
+const STAT: &str = "4242 (zsh) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 90000 20\n";
 
 #[derive(Clone)]
 struct Fake {
@@ -18,11 +19,14 @@ struct Fake {
     tiocsti: Option<u32>,
     paranoid: Option<i64>,
     comm: Option<String>,
+    cmdline: Option<String>,
+    stat: Option<String>,
     uid_map: Option<String>,
     gid_map: Option<String>,
     status: Option<String>,
     namespace: Option<bool>,
     alive: Option<bool>,
+    dead_pidfd: Option<PidFd>,
     /// How many times the probe was asked anything.
     asked: Cell<u32>,
 }
@@ -35,11 +39,14 @@ impl Fake {
             tiocsti: Some(0),
             paranoid: Some(2),
             comm: Some("zsh\n".into()),
+            cmdline: Some("/bin/zsh\0".into()),
+            stat: Some(STAT.into()),
             uid_map: Some(IDENTITY.into()),
             gid_map: Some(IDENTITY.into()),
             status: Some(NO_CAPS.into()),
             namespace: Some(true),
             alive: Some(true),
+            dead_pidfd: None,
             asked: Cell::new(0),
         }
     }
@@ -62,6 +69,8 @@ impl Probe for Fake {
     fn proc_text(&self, _pid: u32, name: &str) -> Option<String> {
         match name {
             "comm" => self.comm.clone(),
+            "cmdline" => self.cmdline.clone(),
+            "stat" => self.stat.clone(),
             "uid_map" => self.uid_map.clone(),
             "gid_map" => self.gid_map.clone(),
             "status" => self.status.clone(),
@@ -71,8 +80,12 @@ impl Probe for Fake {
     fn initial_user_namespace(&self, _pid: u32) -> Option<bool> {
         self.namespace
     }
-    fn shell_alive(&self, _pidfd: Option<PidFd>) -> Option<bool> {
-        self.alive
+    fn shell_alive(&self, pidfd: Option<PidFd>) -> Option<bool> {
+        if self.dead_pidfd.is_some() && pidfd == self.dead_pidfd {
+            Some(false)
+        } else {
+            self.alive
+        }
     }
 }
 
@@ -467,6 +480,7 @@ fn a_read_error_and_a_tiocsti_failure_do_not_latch() {
 #[test]
 fn the_command_start_recheck_covers_the_settings_and_the_shell_and_not_the_rest() {
     let sealer = Sealer::new();
+    assert_eq!(ready(&sealer, &Fake::good()), Decision::Seal);
     assert_eq!(sealer.recheck(&Fake::good(), &shell()), Decision::Seal);
     assert_eq!(
         sealer.recheck(
@@ -504,8 +518,8 @@ fn the_command_start_recheck_covers_the_settings_and_the_shell_and_not_the_rest(
     );
     // The start-only checks are not repeated.
     let sealer = Sealer::new();
+    assert_eq!(ready(&sealer, &Fake::good()), Decision::Seal);
     let p = Fake {
-        comm: None,
         namespace: None,
         uid_map: None,
         status: None,
@@ -515,9 +529,135 @@ fn the_command_start_recheck_covers_the_settings_and_the_shell_and_not_the_rest(
 }
 
 #[test]
+fn the_command_start_recheck_refuses_a_shell_that_execed_another_program() {
+    let sealer = Sealer::new();
+    assert_eq!(ready(&sealer, &Fake::good()), Decision::Seal);
+
+    let execed = Fake {
+        comm: Some("python\n".into()),
+        ..Fake::good()
+    };
+    assert_eq!(
+        sealer.recheck(&execed, &shell()),
+        Decision::GridOnly(Reason::CommMismatch)
+    );
+    assert_eq!(
+        sealer.recheck(&Fake::good(), &shell()),
+        Decision::GridOnly(Reason::ShellReplaced),
+        "exec-ing back does not restore sealing"
+    );
+}
+
+#[test]
+fn the_command_start_recheck_compares_argv0_and_the_process_start_time() {
+    for changed in [
+        Fake {
+            cmdline: Some("/usr/bin/python\0script.py\0".into()),
+            ..Fake::good()
+        },
+        Fake {
+            stat: Some(STAT.replace(" 90000 ", " 90001 ")),
+            ..Fake::good()
+        },
+    ] {
+        let sealer = Sealer::new();
+        assert_eq!(ready(&sealer, &Fake::good()), Decision::Seal);
+        assert_eq!(
+            sealer.recheck(&changed, &shell()),
+            Decision::GridOnly(Reason::ShellReplaced)
+        );
+    }
+}
+
+#[test]
+fn a_fresh_ready_replaces_a_dead_shell_that_had_the_same_pid() {
+    let sealer = Sealer::new();
+    assert_eq!(ready(&sealer, &Fake::good()), Decision::Seal);
+
+    let fresh = Shell {
+        pidfd: Some(10),
+        ..shell()
+    };
+    let reused = Fake {
+        stat: Some(STAT.replace(" 90000 ", " 90001 ")),
+        dead_pidfd: Some(9),
+        ..Fake::good()
+    };
+    assert_eq!(sealer.ready(&reused, &fresh, &LISTED), Decision::Seal);
+    assert_eq!(sealer.recheck(&reused, &fresh), Decision::Seal);
+}
+
+#[test]
+fn a_shell_exit_drops_only_the_state_for_its_pidfd() {
+    let sealer = Sealer::new();
+    assert_eq!(ready(&sealer, &Fake::good()), Decision::Seal);
+
+    let fresh = Shell {
+        pidfd: Some(10),
+        ..shell()
+    };
+    sealer.shell_exited(&fresh);
+    assert_eq!(sealer.recheck(&Fake::good(), &shell()), Decision::Seal);
+
+    sealer.shell_exited(&shell());
+    let reused = Fake {
+        stat: Some(STAT.replace(" 90000 ", " 90001 ")),
+        ..Fake::good()
+    };
+    assert_eq!(sealer.ready(&reused, &fresh, &LISTED), Decision::Seal);
+}
+
+#[test]
+fn an_unreadable_ready_point_identity_never_seals() {
+    for unreadable in [
+        Fake {
+            cmdline: None,
+            ..Fake::good()
+        },
+        Fake {
+            stat: None,
+            ..Fake::good()
+        },
+        Fake {
+            cmdline: Some("\0".into()),
+            ..Fake::good()
+        },
+    ] {
+        assert_eq!(
+            ready(&Sealer::new(), &unreadable),
+            Decision::GridOnly(Reason::ShellIdentityUnreadable)
+        );
+    }
+}
+
+#[test]
+fn an_exec_notice_is_latched_for_one_shell_without_disabling_another() {
+    let sealer = Sealer::new();
+    let other = Shell {
+        pid: 4343,
+        ..shell()
+    };
+    assert_eq!(ready(&sealer, &Fake::good()), Decision::Seal);
+    assert_eq!(sealer.ready(&Fake::good(), &other, &LISTED), Decision::Seal);
+    assert_eq!(
+        sealer.recheck(
+            &Fake {
+                comm: Some("python\n".into()),
+                ..Fake::good()
+            },
+            &shell()
+        ),
+        Decision::GridOnly(Reason::CommMismatch)
+    );
+    assert_eq!(sealer.recheck(&Fake::good(), &other), Decision::Seal);
+}
+
+#[test]
 fn every_reason_has_a_notice_that_names_the_check() {
     for (reason, word) in [
         (Reason::NotLinux, "Linux"),
+        (Reason::ShellIdentityUnreadable, "identity"),
+        (Reason::ShellReplaced, "executed"),
         (Reason::YamaTooLow(0), "ptrace_scope"),
         (Reason::PerfParanoidTooLow(0), "perf_event_paranoid"),
         (Reason::TiocstiEnabled(1), "legacy_tiocsti"),

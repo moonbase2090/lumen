@@ -877,6 +877,8 @@ name = "lumen-gates"
 version = "0.0.0"
 dependencies = [
  "libc",
+ "lumen-holder",
+ "lumen-seal",
 ]
 
 [[package]]
