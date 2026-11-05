@@ -15,9 +15,11 @@
 )]
 mod ffi_linux;
 
+#[cfg(any(target_os = "linux", test))]
 use std::fmt;
 use std::process::ExitCode;
 
+#[cfg(any(target_os = "linux", test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Relationship {
     ParentToChild,
@@ -25,6 +27,7 @@ enum Relationship {
     ChildToParent,
 }
 
+#[cfg(any(target_os = "linux", test))]
 impl Relationship {
     const ALL: [Self; 3] = [
         Self::ParentToChild,
@@ -70,6 +73,7 @@ impl Operation {
     }
 }
 
+#[cfg(any(target_os = "linux", test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Outcome {
     Allowed,
@@ -78,6 +82,7 @@ enum Outcome {
     WrongValue,
 }
 
+#[cfg(any(target_os = "linux", test))]
 impl Outcome {
     #[cfg(target_os = "linux")]
     fn from_error(error: &std::io::Error) -> Self {
@@ -102,6 +107,7 @@ impl Outcome {
     }
 }
 
+#[cfg(any(target_os = "linux", test))]
 impl fmt::Display for Outcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -113,6 +119,7 @@ impl fmt::Display for Outcome {
     }
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn expected_allowed(scope: u32, relationship: Relationship) -> bool {
     match scope {
         0 => true,
