@@ -31,7 +31,7 @@
 //! latch, since it shows nothing about the value.
 
 use crate::probe::{PidFd, Probe};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, btree_map::Entry};
 use std::fmt;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -153,8 +153,21 @@ pub struct Sealer {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ShellState {
-    Active(ProcessIdentity),
-    Replaced,
+    Active {
+        identity: ProcessIdentity,
+        pidfd: Option<PidFd>,
+    },
+    Replaced {
+        pidfd: Option<PidFd>,
+    },
+}
+
+impl ShellState {
+    fn pidfd(&self) -> Option<PidFd> {
+        match self {
+            Self::Active { pidfd, .. } | Self::Replaced { pidfd } => *pidfd,
+        }
+    }
 }
 
 /// The ready-point fields that distinguish the spawned shell from a later
@@ -288,16 +301,55 @@ impl Sealer {
         let Ok(mut shells) = self.shells.lock() else {
             return Decision::GridOnly(Reason::ShellIdentityUnreadable);
         };
-        match shells.get(&shell.pid) {
-            None => {
-                shells.insert(shell.pid, ShellState::Active(identity));
+        match shells.entry(shell.pid) {
+            Entry::Vacant(entry) => {
+                entry.insert(ShellState::Active {
+                    identity,
+                    pidfd: shell.pidfd,
+                });
                 Decision::Seal
             }
-            Some(ShellState::Active(recorded)) if recorded == &identity => Decision::Seal,
-            Some(ShellState::Active(_) | ShellState::Replaced) => {
-                shells.insert(shell.pid, ShellState::Replaced);
-                Decision::GridOnly(Reason::ShellReplaced)
+            Entry::Occupied(mut entry) => {
+                if let ShellState::Active {
+                    identity: recorded,
+                    pidfd,
+                } = entry.get_mut()
+                    && recorded == &identity
+                {
+                    *pidfd = shell.pidfd;
+                    return Decision::Seal;
+                }
+                let previous_pidfd = entry.get().pidfd();
+                if probe.shell_alive(previous_pidfd) == Some(false) {
+                    entry.insert(ShellState::Active {
+                        identity,
+                        pidfd: shell.pidfd,
+                    });
+                    Decision::Seal
+                } else {
+                    entry.insert(ShellState::Replaced {
+                        pidfd: previous_pidfd,
+                    });
+                    Decision::GridOnly(Reason::ShellReplaced)
+                }
             }
+        }
+    }
+
+    /// Forget one shell after the terminal observes its exit, before closing
+    /// the pidfd it passed at the ready point.
+    ///
+    /// The pidfd match keeps an exit for an older shell from deleting a newer
+    /// shell at the same pid when their handles differ.
+    pub fn shell_exited(&self, shell: &Shell<'_>) {
+        let Ok(mut shells) = self.shells.lock() else {
+            return;
+        };
+        if shells
+            .get(&shell.pid)
+            .is_some_and(|state| state.pidfd() == shell.pidfd)
+        {
+            shells.remove(&shell.pid);
         }
     }
 
@@ -321,28 +373,42 @@ impl Sealer {
     /// mismatch for this pid. The full [`recheck`](Self::recheck) decision
     /// calls this after its system-setting checks.
     pub fn recheck_process_identity(&self, probe: &dyn Probe, shell: &Shell<'_>) -> Decision {
-        let Some(current) = process_identity(probe, shell.pid) else {
-            return Decision::GridOnly(Reason::ShellIdentityUnreadable);
-        };
+        let current = process_identity(probe, shell.pid);
         let Ok(mut shells) = self.shells.lock() else {
             return Decision::GridOnly(Reason::ShellIdentityUnreadable);
         };
+        let Some(stored_pidfd) = shells.get(&shell.pid).map(ShellState::pidfd) else {
+            return Decision::GridOnly(Reason::ShellReplaced);
+        };
+        let alive = probe.shell_alive(stored_pidfd);
+        if alive != Some(true) {
+            if alive == Some(false) {
+                shells.remove(&shell.pid);
+            }
+            return Decision::GridOnly(Reason::ShellGone);
+        }
+        let Some(current) = current else {
+            return Decision::GridOnly(Reason::ShellIdentityUnreadable);
+        };
         match shells.get_mut(&shell.pid) {
-            Some(ShellState::Active(recorded)) if recorded == &current => {}
+            Some(ShellState::Active {
+                identity: recorded, ..
+            }) if recorded == &current => {}
             Some(state) => {
                 let reason = match state {
-                    ShellState::Active(recorded) if recorded.comm != current.comm => {
-                        Reason::CommMismatch
+                    ShellState::Active {
+                        identity: recorded, ..
+                    } if recorded.comm != current.comm => Reason::CommMismatch,
+                    ShellState::Active { .. } | ShellState::Replaced { .. } => {
+                        Reason::ShellReplaced
                     }
-                    ShellState::Active(_) | ShellState::Replaced => Reason::ShellReplaced,
                 };
-                *state = ShellState::Replaced;
+                *state = ShellState::Replaced {
+                    pidfd: stored_pidfd,
+                };
                 return Decision::GridOnly(reason);
             }
             None => return Decision::GridOnly(Reason::ShellReplaced),
-        }
-        if probe.shell_alive(shell.pidfd) != Some(true) {
-            return Decision::GridOnly(Reason::ShellGone);
         }
         Decision::Seal
     }

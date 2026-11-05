@@ -26,6 +26,7 @@ struct Fake {
     status: Option<String>,
     namespace: Option<bool>,
     alive: Option<bool>,
+    dead_pidfd: Option<PidFd>,
     /// How many times the probe was asked anything.
     asked: Cell<u32>,
 }
@@ -45,6 +46,7 @@ impl Fake {
             status: Some(NO_CAPS.into()),
             namespace: Some(true),
             alive: Some(true),
+            dead_pidfd: None,
             asked: Cell::new(0),
         }
     }
@@ -78,8 +80,12 @@ impl Probe for Fake {
     fn initial_user_namespace(&self, _pid: u32) -> Option<bool> {
         self.namespace
     }
-    fn shell_alive(&self, _pidfd: Option<PidFd>) -> Option<bool> {
-        self.alive
+    fn shell_alive(&self, pidfd: Option<PidFd>) -> Option<bool> {
+        if self.dead_pidfd.is_some() && pidfd == self.dead_pidfd {
+            Some(false)
+        } else {
+            self.alive
+        }
     }
 }
 
@@ -561,6 +567,44 @@ fn the_command_start_recheck_compares_argv0_and_the_process_start_time() {
             Decision::GridOnly(Reason::ShellReplaced)
         );
     }
+}
+
+#[test]
+fn a_fresh_ready_replaces_a_dead_shell_that_had_the_same_pid() {
+    let sealer = Sealer::new();
+    assert_eq!(ready(&sealer, &Fake::good()), Decision::Seal);
+
+    let fresh = Shell {
+        pidfd: Some(10),
+        ..shell()
+    };
+    let reused = Fake {
+        stat: Some(STAT.replace(" 90000 ", " 90001 ")),
+        dead_pidfd: Some(9),
+        ..Fake::good()
+    };
+    assert_eq!(sealer.ready(&reused, &fresh, &LISTED), Decision::Seal);
+    assert_eq!(sealer.recheck(&reused, &fresh), Decision::Seal);
+}
+
+#[test]
+fn a_shell_exit_drops_only_the_state_for_its_pidfd() {
+    let sealer = Sealer::new();
+    assert_eq!(ready(&sealer, &Fake::good()), Decision::Seal);
+
+    let fresh = Shell {
+        pidfd: Some(10),
+        ..shell()
+    };
+    sealer.shell_exited(&fresh);
+    assert_eq!(sealer.recheck(&Fake::good(), &shell()), Decision::Seal);
+
+    sealer.shell_exited(&shell());
+    let reused = Fake {
+        stat: Some(STAT.replace(" 90000 ", " 90001 ")),
+        ..Fake::good()
+    };
+    assert_eq!(sealer.ready(&reused, &fresh, &LISTED), Decision::Seal);
 }
 
 #[test]
