@@ -816,8 +816,11 @@ version = "0.0.0"
 name = "lumen-conformance"
 version = "0.0.0"
 dependencies = [
+ "lumen-arm-b",
  "lumen-budget",
  "lumen-detector",
+ "lumen-sealed",
+ "lumen-term",
  "lumen-track0",
  "serde_json",
 ]
