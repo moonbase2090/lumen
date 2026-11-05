@@ -96,6 +96,28 @@ fn feed(d: &mut Document, l: &mut lumen_arm_b::Layer, bytes: &[u8], single: bool
     d.finish(l);
 }
 
+/// Whole, or in uneven reads of 1 to 7 bytes, so a split cannot hide a difference.
+fn feed_chunks(d: &mut Document, l: &mut lumen_arm_b::Layer, bytes: &[u8], chunked: bool) {
+    if !chunked {
+        feed(d, l, bytes, false);
+        return;
+    }
+    let (mut at, mut step) = (0, 1);
+    while at < bytes.len() {
+        let end = (at + step).min(bytes.len());
+        d.receive(l, &bytes[at..end], Context::default());
+        at = end;
+        step = step % 7 + 1;
+    }
+    d.finish(l);
+}
+
+/// Every byte of `part` is in `whole`, in the same order.
+fn is_subsequence(part: &[u8], whole: &[u8]) -> bool {
+    let mut rest = whole.iter();
+    part.iter().all(|b| rest.any(|w| w == b))
+}
+
 fn window(v: &Value) -> Window {
     let n = |k: &str| u32::try_from(v[k].as_u64().unwrap_or(1)).unwrap_or(1);
     Window {
@@ -152,7 +174,9 @@ fn g13_no_unsealed_input_has_authority() {
 fn g14_frames_never_reach_the_parser_and_never_vanish() {
     let doc = load();
     for (name, bytes) in inputs(&doc) {
-        if !bytes.starts_with(b"\x1b_") {
+        // Only inputs that carry the Lumen tag are frames. An APC with another
+        // tag is not one; its tail follows the failed-header rule instead.
+        if !(bytes.starts_with(b"\x1b_") && bytes[2..].starts_with(&TAG)) {
             continue;
         }
         for single in [false, true] {
@@ -170,18 +194,40 @@ fn g14_frames_never_reach_the_parser_and_never_vanish() {
                 pieces.extend(Layer::feed(&mut l, &bytes, Context::default()));
             }
             pieces.extend(Layer::finish(&mut l));
+            // Parity: the parser sees only bytes a PTY write could have sent. After
+            // a refused header the rest of the stream is ordinary output (the
+            // failed-header rule), so the bytes it sees are bytes of the input, in order,
+            // after the tag and never the introducer or the tag. A frame whose
+            // header is accepted gives it no bytes at all.
+            let parser: Vec<u8> = pieces
+                .iter()
+                .filter_map(|p| match p {
+                    Piece::Bytes(b) => Some(b.as_slice()),
+                    _ => None,
+                })
+                .flatten()
+                .copied()
+                .collect();
+            let after_tag = &bytes[2 + TAG.len()..];
+            assert!(
+                is_subsequence(&parser, after_tag),
+                "{name}: the parser saw bytes that are not in the input after the tag: {parser:?}"
+            );
+            let accepted = doc["frame_kinds"]["accepted"].as_array();
+            if accepted.is_some_and(|a| a.iter().any(|x| x.as_str() == Some(name.as_str()))) {
+                assert!(
+                    parser.is_empty(),
+                    "{name}: an accepted frame reached the parser"
+                );
+            }
             for p in &pieces {
                 match p {
-                    Piece::Bytes(b) => assert!(
-                        !b.windows(2).any(|w| w == b"\x1b_") && !b.contains(&0x9f),
-                        "{name}: frame bytes reached the parser"
-                    ),
                     Piece::Text(t) => assert!(
                         !t.chars().any(char::is_control),
                         "{name}: control character in visible text"
                     ),
                     Piece::Sealed { .. } => unreachable!("{name}: opened as sealed"),
-                    Piece::Rich(_) | Piece::Background(_) | Piece::Notice(_) => {}
+                    Piece::Bytes(_) | Piece::Rich(_) | Piece::Background(_) | Piece::Notice(_) => {}
                 }
             }
             assert!(!pieces.is_empty(), "{name}: a frame produced nothing");
@@ -206,20 +252,23 @@ fn g12_no_input_changes_a_margin_or_editor_pixel() {
             .filter(|(n, _)| !n.starts_with("kind-") || n.ends_with("-text"))
         {
             for container in [true, false] {
-                let mut d = doc_for(&win);
-                let mut l = layer(container);
-                feed(&mut d, &mut l, &bytes, false);
-                let f = r.render_window(&d, &win);
-                for rect in &parts {
-                    for y in rect.y * ch..(rect.y + rect.h) * ch {
-                        for x in rect.x * cw..(rect.x + rect.w) * cw {
-                            assert_eq!(
-                                base.pixel(x, y),
-                                f.pixel(x, y),
-                                "{name}: {}x{} container {container}: pixel ({x},{y}) changed",
-                                win.cols,
-                                win.rows
-                            );
+                for chunked in [false, true] {
+                    let mut d = doc_for(&win);
+                    let mut l = layer(container);
+                    feed_chunks(&mut d, &mut l, &bytes, chunked);
+                    let f = r.render_window(&d, &win);
+                    for rect in &parts {
+                        for y in rect.y * ch..(rect.y + rect.h) * ch {
+                            for x in rect.x * cw..(rect.x + rect.w) * cw {
+                                assert_eq!(
+                                    base.pixel(x, y),
+                                    f.pixel(x, y),
+                                    "{name}: {}x{} container {container} chunked {chunked}: \
+                                     pixel ({x},{y}) changed",
+                                    win.cols,
+                                    win.rows
+                                );
+                            }
                         }
                     }
                 }

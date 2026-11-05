@@ -5,7 +5,7 @@
  "gates": {
   "G12": "The pixels of the gutter, the header strip and the editor equal those of a window that received no producer input.",
   "G13": "No sealed event, no opened sealed frame, no grant, no toast and no OS notification, by default.",
-  "G14": "No frame bytes reach the VT parser, visible text holds no control character, and no unsealed frame ends as nothing at all."
+  "G14": "Parser-bound bytes are only bytes a PTY write could have sent: after a refused header the rest of the stream is ordinary output, a slice of the input after the tag. A frame with an accepted header gives the parser no bytes (frame_kinds.accepted). Visible text holds no control character, and no frame ends as nothing at all."
  },
  "vectors": [
   {
@@ -355,6 +355,10 @@
     "id": "ff-fill",
     "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
    }
+  ],
+  "accepted": [
+   "kind-0x80-text",
+   "kind-0x80-escape-string"
   ]
  },
  "windows": [
