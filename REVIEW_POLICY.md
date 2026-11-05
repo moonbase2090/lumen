@@ -34,7 +34,7 @@ All required status checks on `main` must pass before merging: fmt, clippy with 
 
 ## 5. Feature gating
 
-New behavior ships behind a Cargo feature that is off by default. The experiment arms (`arm-a`, `arm-b`) stay off by default. Turning anything on by default is its own trunk PR.
+New behavior ships on by default. A Cargo feature that is off by default is used only when the owner explicitly asks for one for that feature. A pure fix never needs a flag. The experiment arms (`arm-a`, `arm-b`) stay off by default; they are an owner-requested exception for the experiment. Turning on a feature the owner asked to gate is its own trunk PR.
 
 ## 6. Unsafe code
 
