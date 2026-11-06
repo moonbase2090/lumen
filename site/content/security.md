@@ -48,3 +48,5 @@ Please keep the details private until the advisory is published. We disclose whe
 If another project is affected, we tell its maintainers privately and agree the date with them. We do not ask you for a non-disclosure agreement.
 
 The advisory names the affected and fixed versions, the severity, the impact and any workaround, and credits you by the name you choose, or leaves you out if you prefer. We request a CVE identifier for anything graded Medium or higher. Advisories describe the fix and its effect; exploit details beyond what is needed to understand and mitigate the problem are not published.
+
+The decisions that shaped the protocol, and the residual risks the maintainers accepted, are on the [decisions and accepted risks](@/decisions.md) page.
