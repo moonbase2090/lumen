@@ -67,6 +67,15 @@ fn type_until_refused(app: &mut App) -> Duration {
     unreachable!("4000 pastes of 4 KiB to a program that never reads were all accepted");
 }
 
+fn send_until_refused(app: &mut App, input: Input<'_>) {
+    for _ in 0..4000 {
+        if send_input(app, input) {
+            return;
+        }
+    }
+    unreachable!("4000 sends to a program that never reads were all accepted");
+}
+
 fn geometry() -> (lumen_term::Layout, Renderer) {
     let r = Renderer::light(1).unwrap_or_else(|e| unreachable!("the bundled face loads: {e}"));
     let (columns, rows) = cells_for(W, H, r.cell());
@@ -150,14 +159,13 @@ fn each_refusal_is_counted_and_the_text_is_the_terminals_alone() {
     let first = count(&app);
     assert!(first >= 1);
     for _ in 0..5 {
-        assert!(send_input(&mut app, Input::Text("more")));
+        // The writer may move one queued paste into the PTY between calls, so
+        // observe each refusal instead of assuming the queue stays full.
+        send_until_refused(&mut app, Input::Text("more"));
     }
     assert_eq!(count(&app), first + 5, "every refused write is counted");
     // A key is refused the same way, and the window is told to draw.
-    assert!(send_input(
-        &mut app,
-        Input::Key(Key::Char('a'), Mods::default())
-    ));
+    send_until_refused(&mut app, Input::Key(Key::Char('a'), Mods::default()));
     assert_eq!(count(&app), first + 6);
 }
 
