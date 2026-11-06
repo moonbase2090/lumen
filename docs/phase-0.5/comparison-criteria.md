@@ -6,7 +6,7 @@ Normative terms follow [spec/v0](../../spec/v0/_index.md). The arms are describe
 
 ## 1. The two arms
 
-Both arms are built in this repository as separate crates, `lumen-arm-a` and `lumen-arm-b`. The Cargo features `arm-a` and `arm-b` of the `lumen` crate, both off by default, select which crate is linked, and the comparison driver picks one with `--arm`. They share the same renderer and the same red-team corpus. Each arm is built from a single commit, and every result records that commit SHA.
+Both arms are built in this repository as separate crates, `lumen-arm-a` and `lumen-arm-b`. The Cargo features `arm-a` and `arm-b` of the `lumen` crate, both off by default, select which crate is linked into the terminal binary. The comparison driver, `lumen-evidence`, links both arm crates and picks the arm at run time with `--arm`; it does not use the features. They share the same renderer and the same red-team corpus. Each arm is built from a single commit, and every result records that commit SHA.
 
 **Arm A: sealed-only rich.** Rich blocks render only on a sealed layer. Track 0 output on an unsealed layer renders as escaped text. The spec only states this for the alternate-screen and multiplexer cases ([trust](../../spec/v0/trust.md), [multiplexers](../../spec/v0/multiplexers.md#mux.alt-screen)). Applying it to every unsealed layer under arm A is a proposal of this document, not a spec rule.
 
