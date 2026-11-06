@@ -10,7 +10,7 @@ A decision is listed here only if the specification already states it. Any entry
 
 ## Decisions
 
-Status is one of **Adopted** (the specification follows it) or **Not adopted** (it was considered and the specification does not follow it).
+Every decision listed here is **Adopted**: the specification follows it.
 
 ### Shell integration is the only source of command structure
 
@@ -44,8 +44,8 @@ Status is one of **Adopted** (the specification follows it) or **Not adopted** (
 
 ### Colour queries get fixed-format replies
 
-- **Status:** Adopted. Removing the replies altogether was **Not adopted**.
-- **Effect:** The terminal answers colour queries only in the single query form, from its own theme values with a fixed format, and rate-limits all replies, so programs that probe the terminal keep working. The cost is a privacy effect, listed under accepted risks below.
+- **Status:** Adopted.
+- **Effect:** The terminal answers colour queries only in the single query form, from its own theme values with a fixed format, and rate-limits all replies. The privacy effect of these replies is listed under accepted risks below.
 - **Where:** [Terminal replies](@/spec/v0/sealed-layers.md#sealed.replies), [Accepted residual risks](@/spec/v0/threat-model.md#threat.residuals).
 
 ### tmux and screen are post-v0; one multiplexer path exists
