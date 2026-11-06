@@ -35,18 +35,16 @@ The spec's [threat model](@/spec/v0/threat-model.md) explains what is in and out
 | Medium | 90 days |
 | Low | The next regular release |
 
+A target is a goal, not a promise. If we will miss it, we tell you and say why.
+
 4. **Release and advisory.** The fix ships in a patched release and we publish a security advisory.
 
 A crash, an out-of-limit decode or a memory-error report found in the image decoder by any test blocks the release until a patched build ships ([decoder gate](@/spec/v0/conformance.md#gate.decoder), [fuzzing](@/spec/v0/conformance.md#gate.fuzzing)).
 
 ## Embargo and advisories
 
-Please keep the details private until the advisory is published. We disclose when the fix is released, or 90 days after your report, whichever comes first; if a fix needs more time we agree a new date with you. If you believe a report is already being exploited, say so in the first message.
+Please keep the details private until the advisory is published. We disclose when the fix is released, or 90 days after your report, whichever comes first. The 90 days are extended only if you agree to a later date; if we ask for more time and you do not agree, the 90 days stand. If you believe a report is already being exploited, say so in the first message and we will move it to the front.
 
-The advisory names the affected and fixed versions, the severity, the impact and any workaround, and credits you by the name you choose (or not at all). We request a CVE identifier for anything graded Medium or higher.
+If another project is affected, we tell its maintainers privately and agree the date with them. We do not ask you for a non-disclosure agreement.
 
-## Safe harbour
-
-If you act in good faith, test only against your own installation, do not harm other people's data or systems, and report privately, we will not take legal action over your research.
-
-The same policy is in [`SECURITY.md`](https://github.com/moonbase2090/lumen/blob/main/SECURITY.md) in the repository.
+The advisory names the affected and fixed versions, the severity, the impact and any workaround, and credits you by the name you choose, or leaves you out if you prefer. We request a CVE identifier for anything graded Medium or higher. Advisories describe the fix and its effect; exploit details beyond what is needed to understand and mitigate the problem are not published.

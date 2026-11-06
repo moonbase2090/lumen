@@ -39,14 +39,10 @@ A crash, an out-of-limit decode or a memory-error report found in the image deco
 
 ## Embargo and disclosure
 
-We ask you to keep the details private until the advisory is published. We disclose when the fix is released, or after 90 days from your report, whichever comes first; if a fix needs more time, we agree a new date with you rather than letting it pass. If you believe a report is already being exploited, say so in the first message and we will move it to the front.
+We ask you to keep the details private until the advisory is published. We disclose when the fix is released, or 90 days after your report, whichever comes first. The 90 days are extended only if you agree to a later date; if we ask for more time and you do not agree, the 90 days stand. If you believe a report is already being exploited, say so in the first message and we will move it to the front.
 
 If another project is affected, we tell its maintainers privately and agree the date with them. We do not ask you for a non-disclosure agreement.
 
 ## Advisories
 
 When a fix is released we publish a GitHub security advisory for the repository. It names the affected and fixed versions, the severity, the impact and a workaround if there is one, and credits the reporter by the name they choose, or leaves them out if they prefer. We request a CVE identifier for anything graded Medium or higher. Advisories describe the fix and its effect; exploit details beyond what is needed to understand and mitigate the problem are not published.
-
-## Safe harbour
-
-If you act in good faith, test only against your own installation, do not harm other people's data or systems, and report privately as above, we will not take legal action over your research, and we will say so to anyone who asks.
