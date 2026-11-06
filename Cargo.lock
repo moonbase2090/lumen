@@ -818,6 +818,7 @@ version = "0.0.0"
 dependencies = [
  "lumen-arm-b",
  "lumen-budget",
+ "lumen-decoder",
  "lumen-detector",
  "lumen-sealed",
  "lumen-term",

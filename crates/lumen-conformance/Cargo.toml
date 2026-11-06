@@ -11,6 +11,7 @@ publish.workspace = true
 [dev-dependencies]
 lumen-arm-b = { path = "../lumen-arm-b", default-features = false }
 lumen-budget = { path = "../lumen-budget" }
+lumen-decoder = { path = "../lumen-decoder" }
 lumen-detector = { path = "../lumen-detector" }
 lumen-sealed = { path = "../lumen-sealed" }
 lumen-term = { path = "../lumen-term" }
