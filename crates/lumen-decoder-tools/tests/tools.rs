@@ -5,6 +5,7 @@
 #![allow(missing_docs)]
 
 use std::error::Error;
+use std::process::Command;
 
 use lumen_decoder::decode::decode;
 use lumen_decoder::protocol::Format;
@@ -344,6 +345,45 @@ fn notes_travel_with_the_ledger_and_do_not_change_the_verdict() -> R {
     let (a, b) = (judge(&base.to_string())?, judge(&annotated.to_string())?);
     assert_eq!(a, b);
     assert!(b.passes());
+    Ok(())
+}
+
+#[test]
+fn ledger_files_keeps_large_crash_history_out_of_argv() -> R {
+    let root = tree(&[])?;
+    std::fs::create_dir_all(&root)?;
+    let escape = root.join("escape.json");
+    let samples = root.join("samples.jsonl");
+    let crashes = root.join("crashes.jsonl");
+    std::fs::write(&escape, r#"{"revision":"se-1","passed":1,"total":1}"#)?;
+    std::fs::write(&samples, r#"{"at_cpu_hour":1.0,"edges":1}"#)?;
+    let crash = r#"{"at_cpu_hour":1.0,"kind":"sanitizer","artifact":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#;
+    let count = 12_000;
+    std::fs::write(&crashes, format!("{crash}\n").repeat(count))?;
+    assert!(std::fs::metadata(&crashes)?.len() > 1_048_576);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_lumen-decoder-tools"))
+        .args([
+            "ledger-files",
+            "fz-1",
+            "decoder-id",
+            "image-id",
+            escape.to_str().ok_or("escape path is not UTF-8")?,
+            "jpeg",
+            samples.to_str().ok_or("samples path is not UTF-8")?,
+            crashes.to_str().ok_or("crashes path is not UTF-8")?,
+        ])
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ledger: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(
+        ledger["formats"][0]["crashes"].as_array().map(Vec::len),
+        Some(count)
+    );
     Ok(())
 }
 

@@ -593,13 +593,15 @@ done
 # The sandbox escape result: the G4 suite at this revision.
 cargo test --locked -p lumen-decoder --test g4_sandbox 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > "$OUT/g4.log" || true
 ESC_REV="$(git -C "$ROOT" hash-object crates/lumen-decoder/tests/g4_sandbox.rs | cut -c1-12)"
-ESCAPE="$("${TOOLS[@]}" escape "$OUT/g4.log" "g4-$ESC_REV")"
+ESCAPE_FILE="$OUT/g4.escape.json"
+"${TOOLS[@]}" escape "$OUT/g4.log" "g4-$ESC_REV" > "$ESCAPE_FILE"
 
-ENTRIES=()
+# Crash history can exceed ARG_MAX. Keep it in files across the exec boundary.
+LEDGER_INPUTS=()
 for f in "${FMTS[@]}"; do
-  ENTRIES+=("$("${TOOLS[@]}" format "$f" "$OUT/$f/samples.jsonl" "$OUT/$f/crashes.jsonl")")
+  LEDGER_INPUTS+=("$f" "$OUT/$f/samples.jsonl" "$OUT/$f/crashes.jsonl")
 done
-"${TOOLS[@]}" ledger fz-1 "$DECODER_BUILD" "$IMAGE_PATH_BUILD" "$ESCAPE" "${ENTRIES[@]}" > "$OUT/ledger.plain.json"
+"${TOOLS[@]}" ledger-files fz-1 "$DECODER_BUILD" "$IMAGE_PATH_BUILD" "$ESCAPE_FILE" "${LEDGER_INPUTS[@]}" > "$OUT/ledger.plain.json"
 
 # Notes that travel with the numbers (the judge ignores them): what was fuzzed,
 # what was not run, and the empty past-CVE record.

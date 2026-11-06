@@ -26,7 +26,7 @@ if [ "${1:-}" = run ]; then
       test -s "$3"
       printf '{"format":"%s"}\n' "$1"
       ;;
-    ledger) printf '{"revision":"fz-1"}\n' ;;
+    ledger-files) printf '{"revision":"fz-1"}\n' ;;
     annotate) cat "$1" ;;
     *) echo "unexpected decoder-tools command: $command" >&2; exit 2 ;;
   esac

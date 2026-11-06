@@ -19,6 +19,9 @@
 //! - `annotate LEDGER NAME=FILE...` prints the ledger with a `notes` object.
 //! - `ledger REVISION DECODER_BUILD IMAGE_PATH_BUILD ESCAPE_JSON ENTRY_JSON...`
 //!   prints the ledger.
+//! - `ledger-files REVISION DECODER_BUILD IMAGE_PATH_BUILD ESCAPE_FILE`
+//!   `NAME SAMPLES CRASHES...` prints the same ledger without putting its
+//!   growing history on the process argument list.
 
 use std::error::Error;
 use std::fs;
@@ -27,6 +30,32 @@ use std::process::{Command, ExitCode};
 
 use lumen_decoder_tools::{ckpt, classify, escape, gate, identity, ledger, miri, slice};
 use serde_json::{Value, json};
+
+fn ledger_value(
+    revision: &str,
+    decoder_build: &str,
+    image_path_build: &str,
+    escape: &Value,
+    formats: &[Value],
+) -> Result<Value, Box<dyn Error>> {
+    let number = |key: &str| {
+        escape[key]
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or(format!("escape json has no {key}"))
+    };
+    Ok(ledger::ledger(
+        revision,
+        decoder_build,
+        image_path_build,
+        formats,
+        escape["revision"]
+            .as_str()
+            .ok_or("escape json has no revision")?,
+        number("passed")?,
+        number("total")?,
+    ))
+}
 
 #[allow(clippy::too_many_lines, reason = "one arm per subcommand")]
 fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
@@ -208,25 +237,29 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
                 .iter()
                 .map(|f| serde_json::from_str(f))
                 .collect::<Result<Vec<Value>, _>>()?;
-            let n = |k: &str| {
-                esc[k]
-                    .as_u64()
-                    .and_then(|v| u32::try_from(v).ok())
-                    .ok_or(format!("escape json has no {k}"))
-            };
             println!(
                 "{}",
-                ledger::ledger(
-                    arg(1)?,
-                    arg(2)?,
-                    arg(3)?,
-                    &formats,
-                    esc["revision"]
-                        .as_str()
-                        .ok_or("escape json has no revision")?,
-                    n("passed")?,
-                    n("total")?
-                )
+                ledger_value(arg(1)?, arg(2)?, arg(3)?, &esc, &formats)?
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        "ledger-files" => {
+            let esc: Value = serde_json::from_str(&fs::read_to_string(arg(4)?)?)?;
+            let (inputs, remainder) = args[5..].as_chunks::<3>();
+            let formats = inputs
+                .iter()
+                .map(|input| {
+                    let samples = ledger::lines(&fs::read_to_string(&input[1])?)?;
+                    let crashes = ledger::lines(&fs::read_to_string(&input[2])?)?;
+                    ledger::format_entry(&input[0], &samples, &crashes).map_err(Into::into)
+                })
+                .collect::<Result<Vec<Value>, Box<dyn Error>>>()?;
+            if !remainder.is_empty() {
+                return Err("ledger-files expects NAME SAMPLES CRASHES triples".into());
+            }
+            println!(
+                "{}",
+                ledger_value(arg(1)?, arg(2)?, arg(3)?, &esc, &formats)?
             );
             Ok(ExitCode::SUCCESS)
         }
