@@ -1,0 +1,17 @@
+Linux window proof
+Revision: db67bb1001388c0f6dce35b946063da837eb59ea
+Host: fresh AWS EC2 t4g.large spot, Ubuntu 24.04.5 LTS aarch64, no inbound ports, no instance profile, destroyed after the run
+Toolchain: rustc 1.99.1 (rustup minimal stable)
+Build: cargo build --release -p lumen-term --features window (includes lumen-arm-b), 2m32s
+Display: Xvfb :99, 1024x768x24
+Command: lumen-term --size 800x600 --exit-after 8000 -- sh -c 'echo lumen window proof; sleep 20'
+Binary SHA-256: 6624e20b8cff7e4bc50c72f5065ab05a6551a2ab1bcb89fa2262a856f26e5942
+Window created: true (X window "lumen", class lumen-term, mapped IsViewable)
+Window rectangle: 800x600
+Capture: import -window root (X root, 1024x768; the window occupies the top-left 800x600)
+Capture shows: the window with the program's output "lumen window proof" and the input prompt
+Window process exit: 0 (closed by --exit-after, not killed)
+Window process terminated after capture: true
+Capture SHA-256: 89256108fe742074a381d177a1b6c17a520b8772162aeee7e15ccdb6b61a9b5f
+Capture: linux-window.png
+Not shown here: Wayland (X11 only), a real GPU or compositor, other distributions
