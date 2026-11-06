@@ -112,10 +112,26 @@ fn feed_chunks(d: &mut Document, l: &mut lumen_arm_b::Layer, bytes: &[u8], chunk
     d.finish(l);
 }
 
-/// Every byte of `part` is in `whole`, in the same order.
-fn is_subsequence(part: &[u8], whole: &[u8]) -> bool {
-    let mut rest = whole.iter();
-    part.iter().all(|b| rest.any(|w| w == b))
+/// The bytes the VT parser must get for a framed input, by the rule in the file.
+fn expected_parser(doc: &Value, name: &str, bytes: &[u8]) -> Vec<u8> {
+    if let Some(v) = doc["vectors"]
+        .as_array()
+        .and_then(|vs| vs.iter().find(|v| v["id"].as_str() == Some(name)))
+    {
+        return unhex(v["parser"].as_str().unwrap_or_default());
+    }
+    // A type-byte input: introducer (2), tag (8), kind, length (4), payload.
+    let kind = bytes[10];
+    // An unsealed kind is consumed whole: a body the Track 0 parser accepts
+    // becomes a block, any other becomes visible escaped text.
+    if kind >= 0x80 {
+        return Vec::new();
+    }
+    if kind == 0x1b {
+        bytes[10..].to_vec()
+    } else {
+        bytes[15..].to_vec()
+    }
 }
 
 fn window(v: &Value) -> Window {
@@ -194,11 +210,11 @@ fn g14_frames_never_reach_the_parser_and_never_vanish() {
                 pieces.extend(Layer::feed(&mut l, &bytes, Context::default()));
             }
             pieces.extend(Layer::finish(&mut l));
-            // Parity: the parser sees only bytes a PTY write could have sent. After
-            // a refused header the rest of the stream is ordinary output (the
-            // failed-header rule), so the bytes it sees are bytes of the input, in order,
-            // after the tag and never the introducer or the tag. A frame whose
-            // header is accepted gives it no bytes at all.
+            // Parity: the parser sees exactly the bytes the rules give. A frame
+            // the Track 0 parser accepts gives it none. After a refused header the
+            // rest of the stream is ordinary output (the failed-header rule), so
+            // the parser sees what a PTY write of those bytes would give, and no
+            // byte is dropped.
             let parser: Vec<u8> = pieces
                 .iter()
                 .filter_map(|p| match p {
@@ -208,18 +224,11 @@ fn g14_frames_never_reach_the_parser_and_never_vanish() {
                 .flatten()
                 .copied()
                 .collect();
-            let after_tag = &bytes[2 + TAG.len()..];
-            assert!(
-                is_subsequence(&parser, after_tag),
-                "{name}: the parser saw bytes that are not in the input after the tag: {parser:?}"
+            assert_eq!(
+                parser,
+                expected_parser(&doc, &name, &bytes),
+                "{name} single={single}: the parser saw other bytes than the rules give"
             );
-            let accepted = doc["frame_kinds"]["accepted"].as_array();
-            if accepted.is_some_and(|a| a.iter().any(|x| x.as_str() == Some(name.as_str()))) {
-                assert!(
-                    parser.is_empty(),
-                    "{name}: an accepted frame reached the parser"
-                );
-            }
             for p in &pieces {
                 match p {
                     Piece::Text(t) => assert!(
