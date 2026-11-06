@@ -21,7 +21,7 @@ Findings are graded against the fixed severity rubric used for the specification
 
 ## What happens to a report
 
-1. **Acknowledgement.** We acknowledge a report within 3 business days. If you hear nothing, write again to the email address: a missed message is more likely than silence.
+1. **Acknowledgement.** We acknowledge a report within 3–5 business days. If you hear nothing, write again to the email address: a missed message is more likely than silence.
 2. **Triage.** Within 7 days we reproduce the report, decide whether it is in scope, and give it a severity. We apply the [parity rule](spec/v0/threat-model.md#threat.parity): a report that shows a Lumen asset giving more than a PTY write or the user's own dotfiles already give is a vulnerability; one that does not is not, and we say why. We tell you the outcome and the severity.
 3. **Fix.** We aim to have a fix ready within these targets, counted from the end of triage:
 

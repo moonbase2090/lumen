@@ -24,7 +24,7 @@ The spec's [threat model](@/spec/v0/threat-model.md) explains what is in and out
 
 ## What happens to a report
 
-1. **Acknowledgement** within 3 business days.
+1. **Acknowledgement** within 3–5 business days.
 2. **Triage** within 7 days: we reproduce the report, decide whether it is in scope, give it a severity and tell you the outcome. The test for "is this a vulnerability" is the spec's [parity rule](@/spec/v0/threat-model.md#threat.parity): does a Lumen asset give more than a PTY write, or the user's own dotfiles, already give?
 3. **Fix** within a target counted from the end of triage:
 
