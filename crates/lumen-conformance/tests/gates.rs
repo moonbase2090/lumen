@@ -239,7 +239,18 @@ fn g14_frames_never_reach_the_parser_and_never_vanish() {
                     Piece::Bytes(_) | Piece::Rich(_) | Piece::Background(_) | Piece::Notice(_) => {}
                 }
             }
-            assert!(!pieces.is_empty(), "{name}: a frame produced nothing");
+            // Something the writer can see: a block, a notice, non-empty text, or
+            // bytes the parser draws. An empty text piece shows nothing.
+            let shown = !parser.is_empty()
+                || pieces.iter().any(|p| match p {
+                    Piece::Text(t) => !t.is_empty(),
+                    Piece::Rich(_) | Piece::Background(_) | Piece::Notice(_) => true,
+                    Piece::Bytes(_) | Piece::Sealed { .. } => false,
+                });
+            assert!(
+                shown,
+                "{name} single={single}: the frame shows nothing: {pieces:?}"
+            );
         }
     }
 }
