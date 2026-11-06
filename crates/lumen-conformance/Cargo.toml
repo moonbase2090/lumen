@@ -9,8 +9,11 @@ repository.workspace = true
 publish.workspace = true
 
 [dev-dependencies]
+lumen-arm-b = { path = "../lumen-arm-b", default-features = false }
 lumen-budget = { path = "../lumen-budget" }
 lumen-detector = { path = "../lumen-detector" }
+lumen-sealed = { path = "../lumen-sealed" }
+lumen-term = { path = "../lumen-term" }
 lumen-track0 = { path = "../lumen-track0" }
 serde_json = "1"
 
