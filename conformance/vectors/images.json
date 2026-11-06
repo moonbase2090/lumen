@@ -1,0 +1,582 @@
+{
+ "suite": "images",
+ "spec": "images.md#images.unlock",
+ "unlock_vectors": [
+  {
+   "id": "both-identities-passed",
+   "note": "a record for this platform and both identities, both gates passed: images shown",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "dec-A",
+   "image_path_build": "img-A",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "images"
+  },
+  {
+   "id": "no-record",
+   "note": "no recorded pass: alt text",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "dec-A",
+   "image_path_build": "img-A",
+   "records": [],
+   "expect": "alt_text"
+  },
+  {
+   "id": "setting-off",
+   "note": "images = off always wins over a recorded pass",
+   "setting_on": false,
+   "platform": "linux",
+   "decoder_build": "dec-A",
+   "image_path_build": "img-A",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "alt_text"
+  },
+  {
+   "id": "decoder-identity-changed",
+   "note": "the decoder build changed since the record: alt text until the gate passes again",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "dec-B",
+   "image_path_build": "img-A",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "alt_text"
+  },
+  {
+   "id": "image-path-identity-changed",
+   "note": "the terminal image-path build changed since the record: alt text",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "dec-A",
+   "image_path_build": "img-B",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "alt_text"
+  },
+  {
+   "id": "both-identities-changed",
+   "note": "both identities changed: alt text",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "dec-B",
+   "image_path_build": "img-B",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "alt_text"
+  },
+  {
+   "id": "decoder-gate-failed",
+   "note": "decoder gate recorded as failed",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "dec-A",
+   "image_path_build": "img-A",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": false,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "alt_text"
+  },
+  {
+   "id": "memory-gate-failed",
+   "note": "decoder memory gate recorded as failed",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "dec-A",
+   "image_path_build": "img-A",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": false
+    }
+   ],
+   "expect": "alt_text"
+  },
+  {
+   "id": "pass-split-across-records",
+   "note": "the decoder gate passed in one record and the memory gate in another: neither record passes both, alt text",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "dec-A",
+   "image_path_build": "img-A",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": false
+    },
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": false,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "alt_text"
+  },
+  {
+   "id": "other-platform-only",
+   "note": "the pass is for another platform",
+   "setting_on": true,
+   "platform": "macos",
+   "decoder_build": "dec-A",
+   "image_path_build": "img-A",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "alt_text"
+  },
+  {
+   "id": "older-record-still-matches",
+   "note": "a stale record for old identities does not hide a matching one",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "dec-A",
+   "image_path_build": "img-A",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "dec-old",
+     "image_path_build": "img-old",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    },
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "images"
+  },
+  {
+   "id": "decoder-pass-on-wrong-image-path",
+   "note": "a record matches the decoder identity but not the image-path identity, and another the reverse: alt text",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "dec-A",
+   "image_path_build": "img-A",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "img-old",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    },
+    {
+     "platform": "linux",
+     "decoder_build": "dec-old",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "alt_text"
+  },
+  {
+   "id": "empty-decoder-identity",
+   "note": "a build that cannot compute its decoder identity never unlocks, even against an empty-identity record",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "",
+   "image_path_build": "img-A",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "alt_text"
+  },
+  {
+   "id": "empty-image-path-identity",
+   "note": "same for the image-path identity",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "dec-A",
+   "image_path_build": "",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "alt_text"
+  },
+  {
+   "id": "absent-image-path-identity",
+   "note": "an identity starting with 'absent' stands for 'image path does not exist yet' and never unlocks",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "dec-A",
+   "image_path_build": "absent-image-path",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "dec-A",
+     "image_path_build": "absent-image-path",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "alt_text"
+  },
+  {
+   "id": "absent-decoder-identity",
+   "note": "an identity starting with 'absent' for the decoder never unlocks",
+   "setting_on": true,
+   "platform": "linux",
+   "decoder_build": "absent",
+   "image_path_build": "img-A",
+   "records": [
+    {
+     "platform": "linux",
+     "decoder_build": "absent",
+     "image_path_build": "img-A",
+     "decoder_gate_passed": true,
+     "memory_gate_passed": true
+    }
+   ],
+   "expect": "alt_text"
+  }
+ ],
+ "reply_vectors": [
+  {
+   "id": "one-frame-exact",
+   "note": "one frame of exactly width * height * 4 bytes is accepted",
+   "reply": {
+    "status": 0,
+    "width": 2,
+    "height": 1,
+    "stride": 8,
+    "data_len": 8
+   },
+   "body_bytes": 8,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "image": [
+     2,
+     1
+    ]
+   }
+  },
+  {
+   "id": "second-frame-appended",
+   "note": "a second frame's pixels after the first (an animation's later frames) make the body longer than the announced data: crash, alt text for the rest of the command",
+   "reply": {
+    "status": 0,
+    "width": 2,
+    "height": 1,
+    "stride": 8,
+    "data_len": 8
+   },
+   "body_bytes": 16,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "crash": "bad_reply"
+   }
+  },
+  {
+   "id": "header-announces-both-frames",
+   "note": "a header that announces two frames' worth of data against a one-frame reservation is a crash",
+   "reply": {
+    "status": 0,
+    "width": 2,
+    "height": 1,
+    "stride": 8,
+    "data_len": 16
+   },
+   "body_bytes": 16,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "crash": "bad_reply"
+   }
+  },
+  {
+   "id": "trailing-metadata-bytes",
+   "note": "bytes after the pixels (an EXIF or ICC chunk passed through) are a crash, not ignored",
+   "reply": {
+    "status": 0,
+    "width": 2,
+    "height": 1,
+    "stride": 8,
+    "data_len": 8
+   },
+   "body_bytes": 12,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "crash": "bad_reply"
+   }
+  },
+  {
+   "id": "pixels-short",
+   "note": "fewer pixel bytes than announced",
+   "reply": {
+    "status": 0,
+    "width": 2,
+    "height": 1,
+    "stride": 8,
+    "data_len": 8
+   },
+   "body_bytes": 4,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "crash": "short"
+   }
+  },
+  {
+   "id": "stride-not-width-times-four",
+   "note": "a padded stride is refused: the reply is tightly packed RGBA",
+   "reply": {
+    "status": 0,
+    "width": 2,
+    "height": 1,
+    "stride": 12,
+    "data_len": 8
+   },
+   "body_bytes": 8,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "crash": "bad_reply"
+   }
+  },
+  {
+   "id": "stride-short",
+   "note": "a stride under width * 4",
+   "reply": {
+    "status": 0,
+    "width": 2,
+    "height": 1,
+    "stride": 4,
+    "data_len": 8
+   },
+   "body_bytes": 8,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "crash": "bad_reply"
+   }
+  },
+  {
+   "id": "larger-than-reservation",
+   "note": "decoded size above what was reserved",
+   "reply": {
+    "status": 0,
+    "width": 3,
+    "height": 1,
+    "stride": 12,
+    "data_len": 12
+   },
+   "body_bytes": 12,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "crash": "bad_reply"
+   }
+  },
+  {
+   "id": "data-len-mismatch",
+   "note": "announced data length differs from width * height * 4",
+   "reply": {
+    "status": 0,
+    "width": 2,
+    "height": 1,
+    "stride": 8,
+    "data_len": 4
+   },
+   "body_bytes": 4,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "crash": "bad_reply"
+   }
+  },
+  {
+   "id": "zero-size-image",
+   "note": "a zero-width image is not a valid reply",
+   "reply": {
+    "status": 0,
+    "width": 0,
+    "height": 1,
+    "stride": 0,
+    "data_len": 0
+   },
+   "body_bytes": 0,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "crash": "bad_reply"
+   }
+  },
+  {
+   "id": "worker-exit-nonzero",
+   "note": "valid reply but the worker exited non-zero",
+   "reply": {
+    "status": 0,
+    "width": 2,
+    "height": 1,
+    "stride": 8,
+    "data_len": 8
+   },
+   "body_bytes": 8,
+   "exited_ok": false,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "crash": "exit"
+   }
+  },
+  {
+   "id": "output-over-cap",
+   "note": "more output than the read cap",
+   "reply": {
+    "status": 0,
+    "width": 2,
+    "height": 1,
+    "stride": 8,
+    "data_len": 8
+   },
+   "body_bytes": 8,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 30,
+   "expect": {
+    "crash": "overflow"
+   }
+  },
+  {
+   "id": "declined-corrupt",
+   "note": "the worker declines (corrupt image): alt text for this image, not a crash",
+   "reply": {
+    "status": 4,
+    "width": 0,
+    "height": 0,
+    "stride": 0,
+    "data_len": 0
+   },
+   "body_bytes": 0,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "rejected": "corrupt"
+   }
+  },
+  {
+   "id": "declined-with-pixels",
+   "note": "a decline that still carries geometry or pixels is a crash",
+   "reply": {
+    "status": 4,
+    "width": 2,
+    "height": 1,
+    "stride": 8,
+    "data_len": 8
+   },
+   "body_bytes": 8,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "crash": "bad_reply"
+   }
+  },
+  {
+   "id": "unknown-status",
+   "note": "a status byte this version does not know",
+   "reply": {
+    "status": 200,
+    "width": 2,
+    "height": 1,
+    "stride": 8,
+    "data_len": 8
+   },
+   "body_bytes": 8,
+   "exited_ok": true,
+   "reserved": 8,
+   "cap": 1048576,
+   "expect": {
+    "crash": "bad_reply"
+   }
+  }
+ ]
+}
