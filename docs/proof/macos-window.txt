@@ -1,0 +1,14 @@
+macOS window proof
+Revision: 4cd0094817742fac141e8d5b28d701b57ea4a855
+Host: fresh Tart VM cloned from the pinned macos-tahoe-vanilla image, macOS 26.6.2 arm64, deleted after the run
+Build: cargo build --release -p lumen-term --features window, on the build host (includes lumen-arm-b); the binary was copied into the VM and its SHA-256 checked there
+Command (run in the VM's logged-in GUI session): lumen-term --size 800x600 --exit-after 40000 -- sh -c 'echo lumen window proof; sleep 60'
+Binary SHA-256: 21ce79230f352627940b1848a86bffe38964053b7781104c7e28b4ba91f82589
+Window created: true (a titled "lumen" window with the program's output and the input prompt; the app menu showed lumen-term)
+Window size: 800x600 content area at scale 2 (capture is 2048x1536)
+Capture: taken from outside the guest over the VM's VNC server, with the process running
+Window process exit: 0 (closed by --exit-after, not killed)
+Window process terminated after capture: true
+Capture SHA-256: ee4234a3ca86be4c87484902461003417ccc63d0588414adfe741414eb066aa3
+Capture: macos-window.png
+Not shown here: a physical display, other macOS versions, release-signed builds (the macOS gate on signed builds is a separate task)
