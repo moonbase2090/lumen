@@ -1,0 +1,29 @@
+name: Release check
+
+# The gate a release has to pass. It checks and publishes nothing: there is no
+# release step in this workflow. With no committed decoder fuzz evidence
+# (release/decoder-ledger.json and release/decoder-fuzz-flags.txt) it refuses,
+# on purpose.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Release gate tests
+        run: scripts/test-release-check.sh
+      - name: Release check
+        env:
+          PUBLIC_TEXT_DENYLIST: ${{ secrets.PUBLIC_TEXT_DENYLIST }}
+        run: scripts/release-check.sh

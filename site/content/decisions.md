@@ -72,6 +72,12 @@ Every decision listed here is **Adopted**: the specification follows it.
 - **Effect:** A finding blocks the release. The allowlist has one entry, the publisher name, matched exactly.
 - **Where:** [Release hygiene](@/spec/v0/security.md#security.release).
 
+### A release is refused without clean decoder fuzz evidence
+
+- **Status:** Adopted.
+- **Effect:** The release check refuses unless the personal-identifier scan passes and the decoder fuzz ledger is present, records no crash, carries the decoder and image-path build identities of the tree being released, and passes the fuzzing thresholds. A missing input is a refusal. There is no waiver, and the check releases nothing.
+- **Where:** [Release criteria](https://github.com/moonbase2090/lumen/blob/main/docs/release-criteria.md#the-release-check).
+
 ## Accepted residual risks
 
 The specification lists the residual effects the maintainers accepted for v0, each rated Low or Informational. None gives unverified output any authority. They are described only by their effects, and the full text is in [Accepted residual risks](@/spec/v0/threat-model.md#threat.residuals). The headings below are the same entries.
