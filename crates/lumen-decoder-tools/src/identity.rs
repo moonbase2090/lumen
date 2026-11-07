@@ -36,6 +36,7 @@ const DECODER_SOURCES: &[&str] = &[
     "ffi_alloc.rs",
     "limits.rs",
     "protocol.rs",
+    "webp_guard.rs",
     "bin/lumen-decoder-worker.rs",
 ];
 

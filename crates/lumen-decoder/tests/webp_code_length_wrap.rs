@@ -1,20 +1,22 @@
 //! A WebP whose prefix-code lengths oversubscribe the code, far enough that
-//! `image-webp` 0.2.4 sums the canonical codes past 16 bits (`huffman.rs`,
+//! `image-webp` 0.2.4 would sum the canonical codes past 16 bits (`huffman.rs`,
 //! `build_implicit`). With overflow checks the library panics there; in a
 //! release build the sum wraps and the completeness test after the loop rejects
-//! the code, so the decoder answers `Corrupt` (status 4). The release test is
-//! the proof the production worker takes that path; CI runs it with
-//! `cargo test --release`.
+//! the code. The decoder checks every prefix code before the library sees the
+//! stream, so both builds answer `Corrupt` (status 4) and neither panics.
+//! These tests run in debug builds (overflow checks on, as in the fuzz build)
+//! and with `cargo test --release`.
 //!
-//! The stream is synthesized: a one-pixel VP8L image whose green prefix code has
-//! a chosen code-length histogram. Inputs found by fuzzing stay in private
-//! storage; point `LUMEN_PRIVATE_WEBP_FIXTURE` at one to check it here too.
+//! The streams are synthesized: a one-pixel VP8L image whose green prefix code
+//! has a chosen code-length histogram. Inputs found by fuzzing stay in private
+//! storage; point `LUMEN_PRIVATE_WEBP_FIXTURE` at one file, or
+//! `LUMEN_PRIVATE_WEBP_FIXTURE_DIR` at a directory whose `crash-*` files are
+//! such inputs, to check them here too.
 
 #![allow(missing_docs)]
 
 use lumen_decoder::decode::decode;
 use lumen_decoder::protocol::Format;
-#[cfg(not(debug_assertions))]
 use lumen_decoder::protocol::Status;
 
 /// The green alphabet (256 literals + 24 lengths) plus an 11-bit colour cache.
@@ -26,8 +28,9 @@ const GREEN_SYMBOLS: usize = 280 + (1 << 11);
 const OVERSUBSCRIBED: [(u16, usize); 6] = [(1, 3), (2, 1), (3, 1), (4, 1), (5, 1), (15, 2000)];
 
 /// The environment variable that names a private fixture.
-#[cfg(not(debug_assertions))]
 const PRIVATE_FIXTURE: &str = "LUMEN_PRIVATE_WEBP_FIXTURE";
+/// The environment variable that names a directory of private `crash-*` fixtures.
+const PRIVATE_FIXTURE_DIR: &str = "LUMEN_PRIVATE_WEBP_FIXTURE_DIR";
 
 #[derive(Default)]
 struct Bits {
@@ -154,14 +157,30 @@ fn vp8l_size(bytes: &[u8]) -> Option<(u32, u32)> {
     ))
 }
 
-#[cfg(not(debug_assertions))]
 fn private_fixture() -> Option<Vec<u8>> {
     std::fs::read(std::env::var_os(PRIVATE_FIXTURE)?).ok()
 }
 
-#[cfg(not(debug_assertions))]
+/// Every `crash-*` file in the private fixture directory.
+fn private_crash_fixtures() -> Vec<(String, Vec<u8>)> {
+    let Some(dir) = std::env::var_os(PRIVATE_FIXTURE_DIR) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("crash-")
+            && let Ok(bytes) = std::fs::read(entry.path())
+        {
+            found.push((name, bytes));
+        }
+    }
+    found.sort();
+    found
+}
+
 #[test]
-fn an_oversubscribed_code_is_rejected_as_corrupt_in_release() {
+fn an_oversubscribed_code_is_rejected_as_corrupt() {
     let bytes = webp_with_green_lengths(&OVERSUBSCRIBED);
     assert_eq!(
         decode(Format::Webp, &bytes).map(|i| i.width),
@@ -169,9 +188,132 @@ fn an_oversubscribed_code_is_rejected_as_corrupt_in_release() {
     );
 }
 
-#[cfg(not(debug_assertions))]
+/// Other oversubscribed histograms, each a different way to push the sum past
+/// 16 bits or to leave the code over-full without doing so.
 #[test]
-fn a_private_fixture_is_rejected_as_corrupt_in_release() {
+fn every_oversubscribed_histogram_is_rejected_as_corrupt() {
+    let histograms: [&[(u16, usize)]; 5] = [
+        &[(1, 3), (2, 1), (3, 1), (4, 1), (5, 1), (15, 2000)],
+        &[(1, 2), (15, 2000)],
+        &[(2, 5)],
+        &[(1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (15, 2200)],
+        &[(15, 2300)],
+    ];
+    for histogram in histograms {
+        let bytes = webp_with_green_lengths(histogram);
+        assert_eq!(
+            decode(Format::Webp, &bytes).map(|i| i.width),
+            Err(Status::Corrupt),
+            "{histogram:?}"
+        );
+    }
+}
+
+/// A RIFF file around `chunks`, with the size field filled in.
+fn riff(chunks: &[u8]) -> Vec<u8> {
+    let mut out = b"RIFF".to_vec();
+    out.extend((4 + u32::try_from(chunks.len()).unwrap_or(0)).to_le_bytes());
+    out.extend(b"WEBP");
+    out.extend(chunks);
+    out
+}
+
+/// A chunk: its tag, its size, the body, and a pad byte for an odd size.
+fn chunk(tag: [u8; 4], body: &[u8]) -> Vec<u8> {
+    let mut out = tag.to_vec();
+    out.extend(u32::try_from(body.len()).unwrap_or(0).to_le_bytes());
+    out.extend(body);
+    if body.len() % 2 == 1 {
+        out.push(0);
+    }
+    out
+}
+
+/// The same stream behind an extended header and as an animation frame.
+#[test]
+fn an_oversubscribed_code_is_rejected_in_every_container() {
+    let simple = webp_with_green_lengths(&OVERSUBSCRIBED);
+    let vp8l = simple[12..].to_vec();
+    let payload = vp8l[8..].to_vec();
+
+    let canvas = |flags: u8| chunk(*b"VP8X", &[flags, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+    let mut extended = canvas(0x10);
+    extended.extend(&vp8l);
+
+    let mut frame = vec![0u8; 12];
+    frame.extend([100, 0, 0, 0]);
+    frame.extend(chunk(*b"VP8L", &payload));
+    let mut animated = canvas(0x12);
+    animated.extend(chunk(*b"ANIM", &[0, 0, 0, 0, 0, 0]));
+    animated.extend(chunk(*b"ANMF", &frame));
+
+    for (name, bytes) in [("extended", extended), ("animated", animated)] {
+        assert_eq!(
+            decode(Format::Webp, &riff(&bytes)).map(|i| i.width),
+            Err(Status::Corrupt),
+            "{name}"
+        );
+    }
+}
+
+/// Valid seed images, from the regression seeds.
+const LOSSY: &[u8] = include_bytes!("../fuzz/seeds-regression/webp/dark.webp");
+const EXTENDED: &[u8] = include_bytes!("../fuzz/seeds-regression/webp/tiny.webp");
+const LOSSLESS: [&[u8]; 4] = [
+    include_bytes!("../fuzz/seeds-regression/webp/color_index.webp"),
+    include_bytes!("../fuzz/seeds-regression/webp/lossless_indexed_1bit_palette.webp"),
+    include_bytes!("../fuzz/seeds-regression/webp/lossless_indexed_2bit_palette.webp"),
+    include_bytes!("../fuzz/seeds-regression/webp/lossless_indexed_4bit_palette.webp"),
+];
+
+/// A `VP8L` chunk whose code is oversubscribed.
+fn bad_chunk() -> Vec<u8> {
+    webp_with_green_lengths(&OVERSUBSCRIBED)[12..].to_vec()
+}
+
+/// A valid image keeps decoding with a bad lossless chunk after it, whether the
+/// chunk is past the declared RIFF extent or inside it: the decoder reads
+/// neither, so the check must not reject the file for it.
+#[test]
+fn a_bad_chunk_the_decoder_never_reads_does_not_reject_a_valid_image() {
+    for (name, seed) in [("lossy", LOSSY), ("extended", EXTENDED)] {
+        let plain = decode(Format::Webp, seed).map(|i| (i.width, i.height, i.rgba));
+        assert!(plain.is_ok(), "{name} seed does not decode");
+        let mut outside = seed.to_vec();
+        outside.extend(bad_chunk());
+        let mut inside = outside.clone();
+        let declared = u32::try_from(inside.len() - 8).unwrap_or(0);
+        inside[4..8].copy_from_slice(&declared.to_le_bytes());
+        for (place, bytes) in [("past the RIFF extent", outside), ("inside it", inside)] {
+            let got = decode(Format::Webp, &bytes).map(|i| (i.width, i.height, i.rgba));
+            assert_eq!(got.is_ok(), plain.is_ok(), "{name}, bad chunk {place}");
+            if let (Ok(a), Ok(b)) = (&got, &plain) {
+                assert_eq!(a, b, "{name}, bad chunk {place}");
+            }
+        }
+    }
+}
+
+#[test]
+fn valid_lossless_images_still_decode() {
+    for (i, seed) in LOSSLESS.iter().enumerate() {
+        assert!(decode(Format::Webp, seed).is_ok(), "lossless seed {i}");
+    }
+}
+
+/// A well-formed code of the same shape still decodes: the check rejects only
+/// what the library rejects.
+#[test]
+fn a_complete_code_still_decodes() {
+    // Two 1-bit codes fill the code exactly.
+    let bytes = webp_with_green_lengths(&[(1, 2)]);
+    let outcome = decode(Format::Webp, &bytes);
+    assert!(outcome.is_ok(), "{:?}", outcome.map(|i| i.width));
+}
+
+#[test]
+fn a_private_fixture_is_rejected_as_corrupt() {
     let Some(bytes) = private_fixture() else {
         eprintln!("{PRIVATE_FIXTURE} is not set: no private fixture checked");
         return;
@@ -182,13 +324,16 @@ fn a_private_fixture_is_rejected_as_corrupt_in_release() {
     );
 }
 
-#[cfg(debug_assertions)]
 #[test]
-fn an_oversubscribed_code_panics_in_the_library_with_overflow_checks() {
-    // When this fails, the `image-webp` in use no longer overflows here.
-    let bytes = webp_with_green_lengths(&OVERSUBSCRIBED);
-    let outcome = std::panic::catch_unwind(|| decode(Format::Webp, &bytes).map(|i| i.width));
-    assert!(outcome.is_err());
+fn private_crash_fixtures_are_rejected_without_a_panic() {
+    let fixtures = private_crash_fixtures();
+    if fixtures.is_empty() {
+        eprintln!("{PRIVATE_FIXTURE_DIR} is not set: no private fixtures checked");
+    }
+    for (name, bytes) in fixtures {
+        let outcome = std::panic::catch_unwind(|| decode(Format::Webp, &bytes).map(|i| i.width));
+        assert_eq!(outcome.ok(), Some(Err(Status::Corrupt)), "{name}");
+    }
 }
 
 /// The real worker, as the host runs it: the answer is status 4, not a crash.

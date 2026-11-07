@@ -168,6 +168,8 @@ fn jpeg(bytes: &[u8]) -> Result<Decoded, Status> {
 }
 
 fn webp(bytes: &[u8]) -> Result<Decoded, Status> {
+    // Reject an invalid prefix code before `image-webp` can overflow on it.
+    crate::webp_guard::precheck(bytes)?;
     let mut dec = image_webp::WebPDecoder::new(Cursor::new(bytes)).map_err(|_| Status::Corrupt)?;
     let (w, h) = dec.dimensions();
     let (w, h) = (u64::from(w), u64::from(h));
