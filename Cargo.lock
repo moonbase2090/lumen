@@ -834,6 +834,7 @@ dependencies = [
  "jpeg-encoder",
  "libc",
  "png 0.18.1",
+ "windows-sys 0.61.2",
  "zune-core",
  "zune-jpeg",
 ]

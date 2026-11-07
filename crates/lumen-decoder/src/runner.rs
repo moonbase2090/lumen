@@ -7,15 +7,115 @@
 //! rejection; anything else that is not a valid reply is a crash.
 
 use std::io::{Read, Write};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::ffi_process::kill_group;
 use crate::limits::{self, MAX_INPUT_BYTES, READ_SLACK, STDERR_KEEP, WALL_MILLIS};
 use crate::protocol::{Format, REPLY_LEN, Reply, Request, Status};
+
+/// Starting and stopping a worker. On Unix it is a process group; on Windows
+/// it is an `AppContainer` and a job object (see `ffi_win_spawn`).
+#[cfg(unix)]
+mod os {
+    use std::io::{self, Read, Write};
+    use std::os::unix::process::CommandExt;
+    use std::path::Path;
+    use std::process::{Child, Command, Stdio};
+
+    use crate::ffi_process::kill_group;
+
+    pub struct Worker {
+        child: Child,
+        pid: u32,
+    }
+
+    pub type Pipes = (
+        Box<dyn Write + Send>,
+        Box<dyn Read + Send>,
+        Box<dyn Read + Send>,
+    );
+
+    pub fn spawn(worker: &Path, args: &[String]) -> io::Result<(Worker, Pipes)> {
+        let mut cmd = Command::new(worker);
+        cmd.args(args)
+            .env_clear()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .process_group(0);
+        let mut child = cmd.spawn()?;
+        let pid = child.id();
+        let (Some(i), Some(o), Some(e)) =
+            (child.stdin.take(), child.stdout.take(), child.stderr.take())
+        else {
+            let _ = kill_group(pid);
+            let _ = child.wait();
+            return Err(io::Error::other("worker pipes missing"));
+        };
+        Ok((
+            Worker { child, pid },
+            (Box::new(i), Box::new(o), Box::new(e)),
+        ))
+    }
+
+    impl Worker {
+        pub fn try_wait(&mut self) -> io::Result<Option<bool>> {
+            Ok(self.child.try_wait()?.map(|s| s.success()))
+        }
+
+        /// Kills the whole group, which also takes down anything the worker
+        /// left holding a pipe open.
+        pub fn kill(&mut self) {
+            let _ = kill_group(self.pid);
+        }
+
+        pub fn reap(&mut self) {
+            let _ = self.child.wait();
+        }
+    }
+}
+
+#[cfg(windows)]
+mod os {
+    use std::io::{self, Read, Write};
+    use std::path::Path;
+
+    use crate::ffi_win_spawn::{self, Worker as Job};
+
+    pub struct Worker(Job);
+
+    pub type Pipes = (
+        Box<dyn Write + Send>,
+        Box<dyn Read + Send>,
+        Box<dyn Read + Send>,
+    );
+
+    pub fn spawn(worker: &Path, args: &[String]) -> io::Result<(Worker, Pipes)> {
+        let s = ffi_win_spawn::spawn(worker, args)?;
+        Ok((
+            Worker(s.worker),
+            (Box::new(s.stdin), Box::new(s.stdout), Box::new(s.stderr)),
+        ))
+    }
+
+    impl Worker {
+        pub fn try_wait(&mut self) -> io::Result<Option<bool>> {
+            self.0.try_wait()
+        }
+
+        /// Kills every process in the job.
+        pub fn kill(&mut self) {
+            self.0.kill();
+        }
+
+        #[allow(
+            clippy::unused_self,
+            reason = "the same shape as the Unix worker, which waits here"
+        )]
+        pub fn reap(&mut self) {}
+    }
+}
 
 /// A validated image, ready to upload.
 #[derive(Debug, PartialEq, Eq)]
@@ -120,22 +220,9 @@ impl Runner {
     }
 
     fn run(&self, req: &Request, payload: &[u8], reserved: u64, cap: u64) -> Outcome {
-        let mut cmd = Command::new(&self.worker);
-        cmd.args(&self.args)
-            .env_clear()
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .process_group(0);
-        let Ok(mut child) = cmd.spawn() else {
-            return Outcome::Crash(Crash::Spawn);
-        };
-        let pid = child.id();
-        let (Some(mut stdin), Some(mut stdout), Some(mut stderr)) =
-            (child.stdin.take(), child.stdout.take(), child.stderr.take())
+        let Ok((mut child, (mut stdin, mut stdout, mut stderr))) =
+            os::spawn(&self.worker, &self.args)
         else {
-            let _ = kill_group(pid);
-            let _ = child.wait();
             return Outcome::Crash(Crash::Spawn);
         };
 
@@ -172,7 +259,7 @@ impl Runner {
         let mut timed_out = false;
         let status = loop {
             match child.try_wait() {
-                Ok(Some(st)) => break Some(st),
+                Ok(Some(ok)) => break Some(ok),
                 Ok(None) if Instant::now() >= deadline => {
                     timed_out = true;
                     break None;
@@ -183,8 +270,8 @@ impl Runner {
         };
         // Always kill the group: it also takes down anything the worker left
         // holding a pipe open, so the joins below cannot hang on a grandchild.
-        let _ = kill_group(pid);
-        let _ = child.wait();
+        child.kill();
+        child.reap();
         let _ = writer.join();
         let out = reader.join().unwrap_or_default();
         let _ = drain.join();
@@ -192,7 +279,7 @@ impl Runner {
         if timed_out {
             return Outcome::Crash(Crash::Timeout);
         }
-        validate(&out, status.is_some_and(|s| s.success()), reserved, cap)
+        validate(&out, status == Some(true), reserved, cap)
     }
 }
 

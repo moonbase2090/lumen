@@ -24,12 +24,12 @@ fn reply_status(status: Status) -> ExitCode {
 }
 
 fn run() -> ExitCode {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     if lumen_decoder::ffi_sandbox::enter().is_err() {
         // No sandbox, no work: leave before reading anything.
         return ExitCode::from(70);
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     return ExitCode::from(70);
 
     let mut stdin = std::io::stdin().lock();

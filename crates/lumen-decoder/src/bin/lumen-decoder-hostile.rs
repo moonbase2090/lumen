@@ -129,7 +129,12 @@ fn main() -> ExitCode {
             return report(true);
         }
         // Escape attempts: `report(true)` means the attempt succeeded.
-        "open-file" => return report(std::fs::File::open("/etc/hosts").is_ok()),
+        "open-file" => {
+            // The suite names a file outside the container's grants; the
+            // default is one every user can read on Unix.
+            let p = args.get(2).map_or("/etc/hosts", String::as_str);
+            return report(std::fs::File::open(p).is_ok());
+        }
         "create-file" => {
             let p = args.get(2).map_or("escape-marker", String::as_str);
             return report(std::fs::File::create(p).is_ok());
@@ -147,10 +152,13 @@ fn main() -> ExitCode {
         }
         "udp" => return report(std::net::UdpSocket::bind("127.0.0.1:0").is_ok()),
         "exec" => {
-            let ok = Command::new("/bin/echo")
-                .stdout(Stdio::null())
-                .status()
-                .is_ok();
+            #[cfg(windows)]
+            let mut cmd = Command::new("cmd.exe");
+            #[cfg(windows)]
+            cmd.args(["/c", "exit", "0"]);
+            #[cfg(not(windows))]
+            let mut cmd = Command::new("/bin/echo");
+            let ok = cmd.stdout(Stdio::null()).status().is_ok();
             return report(ok);
         }
         // Unsandboxed, to test the host.

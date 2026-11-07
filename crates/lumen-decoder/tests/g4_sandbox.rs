@@ -1,7 +1,7 @@
 //! G4 sandbox suite: the real worker and the real host runner, plus a hostile
 //! worker that lies, floods, hangs and tries to escape.
 
-#![cfg(unix)]
+#![cfg(any(unix, windows))]
 #![allow(missing_docs)]
 
 use std::error::Error;
@@ -252,6 +252,10 @@ mod hostile {
         )
     }
 
+    fn temp_name(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("lumen-g4-{tag}-{}", std::process::id()))
+    }
+
     fn run_with(args: &[&str]) -> Outcome {
         Runner::new(HOSTILE).with_args(args).decode(
             Format::Png,
@@ -367,66 +371,71 @@ mod hostile {
         assert_eq!(run("hog"), Outcome::Crash(Crash::Exit));
     }
 
-    fn pid_alive(pid: i32) -> bool {
-        std::process::Command::new("kill")
-            .args(["-0", &pid.to_string()])
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success())
-    }
+    #[cfg(unix)]
+    mod groups {
+        use super::*;
 
-    fn pid_from(path: &std::path::Path) -> Option<i32> {
-        std::fs::read_to_string(path).ok()?.trim().parse().ok()
-    }
-
-    fn temp_name(tag: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("lumen-g4-{tag}-{}", std::process::id()))
-    }
-
-    fn gone_within(pid: i32, wait: Duration) -> bool {
-        let t = Instant::now();
-        while t.elapsed() < wait {
-            if !pid_alive(pid) {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(50));
+        fn pid_alive(pid: i32) -> bool {
+            std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
         }
-        !pid_alive(pid)
-    }
 
-    #[test]
-    fn a_grandchild_of_a_hung_worker_is_killed() -> R {
-        let f = temp_name("gc-hang");
-        let o = run_with(&["raw-grandchild", f.to_str().unwrap_or("")]);
-        assert_eq!(o, Outcome::Crash(Crash::Timeout));
-        let pid = pid_from(&f);
-        let _ = std::fs::remove_file(&f);
-        let pid = pid.ok_or("the grandchild never started")?;
-        assert!(
-            gone_within(pid, Duration::from_secs(2)),
-            "grandchild {pid} survived"
-        );
-        Ok(())
-    }
+        fn pid_from(path: &std::path::Path) -> Option<i32> {
+            std::fs::read_to_string(path).ok()?.trim().parse().ok()
+        }
 
-    #[test]
-    fn a_grandchild_that_outlives_an_exited_worker_is_killed() -> R {
-        let f = temp_name("gc-exit");
-        let t = Instant::now();
-        // The worker exits at once; the child holds the pipes. The host must
-        // neither hang on them nor leave the child running.
-        let o = run_with(&["raw-grandchild-exit", f.to_str().unwrap_or("")]);
-        // The child sleeps for 60 s; hanging on its pipes would take that long.
-        assert!(t.elapsed() < Duration::from_secs(30), "{:?}", t.elapsed());
-        assert!(matches!(o, Outcome::Image(_)), "{o:?}");
-        let pid = pid_from(&f);
-        let _ = std::fs::remove_file(&f);
-        let pid = pid.ok_or("the grandchild never started")?;
-        assert!(
-            gone_within(pid, Duration::from_secs(2)),
-            "grandchild {pid} survived"
-        );
-        Ok(())
+        fn temp_name(tag: &str) -> std::path::PathBuf {
+            std::env::temp_dir().join(format!("lumen-g4-{tag}-{}", std::process::id()))
+        }
+
+        fn gone_within(pid: i32, wait: Duration) -> bool {
+            let t = Instant::now();
+            while t.elapsed() < wait {
+                if !pid_alive(pid) {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            !pid_alive(pid)
+        }
+
+        #[test]
+        fn a_grandchild_of_a_hung_worker_is_killed() -> R {
+            let f = temp_name("gc-hang");
+            let o = run_with(&["raw-grandchild", f.to_str().unwrap_or("")]);
+            assert_eq!(o, Outcome::Crash(Crash::Timeout));
+            let pid = pid_from(&f);
+            let _ = std::fs::remove_file(&f);
+            let pid = pid.ok_or("the grandchild never started")?;
+            assert!(
+                gone_within(pid, Duration::from_secs(2)),
+                "grandchild {pid} survived"
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn a_grandchild_that_outlives_an_exited_worker_is_killed() -> R {
+            let f = temp_name("gc-exit");
+            let t = Instant::now();
+            // The worker exits at once; the child holds the pipes. The host must
+            // neither hang on them nor leave the child running.
+            let o = run_with(&["raw-grandchild-exit", f.to_str().unwrap_or("")]);
+            // The child sleeps for 60 s; hanging on its pipes would take that long.
+            assert!(t.elapsed() < Duration::from_secs(30), "{:?}", t.elapsed());
+            assert!(matches!(o, Outcome::Image(_)), "{o:?}");
+            let pid = pid_from(&f);
+            let _ = std::fs::remove_file(&f);
+            let pid = pid.ok_or("the grandchild never started")?;
+            assert!(
+                gone_within(pid, Duration::from_secs(2)),
+                "grandchild {pid} survived"
+            );
+            Ok(())
+        }
     }
 
     #[test]
@@ -449,6 +458,7 @@ mod hostile {
     fn denied_outcome(o: &Outcome, what: &str) {
         #[cfg(target_os = "linux")]
         assert_eq!(*o, Outcome::Crash(Crash::Exit), "{what}");
+        // macOS and Windows refuse the call; the worker reports it.
         #[cfg(not(target_os = "linux"))]
         assert_eq!(*o, Outcome::Rejected(Status::Corrupt), "{what}");
     }
@@ -459,8 +469,14 @@ mod hostile {
 
     #[test]
     fn the_sandbox_denies_reading_a_file() {
-        denied("open-file");
-        denied("profile-open-file");
+        // A file the container was not granted: one the test just made in the
+        // user's temp directory.
+        let secret = temp_name("secret");
+        std::fs::write(&secret, b"not for the worker").unwrap_or_default();
+        let path = secret.to_str().unwrap_or("");
+        denied_with(&["open-file", path]);
+        denied_with(&["profile-open-file", path]);
+        let _ = std::fs::remove_file(&secret);
     }
 
     #[test]

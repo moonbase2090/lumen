@@ -13,13 +13,15 @@ pub mod decode;
 pub mod ffi_alloc;
 #[cfg(unix)]
 pub mod ffi_process;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub mod ffi_sandbox;
-#[cfg(unix)]
+#[cfg(windows)]
+pub mod ffi_win_spawn;
+#[cfg(any(unix, windows))]
 pub mod images;
 pub mod limits;
 pub mod protocol;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub mod runner;
 pub mod unlock;
 mod webp_guard;
