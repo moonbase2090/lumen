@@ -1,7 +1,7 @@
 macOS window proof
 Revision: 4cd0094817742fac141e8d5b28d701b57ea4a855
 Host: fresh virtual machine from a clean macOS image, macOS 26.6.2 arm64, deleted after the run
-Build: cargo build --release -p lumen-term --features window, on the build host (includes the second arm); the binary was copied into the VM and its SHA-256 checked there
+Build: cargo build --release -p lumen-term --features window, on the build host (a multi-arch build host); the binary was copied into the VM and its SHA-256 checked there
 Command (run in the VM's logged-in GUI session): lumen-term --size 800x600 --exit-after 40000 -- sh -c 'echo lumen window proof; sleep 60'
 Binary SHA-256: 21ce79230f352627940b1848a86bffe38964053b7781104c7e28b4ba91f82589
 Window created: true (a titled "lumen" window with the program's output and the input prompt; the app menu showed lumen-term)
