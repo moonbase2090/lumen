@@ -1,0 +1,13 @@
+macOS snapshot-mode proof
+Revision: 1b4967a33d0581e6286b359166db87b955a7bddc
+Host: fresh virtual machine from a clean macOS image, macOS 26.6.2 arm64, deleted after the run
+Build: cargo build --release -p lumen-term (no window feature), on the build host; the binary was copied into the VM and its SHA-256 checked there
+Command (run in the VM over a remote shell, no display session needed): lumen-term --size 640x380 --wait 5000 --snapshot /tmp/shot.png -- sh -c 'echo lumen snapshot proof; printf "\033[1;31mbold red\033[0m plain\n"; sleep 30'
+Binary SHA-256: b6ccbae1ec7d3afc0b856df750138e6ce33af0dd83a6762200f788bb55e0901e
+Snapshot written: true, 640x380 PNG, 18293 bytes (copied out of the VM; SHA-256 matched the in-guest value)
+Snapshot contents: the program's output ("lumen snapshot proof", then "bold red" in red and "plain"), the document rows and the input prompt
+Exit code: 0
+Leftover lumen-term process after the run: none
+Snapshot SHA-256: 6f23a3a4f6eeedafa90b2baa781356b4431329b39b5fc6456fbb91b2b78c85e4
+Capture: macos-snapshot.png
+Not shown here: a physical display, other macOS versions, release-signed builds
