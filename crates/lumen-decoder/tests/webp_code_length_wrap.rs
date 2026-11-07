@@ -257,6 +257,51 @@ fn an_oversubscribed_code_is_rejected_in_every_container() {
     }
 }
 
+/// Valid seed images, from the regression seeds.
+const LOSSY: &[u8] = include_bytes!("../fuzz/seeds-regression/webp/dark.webp");
+const EXTENDED: &[u8] = include_bytes!("../fuzz/seeds-regression/webp/tiny.webp");
+const LOSSLESS: [&[u8]; 4] = [
+    include_bytes!("../fuzz/seeds-regression/webp/color_index.webp"),
+    include_bytes!("../fuzz/seeds-regression/webp/lossless_indexed_1bit_palette.webp"),
+    include_bytes!("../fuzz/seeds-regression/webp/lossless_indexed_2bit_palette.webp"),
+    include_bytes!("../fuzz/seeds-regression/webp/lossless_indexed_4bit_palette.webp"),
+];
+
+/// A `VP8L` chunk whose code is oversubscribed.
+fn bad_chunk() -> Vec<u8> {
+    webp_with_green_lengths(&OVERSUBSCRIBED)[12..].to_vec()
+}
+
+/// A valid image keeps decoding with a bad lossless chunk after it, whether the
+/// chunk is past the declared RIFF extent or inside it: the decoder reads
+/// neither, so the check must not reject the file for it.
+#[test]
+fn a_bad_chunk_the_decoder_never_reads_does_not_reject_a_valid_image() {
+    for (name, seed) in [("lossy", LOSSY), ("extended", EXTENDED)] {
+        let plain = decode(Format::Webp, seed).map(|i| (i.width, i.height, i.rgba));
+        assert!(plain.is_ok(), "{name} seed does not decode");
+        let mut outside = seed.to_vec();
+        outside.extend(bad_chunk());
+        let mut inside = outside.clone();
+        let declared = u32::try_from(inside.len() - 8).unwrap_or(0);
+        inside[4..8].copy_from_slice(&declared.to_le_bytes());
+        for (place, bytes) in [("past the RIFF extent", outside), ("inside it", inside)] {
+            let got = decode(Format::Webp, &bytes).map(|i| (i.width, i.height, i.rgba));
+            assert_eq!(got.is_ok(), plain.is_ok(), "{name}, bad chunk {place}");
+            if let (Ok(a), Ok(b)) = (&got, &plain) {
+                assert_eq!(a, b, "{name}, bad chunk {place}");
+            }
+        }
+    }
+}
+
+#[test]
+fn valid_lossless_images_still_decode() {
+    for (i, seed) in LOSSLESS.iter().enumerate() {
+        assert!(decode(Format::Webp, seed).is_ok(), "lossless seed {i}");
+    }
+}
+
 /// A well-formed code of the same shape still decodes: the check rejects only
 /// what the library rejects.
 #[test]

@@ -7,8 +7,8 @@
 //! a later completeness test rejects the code. The upstream fix is not in a
 //! release yet.
 //!
-//! This module walks every lossless stream in the file the way the library
-//! does, reads each prefix code's lengths, and returns [`Status::Corrupt`] for a
+//! This module walks the lossless streams the library will decode, found the
+//! way the library finds them, reads each prefix code's lengths, and returns [`Status::Corrupt`] for a
 //! code the library would reject, before the library sees the stream. It never
 //! rejects a file for any other reason: when the stream does not parse
 //! further (a truncated stream, an unknown chunk, a bad transform) it stops
@@ -74,74 +74,109 @@ pub(crate) fn precheck(bytes: &[u8]) -> Result<(), Status> {
     }
 }
 
+/// A chunk: its tag, its body (cut at the end of the data) and the bytes after it.
+struct Chunk<'a> {
+    tag: [u8; 4],
+    body: &'a [u8],
+    next: &'a [u8],
+}
+
+fn chunk_at(data: &[u8]) -> Option<Chunk<'_>> {
+    let tag: [u8; 4] = data.get(..4)?.try_into().ok()?;
+    let size = usize::try_from(u32::from_le_bytes(data.get(4..8)?.try_into().ok()?)).ok()?;
+    let rest = data.get(8..)?;
+    let body = &rest[..size.min(rest.len())];
+    let step = size.checked_add(size & 1)?;
+    Some(Chunk {
+        tag,
+        body,
+        next: rest.get(step..).unwrap_or(&[]),
+    })
+}
+
+/// Finds the stream the library decodes, as the library does. A plain file has
+/// one image chunk right after the header, and nothing after it is read. An
+/// extended file lists its chunks up to the extent the RIFF header declares;
+/// the first of each kind is used, and an animation decodes its first frame.
 fn check_file(bytes: &[u8]) -> Walk<()> {
     if bytes.get(..4) != Some(b"RIFF") || bytes.get(8..12) != Some(b"WEBP") {
         return Err(Stop::Unparsed);
     }
-    check_chunks(bytes.get(12..).ok_or(Stop::Unparsed)?, false)
+    let riff_size = u32::from_le_bytes(
+        bytes
+            .get(4..8)
+            .and_then(|b| b.try_into().ok())
+            .ok_or(Stop::Unparsed)?,
+    );
+    let first = chunk_at(bytes.get(12..).ok_or(Stop::Unparsed)?).ok_or(Stop::Unparsed)?;
+    match &first.tag {
+        b"VP8L" => check_lossless_chunk(first.body),
+        b"VP8X" => check_extended(&first, riff_size),
+        _ => Ok(()),
+    }
 }
 
-/// Walks a run of chunks the way the library does: it uses the first lossless,
-/// alpha and lossy chunk, and for an animation only the first frame, whose data
-/// is itself a run of chunks (the library looks at its first two). Streams the
-/// library never decodes are not checked, so a bad later frame does not stop a
-/// file whose first frame decodes.
-fn check_chunks(mut rest: &[u8], in_frame: bool) -> Walk<()> {
-    // Alpha data takes its size from the lossy frame beside it.
-    let mut alpha: Option<&[u8]> = None;
-    let mut frame_size: Option<(usize, usize)> = None;
-    let (mut seen_lossless, mut seen_frame, mut seen_alpha, mut seen_lossy) =
-        (false, false, false, false);
-    let mut chunks = 0;
-    while rest.len() >= 8 && !(in_frame && chunks == 2) {
-        chunks += 1;
-        let size = usize::try_from(u32::from_le_bytes([rest[4], rest[5], rest[6], rest[7]]))
-            .map_err(|_| Stop::Unparsed)?;
-        let body = rest
-            .get(8..)
-            .map(|r| &r[..size.min(r.len())])
-            .ok_or(Stop::Unparsed)?;
-        match &rest[..4] {
-            b"VP8L" if !seen_lossless => {
-                seen_lossless = true;
-                check_lossless_chunk(body)?;
-            }
-            b"ALPH" if !seen_alpha => {
-                seen_alpha = true;
-                alpha = Some(body);
-            }
-            b"VP8 " if !seen_lossy => {
-                seen_lossy = true;
-                frame_size = vp8_size(body);
-            }
-            b"ANMF" if !in_frame && !seen_frame => {
-                seen_frame = true;
-                if let Some(frame) = body.get(16..) {
-                    check_chunks(frame, true)?;
-                }
-            }
+fn check_extended(header: &Chunk<'_>, riff_size: u32) -> Walk<()> {
+    let flags = *header.body.first().ok_or(Stop::Unparsed)?;
+    let (animated, alpha) = (flags & 0b10 != 0, flags & 0b1_0000 != 0);
+    let canvas = |at: usize| -> Option<usize> {
+        let b = header.body.get(at..at + 3)?;
+        Some(usize::from(b[0]) | usize::from(b[1]) << 8 | usize::from(b[2]) << 16)
+    };
+    let (canvas_w, canvas_h) = (
+        canvas(4).ok_or(Stop::Unparsed)? + 1,
+        canvas(7).ok_or(Stop::Unparsed)? + 1,
+    );
+
+    // The library lists chunks from the end of this one to the declared extent,
+    // and keeps the first of each kind.
+    let mut budget = usize::try_from(riff_size.saturating_sub(12)).map_err(|_| Stop::Unparsed)?;
+    let mut rest = header.next;
+    let (mut lossless, mut alpha_chunk, mut lossy, mut frame) = (None, None, None, None);
+    while budget > 0 {
+        let Some(chunk) = chunk_at(rest) else { break };
+        let used = chunk.body.len().saturating_add(chunk.body.len() & 1) + 8;
+        budget = budget.saturating_sub(used.max(1));
+        match &chunk.tag {
+            b"VP8L" => lossless = lossless.or(Some(chunk.body)),
+            b"ALPH" => alpha_chunk = alpha_chunk.or(Some(chunk.body)),
+            b"VP8 " => lossy = lossy.or(Some(chunk.body)),
+            b"ANMF" => frame = frame.or(Some(chunk.body)),
             _ => {}
         }
-        let step = 8usize
-            .checked_add(size)
-            .and_then(|n| n.checked_add(size & 1))
-            .ok_or(Stop::Unparsed)?;
-        rest = rest.get(step..).unwrap_or(&[]);
+        rest = chunk.next;
     }
-    if let (Some(alpha), Some((w, h))) = (alpha, frame_size) {
-        check_alpha(alpha, w, h)?;
+
+    if animated {
+        return frame.map_or(Ok(()), check_frame);
     }
-    Ok(())
+    if let Some(body) = lossless {
+        return check_lossless_chunk(body);
+    }
+    // Lossy data carries alpha in a separate chunk, sized like the canvas.
+    match (alpha, lossy, alpha_chunk) {
+        (true, Some(_), Some(body)) => check_alpha(body, canvas_w, canvas_h),
+        _ => Ok(()),
+    }
 }
 
-/// The size a lossy frame declares: 14 bits each after the keyframe start code.
-fn vp8_size(body: &[u8]) -> Option<(usize, usize)> {
-    if body.get(3..6) != Some(&[0x9d, 0x01, 0x2a]) {
-        return None;
+/// The first animation frame: a 16-byte header, then the image chunk, or an
+/// alpha chunk followed by the lossy one.
+fn check_frame(body: &[u8]) -> Walk<()> {
+    let size = |at: usize| -> Option<usize> {
+        let b = body.get(at..at + 3)?;
+        Some(usize::from(b[0]) | usize::from(b[1]) << 8 | usize::from(b[2]) << 16)
+    };
+    let (w, h) = (
+        size(6).ok_or(Stop::Unparsed)? + 1,
+        size(9).ok_or(Stop::Unparsed)? + 1,
+    );
+    let first = chunk_at(body.get(16..).ok_or(Stop::Unparsed)?).ok_or(Stop::Unparsed)?;
+    match &first.tag {
+        b"VP8L" => check_lossless_chunk(first.body),
+        b"ALPH" => check_alpha(first.body, w, h),
+        _ => Ok(()),
     }
-    let w = usize::from(u16::from_le_bytes([*body.get(6)?, *body.get(7)?]) & 0x3fff);
-    let h = usize::from(u16::from_le_bytes([*body.get(8)?, *body.get(9)?]) & 0x3fff);
-    Some((w, h))
 }
 
 /// A `VP8L` chunk: a signature, 14-bit sizes, then the prefix-coded stream.
@@ -160,8 +195,9 @@ fn check_lossless_chunk(body: &[u8]) -> Walk<()> {
 }
 
 /// An `ALPH` chunk with lossless compression: one info byte, then a stream
-/// with no header, sized like the frame.
+/// with no header. The library keeps the low 16 bits of each size.
 fn check_alpha(body: &[u8], width: usize, height: usize) -> Walk<()> {
+    let (width, height) = (width & 0xffff, height & 0xffff);
     match body.first() {
         Some(info) if info & 0b11 == 1 && width > 0 && height > 0 => {
             walk_image(&mut Bits::new(&body[1..]), width, height)
