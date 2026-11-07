@@ -27,3 +27,15 @@ The specification's [decoder gate](../spec/v0/conformance.md#gate.decoder) keeps
 Not met. No run has reached the floor. The fuzz campaign tooling exists, and a short smoke run has been done on one platform.
 
 The decoder judge in the comparison harness (`lumen-evidence --decoder`), the campaign's gate status and its gate-run defaults apply this rule, as does their description in [the comparison criteria](phase-0.5/comparison-criteria.md#56-decoder-mode). The judge reads one ledger, so it judges one build identity; it fails a ledger with any crash, with fewer than 250 CPU-hours, with more than 1200, or without a coverage reading from before the last 168 CPU-hours that already had every edge seen. It does not judge continuous fuzzing or a re-fuzz after a version bump (rules 4 and 5): those are about what happens after a ledger, not inside one.
+
+### The release check
+
+`scripts/release-check.sh` is the gate a release goes through, and `.github/workflows/release-check.yml` runs it on a `v*` tag or by hand. It refuses unless all of these hold, and a missing input is a refusal, never a skip:
+
+1. The personal-identifier scan (`scripts/check-public-text.sh`) passes.
+2. The decoder fuzz evidence is committed: `release/decoder-ledger.json` (the ledger above) and `release/decoder-fuzz-flags.txt` (the exact flags string the campaign gave the identity tool, which the ledger does not carry).
+3. The ledger records no crash. A crash stays open until a patched build, with its own identity and its own ledger, replaces it (rule 2).
+4. The ledger's decoder and image-path build identities equal the identities of the tree being released, recomputed with the recorded flags (rule 5).
+5. `lumen-evidence --decoder` passes the ledger against the thresholds above.
+
+There is no waiver switch, and the check does not tag, publish or release anything. `scripts/test-release-check.sh` holds a positive case and a negative case for each rule. Until the evidence in item 2 is committed the check refuses, which is the intended state while the [status](#status) is not met.
