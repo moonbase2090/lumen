@@ -22,3 +22,4 @@ pub mod protocol;
 #[cfg(unix)]
 pub mod runner;
 pub mod unlock;
+mod webp_guard;
