@@ -22,7 +22,7 @@ use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::Path;
 use std::ptr::{null, null_mut};
-use std::sync::Once;
+use std::sync::OnceLock;
 
 use windows_sys::Win32::Foundation::{
     CloseHandle, HANDLE, HANDLE_FLAG_INHERIT, LocalFree, SetHandleInformation, WAIT_OBJECT_0,
@@ -86,9 +86,11 @@ impl Drop for Sid {
 }
 
 fn container_sid() -> io::Result<Sid> {
-    static PROFILE: Once = Once::new();
+    /// `HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)`: the profile exists already.
+    const ALREADY_EXISTS: i32 = 0x8007_00B7_u32 as i32;
+    static PROFILE: OnceLock<i32> = OnceLock::new();
     let name = wide(OsStr::new(CONTAINER_NAME));
-    PROFILE.call_once(|| {
+    let created = *PROFILE.get_or_init(|| {
         let mut sid: PSID = null_mut();
         // SAFETY: `name` is NUL-terminated and outlives the call; the display
         // name and description reuse it; no capabilities are passed.
@@ -106,9 +108,11 @@ fn container_sid() -> io::Result<Sid> {
             // SAFETY: a successful create returns a SID this caller owns.
             unsafe { FreeSid(sid) };
         }
-        // Any failure, including "profile already exists", leaves the derive
-        // below to decide whether the container is usable.
+        hr
     });
+    if created != 0 && created != ALREADY_EXISTS {
+        return Err(at("create profile", io::Error::from_raw_os_error(created)));
+    }
     let mut sid: PSID = null_mut();
     // SAFETY: `name` is NUL-terminated; `sid` is a valid out pointer.
     let hr = unsafe { DeriveAppContainerSidFromAppContainerName(name.as_ptr(), &raw mut sid) };
