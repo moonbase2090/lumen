@@ -164,7 +164,14 @@ impl Drop for Pty {
     fn drop(&mut self) {
         self.session.kill_and_reap();
         if let Some(handle) = self.reader.take() {
+            // On Windows the reader's read does not return until the
+            // pseudo-console is closed, which happens when the session is
+            // dropped after this function. Joining here would wait for that
+            // forever, so the thread is left to end when the console closes.
+            #[cfg(not(windows))]
             let _ = handle.join();
+            #[cfg(windows)]
+            drop(handle);
         }
     }
 }
