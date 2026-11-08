@@ -65,6 +65,12 @@ const CONTAINER_NAME: &str = "lumen.decoder.worker";
 /// Every user-interface restriction a job can set (`JOB_OBJECT_UILIMIT_ALL`).
 const JOB_OBJECT_UILIMIT_ALL: u32 = 0xFF;
 
+/// Names the step that failed, so a failed start says which part of the sandbox
+/// could not be set up.
+fn at(step: &str, e: io::Error) -> io::Error {
+    io::Error::new(e.kind(), format!("{step}: {e}"))
+}
+
 fn wide(s: &OsStr) -> Vec<u16> {
     s.encode_wide().chain(Some(0)).collect()
 }
@@ -320,12 +326,12 @@ pub struct Spawned {
 /// If the container, the job, the pipes or the process cannot be set up. There
 /// is no fallback to an unsandboxed start.
 pub fn spawn(worker: &Path, args: &[String]) -> io::Result<Spawned> {
-    let sid = container_sid()?;
-    grant_read_execute(worker, &sid)?;
-    let job = make_job()?;
-    let (child_in, host_in) = pipe(true)?;
-    let (child_out, host_out) = pipe(false)?;
-    let (child_err, host_err) = pipe(false)?;
+    let sid = container_sid().map_err(|e| at("container", e))?;
+    grant_read_execute(worker, &sid).map_err(|e| at("grant", e))?;
+    let job = make_job().map_err(|e| at("job", e))?;
+    let (child_in, host_in) = pipe(true).map_err(|e| at("pipe", e))?;
+    let (child_out, host_out) = pipe(false).map_err(|e| at("pipe", e))?;
+    let (child_err, host_err) = pipe(false).map_err(|e| at("pipe", e))?;
 
     let mut capabilities = SECURITY_CAPABILITIES {
         AppContainerSid: sid.0,
@@ -382,7 +388,7 @@ pub fn spawn(worker: &Path, args: &[String]) -> io::Result<Spawned> {
                 ) != 0
         };
         if !ok {
-            return Err(io::Error::last_os_error());
+            return Err(at("attributes", io::Error::last_os_error()));
         }
         // SAFETY: all-zero is valid for these plain C structs.
         let mut startup: STARTUPINFOEXW = unsafe { zeroed() };
@@ -397,9 +403,20 @@ pub fn spawn(worker: &Path, args: &[String]) -> io::Result<Spawned> {
 
         let app = wide(worker.as_os_str());
         let mut line = command_line(worker, args);
-        // An empty Unicode environment block is two NULs.
-        let environment = [0u16; 2];
-        let directory = std::env::var_os("SystemRoot").map(|d| wide(&d));
+        // The one variable the loader and the system libraries expect; nothing of
+        // the host's own environment reaches the worker.
+        let root = std::env::var_os("SystemRoot");
+        let mut environment: Vec<u16> = Vec::new();
+        if let Some(r) = &root {
+            environment.extend(OsStr::new("SystemRoot=").encode_wide());
+            environment.extend(r.encode_wide());
+            environment.push(0);
+        }
+        environment.push(0);
+        if root.is_none() {
+            environment.push(0);
+        }
+        let directory = root.as_ref().map(|d| wide(d));
         // SAFETY: every pointer is to a live, NUL-terminated buffer or null;
         // `startup` carries the attribute list built above.
         let ok = unsafe {
@@ -417,7 +434,7 @@ pub fn spawn(worker: &Path, args: &[String]) -> io::Result<Spawned> {
             )
         };
         if ok == 0 {
-            return Err(io::Error::last_os_error());
+            return Err(at("create process", io::Error::last_os_error()));
         }
         // SAFETY: the thread handle is not needed; the process handle is kept.
         unsafe { CloseHandle(info.hThread) };
