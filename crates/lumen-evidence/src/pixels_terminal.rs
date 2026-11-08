@@ -39,6 +39,12 @@ static RUNS: AtomicUsize = AtomicUsize::new(0);
 /// own `--wait` is 5 seconds; this bounds a run that never returns.
 const RUN_DEADLINE: Duration = Duration::from_secs(60);
 
+/// How long the Windows program stays alive after it has written. The terminal
+/// reads what the pseudo-console re-emits, and that can arrive after the
+/// program's exit; holding the program lets the terminal read it while the
+/// program runs. The baseline holds for the same time.
+const WINDOWS_HOLD_MS: u32 = 3000;
+
 /// The windows, in cells, the real terminal is sized to.
 pub const WINDOWS: [(u32, u32); 2] = [(80, 24), (40, 12)];
 
@@ -113,11 +119,12 @@ fn program_for(flavor: Flavor, stimulus: Stimulus<'_>) -> (OsString, Vec<OsStrin
         }
         Flavor::Windows => {
             let script = match stimulus {
-                Stimulus::Nothing => "exit 0".to_owned(),
+                Stimulus::Nothing => format!("Start-Sleep -Milliseconds {WINDOWS_HOLD_MS}"),
                 Stimulus::File(f) => format!(
                     "$b = [System.IO.File]::ReadAllBytes('{}'); \
                      $o = [System.Console]::OpenStandardOutput(); \
-                     $o.Write($b, 0, $b.Length); $o.Flush()",
+                     $o.Write($b, 0, $b.Length); $o.Flush(); \
+                     Start-Sleep -Milliseconds {WINDOWS_HOLD_MS}",
                     // Inside single quotes only the quote itself needs doubling.
                     f.display().to_string().replace('\'', "''")
                 ),
@@ -396,6 +403,10 @@ mod tests {
         assert!(script.contains("OpenStandardOutput"));
         assert!(!script.contains("stty"));
         let (_, quiet) = program_for(Flavor::Windows, Stimulus::Nothing);
-        assert_eq!(quiet[3], "exit 0");
+        assert_eq!(quiet[3], "Start-Sleep -Milliseconds 3000");
+        assert!(
+            script.ends_with("Start-Sleep -Milliseconds 3000"),
+            "{script}"
+        );
     }
 }
