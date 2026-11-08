@@ -1,0 +1,23 @@
+macOS pixel oracle proof (corpus px-1)
+Revision: 9af2debf6c67eb53bd089eb4e5d7e7b81d395077
+Host: fresh virtual machine from a clean macOS image, macOS 26.6.2 arm64, deleted after the run
+Build: cargo build --release --locked, on the build host; the binaries were copied into the VM and their SHA-256 checked there
+Binary SHA-256: evidence tool b610088a405a3b860c2cd60e473dad79a975ef97de070f4c7d0f97448530e28b
+                terminal    b6b9caf0bdae9f933b7dafe0bbfc44fce66d7b531a28110259de00355f49857d (no window feature)
+
+1. In-process (drawing code): lumen-evidence --screenshots --corpus <px-1> --scale 2
+   Exit code: 0
+   2.3 changed_pixels margin=0 chrome=0 over 46 case-window runs (threshold 0); 46 of 46 runs changed pixels outside the margin and the editor (content and strip), so the zero is not vacuous
+   Baseline digest: 8de0342a522faa15c2bbf973680e0aac45dfd2bbba6579a19a4b18e04c513cab
+   Screenshots written: 48 PNGs (baseline and every case, both window sizes)
+
+2. Real terminal binary (headless snapshot): same command with --terminal <terminal binary>
+   Exit code: 0
+   2.3 changed_pixels margin=0 chrome=0 over 42 case-window runs (threshold 0); 40 of 42 runs changed pixels outside the margin and the editor, so the zero is not vacuous
+   Baseline digest: 30877428efc632291042cd9577c1ddc2bad50434789f39c015223ee54fb4f53f
+   Skipped, listed in the output: the two cases that set a context the harness controls (multiplexer variable, alternate screen)
+   Screenshots written: 44 PNGs
+
+3. Oracle tests, run in the VM from the release test binary: 8 passed, 0 failed. They include the two negative controls (a leak into the margin and a leak into the editor, each counted and failing the run), the unstable-baseline control (exit 3), and the committed-rectangles check.
+
+Not shown here: a capture of an operating-system window on screen (both runs are headless frames, and say so in their own output); other macOS versions; the terminal-binary tests that need a build toolchain in the guest (the terminal run above exercises the same path from the tool)
