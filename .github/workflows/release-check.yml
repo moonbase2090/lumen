@@ -27,3 +27,35 @@ jobs:
         env:
           PUBLIC_TEXT_DENYLIST: ${{ secrets.PUBLIC_TEXT_DENYLIST }}
         run: scripts/release-check.sh
+
+  # Builds lumen-term and lumen-holder, signs them with the hardened runtime and
+  # a Developer ID certificate, and verifies the result. It refuses when the
+  # certificate secrets are absent: there is no unsigned fallback. It does not
+  # notarize, publish or release. The signed binaries are the input for the
+  # macOS release gates (task-port denial and non-dumpability).
+  macos-signed:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Signing script tests
+        run: scripts/test-macos-signing.sh
+      - name: Build the release binaries
+        run: cargo build --locked --release -p lumen-term -p lumen-holder
+      - name: Sign with the hardened runtime
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: scripts/sign-macos-binaries.sh target/release/lumen-term target/release/lumen-holder
+      - name: Verify the signatures
+        run: scripts/verify-macos-signed.sh target/release/lumen-term target/release/lumen-holder
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: lumen-macos-signed
+          path: |
+            target/release/lumen-term
+            target/release/lumen-holder
+          if-no-files-found: error

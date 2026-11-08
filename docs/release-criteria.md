@@ -39,3 +39,12 @@ The decoder judge in the comparison harness (`lumen-evidence --decoder`), the ca
 5. `lumen-evidence --decoder` passes the ledger against the thresholds above.
 
 There is no waiver switch, and the check does not tag, publish or release anything. `scripts/test-release-check.sh` holds a positive case and a negative case for each rule. Until the evidence in item 2 is committed the check refuses, which is the intended state while the [status](#status) is not met.
+
+## Signed macOS binaries
+
+The macOS release gates (task-port denial and non-dumpability) are judged on the binaries a release ships, so those binaries have to be signed first. The `macos-signed` job in `.github/workflows/release-check.yml` builds `lumen-term` and `lumen-holder`, signs them with `scripts/sign-macos-binaries.sh`, checks them with `scripts/verify-macos-signed.sh`, and keeps them as the `lumen-macos-signed` workflow artifact for the gate runs.
+
+- The signature is made with the hardened runtime and no entitlements. The verifier refuses a binary that is unsigned, whose signature does not verify, that lacks the hardened runtime flag, that carries `get-task-allow`, that is signed ad hoc, or that is not a Developer ID Application signature with a team identifier.
+- The Developer ID certificate comes from the repository secrets `APPLE_CERTIFICATE_P12` and `APPLE_CERTIFICATE_PASSWORD`, is imported into a throwaway keychain that is deleted on exit, and is never printed. With either secret missing the job refuses; there is no unsigned fallback and no waiver.
+- The job does not notarize, publish or release anything, and it leaves the decoder fuzz checks above untouched.
+- `scripts/test-macos-signing.sh` runs on macOS in CI and in the job, with ad-hoc signatures instead of a certificate. It proves the verifier refuses every non-release shape; it cannot make a Developer ID signature, so that path is exercised only by the job itself once the secrets exist.
