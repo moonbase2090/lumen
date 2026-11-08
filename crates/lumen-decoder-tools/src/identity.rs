@@ -51,6 +51,7 @@ const DECODER_SOURCES: &[&str] = &[
 const IMAGE_PATH_SOURCES: &[&str] = &[
     "runner.rs",
     "ffi_process.rs",
+    "ffi_win_spawn.rs",
     "limits.rs",
     "protocol.rs",
     "unlock.rs",

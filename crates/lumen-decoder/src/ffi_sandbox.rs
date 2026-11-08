@@ -8,14 +8,16 @@
 
 use std::io;
 
+#[cfg(unix)]
 use crate::limits::CPU_SECONDS;
 
 /// The type `setrlimit` takes for a resource: it differs between libc targets.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 type Resource = libc::__rlimit_resource_t;
-#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+#[cfg(all(unix, not(all(target_os = "linux", target_env = "gnu"))))]
 type Resource = libc::c_int;
 
+#[cfg(unix)]
 fn set_limit(resource: Resource, soft: u64, hard: u64) -> io::Result<()> {
     let lim = libc::rlimit {
         rlim_cur: soft as libc::rlim_t,
@@ -30,6 +32,7 @@ fn set_limit(resource: Resource, soft: u64, hard: u64) -> io::Result<()> {
 }
 
 /// Closes every descriptor above stderr.
+#[cfg(unix)]
 fn close_extra_fds() {
     for fd in 3..1024 {
         // SAFETY: closing a descriptor number touches no memory; an invalid one
@@ -43,12 +46,23 @@ fn close_extra_fds() {
 ///
 /// # Errors
 /// Any step that fails. There is no partial sandbox.
+#[cfg(unix)]
 pub fn enter() -> io::Result<()> {
     close_extra_fds();
     set_limit(libc::RLIMIT_CORE, 0, 0)?;
     set_limit(libc::RLIMIT_CPU, CPU_SECONDS, CPU_SECONDS + 1)?;
     set_limit(libc::RLIMIT_NOFILE, 3, 3)?;
     platform::limits()?;
+    platform::profile()
+}
+
+/// On Windows the host puts the worker in its `AppContainer` and job object when
+/// it starts it (see `ffi_win_spawn`), so this only checks that is so.
+///
+/// # Errors
+/// If the process is not inside the sandbox.
+#[cfg(windows)]
+pub fn enter() -> io::Result<()> {
     platform::profile()
 }
 
@@ -220,5 +234,102 @@ mod platform {
             s
         };
         Err(io::Error::other(msg))
+    }
+}
+
+#[cfg(windows)]
+mod platform {
+    #![allow(
+        clippy::cast_possible_truncation,
+        reason = "sizes of small Win32 structs"
+    )]
+
+    use std::ffi::c_void;
+    use std::io;
+    use std::mem::{size_of, zeroed};
+    use std::ptr::null_mut;
+
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Security::{GetTokenInformation, TOKEN_QUERY, TokenIsAppContainer};
+    use windows_sys::Win32::System::JobObjects::{
+        IsProcessInJob, JOB_OBJECT_LIMIT_ACTIVE_PROCESS, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOB_OBJECT_LIMIT_PROCESS_MEMORY, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JobObjectExtendedLimitInformation, QueryInformationJobObject,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    fn refuse(what: &str) -> io::Error {
+        io::Error::other(format!("not sandboxed: {what}"))
+    }
+
+    /// Whether the process token is an `AppContainer` token.
+    fn in_app_container() -> io::Result<bool> {
+        let mut token: HANDLE = null_mut();
+        // SAFETY: the pseudo handle is always valid; `token` is a valid out pointer.
+        if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw mut token) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut flag = 0u32;
+        let mut returned = 0u32;
+        // SAFETY: `flag` is four writable bytes, the size passed.
+        let ok = unsafe {
+            GetTokenInformation(
+                token,
+                TokenIsAppContainer,
+                (&raw mut flag).cast::<c_void>(),
+                size_of::<u32>() as u32,
+                &raw mut returned,
+            )
+        };
+        let err = io::Error::last_os_error();
+        // SAFETY: the token was opened above and is closed once.
+        unsafe { CloseHandle(token) };
+        if ok == 0 {
+            return Err(err);
+        }
+        Ok(flag == 1)
+    }
+
+    /// Whether the process is in a job that allows one process, caps memory
+    /// and kills on close.
+    fn in_limited_job() -> io::Result<bool> {
+        let mut inside = 0;
+        // SAFETY: a null job asks whether the process is in any job.
+        if unsafe { IsProcessInJob(GetCurrentProcess(), null_mut(), &raw mut inside) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if inside == 0 {
+            return Ok(false);
+        }
+        // SAFETY: all-zero is a valid value for this plain C struct.
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { zeroed() };
+        // SAFETY: a null job queries the caller's own job; `info` has the size passed.
+        let ok = unsafe {
+            QueryInformationJobObject(
+                null_mut(),
+                JobObjectExtendedLimitInformation,
+                (&raw mut info).cast::<c_void>(),
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let want = JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+            | JOB_OBJECT_LIMIT_PROCESS_MEMORY
+            | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        Ok(info.BasicLimitInformation.LimitFlags & want == want
+            && info.BasicLimitInformation.ActiveProcessLimit == 1)
+    }
+
+    pub fn profile() -> io::Result<()> {
+        if !in_app_container()? {
+            return Err(refuse("not in an app container"));
+        }
+        if !in_limited_job()? {
+            return Err(refuse("not in the one-process job"));
+        }
+        Ok(())
     }
 }

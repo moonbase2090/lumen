@@ -83,7 +83,7 @@ The sandbox is entered **before the worker reads a byte of input**:
 
 - **Linux:** resource limits, `no_new_privs`, then a seccomp-bpf filter that allows only the system calls the decoder needs (read, write, memory mapping, exit, futex, clock, signal return) and kills the process on anything else. It does not allow `open`, `socket`, `execve` or `fork`/`clone` of a process.
 - **macOS:** resource limits, then a Seatbelt profile that denies by default. The worker uses the bundled libraries, never ImageIO ([output](../../spec/v0/images.md#images.output)).
-- **Windows (test profile only in this phase):** a restricted token, a job object with the same memory and CPU limits and no child processes, and no handle other than the pipes. It is exercised by tests, not shipped, until Windows is a supported platform.
+- **Windows (tested, not shipped, until Windows is a supported platform):** the terminal starts the worker in an app container that holds no capability, which denies the network and every file the container was not granted. The worker runs in a job object with the same memory and CPU limits that allows one process, so it cannot start another, and it inherits no handle other than the three pipes. A sandbox on Windows is applied when the process is created, so the worker only checks that it is inside both and exits with status 70 if not. The code is in `ffi_win_spawn`, which with `ffi_sandbox` is where the crate allows `unsafe` on Windows.
 
 A failure to enter the sandbox is a hard failure: the worker exits before reading, and the terminal treats it as a crash. There is no run without the sandbox.
 
@@ -117,7 +117,7 @@ All three licences are covered by `deny.toml`, as `MIT`, `Apache-2.0` or `Zlib`.
 
 ## What the tests and the fuzz run use
 
-- **Sandbox suite (G4).** Runs the real worker and the real terminal-side runner. It covers: a hint that lies about size in both directions, a decoded size past 16 megapixels or 65535 on a side, a 64-bit overflow in `width * height * 4`, a worker that writes more or less than `data_len`, a stderr flood, a worker that hangs, a worker that spawns a child (the group is killed, nothing survives), an attempt to open a file or a socket from inside the sandbox, and peak terminal memory under a lying worker. Each runs on Linux and macOS; the Windows test profile runs the subset its platform supports.
+- **Sandbox suite (G4).** Runs the real worker and the real terminal-side runner. It covers: a hint that lies about size in both directions, a decoded size past 16 megapixels or 65535 on a side, a 64-bit overflow in `width * height * 4`, a worker that writes more or less than `data_len`, a stderr flood, a worker that hangs, a worker that spawns a child (the group is killed, nothing survives), an attempt to open a file or a socket from inside the sandbox, and peak terminal memory under a lying worker. Each runs on Linux, macOS and Windows, except the group-kill tests, which are Unix-only because on Windows the job allows no second process to leave behind; the one-process limit is covered by the test that the sandbox denies starting a process.
 - **Fuzz targets.** One per format, calling the worker's decode function directly, built with ASan and UBSan, plus stateful targets for the terminal-side reply validation. The build identities are the ones in the unlock rule, and a changed lockfile re-runs the gate.
 
 ## Out of scope here

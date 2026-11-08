@@ -47,6 +47,16 @@ jobs:
       # A library that panics with overflow checks wraps in release; the shipped worker must still answer status 4.
       - run: cargo test --locked --release -p lumen-decoder --test webp_code_length_wrap
 
+  # The Windows decoder sandbox (an app container and a one-process job object)
+  # is only exercised on Windows.
+  decoder-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --locked -p lumen-decoder --test g4_sandbox -- --nocapture --test-threads=1
+
   deny:
     runs-on: ubuntu-latest
     steps:
