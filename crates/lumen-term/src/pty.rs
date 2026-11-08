@@ -32,6 +32,28 @@ pub struct Pty {
     output: Receiver<Vec<u8>>,
     reader: Option<JoinHandle<()>>,
     exited: bool,
+    /// Whether the pseudo-console's start-up cursor query has been answered.
+    #[cfg(windows)]
+    answered_startup_query: bool,
+}
+
+/// The cursor-position query the Windows pseudo-console sends first.
+const STARTUP_QUERY: &[u8] = b"\x1b[6n";
+/// The terminal's answer to it: the cursor is at row 1, column 1.
+#[cfg_attr(not(windows), allow(dead_code))]
+const STARTUP_ANSWER: &[u8] = b"\x1b[1;1R";
+
+/// Remove the pseudo-console's start-up cursor query from the front of `bytes`
+/// the first time it is there. Returns whether it was, so the caller answers
+/// it. The pseudo-console writes nothing else until it has an answer.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn take_startup_query(answered: &mut bool, bytes: &mut Vec<u8>) -> bool {
+    if *answered || !bytes.starts_with(STARTUP_QUERY) {
+        return false;
+    }
+    *answered = true;
+    bytes.drain(..STARTUP_QUERY.len());
+    true
 }
 
 impl Pty {
@@ -58,6 +80,8 @@ impl Pty {
             output,
             reader: Some(handle),
             exited: false,
+            #[cfg(windows)]
+            answered_startup_query: false,
         })
     }
 
@@ -108,7 +132,7 @@ impl Pty {
         while let Ok(chunk) = self.output.try_recv() {
             bytes.extend(chunk);
         }
-        bytes
+        self.answer_startup_query(bytes)
     }
 
     /// Wait up to `wait` for the program's next output.
@@ -117,6 +141,23 @@ impl Pty {
         while let Ok(chunk) = self.output.try_recv() {
             bytes.extend(chunk);
         }
+        self.answer_startup_query(bytes)
+    }
+
+    /// On Windows, answer the pseudo-console's start-up cursor query, without
+    /// which it passes on nothing the program writes.
+    #[cfg(windows)]
+    fn answer_startup_query(&mut self, mut bytes: Vec<u8>) -> Vec<u8> {
+        if take_startup_query(&mut self.answered_startup_query, &mut bytes) {
+            let _ = self.input.typed(STARTUP_ANSWER);
+        }
+        bytes
+    }
+
+    /// Elsewhere no such query comes.
+    #[cfg(not(windows))]
+    #[allow(clippy::unused_self)]
+    fn answer_startup_query(&mut self, bytes: Vec<u8>) -> Vec<u8> {
         bytes
     }
 
@@ -173,5 +214,35 @@ impl Drop for Pty {
             #[cfg(windows)]
             drop(handle);
         }
+    }
+}
+
+#[cfg(test)]
+mod startup_query_tests {
+    use super::*;
+
+    #[test]
+    fn the_first_start_up_query_is_taken_and_only_the_first() {
+        let mut answered = false;
+        let mut bytes = b"\x1b[6nhello".to_vec();
+        assert!(take_startup_query(&mut answered, &mut bytes));
+        assert_eq!(bytes, b"hello");
+        let mut again = b"\x1b[6nhello".to_vec();
+        assert!(!take_startup_query(&mut answered, &mut again));
+        assert_eq!(again, b"\x1b[6nhello");
+    }
+
+    #[test]
+    fn output_without_the_query_at_its_front_is_left_alone() {
+        let mut answered = false;
+        let mut bytes = b"hi\x1b[6n".to_vec();
+        assert!(!take_startup_query(&mut answered, &mut bytes));
+        assert_eq!(bytes, b"hi\x1b[6n");
+        assert!(!answered);
+    }
+
+    #[test]
+    fn the_answer_is_a_cursor_position_report() {
+        assert_eq!(STARTUP_ANSWER, b"\x1b[1;1R");
     }
 }
