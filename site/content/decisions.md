@@ -78,6 +78,12 @@ Every decision listed here is **Adopted**: the specification follows it.
 - **Effect:** The release check refuses unless the personal-identifier scan passes and the decoder fuzz ledger is present, records no crash, carries the decoder and image-path build identities of the tree being released, and passes the fuzzing thresholds. A missing input is a refusal. There is no waiver, and the check releases nothing.
 - **Where:** [Release criteria](https://github.com/moonbase2090/lumen/blob/main/docs/release-criteria.md#the-release-check).
 
+### macOS release binaries are signed with the hardened runtime
+
+- **Status:** Adopted.
+- **Effect:** The macOS release gates run on terminal and holder binaries that are signed with a Developer ID certificate and the hardened runtime, with no entitlements. A binary that is unsigned, signed ad hoc, or marked debuggable is refused. A missing certificate is a refusal, with no unsigned fallback and no waiver, and the signing job releases nothing.
+- **Where:** [Release criteria](https://github.com/moonbase2090/lumen/blob/main/docs/release-criteria.md#signed-macos-binaries).
+
 ## Accepted residual risks
 
 The specification lists the residual effects the maintainers accepted for v0, each rated Low or Informational. None gives unverified output any authority. They are described only by their effects, and the full text is in [Accepted residual risks](@/spec/v0/threat-model.md#threat.residuals). The headings below are the same entries.
