@@ -526,6 +526,13 @@ mod hostile {
         let listener = std::net::UdpSocket::bind("127.0.0.1:0")?;
         listener.set_read_timeout(Some(Duration::from_millis(300)))?;
         let port = listener.local_addr()?.port().to_string();
+        // Control: the listener does receive from an unsandboxed sender, so an
+        // empty queue below means the sandbox stopped the worker's datagram.
+        std::net::UdpSocket::bind("127.0.0.1:0")?
+            .send_to(b"control", ("127.0.0.1", listener.local_addr()?.port()))?;
+        let mut buf = [0u8; 16];
+        let (n, _) = listener.recv_from(&mut buf)?;
+        assert_eq!(&buf[..n], b"control");
         // Elsewhere the sandbox refuses the socket or the send outright. On
         // Windows the container may let the call return and drop the packet, so
         // there the proof is that nothing arrives at the listener.
@@ -539,7 +546,6 @@ mod hostile {
             #[cfg(not(windows))]
             denied_outcome(&o, mode);
         }
-        let mut buf = [0u8; 16];
         assert!(
             listener.recv_from(&mut buf).is_err(),
             "a datagram got through"
