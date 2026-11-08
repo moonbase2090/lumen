@@ -1,8 +1,9 @@
 //! Pixel mode against the real terminal binary (criteria 2.3).
 //!
 //! Each case is written to a file and the terminal is run headless with
-//! `--snapshot`, its program a shell that turns off output translation and
-//! copies the file to the terminal. The terminal's own PTY, guard, layer,
+//! `--snapshot`, its program one that copies the file to the terminal: on Unix
+//! a shell that turns off output translation first, on Windows PowerShell
+//! writing the file's bytes to its standard output. The terminal's own PTY, guard, layer,
 //! document and window drawing are what produce the frame; nothing here draws.
 //! Every pixel in the trust-margin rectangles and the editor is compared with a
 //! baseline taken from the same binary with a program that prints nothing, and
@@ -10,7 +11,10 @@
 //!
 //! What this is and is not: it is the real binary's frame, drawn by the same
 //! code a window presents, in a headless snapshot. It is not a capture of an
-//! operating-system window on screen. It needs a Unix shell and `stty`. A case
+//! operating-system window on screen. On Windows the terminal's pseudo-console
+//! (`ConPTY`) sits between the program and the terminal, so what the terminal
+//! reads is what `ConPTY` re-emits for the bytes written, not the bytes
+//! themselves; the baseline is taken through the same path. A case
 //! that sets a context the real terminal cannot be given from outside (the
 //! alternate screen flag and a multiplexer variable are harness settings, not
 //! bytes) is not run and is listed as skipped. The real terminal has no open
@@ -21,13 +25,25 @@ use crate::pixels::{PixelCase, PixelReport, changed_in};
 use lumen_term::app::{cells_for, window_for};
 use lumen_term::{Frame, Renderer, layout};
 use sha2::{Digest, Sha256};
+use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 /// Work directories handed out so far, so runs in one process never share one.
 static RUNS: AtomicUsize = AtomicUsize::new(0);
+
+/// The longest one terminal run may take before it is killed. The terminal's
+/// own `--wait` is 5 seconds; this bounds a run that never returns.
+const RUN_DEADLINE: Duration = Duration::from_secs(60);
+
+/// How long the Windows program stays alive after it has written. The terminal
+/// reads what the pseudo-console re-emits, and that can arrive after the
+/// program's exit; holding the program lets the terminal read it while the
+/// program runs. The baseline holds for the same time.
+const WINDOWS_HOLD_MS: u32 = 3000;
 
 /// The windows, in cells, the real terminal is sized to.
 pub const WINDOWS: [(u32, u32); 2] = [(80, 24), (40, 12)];
@@ -60,17 +76,127 @@ fn decode(png_bytes: &[u8]) -> Result<Frame, String> {
     })
 }
 
-/// Run the terminal on `script` (a shell command line) and return its frame.
+/// What the terminal's program does.
+#[derive(Debug, Clone, Copy)]
+enum Stimulus<'a> {
+    /// Print nothing and exit.
+    Nothing,
+    /// Write the bytes of this file to the terminal, untranslated.
+    File(&'a Path),
+}
+
+/// Which kind of program drives the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Flavor {
+    /// `/bin/sh` with `stty -onlcr`.
+    Unix,
+    /// Windows PowerShell writing raw bytes to standard output.
+    Windows,
+}
+
+impl Flavor {
+    const fn host() -> Self {
+        if cfg!(windows) {
+            Self::Windows
+        } else {
+            Self::Unix
+        }
+    }
+}
+
+/// The program and arguments that give the terminal `stimulus`.
+fn program_for(flavor: Flavor, stimulus: Stimulus<'_>) -> (OsString, Vec<OsString>) {
+    match flavor {
+        Flavor::Unix => {
+            let script = match stimulus {
+                Stimulus::Nothing => "stty -onlcr; :".to_owned(),
+                Stimulus::File(f) => format!("stty -onlcr; cat '{}'", f.display()),
+            };
+            (
+                OsString::from("/bin/sh"),
+                vec![OsString::from("-c"), OsString::from(script)],
+            )
+        }
+        Flavor::Windows => {
+            let script = match stimulus {
+                Stimulus::Nothing => format!("Start-Sleep -Milliseconds {WINDOWS_HOLD_MS}"),
+                Stimulus::File(f) => format!(
+                    "$b = [System.IO.File]::ReadAllBytes('{}'); \
+                     $o = [System.Console]::OpenStandardOutput(); \
+                     $o.Write($b, 0, $b.Length); $o.Flush(); \
+                     Start-Sleep -Milliseconds {WINDOWS_HOLD_MS}",
+                    // Inside single quotes only the quote itself needs doubling.
+                    f.display().to_string().replace('\'', "''")
+                ),
+            };
+            let root =
+                std::env::var_os("SystemRoot").unwrap_or_else(|| OsString::from(r"C:\Windows"));
+            let exe = Path::new(&root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+            (
+                exe.into_os_string(),
+                ["-NoProfile", "-NonInteractive", "-Command"]
+                    .iter()
+                    .map(OsString::from)
+                    .chain([OsString::from(script)])
+                    .collect(),
+            )
+        }
+    }
+}
+
+/// Run `command` with its output sent to files, and kill it after `limit`.
+fn run_bounded(
+    command: &mut Command,
+    work: &Path,
+    name: &str,
+    limit: Duration,
+) -> Result<(), String> {
+    let out_path = work.join(format!("{name}.out"));
+    let err_path = work.join(format!("{name}.err"));
+    let out = std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
+    let err = std::fs::File::create(&err_path).map_err(|e| e.to_string())?;
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(out))
+        .stderr(Stdio::from(err))
+        .spawn()
+        .map_err(|e| format!("{e}"))?;
+    let deadline = Instant::now() + limit;
+    let status = loop {
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(status) => break status,
+            None if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("killed after {} seconds", limit.as_secs()));
+            }
+            None => std::thread::sleep(Duration::from_millis(20)),
+        }
+    };
+    if status.success() {
+        Ok(())
+    } else {
+        let said = std::fs::read(&err_path).unwrap_or_default();
+        Err(format!(
+            "exited with {status}: {}",
+            String::from_utf8_lossy(&said)
+        ))
+    }
+}
+
+/// Run the terminal on `stimulus` and return its frame.
 fn snapshot(
     terminal: &Path,
     work: &Path,
     name: &str,
     size: (u32, u32),
     scale: u32,
-    script: &str,
+    stimulus: Stimulus<'_>,
 ) -> Result<Frame, String> {
     let png = work.join(format!("{name}.png"));
-    let out = Command::new(terminal)
+    let (program, arguments) = program_for(Flavor::host(), stimulus);
+    let mut command = Command::new(terminal);
+    command
         .arg("--snapshot")
         .arg(&png)
         .arg("--size")
@@ -80,19 +206,10 @@ fn snapshot(
         .arg("--wait")
         .arg("5000")
         .arg("--")
-        .arg("/bin/sh")
-        .arg("-c")
-        .arg(script)
-        .output()
+        .arg(program)
+        .args(arguments);
+    run_bounded(&mut command, work, name, RUN_DEADLINE)
         .map_err(|e| format!("{}: {e}", terminal.display()))?;
-    if !out.status.success() {
-        return Err(format!(
-            "{} exited with {}: {}",
-            terminal.display(),
-            out.status,
-            String::from_utf8_lossy(&out.stderr)
-        ));
-    }
     let bytes = std::fs::read(&png).map_err(|e| format!("{}: {e}", png.display()))?;
     decode(&bytes)
 }
@@ -166,9 +283,8 @@ pub fn run_terminal(
         }
         let win = window_for(c, r);
         let l = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
-        let quiet = "stty -onlcr; :";
-        let first = snapshot(terminal, &work, "base-a", size, scale, quiet)?;
-        let second = snapshot(terminal, &work, "base-b", size, scale, quiet)?;
+        let first = snapshot(terminal, &work, "base-a", size, scale, Stimulus::Nothing)?;
+        let second = snapshot(terminal, &work, "base-b", size, scale, Stimulus::Nothing)?;
         if (first.width, first.height) != size {
             return Err(format!(
                 "the terminal drew {}x{} pixels, expected {}x{}",
@@ -181,8 +297,14 @@ pub fn run_terminal(
             let file = work.join(format!("{}.bin", case.id));
             let bytes: Vec<u8> = case.reads.iter().flat_map(|r| r.bytes.clone()).collect();
             std::fs::write(&file, bytes).map_err(|e| e.to_string())?;
-            let script = format!("stty -onlcr; cat '{}'", file.display());
-            let frame = snapshot(terminal, &work, &case.id, size, scale, &script)?;
+            let frame = snapshot(
+                terminal,
+                &work,
+                &case.id,
+                size,
+                scale,
+                Stimulus::File(&file),
+            )?;
             keep(&format!("{}-{cols}x{rows}.png", case.id), &frame)?;
             let everything = lumen_term::Rect {
                 x: 0,
@@ -235,4 +357,56 @@ pub fn terminal_rects(renderer: &Renderer) -> String {
         );
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_unix_program_turns_off_translation_and_copies_the_file() {
+        let (program, args) = program_for(Flavor::Unix, Stimulus::File(Path::new("/tmp/a.bin")));
+        assert_eq!(program, "/bin/sh");
+        assert_eq!(args[0], "-c");
+        assert_eq!(args[1], "stty -onlcr; cat '/tmp/a.bin'");
+        let (_, quiet) = program_for(Flavor::Unix, Stimulus::Nothing);
+        assert_eq!(quiet[1], "stty -onlcr; :");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_run_that_never_returns_is_killed() {
+        let dir = std::env::temp_dir().join(format!("lumen-bound-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| unreachable!("{e}"));
+        let mut c = Command::new("/bin/sh");
+        c.args(["-c", "sleep 30"]);
+        let started = Instant::now();
+        let r = run_bounded(&mut c, &dir, "hang", Duration::from_millis(200));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(r.is_err_and(|e| e.contains("killed")));
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn the_windows_program_is_powershell_and_never_a_unix_shell() {
+        let (program, args) =
+            program_for(Flavor::Windows, Stimulus::File(Path::new(r"C:\t\it's.bin")));
+        let program = program.to_string_lossy().to_lowercase();
+        assert!(program.ends_with("powershell.exe"), "{program}");
+        assert!(!program.contains("/bin/sh"));
+        assert_eq!(&args[..3], ["-NoProfile", "-NonInteractive", "-Command"]);
+        let script = args[3].to_string_lossy();
+        assert!(
+            script.contains(r"ReadAllBytes('C:\t\it''s.bin')"),
+            "{script}"
+        );
+        assert!(script.contains("OpenStandardOutput"));
+        assert!(!script.contains("stty"));
+        let (_, quiet) = program_for(Flavor::Windows, Stimulus::Nothing);
+        assert_eq!(quiet[3], "Start-Sleep -Milliseconds 3000");
+        assert!(
+            script.ends_with("Start-Sleep -Milliseconds 3000"),
+            "{script}"
+        );
+    }
 }
