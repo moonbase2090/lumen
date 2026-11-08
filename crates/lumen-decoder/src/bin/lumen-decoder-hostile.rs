@@ -150,7 +150,16 @@ fn main() -> ExitCode {
             .is_ok();
             return report(ok);
         }
-        "udp" => return report(std::net::UdpSocket::bind("127.0.0.1:0").is_ok()),
+        "udp" => {
+            // Makes a socket and sends a datagram to the port of a socket the
+            // suite holds. Windows lets a container bind; what it must refuse
+            // is the traffic.
+            let port: u16 = args.get(2).and_then(|p| p.parse().ok()).unwrap_or(9);
+            let sent = std::net::UdpSocket::bind("127.0.0.1:0")
+                .and_then(|s| s.send_to(b"escape", ("127.0.0.1", port)))
+                .is_ok();
+            return report(sent);
+        }
         "exec" => {
             #[cfg(windows)]
             let mut cmd = Command::new("cmd.exe");

@@ -361,6 +361,14 @@ mod hostile {
         // Killed by the CPU limit, not by the wall clock (that would be a
         // `Timeout`). On a busy host 2 CPU seconds can take longer than 4 s of
         // wall time; the bound below only catches a kill that never comes.
+        // Windows checks a job's CPU time on a coarse timer, so there the wall
+        // clock may stop the spinner first; either way it is killed in time.
+        #[cfg(windows)]
+        assert!(
+            matches!(o, Outcome::Crash(Crash::Exit | Crash::Timeout)),
+            "{o:?} {e:?}"
+        );
+        #[cfg(not(windows))]
         assert_eq!(o, Outcome::Crash(Crash::Exit), "{e:?}");
         assert!(e < Duration::from_secs(10), "{e:?}");
     }
@@ -514,9 +522,18 @@ mod hostile {
     }
 
     #[test]
-    fn the_sandbox_denies_a_socket() {
-        denied("udp");
-        denied("profile-udp");
+    fn the_sandbox_denies_a_socket() -> R {
+        let listener = std::net::UdpSocket::bind("127.0.0.1:0")?;
+        listener.set_read_timeout(Some(Duration::from_millis(300)))?;
+        let port = listener.local_addr()?.port().to_string();
+        denied_with(&["udp", &port]);
+        denied_with(&["profile-udp", &port]);
+        let mut buf = [0u8; 16];
+        assert!(
+            listener.recv_from(&mut buf).is_err(),
+            "a datagram got through"
+        );
+        Ok(())
     }
 
     #[test]
