@@ -20,7 +20,7 @@ fn the_worker_starts_in_the_container_and_the_job() {
     // No input: the worker reads EOF and answers malformed, then exits.
     drop(s.stdin);
     let t = std::time::Instant::now();
-    let mut worker = s.worker;
+    let worker = s.worker;
     while worker.try_wait().ok().flatten().is_none() && t.elapsed().as_secs() < 20 {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
