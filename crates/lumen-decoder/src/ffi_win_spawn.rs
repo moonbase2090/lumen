@@ -67,6 +67,10 @@ const JOB_OBJECT_UILIMIT_ALL: u32 = 0xFF;
 
 /// Names the step that failed, so a failed start says which part of the sandbox
 /// could not be set up.
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "used as a map_err closure body, where the error is owned"
+)]
 fn at(step: &str, e: io::Error) -> io::Error {
     io::Error::new(e.kind(), format!("{step}: {e}"))
 }
@@ -329,6 +333,10 @@ pub struct Spawned {
 /// # Errors
 /// If the container, the job, the pipes or the process cannot be set up. There
 /// is no fallback to an unsandboxed start.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one sequence: the attribute list must outlive the single create call"
+)]
 pub fn spawn(worker: &Path, args: &[String]) -> io::Result<Spawned> {
     let sid = container_sid().map_err(|e| at("container", e))?;
     grant_read_execute(worker, &sid).map_err(|e| at("grant", e))?;
@@ -407,17 +415,23 @@ pub fn spawn(worker: &Path, args: &[String]) -> io::Result<Spawned> {
 
         let app = wide(worker.as_os_str());
         let mut line = command_line(worker, args);
-        // The one variable the loader and the system libraries expect; nothing of
-        // the host's own environment reaches the worker.
+        // Two variables only. `SystemRoot` is what the loader and the system
+        // libraries expect; the container refuses to start without
+        // `LOCALAPPDATA` in the block it is given (error 203). Nothing else of
+        // the host's environment reaches the worker.
         let root = std::env::var_os("SystemRoot");
         let mut environment: Vec<u16> = Vec::new();
-        if let Some(r) = &root {
-            environment.extend(OsStr::new("SystemRoot=").encode_wide());
-            environment.extend(r.encode_wide());
-            environment.push(0);
+        for name in ["SystemRoot", "LOCALAPPDATA"] {
+            if let Some(v) = std::env::var_os(name) {
+                environment.extend(OsStr::new(name).encode_wide());
+                environment.push(u16::from(b'='));
+                environment.extend(v.encode_wide());
+                environment.push(0);
+            }
         }
+        // The block ends with an extra NUL; an empty block is two.
         environment.push(0);
-        if root.is_none() {
+        if environment.len() == 1 {
             environment.push(0);
         }
         let directory = root.as_ref().map(|d| wide(d));
