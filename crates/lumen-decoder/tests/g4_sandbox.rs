@@ -526,8 +526,19 @@ mod hostile {
         let listener = std::net::UdpSocket::bind("127.0.0.1:0")?;
         listener.set_read_timeout(Some(Duration::from_millis(300)))?;
         let port = listener.local_addr()?.port().to_string();
-        denied_with(&["udp", &port]);
-        denied_with(&["profile-udp", &port]);
+        // Elsewhere the sandbox refuses the socket or the send outright. On
+        // Windows the container may let the call return and drop the packet, so
+        // there the proof is that nothing arrives at the listener.
+        for mode in ["udp", "profile-udp"] {
+            let o = run_with(&[mode, &port]);
+            #[cfg(windows)]
+            assert!(
+                matches!(o, Outcome::Image(_) | Outcome::Rejected(_)),
+                "{mode}: {o:?}"
+            );
+            #[cfg(not(windows))]
+            denied_outcome(&o, mode);
+        }
         let mut buf = [0u8; 16];
         assert!(
             listener.recv_from(&mut buf).is_err(),
