@@ -24,7 +24,7 @@ The specification's [decoder gate](../spec/v0/conformance.md#gate.decoder) keeps
 
 ### Status
 
-Not met. No run has reached the floor. The fuzz campaign tooling exists, and a short smoke run has been done on one platform.
+Not met. A guarded campaign on Linux passed the floor for both formats and did not reach the stop rule: JPEG recorded 378 CPU-hours and WebP 412. The judge has not been run on it. The details are in [the campaign result](phase-1/decoder-fuzz-campaign.md#the-guarded-campaign). The other platforms have no run.
 
 The decoder judge in the comparison harness (`lumen-evidence --decoder`), the campaign's gate status and its gate-run defaults apply this rule, as does their description in [the comparison criteria](phase-0.5/comparison-criteria.md#56-decoder-mode). The judge reads one ledger, so it judges one build identity; it fails a ledger with any crash, with fewer than 250 CPU-hours, with more than 1200, or without a coverage reading from before the last 168 CPU-hours that already had every edge seen. It does not judge continuous fuzzing or a re-fuzz after a version bump (rules 4 and 5): those are about what happens after a ledger, not inside one.
 
