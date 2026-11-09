@@ -86,7 +86,7 @@
   },
   {
    "id": "unknown-unsealed-kind",
-   "kind": 131,
+   "kind": 133,
    "payload": [
     {
      "hex": "00026869"
@@ -94,7 +94,8 @@
    ],
    "expect": {
     "error": "unknown_kind"
-   }
+   },
+   "note": ""
   },
   {
    "id": "trailing-bytes",
@@ -154,6 +155,86 @@
    ],
    "expect": {
     "error": "bad_level"
+   }
+  },
+  {
+   "id": "image-start-ok",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "00000007010000028000000140000004d200056120636174"
+    }
+   ],
+   "expect": {
+    "ok": "image_start"
+   }
+  },
+  {
+   "id": "image-start-truncated",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "00000007010000028000000140000004d20005612063"
+    }
+   ],
+   "expect": {
+    "error": "malformed"
+   }
+  },
+  {
+   "id": "image-data-ok",
+   "kind": 132,
+   "payload": [
+    {
+     "hex": "000000070000000089504e47"
+    }
+   ],
+   "expect": {
+    "ok": "image_data"
+   }
+  },
+  {
+   "id": "image-data-at-chunk-cap",
+   "kind": 132,
+   "payload": [
+    {
+     "hex": "0000000700000000"
+    },
+    {
+     "fill": "61",
+     "count": 262144
+    }
+   ],
+   "expect": {
+    "ok": "image_data"
+   }
+  },
+  {
+   "id": "image-data-over-chunk-cap",
+   "kind": 132,
+   "payload": [
+    {
+     "hex": "0000000700000000"
+    },
+    {
+     "fill": "61",
+     "count": 262145
+    }
+   ],
+   "expect": {
+    "error": "malformed"
+   }
+  },
+  {
+   "id": "image-data-empty",
+   "kind": 132,
+   "payload": [
+    {
+     "hex": "0000000700000000"
+    }
+   ],
+   "expect": {
+    "error": "malformed"
    }
   }
  ],
@@ -223,6 +304,24 @@
     "a-big-frame-that-is-not-a-track-b-image"
    ],
    "covers": "model"
+  },
+  {
+   "id": "image-data-chunk",
+   "value": "262144 bytes",
+   "spec": "images.md#images.frames",
+   "status": "vector",
+   "vectors": [
+    "image-data-at-chunk-cap",
+    "image-data-over-chunk-cap",
+    "image-data-empty"
+   ]
+  },
+  {
+   "id": "image-length",
+   "value": "16 MiB, checked against the declared length by the receiver",
+   "spec": "images.md#images.frames",
+   "status": "pending",
+   "reason": "enforced by the image receiver, not the parser; the receiver's tests cover it"
   },
   {
    "id": "nesting-depth",

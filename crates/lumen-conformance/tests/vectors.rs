@@ -2,7 +2,7 @@
 //! detector and Track 0 parser.
 
 use lumen_detector::{Detector, Event};
-use lumen_track0::{Error, KIND_PARAGRAPH, escaped_text, parse};
+use lumen_track0::{Block, Error, KIND_PARAGRAPH, escaped_text, parse};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -184,6 +184,8 @@ fn limit_vectors_for_track0() {
             (Ok(_), Some("paragraph"), _) => {
                 assert_eq!(kind_of(&v["kind"]), KIND_PARAGRAPH, "{id}");
             }
+            (Ok(Block::ImageStart { .. }), Some("image_start"), _)
+            | (Ok(Block::ImageData { .. }), Some("image_data"), _) => {}
             (Err(e), _, Some(name)) => assert_eq!(error_name(*e), name, "{id}"),
             _ => unreachable!("{id}: got {got:?}, wanted {want}"),
         }
