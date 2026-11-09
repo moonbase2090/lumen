@@ -169,6 +169,7 @@ pub struct Update {
 
 /// See the module documentation.
 pub struct ImageHost {
+    gate: Gate,
     manager: ImageManager<Store>,
     receiver: Receiver,
     producer: Producer,
@@ -181,9 +182,11 @@ impl ImageHost {
     pub fn new(gate: Gate, decoder: impl Decode, ssh: bool) -> Self {
         let store = Store::default();
         let producer = Producer(1);
-        let mut manager = ImageManager::new(Limits::default(), gate, decoder, store.clone());
+        let mut manager =
+            ImageManager::new(Limits::default(), gate.clone(), decoder, store.clone());
         manager.register(producer, Trust::Unsigned { ssh_session: ssh });
         Self {
+            gate,
             manager,
             receiver: Receiver::new(),
             producer,
@@ -196,6 +199,13 @@ impl ImageHost {
     pub fn for_build(setting_on: bool) -> Self {
         let runner = lumen_decoder::runner::Runner::new(worker_path());
         Self::new(build_gate(setting_on), runner, possibly_ssh())
+    }
+
+    /// The local `images` setting changed. Off always wins; on only matters if
+    /// the build's gate records allow it.
+    pub fn set_setting(&mut self, on: bool) {
+        self.gate.setting_on = on;
+        self.manager.set_gate(self.gate.clone());
     }
 
     /// An image starts. Returns what to show for it, and the image it ended.

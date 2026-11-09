@@ -145,6 +145,8 @@ pub struct Config {
     pub exit_after: Option<Duration>,
     /// What the user allowed for notifications.
     pub notifications: crate::notify::Settings,
+    /// The user's `images` setting; `false` always shows the alt text.
+    pub images: bool,
 }
 
 struct Running {
@@ -239,6 +241,7 @@ impl ApplicationHandler for Host {
         ) {
             Ok(mut app) => {
                 app.use_settings(self.config.notifications);
+                app.use_images(self.config.images);
                 window.request_redraw();
                 self.state = Some(Running {
                     window,

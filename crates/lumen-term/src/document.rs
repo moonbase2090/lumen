@@ -106,6 +106,11 @@ impl Document {
         }
     }
 
+    /// The local `images` setting: `false` always shows the alt text.
+    pub fn set_images_setting(&mut self, on: bool) {
+        self.images.set_setting(on);
+    }
+
     /// The width, in columns, of every block.
     #[must_use]
     pub fn columns(&self) -> usize {

@@ -207,3 +207,19 @@ fn a_command_that_ends_mid_image_drops_what_was_received() {
     assert!(!doc.poll_images());
     assert!(rich(&doc)[0].image.is_none());
 }
+
+#[test]
+fn the_setting_off_shows_the_alt_text_even_with_a_gate_record() {
+    let (mut doc, mut layer) = setup(true);
+    doc.set_images_setting(false);
+    let bytes = image_bytes();
+    doc.receive(&mut layer, &start(1, 40, "a cat"), Context::default());
+    doc.receive(&mut layer, &data(1, 0, &bytes), Context::default());
+    assert!(!doc.poll_images());
+    assert!(rich(&doc)[0].image.is_none());
+    // Turned back on, the next image decodes.
+    doc.set_images_setting(true);
+    doc.receive(&mut layer, &start(2, 40, "again"), Context::default());
+    doc.receive(&mut layer, &data(2, 0, &bytes), Context::default());
+    wait_for_image(&mut doc);
+}

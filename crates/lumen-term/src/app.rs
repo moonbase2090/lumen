@@ -184,6 +184,11 @@ impl App {
         self.sink = sink;
     }
 
+    /// Apply the user's `images` setting: `false` always shows the alt text.
+    pub fn use_images(&mut self, on: bool) {
+        self.session.set_images_setting(on);
+    }
+
     /// Apply the user's notification settings. The operating-system sink is
     /// made only if `os_notifications` is on; otherwise nothing that could show
     /// one exists. The place is [`place_of`] the environment, which is never

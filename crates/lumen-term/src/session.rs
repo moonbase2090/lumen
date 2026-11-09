@@ -174,6 +174,11 @@ impl Session {
         self.replies.set_theme(theme);
     }
 
+    /// The local `images` setting: `false` always shows the alt text.
+    pub fn set_images_setting(&mut self, on: bool) {
+        self.document.set_images_setting(on);
+    }
+
     /// Milliseconds since the session started: the clock the notifier uses.
     #[must_use]
     pub fn now_ms(&self) -> u64 {
