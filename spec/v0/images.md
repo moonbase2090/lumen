@@ -47,7 +47,7 @@ This section is part of the experiment profile and is not yet normative. An imag
 - The encoded bytes a producer holds at once, in the image being received and in images waiting for a decode, are at most 32 MiB. A start frame that would pass it shows the alt text and degrades the producer as in [Memory budget](@/spec/v0/images.md#images.budget). The encoded bytes count with the producer's other budgets, including the 25% share of an unsigned producer.
 - When images are not unlocked ([Platform unlock](@/spec/v0/images.md#images.unlock)), the start frame shows the alt text and its data frames are dropped as they arrive: no byte is buffered. The same holds for an unsigned image on an SSH session, and after a decoder crash for the rest of the command.
 - Image frames count only inside the unverified-output container. Outside it, an image frame is shown as escaped text and nothing is kept for the strip.
-- The image block is placed in the document where its start frame arrived. It shows the alt text until the decode finishes, then the decoded image at its decoded size, reduced to fit the width of the document. The declared size does not set the layout.
+- The image block is placed in the document where its start frame arrived. It shows the alt text until the decode finishes, then the decoded image at its decoded size, reduced to fit the width of its container and 40 rows of cells (proportions kept, never enlarged). The declared size does not set the layout.
 - The end of the command, the end of the layer and a reset of the producer's stream end any incomplete image with its alt text and free its bytes.
 - The image frame types have no sealed form in this profile. An image in a sealed layer needs the `images` capability and is not defined here.
 
