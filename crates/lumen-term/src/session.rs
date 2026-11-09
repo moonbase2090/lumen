@@ -213,13 +213,17 @@ impl Session {
     /// of bytes handled.
     pub fn pump(&mut self) -> usize {
         let bytes = self.pty.poll();
-        self.take(&bytes)
+        let n = self.take(&bytes);
+        self.document.poll_images();
+        n
     }
 
     /// Wait up to `wait` for the program's next output and take it.
     pub fn pump_wait(&mut self, wait: Duration) -> usize {
         let bytes = self.pty.poll_wait(wait);
-        self.take(&bytes)
+        let n = self.take(&bytes);
+        self.document.poll_images();
+        n
     }
 
     /// Type `bytes` to the program.

@@ -44,6 +44,7 @@ png = "0.17"
 lumen-arm-b = { path = "../lumen-arm-b", default-features = false }
 unicode-general-category = "1.1.0"
 lumen-sealed = { path = "../lumen-sealed" }
+lumen-decoder = { path = "../lumen-decoder" }
 
 [target.'cfg(not(windows))'.dependencies]
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland"], optional = true }

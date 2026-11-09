@@ -2,10 +2,12 @@
 
 use crate::grid::GridBlock;
 use crate::guard::Guard;
+use crate::images::{ImageHost, Pixels, Shown};
 use crate::isolate::{Isolator, Note, Stats};
 use crate::layer::{Context, Layer, Notice, Piece};
 use crate::reply::ColourQuery;
 use crate::strip::Strip;
+use lumen_decoder::frames::{Data, Start};
 use lumen_track0::Block as Track0Block;
 use std::collections::BTreeSet;
 
@@ -19,6 +21,9 @@ pub struct RichBlock {
     /// The prompt cycle the block arrived in, so the strip can be one
     /// aggregate per layer per cycle.
     pub cycle: u32,
+    /// For an image start: the decoded pixels once the decode has finished.
+    /// Until then, and whenever the image is refused, the alt text is shown.
+    pub image: Option<Pixels>,
 }
 
 /// Something the terminal has to handle that the document does not draw: a
@@ -69,6 +74,7 @@ pub struct Document {
     isolator: Isolator,
     events: Vec<Event>,
     colour_queries: Vec<ColourQuery>,
+    images: ImageHost,
 }
 
 /// Most colour queries kept for the owner to answer. Later ones are not kept.
@@ -78,6 +84,12 @@ impl Document {
     /// An empty document whose grid blocks are `columns` by `rows`.
     #[must_use]
     pub fn new(columns: usize, rows: usize) -> Self {
+        Self::with_images(columns, rows, ImageHost::for_build(true))
+    }
+
+    /// An empty document with the given image path.
+    #[must_use]
+    pub fn with_images(columns: usize, rows: usize, images: ImageHost) -> Self {
         Self {
             columns,
             rows,
@@ -90,6 +102,7 @@ impl Document {
             isolator: Isolator::new(),
             events: Vec::new(),
             colour_queries: Vec::new(),
+            images,
         }
     }
 
@@ -205,18 +218,59 @@ impl Document {
                     line.extend_from_slice(b"\r\n");
                     self.grid().feed(&line);
                 }
-                // Image data has no row of its own: the bytes are not kept
-                // while images are locked, which is the state of this build.
-                Piece::Rich(Track0Block::ImageData { .. }) => {}
+                Piece::Rich(Track0Block::ImageStart {
+                    id,
+                    width,
+                    height,
+                    length,
+                    alt,
+                    format,
+                }) => {
+                    let (shown, abandoned) = self.images.start(Start {
+                        id,
+                        width,
+                        height,
+                        length,
+                    });
+                    debug_assert!(!matches!(shown, Shown::Image(_)));
+                    let _ = abandoned;
+                    self.blocks.push(Block::Rich(RichBlock {
+                        content: Track0Block::ImageStart {
+                            id,
+                            format,
+                            width,
+                            height,
+                            length,
+                            alt,
+                        },
+                        background: false,
+                        cycle: self.cycle,
+                        image: None,
+                    }));
+                }
+                Piece::Rich(Track0Block::ImageData { id, offset, data }) => {
+                    if let Data::Rejected { .. } = self.images.data(id, offset, &data) {
+                        // The frame did not fit: shown as escaped text.
+                        let mut raw = vec![lumen_track0::KIND_IMAGE_DATA];
+                        raw.extend_from_slice(&id.to_be_bytes());
+                        raw.extend_from_slice(&offset.to_be_bytes());
+                        raw.extend_from_slice(&data);
+                        let mut line = lumen_track0::escaped_text(&raw).into_bytes();
+                        line.extend_from_slice(b"\r\n");
+                        self.grid().feed(&line);
+                    }
+                }
                 Piece::Rich(content) => self.blocks.push(Block::Rich(RichBlock {
                     content,
                     background: false,
                     cycle: self.cycle,
+                    image: None,
                 })),
                 Piece::Background(content) => self.blocks.push(Block::Rich(RichBlock {
                     content,
                     background: true,
                     cycle: self.cycle,
+                    image: None,
                 })),
                 Piece::Notice(n) => self.notices.push(n),
                 Piece::Sealed { kind, body } => {
@@ -254,6 +308,32 @@ impl Document {
         out
     }
 
+    /// Takes the decodes that finished and puts their pixels in their blocks.
+    /// Returns whether any block changed, so a window can draw again.
+    pub fn poll_images(&mut self) -> bool {
+        let mut changed = false;
+        for update in self.images.poll() {
+            let Shown::Image(pixels) = update.shown else {
+                continue;
+            };
+            let target = self.blocks.iter_mut().rev().find_map(|b| match b {
+                Block::Rich(r)
+                    if !r.background
+                        && matches!(&r.content,
+                            Track0Block::ImageStart { id, .. } if *id == update.id) =>
+                {
+                    Some(r)
+                }
+                _ => None,
+            });
+            if let Some(r) = target {
+                r.image = Some(pixels);
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// The user opens the strip of `cycle`. This is the only way a strip
     /// opens: nothing the layer yields calls it. It returns false if that
     /// cycle has no strip.
@@ -281,6 +361,9 @@ impl Document {
     /// the next command, and blocks that arrive from now on belong to the new
     /// cycle.
     pub fn begin_prompt_cycle(&mut self, layer: &mut dyn Layer) {
+        // The command ended: an image still being received ends with its alt
+        // text and its bytes are freed.
+        let _ = self.images.end_command();
         self.cycle = self.cycle.saturating_add(1);
         layer.open_container();
     }
