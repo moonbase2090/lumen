@@ -55,10 +55,24 @@ CPU-hours are wall seconds times workers, summed over slices; that is an approxi
 - **The terminal image path is only partly there.** The image-frame parser, multi-frame reassembly and the upload step do not exist, so the stateful multi-frame targets of the plan cannot be written. What exists on the terminal side is the host half in `lumen-decoder`: the runner (reads at most the reservation plus 4 KiB and validates the reply), process control, the unlock rule (`unlock.rs`), the wire format and the limits. The ledger's `image_path_build` is a real identity over those files, the lockfile, the compiler and the flags (`decoder-fuzz-tools identity ROOT FLAGS image-path`), and the ledger's `notes.image_path` says `partial` and what it does not cover. A pass of the decoder side is therefore not a pass of the whole image path; the files of the missing parts join `IMAGE_PATH_SOURCES` when they exist, and a test fails if a source file of the crate is in neither identity.
 - **The image manager exists; the image frame does not.** `images.rs` holds what the spec fixes about images once their bytes have arrived: the unlock rule, the SSH rule, reserving `width * height * 4` before any decode, the 256 MiB session budget with 25% for an unsigned producer, 1 decode in flight per producer and 2 in total with 8 waiting, degrading a producer for the rest of the command after a crash or going over budget, and size-checking an upload against the 512 MiB texture budget before it is made. What it takes as input is an already-reassembled image with its producer, id, format and declared size. The v0 spec defines no image frame (no type byte, no payload, no chunking), so there is nothing to parse yet; that needs a spec decision first.
 - **The identities are computed from the source tree, not embedded in the binary.** The unlock rule compares the identities the running build reports with the gate records it was shipped with; the build step that bakes the two identities into the terminal does not exist yet, and until it does the rule is tested against identities computed from a file tree.
-- **Plateau.** The ledger records cumulative coverage edges; the judge applies the plateau rule. No run long enough to judge it has been done.
-- **Platforms.** The gate is per platform. The smoke run was on macOS only.
-- **The floor of 250 CPU-hours per format, and the stop rule.** Not run. The plan's arithmetic is about one day of wall time on 32 cores for the floor and about five for the cap, for all three formats; the real number is whatever the ledger shows.
+- **Plateau.** The ledger records cumulative coverage edges; the judge applies the plateau rule. The guarded campaign below passed the floor and did not reach the plateau, so the rule has not been judged on a finished run.
+- **Platforms.** The gate is per platform. The smoke run was on macOS only, and the guarded campaign below ran on Linux only.
+- **The floor of 250 CPU-hours per format, and the stop rule.** The floor is met on Linux for JPEG and WebP and the stop rule is not (see the guarded campaign below). Not run for PNG or on any other platform. The plan's arithmetic is about one day of wall time on 32 cores for the floor and about five for the cap, for all three formats; the real number is whatever the ledger shows.
 
 ## What the smoke run showed
 
 A two-slice run of 20 s with 2 workers on `png` and `webp` produced a ledger of 0.022 CPU-hours per format, edges 1537 to 1593 for PNG and 1178 to 1206 for WebP, no crashes, and the G4 suite at 33 of 33. `lumen-evidence --decoder` judged it `FAIL` (needs the 250 CPU-hour floor, no stop rule shown). That is the expected result for a smoke run, and it shows the pieces fit together; it says nothing about the decoder's robustness.
+
+## The guarded campaign
+
+A campaign ran on Linux against the decoder build that includes the WebP guard. Runs on the earlier build do not count, because the guard changes the decoder build identity.
+
+| Format | CPU-hours | Coverage edges | Crashes | Timeout records | Floor of 250 | Stop rule (168 CPU-hours with nothing new) |
+| --- | --- | --- | --- | --- | --- | --- |
+| JPEG | 378.3 | 4309 | 0 panics | 930 | met | not reached |
+| WebP | 411.8 | 4154 | 0 | 0 | met | not reached: the last sync still added an edge |
+
+- **JPEG timeouts are not hangs.** Each of the 930 timeout records was replayed under the production limits (4 s wall, 2 s CPU, 512 MiB, two tries). The slowest took 0.73 s and used 153 MB, so none exceeded a limit.
+- **The WebP guard is shipped.** `webp_guard.rs` checks the prefix codes before the library decodes them. An earlier run on the build without the guard found five inputs that overflowed in the library's Huffman code-length handling; the four crash inputs it kept answer with a clean refusal on the guarded build, and its 21 timeout inputs replay with no hang on both builds.
+- **Why the runs stopped.** Both legs ended at their wall-clock limit, short of the stop rule. The campaign was then closed without more runs, so `lumen-evidence --decoder` was not run on the ledger and the plateau criterion is not met.
+- **Still open.** The stop rule for both formats, any PNG run, any run on macOS or Windows, continuous fuzzing and a re-fuzz after a decoder version bump. Nothing here is a gate result.
