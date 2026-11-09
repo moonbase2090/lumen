@@ -1,8 +1,8 @@
 //! Track 0 parser behaviour.
 
 use lumen_track0::{
-    Block, Error, KIND_CODE, KIND_HEADING, KIND_PARAGRAPH, MAX_ESCAPED, MAX_STRING, escaped_text,
-    parse,
+    Block, Error, KIND_CODE, KIND_HEADING, KIND_IMAGE_DATA, KIND_IMAGE_START, KIND_PARAGRAPH,
+    MAX_ESCAPED, MAX_IMAGE_CHUNK, MAX_STRING, escaped_text, parse,
 };
 
 fn s(text: &str) -> Vec<u8> {
@@ -409,4 +409,75 @@ fn a_link_label_or_target_shows_invisible_characters_as_escapes() {
             "{cp:x}"
         );
     }
+}
+
+fn image_start(id: u32, format: u8, w: u32, h: u32, len: u32, alt: &str) -> Vec<u8> {
+    let mut v = id.to_be_bytes().to_vec();
+    v.push(format);
+    for n in [w, h, len] {
+        v.extend_from_slice(&n.to_be_bytes());
+    }
+    v.extend(s(alt));
+    v
+}
+
+#[test]
+fn an_image_start_parses_with_its_hints_unchecked() {
+    assert_eq!(
+        parse(
+            KIND_IMAGE_START,
+            &image_start(7, 1, 640, 480, 1234, "a cat")
+        ),
+        Ok(Block::ImageStart {
+            id: 7,
+            format: 1,
+            width: 640,
+            height: 480,
+            length: 1234,
+            alt: "a cat".into()
+        })
+    );
+    // The sizes and length are hints for the image manager; the parser keeps them.
+    assert!(matches!(
+        parse(KIND_IMAGE_START, &image_start(1, 9, 0, u32::MAX, 0, "")),
+        Ok(Block::ImageStart { .. })
+    ));
+}
+
+#[test]
+fn a_malformed_image_start_is_an_error() {
+    let good = image_start(1, 1, 2, 2, 10, "x");
+    for cut in 0..good.len() {
+        assert!(parse(KIND_IMAGE_START, &good[..cut]).is_err(), "cut {cut}");
+    }
+    let mut extra = good.clone();
+    extra.push(0);
+    assert_eq!(parse(KIND_IMAGE_START, &extra), Err(Error::Malformed));
+    let mut ctl = image_start(1, 1, 2, 2, 10, "");
+    ctl.truncate(ctl.len() - 2);
+    ctl.extend(s("a\u{1b}b"));
+    assert_eq!(parse(KIND_IMAGE_START, &ctl), Err(Error::Control));
+}
+
+#[test]
+fn image_data_parses_and_is_bounded() {
+    let mut p = 5u32.to_be_bytes().to_vec();
+    p.extend_from_slice(&100u32.to_be_bytes());
+    p.extend_from_slice(b"abc");
+    assert_eq!(
+        parse(KIND_IMAGE_DATA, &p),
+        Ok(Block::ImageData {
+            id: 5,
+            offset: 100,
+            data: b"abc".to_vec()
+        })
+    );
+    // No bytes, and too many bytes, are malformed.
+    assert_eq!(parse(KIND_IMAGE_DATA, &p[..8]), Err(Error::Malformed));
+    let mut big = p[..8].to_vec();
+    big.resize(8 + MAX_IMAGE_CHUNK, 0);
+    assert!(parse(KIND_IMAGE_DATA, &big).is_ok());
+    big.push(0);
+    assert_eq!(parse(KIND_IMAGE_DATA, &big), Err(Error::Malformed));
+    assert_eq!(parse(KIND_IMAGE_DATA, &p[..7]), Err(Error::Malformed));
 }

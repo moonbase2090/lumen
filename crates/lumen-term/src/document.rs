@@ -205,6 +205,9 @@ impl Document {
                     line.extend_from_slice(b"\r\n");
                     self.grid().feed(&line);
                 }
+                // Image data has no row of its own: the bytes are not kept
+                // while images are locked, which is the state of this build.
+                Piece::Rich(Track0Block::ImageData { .. }) => {}
                 Piece::Rich(content) => self.blocks.push(Block::Rich(RichBlock {
                     content,
                     background: false,

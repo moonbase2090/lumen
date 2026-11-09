@@ -435,6 +435,10 @@ impl Renderer {
                 }
                 (lines, Style2::Code)
             }
+            // Until an image is decoded, and while images are locked, the alt
+            // text stands in for it. The data frames have no row.
+            Track0Block::ImageStart { alt, .. } => (wrap(alt, width), Style2::Plain),
+            Track0Block::ImageData { .. } => (Vec::new(), Style2::Plain),
         }
     }
 

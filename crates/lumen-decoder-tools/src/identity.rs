@@ -44,10 +44,11 @@ const DECODER_SOURCES: &[&str] = &[
 /// bounding what it may write, validating the reply, and the crate root. The
 /// wire format and the limits are shared with the worker, so they are in both.
 ///
-/// **This is the host half only.** The image-frame parser, multi-frame
-/// reassembly and the upload step do not exist yet; their sources join this
-/// list when they do, and until then an identity of this list does not cover
-/// the whole image path.
+/// **This is the host half only.** The reassembly of an image from its frames
+/// (`frames.rs`) is here. The frame parser (in `lumen-track0`), the terminal's
+/// use of the manager and the upload step are in other crates and do not join
+/// this list yet, so an identity of this list does not cover the whole image
+/// path.
 const IMAGE_PATH_SOURCES: &[&str] = &[
     "runner.rs",
     "ffi_process.rs",
@@ -56,6 +57,7 @@ const IMAGE_PATH_SOURCES: &[&str] = &[
     "protocol.rs",
     "unlock.rs",
     "images.rs",
+    "frames.rs",
     "lib.rs",
 ];
 

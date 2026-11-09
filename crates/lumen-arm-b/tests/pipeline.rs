@@ -570,3 +570,58 @@ mod hidden {
         );
     }
 }
+
+fn raw_frame(kind: u8, body: &[u8]) -> Vec<u8> {
+    let mut v = b"\x1b_".to_vec();
+    v.extend_from_slice(&TAG);
+    v.push(kind);
+    v.extend_from_slice(&u32::try_from(body.len()).unwrap_or(0).to_be_bytes());
+    v.extend_from_slice(body);
+    v
+}
+
+fn image_start_body() -> Vec<u8> {
+    let mut b = 1u32.to_be_bytes().to_vec();
+    b.push(1);
+    for n in [4u32, 4, 10] {
+        b.extend_from_slice(&n.to_be_bytes());
+    }
+    b.extend_from_slice(&[0, 3]);
+    b.extend_from_slice(b"cat");
+    b
+}
+
+#[test]
+fn image_frames_are_blocks_in_the_container_and_text_outside_it() {
+    let mut data = 1u32.to_be_bytes().to_vec();
+    data.extend_from_slice(&0u32.to_be_bytes());
+    data.extend_from_slice(b"\x89PNG");
+    let mut l = Layer::new(cfg());
+    let start = raw_frame(lumen_track0::KIND_IMAGE_START, &image_start_body());
+    let more = raw_frame(lumen_track0::KIND_IMAGE_DATA, &data);
+    // No container: nothing is kept for the strip, the frames show as text.
+    for f in [&start, &more] {
+        let items = l.feed(f, no_ctx());
+        assert!(matches!(items.as_slice(), [Item::Text(_)]), "{items:?}");
+    }
+    l.open_container();
+    assert_eq!(
+        l.feed(&start, no_ctx()),
+        vec![Item::Block(Block::ImageStart {
+            id: 1,
+            format: 1,
+            width: 4,
+            height: 4,
+            length: 10,
+            alt: "cat".into()
+        })]
+    );
+    assert_eq!(
+        l.feed(&more, no_ctx()),
+        vec![Item::Block(Block::ImageData {
+            id: 1,
+            offset: 0,
+            data: b"\x89PNG".to_vec()
+        })]
+    );
+}
