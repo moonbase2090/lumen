@@ -54,7 +54,7 @@ The type byte of a frame names what the frame asks for. Sealed types are below 0
 
 Type 0x23 (title) is reserved. v0 defines no capability for it, so a terminal rejects it as it rejects any unknown sealed type. Notifications from unsealed bytes are not frames and are handled as the [capability list](@/spec/v0/capabilities.md#caps.list) and the trust rules describe.
 
-**Unsealed types.** 0x80 is a paragraph, 0x81 a heading and 0x82 a code block. All other unsealed types are reserved. An unsealed frame can never cause one of the effects above: it creates no command structure, grants nothing, writes no clipboard, shows no exit status and raises no notification. This profile carries only these three. The other block kinds in [Scope](@/spec/v0/trust.md#trust.track0-scope) take their type bytes from this range when they are added to it, and until then a frame of a kind this profile does not define renders as escaped text.
+**Unsealed types.** 0x80 is a paragraph, 0x81 a heading, 0x82 a code block, 0x83 an image start and 0x84 image data. The two image types are defined under [Image frames](@/spec/v0/images.md#images.frames). All other unsealed types are reserved. An unsealed frame can never cause one of the effects above: it creates no command structure, grants nothing, writes no clipboard, shows no exit status and raises no notification. This profile carries only these five. The other block kinds in [Scope](@/spec/v0/trust.md#trust.track0-scope) take their type bytes from this range when they are added to it, and until then a frame of a kind this profile does not define renders as escaped text.
 
 **Rules.**
 
