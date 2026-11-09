@@ -44,11 +44,7 @@ const DECODER_SOURCES: &[&str] = &[
 /// bounding what it may write, validating the reply, and the crate root. The
 /// wire format and the limits are shared with the worker, so they are in both.
 ///
-/// **This is the host half only.** The reassembly of an image from its frames
-/// (`frames.rs`) is here. The frame parser (in `lumen-track0`), the terminal's
-/// use of the manager and the upload step are in other crates and do not join
-/// this list yet, so an identity of this list does not cover the whole image
-/// path.
+/// The rest of the image path is in [`IMAGE_PATH_OTHER`].
 const IMAGE_PATH_SOURCES: &[&str] = &[
     "runner.rs",
     "ffi_process.rs",
@@ -59,6 +55,22 @@ const IMAGE_PATH_SOURCES: &[&str] = &[
     "images.rs",
     "frames.rs",
     "lib.rs",
+];
+
+/// The terminal's image path outside the decoder crate, relative to the
+/// workspace root: the frame parser, the layer that lets the frames through, and
+/// the terminal's use of the image manager (the host, the document that places
+/// the image, and the drawing of its pixels). A change to any of them changes
+/// the image-path identity, so the gate has not passed for the new build.
+const IMAGE_PATH_OTHER: &[&str] = &[
+    "crates/lumen-track0/src/lib.rs",
+    "crates/lumen-track0/Cargo.toml",
+    "crates/lumen-arm-b/src/lib.rs",
+    "crates/lumen-term/src/images.rs",
+    "crates/lumen-term/src/document.rs",
+    "crates/lumen-term/src/layer.rs",
+    "crates/lumen-term/src/raster.rs",
+    "crates/lumen-term/Cargo.toml",
 ];
 
 fn sources(kind: Kind) -> &'static [&'static str] {
@@ -77,6 +89,9 @@ fn sources(kind: Kind) -> &'static [&'static str] {
 pub fn files(root: &Path, kind: Kind) -> io::Result<Vec<PathBuf>> {
     let src = root.join("crates/lumen-decoder/src");
     let mut files: Vec<PathBuf> = sources(kind).iter().map(|f| src.join(f)).collect();
+    if kind == Kind::ImagePath {
+        files.extend(IMAGE_PATH_OTHER.iter().map(|f| root.join(f)));
+    }
     files.push(root.join("crates/lumen-decoder/Cargo.toml"));
     files.push(root.join("Cargo.lock"));
     for f in &files {
