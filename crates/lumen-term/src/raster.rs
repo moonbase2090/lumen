@@ -435,6 +435,10 @@ impl Renderer {
                 }
                 (lines, Style2::Code)
             }
+            // Until an image is decoded, the alt text stands in for it. A data
+            // frame has no row of its own.
+            Track0Block::ImageStart { alt, .. } => (wrap(alt, width), Style2::Plain),
+            Track0Block::ImageData { .. } => (Vec::new(), Style2::Plain),
         }
     }
 

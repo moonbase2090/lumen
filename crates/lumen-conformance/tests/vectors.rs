@@ -218,6 +218,12 @@ fn listed_limits_have_a_vector_or_a_stated_reason() {
     for v in array(&load("framing.json"), "vectors") {
         ids.insert(text(v, "id").to_owned());
     }
+    let images = load("image-frames.json");
+    for key in ["parse", "detector", "reassembly", "wire", "escaped"] {
+        for v in array(&images, key) {
+            assert!(ids.insert(text(v, "id").to_owned()), "duplicate id {key}");
+        }
+    }
     let budgets = load("budgets.json");
     for key in ["ledger_vectors", "rate_vectors", "item_vectors"] {
         for v in array(&budgets, key) {

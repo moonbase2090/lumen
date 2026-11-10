@@ -54,7 +54,7 @@ fn every_sealed_range_type_is_refused() {
 
 #[test]
 fn unknown_unsealed_types_are_refused() {
-    for kind in 0x83..=0xff {
+    for kind in 0x85..=0xff {
         assert_eq!(
             parse(kind, &s("x")),
             Err(Error::UnknownKind),

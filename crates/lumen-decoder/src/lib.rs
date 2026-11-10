@@ -18,6 +18,8 @@ pub mod ffi_sandbox;
 #[cfg(windows)]
 pub mod ffi_win_spawn;
 #[cfg(any(unix, windows))]
+pub mod frames;
+#[cfg(any(unix, windows))]
 pub mod images;
 pub mod limits;
 pub mod protocol;

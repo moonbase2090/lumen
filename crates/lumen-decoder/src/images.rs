@@ -19,9 +19,8 @@
 //! - **Upload.** A texture upload is size-checked against the 512 MiB texture
 //!   budget first; the sink is not called when it would not fit.
 //!
-//! What this does not do: parse an image out of a frame. The spec defines no image
-//! frame yet, so a caller hands over the already-reassembled bytes with the
-//! producer, id, format and the declared size.
+//! What this does not do: read frames off the wire. [`crate::frames`] reassembles
+//! an image and then calls [`ImageManager::submit`] with the bytes.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -110,6 +109,11 @@ pub enum AltReason {
     TextureBudget,
     /// The sink could not take the upload.
     UploadFailed,
+    /// The declared encoded length is zero or over 16,777,216 bytes.
+    BadLength,
+    /// The producer would hold more than 32 MiB of encoded bytes. It is now
+    /// degraded for the rest of the command.
+    HeldBytes,
 }
 
 /// A texture the sink holds.
@@ -300,6 +304,52 @@ impl<T: TextureSink> ImageManager<T> {
                 self.limits.session_bytes / 100 * self.limits.unsigned_percent
             }
         }
+    }
+
+    /// Why an image from `producer` would be shown as alt text right now,
+    /// whatever its size: images are locked, the producer is on an SSH session,
+    /// or it is degraded. `None` means a submission is considered. Nothing is
+    /// reserved or recorded.
+    #[must_use]
+    pub fn refusal(&self, producer: Producer) -> Option<AltReason> {
+        let state = self.producers.get(&producer);
+        let trust = state
+            .and_then(|p| p.trust)
+            .unwrap_or(Trust::Unsigned { ssh_session: true });
+        if !self.gate.open() {
+            Some(AltReason::Locked)
+        } else if matches!(trust, Trust::Unsigned { ssh_session: true }) {
+            Some(AltReason::SshSession)
+        } else if state.is_some_and(|p| p.degraded) {
+            Some(AltReason::Degraded)
+        } else {
+            None
+        }
+    }
+
+    /// Whether `producer` has an image in use under `id` (waiting, decoding or
+    /// shown). An image that is only being received is not in this set; the
+    /// receiver counts that itself.
+    #[must_use]
+    pub fn has_id(&self, producer: Producer, id: ImageId) -> bool {
+        self.producers
+            .get(&producer)
+            .is_some_and(|p| p.ids.contains(&id))
+    }
+
+    /// Encoded bytes `producer` has waiting for a decode.
+    #[must_use]
+    pub fn held_bytes(&self, producer: Producer) -> u64 {
+        self.queue
+            .iter()
+            .filter(|j| j.producer == producer)
+            .map(|j| u64::try_from(j.bytes.len()).unwrap_or(u64::MAX))
+            .sum()
+    }
+
+    /// Puts `producer` on alt text for the rest of the command.
+    pub fn degrade(&mut self, producer: Producer) {
+        self.producers.entry(producer).or_default().degraded = true;
     }
 
     /// Submits an image whose bytes have arrived. Nothing is decoded or reserved

@@ -28,6 +28,13 @@ pub const KIND_PARAGRAPH: u8 = 0x80;
 pub const KIND_HEADING: u8 = 0x81;
 /// Type byte of a code block.
 pub const KIND_CODE: u8 = 0x82;
+/// Type byte of an image start.
+pub const KIND_IMAGE_START: u8 = 0x83;
+/// Type byte of image data.
+pub const KIND_IMAGE_DATA: u8 = 0x84;
+
+/// Most encoded bytes one image data frame carries.
+pub const MAX_IMAGE_CHUNK: usize = 262_144;
 
 /// An inert rich block. It holds text only.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +57,33 @@ pub enum Block {
         /// How many bidi controls were removed from `text`. The terminal shows
         /// this count.
         stripped: usize,
+    },
+    /// The start of an image. The sizes and the length are as declared. They
+    /// are hints: a value of any size parses, and the image receiver is what
+    /// refuses one that is out of range, so the alt text stays readable.
+    ImageStart {
+        /// The image's id, scoped to its producer.
+        id: u32,
+        /// The format byte as sent. It is a hint. Any byte parses; the
+        /// receiver takes the format from the encoded bytes.
+        format: u8,
+        /// The declared width, a hint.
+        width: u32,
+        /// The declared height, a hint.
+        height: u32,
+        /// The total encoded bytes the data frames will carry, as declared.
+        length: u32,
+        /// The alt text.
+        alt: String,
+    },
+    /// A run of an image's encoded bytes.
+    ImageData {
+        /// The image the bytes belong to.
+        id: u32,
+        /// Where in the image the bytes start, as declared.
+        offset: u32,
+        /// The bytes. One to [`MAX_IMAGE_CHUNK`] of them.
+        data: Vec<u8>,
     },
 }
 
@@ -223,6 +257,13 @@ fn strip_bidi(text: &str) -> (String, usize) {
     (kept, removed)
 }
 
+/// Read a big-endian `u32`.
+fn take_u32(input: &mut &[u8]) -> Result<u32, Error> {
+    let (n, rest) = input.split_first_chunk::<4>().ok_or(Error::Malformed)?;
+    *input = rest;
+    Ok(u32::from_be_bytes(*n))
+}
+
 /// Read a one-string field: a 2-byte big-endian length, then that many bytes.
 fn take_string<'a>(input: &mut &'a [u8]) -> Result<&'a str, Error> {
     let (len, rest) = input.split_first_chunk::<2>().ok_or(Error::Malformed)?;
@@ -285,6 +326,35 @@ pub fn parse(kind: u8, payload: &[u8]) -> Result<Block, Error> {
                 text,
                 stripped,
             }
+        }
+        KIND_IMAGE_START => {
+            let id = take_u32(&mut input)?;
+            let (format, rest) = input.split_first().ok_or(Error::Malformed)?;
+            input = rest;
+            let width = take_u32(&mut input)?;
+            let height = take_u32(&mut input)?;
+            let length = take_u32(&mut input)?;
+            Block::ImageStart {
+                id,
+                format: *format,
+                width,
+                height,
+                length,
+                alt: text_outside_code(take_string(&mut input)?),
+            }
+        }
+        KIND_IMAGE_DATA => {
+            let id = take_u32(&mut input)?;
+            let offset = take_u32(&mut input)?;
+            // The payload is the id, the offset and then 1 to MAX_IMAGE_CHUNK
+            // encoded bytes. Empty and oversized runs are malformed, so they
+            // never become a data frame.
+            if input.is_empty() || input.len() > MAX_IMAGE_CHUNK {
+                return Err(Error::Malformed);
+            }
+            let data = input.to_vec();
+            input = &[];
+            Block::ImageData { id, offset, data }
         }
         _ => return Err(Error::UnknownKind),
     };

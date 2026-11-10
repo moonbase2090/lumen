@@ -502,6 +502,8 @@ pub fn item_summary(item: &Item) -> (&'static str, usize) {
         match block {
             Block::Paragraph(text) | Block::Heading { text, .. } => text.len(),
             Block::Code { lang, text, .. } => lang.len() + text.len(),
+            Block::ImageStart { alt, .. } => alt.len(),
+            Block::ImageData { data, .. } => data.len(),
         }
     }
     match item {

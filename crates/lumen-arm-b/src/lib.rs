@@ -7,6 +7,8 @@
 //! - On the alternate screen, or under tmux or screen, a frame is escaped text.
 //! - A block is drawn in the unverified-output container only while the
 //!   terminal has opened one. Otherwise it goes to the background strip.
+//!   An image frame is the exception: outside the container it is escaped
+//!   text, and nothing is kept for the strip.
 //! - Each producer has a small budget of frames and frame bytes. Past it, the
 //!   rest of the command is plain text with one notice, whatever spent it. This
 //!   covers only part of MUST 4: block counts, depth, table cells, shaping
@@ -484,6 +486,12 @@ impl Layer {
             return;
         }
         match parse(kind, payload) {
+            // An image counts only inside the unverified-output container.
+            // Outside it, the frame is escaped text and nothing is kept for
+            // the strip.
+            Ok(Block::ImageStart { .. } | Block::ImageData { .. }) if !self.container_open => {
+                items.push(text(&raw));
+            }
             Ok(block) if self.container_open => items.push(Item::Block(block)),
             Ok(_) if self.config.background_as_text => items.push(text(&raw)),
             Ok(block) => items.push(Item::Background(block)),
@@ -517,6 +525,8 @@ pub fn item_summary(item: &Item) -> (&'static str, usize) {
         match block {
             Block::Paragraph(text) | Block::Heading { text, .. } => text.len(),
             Block::Code { lang, text, .. } => lang.len() + text.len(),
+            Block::ImageStart { alt, .. } => alt.len(),
+            Block::ImageData { data, .. } => data.len(),
         }
     }
     match item {
