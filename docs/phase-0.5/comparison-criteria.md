@@ -70,7 +70,7 @@ This is a provisional proxy. It is not the spoofing study in section 2.2a, and i
 
 ### 2.5 Decoder robustness
 
-> **Superseded numbers.** The fuzzing quantities in this section (1000 CPU-hours, the 168-hour crash-free window and the plateau) were the specification's decoder gate. That gate now keeps only the testable safety obligations, and the fuzzing quantities are the [Lumen Term release criteria](../release-criteria.md#decoder-fuzzing): a floor of 250 CPU-hours per format, a stop after 168 CPU-hours with no new crash or coverage edge, a cap of 1200, continuous fuzzing and a re-fuzz on every decoder version bump. The text below is the phase 0.5 record; the comparison harness's judge now applies the release criteria's rule (see 5.6).
+> **Superseded numbers.** The fuzzing quantities in this section (1000 CPU-hours, the 168-hour crash-free window and the plateau) were the specification's decoder gate. That gate now keeps only the testable safety obligations, and the fuzzing quantities are the [Lumen Term release criteria](../release-criteria.md#decoder-fuzzing): a floor of 250 CPU-hours per format with no open crash or confirmed hang, continuous fuzzing and a re-fuzz on every decoder version bump. The text below is the phase 0.5 record; the comparison harness's judge now applies the release criteria's rule (see 5.6).
 
 - **Unit:** CPU-hours of fuzzing per enabled image format, new crashes in the last 168 CPU-hours, and coverage plateau status.
 - **Method:** coverage-guided fuzzing of each enabled format under ASan and UBSan, with seed corpora that include inputs from past CVEs. Hangs over 2 s, memory use over 512 MiB and sanitizer reports count as crashes.
@@ -213,10 +213,10 @@ The count is only as complete as the catalogue, so a result must say that the ca
 
 The ledger is a JSON object with `revision`, `decoder_build` and `image_path_build` (the gate covers both identities), one entry per enabled format and the sandbox escape result:
 
-- a format has `name`, `cpu_hours`, `crashes` (each `at_cpu_hour` and `kind`) and `coverage` (each `at_cpu_hour` and the cumulative `edges`);
+- a format has `name`, `cpu_hours`, `crashes` (each `at_cpu_hour` and `kind`, and optionally `cleared`) and `coverage` (each `at_cpu_hour` and the cumulative `edges`);
 - `sandbox_escape` has the test set `revision` and the `passed` and `total` counts.
 
-A format passes when it has at least 250 CPU-hours (the floor), no crash at all (a crash ends the run for the build identity the ledger covers, however long ago it was found), no more than 1200 CPU-hours (the cap), and the stop rule holds: the most coverage seen over the whole run was already seen at or before the start of the last 168 CPU-hours (a reading exactly 168 CPU-hours before the end counts as before it). A coverage reading from before that point is needed, so a ledger without one has not shown the stop rule. A run that reaches the cap with the stop rule not holding has not passed. The thresholds are those of the [release criteria](../release-criteria.md#decoder-fuzzing). The gate passes when every format passes and the sandbox escape set passed in full and is not empty. A ledger that enables no format is `not measured`.
+A format passes when it has at least 250 CPU-hours (the floor) and no open crash or confirmed hang. A record in `crashes` is open unless it carries `"cleared": true`, which says it was replayed under the production limits and stayed inside them (a raw timeout that never exceeded a limit). An open record fails the build identity the ledger covers, however long ago it was found. The run's length beyond the floor, and its coverage, are not conditions: the report says whether coverage levelled off over the last 168 CPU-hours, for information. The thresholds are those of the [release criteria](../release-criteria.md#decoder-fuzzing). The gate passes when every format passes and the sandbox escape set passed in full and is not empty. A ledger that enables no format is `not measured`.
 
 ### 5.7 Terminal sinks (authority leakage)
 

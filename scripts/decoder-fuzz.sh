@@ -12,13 +12,13 @@
 # more slices. Nothing here proves the gate; the ledger is judged by
 # `lumen-evidence --decoder --ledger DIR/ledger.json`.
 #
-# The gate run (--gate-run), with the stop rule of the campaign plan:
+# The gate run (--gate-run), which stops a format on the release criteria's gate:
 #   --gate-run             run every format in round-robin slices; count measured
 #                          CPU time (not workers x wall time); stop a format when
-#                          the gate holds for it (at least 250 CPU-hours, no crash
-#                          at all, coverage flat over the last 168, by the judge's
-#                          rule), or at --cap-cpu-hours; write status.json
-#   --cap-cpu-hours H      cap per format (default 1200). The last slice is sized
+#                          the gate holds for it (at least 250 CPU-hours and no
+#                          open crash or confirmed hang, by the judge's rule), or
+#                          at --cap-cpu-hours (a budget, not a pass); write status.json
+#   --cap-cpu-hours H      budget cap per format (default 1200). The last slice is sized
 #                          in crates/lumen-decoder-tools/src/slice.rs from what is
 #                          left of the cap, assuming the worst of two things: a
 #                          startup of 30 CPU-seconds per slice, and a rate of 1.25
@@ -325,6 +325,18 @@ slice_for() { # format -> seconds
   "${TOOLS[@]}" slice-seconds "$SLICE" "$WORKERS" "$CAP_H" "$(hours_of "$1" cpu_hours)" "$rate" "$wall"
 }
 
+# Replays the timeout records of a format that have no replay yet under the
+# production limits, and writes the verdicts into its crashes.jsonl: a record that
+# stayed inside the limits is marked "cleared" and no longer counts as open; a
+# confirmed hang stays open. A failed replay leaves the record open (an error
+# never clears anything).
+triage_hangs() { # format
+  local dir="$OUT/$1" art="$OUT/$1/raw-artifacts"
+  [ -s "$dir/crashes.jsonl" ] || return 0
+  [ -d "$art" ] || art="$dir/artifacts"
+  python3 -I "$ROOT/scripts/decoder-triage-timeouts.py" "$WORKER" "$1" "$dir/crashes.jsonl" "$art" "$dir/triage.jsonl" 2 --apply >&2 || true
+}
+
 run_slice() { # format -> 0 normal, 1 interrupted
   local f="$1" target="decode_$1" dir="$OUT/$1" done_h edges used now_h watch
   # A signal that arrived between slices stops here, before a slice is started.
@@ -332,6 +344,7 @@ run_slice() { # format -> 0 normal, 1 interrupted
   done_h="$(cpu_hours_of "$dir/samples.jsonl")"
   # Crashes a previous VM found but did not get to record.
   record_artifacts "$f" "$target" "$done_h"
+  triage_hangs "$f"
   mkdir -p "$dir/raw-artifacts"
   rm -f "$dir/cpu_seconds"
   # Build the target first and outside the CPU measurement: compiling it is not
@@ -392,6 +405,7 @@ run_slice() { # format -> 0 normal, 1 interrupted
     echo $((np + 1)) > "$dir/noprogress"
   fi
   record_artifacts "$f" "$target" "$now_h"
+  triage_hangs "$f"
   sync_out || true
   [ "$INTERRUPTED" = 1 ] && return 1
   return 0
@@ -588,6 +602,7 @@ done
 # the ledger reads crashes.jsonl.
 for f in "${FMTS[@]}"; do
   record_artifacts "$f" "decode_$f" "$(cpu_hours_of "$OUT/$f/samples.jsonl")"
+  triage_hangs "$f"
 done
 
 # The sandbox escape result: the G4 suite at this revision.

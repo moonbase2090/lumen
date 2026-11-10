@@ -6,9 +6,11 @@
 #   1. The personal-identifier release scan passes (scripts/check-public-text.sh).
 #   2. The decoder fuzz evidence exists: the ledger file is present, readable
 #      JSON, and names both build identities and at least one format.
-#   3. No format in the ledger records a crash. A crash is open until a patched
-#      build, which has a new identity, has its own ledger (release criteria,
-#      rule 2).
+#   3. No format in the ledger records an open crash or confirmed hang. A record
+#      is cleared only when it is marked "cleared": true, meaning a replay under
+#      the production limits stayed inside them. An open one stays open until a
+#      patched build, which has a new identity, has its own ledger (release
+#      criteria, rule 2).
 #   4. The ledger's decoder and image-path build identities equal the identities
 #      of this tree, computed with the flags the campaign recorded. A changed
 #      identity invalidates the earlier pass (rule 5).
@@ -82,10 +84,10 @@ if [[ "$ledger_ok" -eq 1 ]]; then
   crashes="$(python3 -I - "$LEDGER" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
-print(sum(len(f["crashes"]) for f in d["formats"]))
+print(sum(1 for f in d["formats"] for c in f["crashes"] if not (isinstance(c, dict) and c.get("cleared") is True)))
 PY
 )"
-  [[ "$crashes" -eq 0 ]] || refuse "the ledger records $crashes crash(es); a crash blocks release until a patched build has a clean ledger"
+  [[ "$crashes" -eq 0 ]] || refuse "the ledger records $crashes open crash(es) or confirmed hang(s); one blocks release until a patched build has a clean ledger"
 
   # 4. Identity of this tree against the ledger.
   if [[ ! -s "$FLAGS_FILE" ]]; then

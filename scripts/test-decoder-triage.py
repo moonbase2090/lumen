@@ -18,6 +18,10 @@ triage.SLOW = 0.5
 WORKER = """#!{python}
 import os, sys, time
 data = sys.stdin.buffer.read()
+if b"EXIT70" in data:
+    sys.exit(70)
+if b"PANIC" in data:
+    sys.exit(101)
 if b"SLEEP" in data:
     time.sleep(30)
 elif b"ONCE" in data:
@@ -95,6 +99,78 @@ class Triage(unittest.TestCase):
         self.put("timeout-a", b"plain")
         rc, recs = self.run_triage(["timeout-a"])
         self.assertEqual([r["artifact"] for r in recs], ["timeout-a"])
+
+    def test_apply_clears_a_clean_replay_and_leaves_a_hang_open(self):
+        self.put("timeout-fine", b"plain")
+        self.put("timeout-stuck", b"SLEEP")
+        crashes = os.path.join(self.dir, "crashes.jsonl")
+        with open(crashes, "w") as fh:
+            for n in ("timeout-fine", "timeout-stuck"):
+                fh.write(json.dumps({"at_cpu_hour": 1.0, "kind": "hang", "artifact": n}) + "\n")
+            fh.write(json.dumps({"at_cpu_hour": 2.0, "kind": "sanitizer", "artifact": "crash-1"}) + "\n")
+        out = os.path.join(self.dir, "out.jsonl")
+        rc = triage.main([self.worker, "jpeg", crashes, self.art, out, "2", "--apply"])
+        self.assertEqual(rc, 1, "one confirmed hang")
+        recs = {r["artifact"]: r for r in map(json.loads, open(crashes))}
+        self.assertIs(recs["timeout-fine"].get("cleared"), True)
+        self.assertFalse(recs["timeout-fine"]["replay"]["confirmed_hang"])
+        self.assertNotIn("cleared", recs["timeout-stuck"])
+        self.assertTrue(recs["timeout-stuck"]["replay"]["confirmed_hang"])
+        self.assertNotIn("cleared", recs["crash-1"], "a sanitizer record is never cleared by a replay")
+        self.assertEqual(recs["crash-1"]["kind"], "sanitizer")
+
+    def test_apply_does_not_replay_a_finished_record_again(self):
+        self.put("timeout-fine", b"plain")
+        crashes = os.path.join(self.dir, "crashes.jsonl")
+        with open(crashes, "w") as fh:
+            fh.write(json.dumps({"at_cpu_hour": 1.0, "kind": "hang", "artifact": "timeout-fine"}) + "\n")
+        out = os.path.join(self.dir, "out.jsonl")
+        self.assertEqual(triage.main([self.worker, "jpeg", crashes, self.art, out, "2", "--apply"]), 0)
+        os.remove(os.path.join(self.art, "timeout-fine"))  # a second pass must not need it
+        self.assertEqual(triage.main([self.worker, "jpeg", crashes, self.art, out, "2", "--apply"]), 0)
+        self.assertEqual([json.loads(l) for l in open(out)], [])
+        rec = json.loads(open(crashes).read())
+        self.assertIs(rec.get("cleared"), True)
+
+    def test_a_missing_artifact_never_clears_and_is_retried(self):
+        crashes = os.path.join(self.dir, "crashes.jsonl")
+        with open(crashes, "w") as fh:
+            fh.write(json.dumps({"at_cpu_hour": 1.0, "kind": "hang", "artifact": "timeout-gone"}) + "\n")
+        out = os.path.join(self.dir, "out.jsonl")
+        triage.main([self.worker, "jpeg", crashes, self.art, out, "2", "--apply"])
+        rec = json.loads(open(crashes).read())
+        self.assertNotIn("cleared", rec)
+        self.assertFalse(rec["replay"]["done"])
+        # It comes back once the artifact is there.
+        self.put("timeout-gone", b"plain")
+        triage.main([self.worker, "jpeg", crashes, self.art, out, "2", "--apply"])
+        rec = json.loads(open(crashes).read())
+        self.assertIs(rec.get("cleared"), True)
+
+    def test_a_replay_that_failed_to_run_never_clears(self):
+        self.put("timeout-a", b"plain")
+        crashes = os.path.join(self.dir, "crashes.jsonl")
+        with open(crashes, "w") as fh:
+            fh.write(json.dumps({"at_cpu_hour": 1.0, "kind": "hang", "artifact": "timeout-a"}) + "\n")
+        out = os.path.join(self.dir, "out.jsonl")
+        triage.main([os.path.join(self.dir, "no-such-worker"), "jpeg", crashes, self.art, out, "2", "--apply"])
+        rec = json.loads(open(crashes).read())
+        self.assertNotIn("cleared", rec)
+        self.assertFalse(rec["replay"]["done"])
+
+    def test_a_worker_that_exits_without_answering_never_clears(self):
+        for name, body in (("timeout-70", b"EXIT70"), ("timeout-101", b"PANIC")):
+            self.put(name, body)
+        crashes = os.path.join(self.dir, "crashes.jsonl")
+        with open(crashes, "w") as fh:
+            for n in ("timeout-70", "timeout-101"):
+                fh.write(json.dumps({"at_cpu_hour": 1.0, "kind": "hang", "artifact": n}) + "\n")
+        out = os.path.join(self.dir, "out.jsonl")
+        triage.main([self.worker, "jpeg", crashes, self.art, out, "2", "--apply"])
+        for rec in map(json.loads, open(crashes)):
+            self.assertNotIn("cleared", rec, rec)
+            self.assertFalse(rec["replay"]["done"], rec)
+            self.assertFalse(rec["replay"]["confirmed_hang"], rec)
 
 
 if __name__ == "__main__":
