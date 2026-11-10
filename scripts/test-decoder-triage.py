@@ -128,6 +128,32 @@ class Triage(unittest.TestCase):
         rec = json.loads(open(crashes).read())
         self.assertIs(rec.get("cleared"), True)
 
+    def test_a_missing_artifact_never_clears_and_is_retried(self):
+        crashes = os.path.join(self.dir, "crashes.jsonl")
+        with open(crashes, "w") as fh:
+            fh.write(json.dumps({"at_cpu_hour": 1.0, "kind": "hang", "artifact": "timeout-gone"}) + "\n")
+        out = os.path.join(self.dir, "out.jsonl")
+        triage.main([self.worker, "jpeg", crashes, self.art, out, "2", "--apply"])
+        rec = json.loads(open(crashes).read())
+        self.assertNotIn("cleared", rec)
+        self.assertFalse(rec["replay"]["done"])
+        # It comes back once the artifact is there.
+        self.put("timeout-gone", b"plain")
+        triage.main([self.worker, "jpeg", crashes, self.art, out, "2", "--apply"])
+        rec = json.loads(open(crashes).read())
+        self.assertIs(rec.get("cleared"), True)
+
+    def test_a_replay_that_failed_to_run_never_clears(self):
+        self.put("timeout-a", b"plain")
+        crashes = os.path.join(self.dir, "crashes.jsonl")
+        with open(crashes, "w") as fh:
+            fh.write(json.dumps({"at_cpu_hour": 1.0, "kind": "hang", "artifact": "timeout-a"}) + "\n")
+        out = os.path.join(self.dir, "out.jsonl")
+        triage.main([os.path.join(self.dir, "no-such-worker"), "jpeg", crashes, self.art, out, "2", "--apply"])
+        rec = json.loads(open(crashes).read())
+        self.assertNotIn("cleared", rec)
+        self.assertFalse(rec["replay"]["done"])
+
 
 if __name__ == "__main__":
     unittest.main()

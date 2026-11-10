@@ -14,9 +14,10 @@ again on its own, one try at a time, so that load on the machine is not mistaken
 for a hang. Every record keeps the measurements of its last two tries.
 
 With `--apply`, the verdicts are written back into CRASHES.jsonl: a record whose
-replay stayed inside the limits gets `"cleared": true` and the replay summary, so
+replay was measured and stayed inside the limits gets `"cleared": true` and the replay summary, so
 the gate (which counts only records that are not cleared) no longer counts it; a
-confirmed hang gets the replay summary and stays open. A record that already has
+confirmed hang, or a replay that could not be measured (a missing artifact, a
+failure to run), gets the replay summary and stays open. A record that already has
 a finished replay is not replayed again, and the file is replaced in one rename.
 
 Exit status 0 if no artifact is a confirmed hang, 1 if any is (their names are
@@ -46,12 +47,20 @@ def over_limits(r):
     )
 
 
+def failed(t):
+    """True when a replay produced no measurement: the replay tool failed (a
+    missing artifact, a worker that could not start), so nothing is known."""
+    return bool(t.get("error") is not None or (t.get("exit") is None and not t.get("timed_out")))
+
+
 def classify(tries):
     """The verdict for a list of try records: a hang only if every try is over."""
     return len(tries) >= TRIES and all(over_limits(t) for t in tries[:TRIES])
 
 
 def run_one(worker, fmt, path):
+    if not os.path.isfile(path):
+        return {"error": "artifact not found", "timed_out": False, "exit": None, "wall_seconds": 0, "cpu_seconds": 0}
     out = subprocess.run(
         [sys.executable, "-I", os.path.join(HERE, "decoder-replay.py"), worker, fmt, path, str(WALL_LIMIT + 1)],
         capture_output=True, text=True,
@@ -77,7 +86,9 @@ def record(entry, tries):
         **entry,
         "kind": "timeout_raw",
         "replay": {
-            "done": True,
+            # A try with no measurement settles nothing: the record is not done,
+            # is replayed again on the next pass and stays open until then.
+            "done": not any(failed(t) for t in tries[-TRIES:]),
             "confirmed_hang": classify(tries),
             "limits": {"wall_ms": int(WALL_LIMIT * 1000), "heap_mib": HEAP_MIB, "tries": TRIES},
             "max_wall_seconds": max(t.get("wall_seconds", 0) for t in last),
@@ -100,7 +111,7 @@ def apply_verdicts(crashes, records):
         replay = verdicts.get(e.get("artifact"))
         if replay is not None:
             e["replay"] = replay
-            if not replay["confirmed_hang"]:
+            if replay["done"] and not replay["confirmed_hang"]:
                 e["cleared"] = True
         lines.append(json.dumps(e))
     tmp = crashes + ".tmp"
