@@ -265,6 +265,8 @@ impl Document {
                         self.grid().feed(&line);
                     }
                 }
+                // Image bytes never take a row in a strip.
+                Piece::Background(Track0Block::ImageData { .. }) => {}
                 Piece::Rich(content) => self.blocks.push(Block::Rich(RichBlock {
                     content,
                     background: false,

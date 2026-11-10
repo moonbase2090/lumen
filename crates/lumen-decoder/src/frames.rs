@@ -162,8 +162,13 @@ impl Receiver {
         bytes: &[u8],
     ) -> Data {
         let state = self.producers.entry(producer).or_default();
-        if state.partial.is_none() && state.skipping == Some(id) {
-            return Data::Dropped;
+        if state.partial.is_none() {
+            // Only the refused id is dropped. A frame for any other id is
+            // rejected and does not stop the dropping.
+            if state.skipping == Some(id) {
+                return Data::Dropped;
+            }
+            return Data::Rejected { abandoned: None };
         }
         let fits = state.partial.as_ref().is_some_and(|p| {
             p.id == id

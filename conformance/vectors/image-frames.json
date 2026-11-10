@@ -1,0 +1,2801 @@
+{
+ "suite": "image-frames",
+ "parse": [
+  {
+   "id": "image-start-length-min",
+   "note": "encoded length 1 parses; the receiver checks the range",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "0000000101000000010000000100000001000161"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 1,
+    "width": 1,
+    "height": 1,
+    "length": 1,
+    "alt": "a"
+   }
+  },
+  {
+   "id": "image-start-length-max",
+   "note": "encoded length 16777216 parses",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "0000000101000000010000000101000000000161"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 1,
+    "width": 1,
+    "height": 1,
+    "length": 16777216,
+    "alt": "a"
+   }
+  },
+  {
+   "id": "image-start-length-zero",
+   "note": "length 0 parses so the alt text stays readable",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "0000000101000000010000000100000000000161"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 1,
+    "width": 1,
+    "height": 1,
+    "length": 0,
+    "alt": "a"
+   }
+  },
+  {
+   "id": "image-start-length-over",
+   "note": "length 16777217 parses; the receiver refuses it",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "0000000101000000010000000101000001000161"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 1,
+    "width": 1,
+    "height": 1,
+    "length": 16777217,
+    "alt": "a"
+   }
+  },
+  {
+   "id": "image-start-side-max",
+   "note": "side 65535 parses",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "00000001010000ffff0000000100000008000161"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 1,
+    "width": 65535,
+    "height": 1,
+    "length": 8,
+    "alt": "a"
+   }
+  },
+  {
+   "id": "image-start-side-over",
+   "note": "side 65536 parses; the receiver refuses the hint",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "0000000101000100000000000100000008000161"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 1,
+    "width": 65536,
+    "height": 1,
+    "length": 8,
+    "alt": "a"
+   }
+  },
+  {
+   "id": "image-start-pixels-at-max",
+   "note": "4000 by 4000 is 16000000 pixels and parses",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "000000010100000fa000000fa000000008000161"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 1,
+    "width": 4000,
+    "height": 4000,
+    "length": 8,
+    "alt": "a"
+   }
+  },
+  {
+   "id": "image-start-pixels-over",
+   "note": "4000 by 4001 parses; the receiver refuses the hint",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "000000010100000fa000000fa100000008000161"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 1,
+    "width": 4000,
+    "height": 4001,
+    "length": 8,
+    "alt": "a"
+   }
+  },
+  {
+   "id": "image-start-format-0",
+   "note": "a format byte outside 1 to 3 is a hint and parses",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "0000000100000000010000000100000008000161"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 0,
+    "width": 1,
+    "height": 1,
+    "length": 8,
+    "alt": "a"
+   }
+  },
+  {
+   "id": "image-start-format-4",
+   "note": "format 4 parses",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "0000000104000000010000000100000008000161"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 4,
+    "width": 1,
+    "height": 1,
+    "length": 8,
+    "alt": "a"
+   }
+  },
+  {
+   "id": "image-start-format-255",
+   "note": "format 255 parses",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "00000001ff000000010000000100000008000161"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 255,
+    "width": 1,
+    "height": 1,
+    "length": 8,
+    "alt": "a"
+   }
+  },
+  {
+   "id": "image-alt-empty",
+   "note": "an empty alt string parses",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "00000001010000000100000001000000080000"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 1,
+    "width": 1,
+    "height": 1,
+    "length": 8,
+    "alt": ""
+   }
+  },
+  {
+   "id": "image-alt-at-cap",
+   "note": "alt text of 4096 bytes parses",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "00000001010000000100000001000000011000"
+    },
+    {
+     "fill": "61",
+     "count": 4096
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 1,
+    "width": 1,
+    "height": 1,
+    "length": 1,
+    "alt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   }
+  },
+  {
+   "id": "image-alt-over-cap",
+   "note": "alt text of 4097 bytes is over the string cap",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "00000001010000000100000001000000011001"
+    },
+    {
+     "fill": "61",
+     "count": 4097
+    }
+   ],
+   "expect": {
+    "error": "string_too_long"
+   }
+  },
+  {
+   "id": "image-alt-declared-over-no-body",
+   "note": "a declared alt length over 4096 is refused before the bytes are read",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "00000001010000000100000001000000011001"
+    }
+   ],
+   "expect": {
+    "error": "string_too_long"
+   }
+  },
+  {
+   "id": "image-alt-truncated",
+   "note": "an alt length past the end of the payload is malformed",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "0000000101000000010000000100000001000561"
+    }
+   ],
+   "expect": {
+    "error": "malformed"
+   }
+  },
+  {
+   "id": "image-start-truncated-header",
+   "note": "a start cut off inside its fixed fields is malformed",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "000000"
+    }
+   ],
+   "expect": {
+    "error": "malformed"
+   }
+  },
+  {
+   "id": "image-start-extra-byte",
+   "note": "a byte after the alt text is malformed",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "000000010100000002000000020000000a00017800"
+    }
+   ],
+   "expect": {
+    "error": "malformed"
+   }
+  },
+  {
+   "id": "image-alt-bad-utf8",
+   "note": "a byte that is not UTF-8 is not an alt string",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "00000001010000000100000001000000080001ff"
+    }
+   ],
+   "expect": {
+    "error": "not_utf8"
+   }
+  },
+  {
+   "id": "image-alt-short-utf8",
+   "note": "a truncated UTF-8 sequence is not an alt string",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "00000001010000000100000001000000080001c2"
+    }
+   ],
+   "expect": {
+    "error": "not_utf8"
+   }
+  },
+  {
+   "id": "image-alt-esc",
+   "note": "ESC in the alt text is a control",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "000000010100000001000000010000000800011b"
+    }
+   ],
+   "expect": {
+    "error": "control"
+   }
+  },
+  {
+   "id": "image-alt-nul",
+   "note": "NUL in the alt text is a control",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "0000000101000000010000000100000008000100"
+    }
+   ],
+   "expect": {
+    "error": "control"
+   }
+  },
+  {
+   "id": "image-alt-del",
+   "note": "DEL in the alt text is a control",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "000000010100000001000000010000000800017f"
+    }
+   ],
+   "expect": {
+    "error": "control"
+   }
+  },
+  {
+   "id": "image-alt-cr",
+   "note": "CR in the alt text is a control; newline and tab are not",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "000000010100000001000000010000000800010d"
+    }
+   ],
+   "expect": {
+    "error": "control"
+   }
+  },
+  {
+   "id": "image-alt-newline-tab",
+   "note": "newline and tab are allowed in alt text",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "00000001010000000100000001000000080003610a09"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 1,
+    "width": 1,
+    "height": 1,
+    "length": 8,
+    "alt": "a\n\t"
+   }
+  },
+  {
+   "id": "image-alt-bidi-closed",
+   "note": "an open bidi control in alt text is closed at the end of the block",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "0000000101000000010000000100000008000561e280ae62"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 1,
+    "width": 1,
+    "height": 1,
+    "length": 8,
+    "alt": "a‮b‬"
+   }
+  },
+  {
+   "id": "image-alt-backslash",
+   "note": "a backslash in alt text is a character, not an escape",
+   "kind": 131,
+   "payload": [
+    {
+     "hex": "000000010100000001000000010000000800015c"
+    }
+   ],
+   "expect": {
+    "ok": "image_start",
+    "id": 1,
+    "format": 1,
+    "width": 1,
+    "height": 1,
+    "length": 8,
+    "alt": "\\"
+   }
+  },
+  {
+   "id": "image-data-one-byte",
+   "note": "one encoded byte is a data frame",
+   "kind": 132,
+   "payload": [
+    {
+     "hex": "000000070000000061"
+    }
+   ],
+   "expect": {
+    "ok": "image_data",
+    "id": 7,
+    "offset": 0,
+    "len": 1,
+    "prefix_hex": "61"
+   }
+  },
+  {
+   "id": "image-data-at-chunk-cap",
+   "note": "262144 encoded bytes is the largest data frame",
+   "kind": 132,
+   "payload": [
+    {
+     "hex": "0000000700000000"
+    },
+    {
+     "fill": "61",
+     "count": 262144
+    }
+   ],
+   "expect": {
+    "ok": "image_data",
+    "id": 7,
+    "offset": 0,
+    "len": 262144,
+    "prefix_hex": "61"
+   }
+  },
+  {
+   "id": "image-data-over-chunk-cap",
+   "note": "262145 encoded bytes is malformed",
+   "kind": 132,
+   "payload": [
+    {
+     "hex": "0000000700000000"
+    },
+    {
+     "fill": "61",
+     "count": 262145
+    }
+   ],
+   "expect": {
+    "error": "malformed"
+   }
+  },
+  {
+   "id": "image-data-empty",
+   "note": "a data frame with no encoded bytes is malformed",
+   "kind": 132,
+   "payload": [
+    {
+     "hex": "0000000700000000"
+    }
+   ],
+   "expect": {
+    "error": "malformed"
+   }
+  },
+  {
+   "id": "image-data-short-header",
+   "note": "a data frame cut off before the offset is malformed",
+   "kind": 132,
+   "payload": [
+    {
+     "hex": "00000007000000"
+    }
+   ],
+   "expect": {
+    "error": "malformed"
+   }
+  },
+  {
+   "id": "image-data-offset-max",
+   "note": "the offset parses at any value; reassembly checks it",
+   "kind": 132,
+   "payload": [
+    {
+     "hex": "00000001ffffffff61"
+    }
+   ],
+   "expect": {
+    "ok": "image_data",
+    "id": 1,
+    "offset": 4294967295,
+    "len": 1
+   }
+  },
+  {
+   "id": "image-data-bare-introducer",
+   "note": "a bare introducer inside the bytes is payload, not a new frame",
+   "kind": 132,
+   "payload": [
+    {
+     "hex": "00000001000000001b5f61"
+    }
+   ],
+   "expect": {
+    "ok": "image_data",
+    "id": 1,
+    "offset": 0,
+    "len": 3,
+    "prefix_hex": "1b5f61"
+   }
+  },
+  {
+   "id": "image-unknown-kind",
+   "note": "0x85 is not an image type",
+   "kind": 133,
+   "payload": [
+    {
+     "hex": "00026869"
+    }
+   ],
+   "expect": {
+    "error": "unknown_kind"
+   }
+  },
+  {
+   "id": "image-sealed-kind",
+   "note": "a sealed-range type is not an image frame",
+   "kind": 3,
+   "payload": [
+    {
+     "hex": "000000010000000061"
+    }
+   ],
+   "expect": {
+    "error": "sealed_kind"
+   }
+  }
+ ],
+ "detector": [
+  {
+   "id": "image-header-over-1mib",
+   "note": "an image type with a declared payload one past 1 MiB is a rejected header, and the length is not used to skip the next frame",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f38400100001"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3800000000400026869"
+    }
+   ],
+   "events": [
+    {
+     "rejected": {
+      "hex": "1b5f8a4c554d454e01f38400100001"
+     }
+    },
+    {
+     "escaped": {
+      "hex": "8a4c554d454e01f38400100001"
+     }
+    },
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "00026869"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "image-payload-truncated",
+   "note": "a complete image header whose payload is cut short by the end of the stream is truncated, not a frame",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f3840000000a616263"
+    }
+   ],
+   "events": [
+    {
+     "truncated": {
+      "hex": "616263"
+     }
+    }
+   ]
+  },
+  {
+   "id": "image-partial-header",
+   "note": "a partial image header at the end of the stream is escaped text, and the introducer is withheld",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f384"
+    }
+   ],
+   "events": [
+    {
+     "escaped": {
+      "hex": "8a4c554d454e01f384"
+     }
+    }
+   ]
+  },
+  {
+   "id": "image-bad-tag",
+   "note": "an introducer whose tag does not match is not a frame: 13 header bytes are escaped, and the rest is ordinary output",
+   "input": [
+    {
+     "hex": "1b5f0011223344556677840000000161"
+    }
+   ],
+   "events": [
+    {
+     "escaped": {
+      "hex": "00112233445566778400000001"
+     }
+    },
+    {
+     "output": {
+      "hex": "61"
+     }
+    }
+   ]
+  },
+  {
+   "id": "image-data-split-reads",
+   "note": "an image data frame split across reads is one frame",
+   "input": [
+    {
+     "hex": "1b5f8a4c"
+    },
+    {
+     "hex": "554d454e01f38400"
+    },
+    {
+     "hex": "000009000000010000000061"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 132,
+      "payload": {
+       "hex": "000000010000000061"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "image-bare-introducer-stays",
+   "note": "ESC _ without the tag inside image data does not end the frame",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f3840000000b00000001000000001b5f61"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 132,
+      "payload": {
+       "hex": "00000001000000001b5f61"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "image-trigger-ends-payload",
+   "note": "an introducer followed by the tag inside an image payload ends that frame as truncated, and the inner frame is found",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f384000001f40000000100000000611b5f8a4c554d454e01f3800000000400026869"
+    }
+   ],
+   "events": [
+    {
+     "truncated": {
+      "hex": "000000010000000061"
+     }
+    },
+    {
+     "frame": {
+      "kind": 128,
+      "payload": {
+       "hex": "00026869"
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "escaped": [
+  {
+   "id": "failed-image-frame-escapes",
+   "note": "ESC is a visible glyph, other controls are hex escapes, and the text has no control character",
+   "input": [
+    {
+     "hex": "1b000161"
+    }
+   ],
+   "body": "␛\\x00\\x01a",
+   "suffix": " [4 bytes]"
+  },
+  {
+   "id": "failed-image-frame-escape-cap",
+   "note": "rendering stops before an escape that would pass 256 bytes, and the suffix counts every input byte",
+   "input": [
+    {
+     "fill": "01",
+     "count": 300
+    }
+   ],
+   "body": "\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01\\x01",
+   "suffix": " [300 bytes]"
+  },
+  {
+   "id": "failed-image-frame-backslash",
+   "note": "a backslash in a failed frame is escaped by doubling it",
+   "input": [
+    {
+     "hex": "5c"
+    }
+   ],
+   "body": "\\\\",
+   "suffix": " [1 bytes]"
+  }
+ ],
+ "reassembly": [
+  {
+   "id": "chunks-in-order",
+   "note": "data frames in order reassemble, and the format is the signature",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 12,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "buffered"
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 8,
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 1,
+      "format": "png",
+      "bytes": 12
+     },
+     "hex": "00000000"
+    },
+    {
+     "op": "receiving",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "id": "single-chunk",
+   "note": "one data frame can carry the whole image",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 4,
+     "height": 4,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 1,
+      "format": "png",
+      "bytes": 8
+     },
+     "hex": "89504e470d0a1a0a"
+    }
+   ]
+  },
+  {
+   "id": "length-min-one-byte",
+   "note": "length 1 is legal, and a byte that is not PNG, JPEG or WebP is refused without a crash",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 1,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "alt",
+      "reason": "refused",
+      "id": 1
+     },
+     "hex": "00"
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 2,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 2,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 2,
+      "format": "png",
+      "bytes": 8
+     },
+     "hex": "89504e470d0a1a0a"
+    }
+   ]
+  },
+  {
+   "id": "length-at-max-reassembled",
+   "note": "16777216 encoded bytes, in chunks of 262144, is one image",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 16777216,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "fill",
+     "producer": 1,
+     "id": 1,
+     "total": 16777216,
+     "chunk": 262144,
+     "prefix_hex": "89504e470d0a1a0a",
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 1,
+      "format": "png",
+      "bytes": 16777216
+     }
+    }
+   ],
+   "in_flight_total": 2
+  },
+  {
+   "id": "length-over-max-refused",
+   "note": "16777217 is refused, begins no image, and does not degrade the producer",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 16777217,
+     "expect": {
+      "placement": "alt",
+      "reason": "bad_length",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "dropped"
+     },
+     "hex": "00"
+    },
+    {
+     "op": "receiving",
+     "bytes": 0
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 2,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    }
+   ]
+  },
+  {
+   "id": "length-zero-refused",
+   "note": "length 0 is refused",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 0,
+     "expect": {
+      "placement": "alt",
+      "reason": "bad_length",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "dropped"
+     },
+     "hex": "00"
+    }
+   ]
+  },
+  {
+   "id": "side-at-max",
+   "note": "65535 on a side is a legal hint",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 65535,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    }
+   ]
+  },
+  {
+   "id": "side-over-max",
+   "note": "65536 on a side is refused and does not degrade",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 65536,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "alt",
+      "reason": "invalid_hint",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 2,
+     "width": 1,
+     "height": 0,
+     "length": 8,
+     "expect": {
+      "placement": "alt",
+      "reason": "invalid_hint",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 3,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    }
+   ]
+  },
+  {
+   "id": "pixels-at-max",
+   "note": "16000000 pixels is a legal hint",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 4000,
+     "height": 4000,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    }
+   ]
+  },
+  {
+   "id": "pixels-over-max",
+   "note": "one pixel over 16000000, and 65535 on both sides, are refused",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 4000,
+     "height": 4001,
+     "length": 8,
+     "expect": {
+      "placement": "alt",
+      "reason": "invalid_hint",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 2,
+     "width": 65535,
+     "height": 65535,
+     "length": 8,
+     "expect": {
+      "placement": "alt",
+      "reason": "invalid_hint",
+      "abandoned": null
+     }
+    }
+   ]
+  },
+  {
+   "id": "gap-ends-the-image",
+   "note": "a gap ends the image and a later chunk cannot resume it",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 20,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "buffered"
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 10,
+     "expect": {
+      "result": "rejected",
+      "abandoned": 1
+     },
+     "hex": "00"
+    },
+    {
+     "op": "receiving",
+     "bytes": 0
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 8,
+     "expect": {
+      "result": "rejected",
+      "abandoned": null
+     },
+     "hex": "000000000000000000000000"
+    }
+   ]
+  },
+  {
+   "id": "overlap-ends-the-image",
+   "note": "an overlap ends the image",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 20,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "buffered"
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "rejected",
+      "abandoned": 1
+     },
+     "hex": "89504e470d0a1a0a"
+    }
+   ]
+  },
+  {
+   "id": "overrun-ends-the-image",
+   "note": "a chunk that would pass the declared length ends the image",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 10,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "buffered"
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 8,
+     "expect": {
+      "result": "rejected",
+      "abandoned": 1
+     },
+     "hex": "000000"
+    }
+   ]
+  },
+  {
+   "id": "wrong-id-ends-the-image",
+   "note": "a data frame for another id ends the image",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 20,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "buffered"
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 2,
+     "offset": 8,
+     "expect": {
+      "result": "rejected",
+      "abandoned": 1
+     },
+     "hex": "00"
+    }
+   ]
+  },
+  {
+   "id": "unknown-id",
+   "note": "a data frame with nothing being received is rejected and ends nothing",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 9,
+     "offset": 0,
+     "expect": {
+      "result": "rejected",
+      "abandoned": null
+     },
+     "hex": "89504e470d0a1a0a"
+    }
+   ]
+  },
+  {
+   "id": "empty-chunk-ends-the-image",
+   "note": "a chunk of no bytes handed straight to reassembly ends the image; on the wire such a frame is malformed at the parser and never reaches reassembly (see parse vectors), so there the image stays",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 20,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "buffered"
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 8,
+     "expect": {
+      "result": "rejected",
+      "abandoned": 1
+     },
+     "hex": ""
+    }
+   ]
+  },
+  {
+   "id": "oversize-chunk-ends-the-image",
+   "note": "a chunk of 262145 bytes ends the image and is not stored",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 100,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "rejected",
+      "abandoned": 1
+     },
+     "prefix_hex": "",
+     "fill": "00",
+     "count": 262145
+    },
+    {
+     "op": "receiving",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "id": "chunk-at-cap-then-remainder",
+   "note": "a 262144-byte chunk then the remaining bytes complete the image",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 262154,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "buffered"
+     },
+     "prefix_hex": "89504e470d0a1a0a",
+     "fill": "00",
+     "count": 262136
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 262144,
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 1,
+      "format": "png",
+      "bytes": 262154
+     },
+     "hex": "00000000000000000000"
+    }
+   ]
+  },
+  {
+   "id": "new-start-ends-the-previous",
+   "note": "a start for another id ends the incomplete image and begins the new one",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 20,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "buffered"
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 2,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": 1
+     }
+    },
+    {
+     "op": "receiving",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "id": "same-id-restarts",
+   "note": "a start that reuses the id being received first ends that image, freeing the id, so it is a fresh start and not a duplicate",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 20,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "buffered"
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 20,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": 1
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "buffered"
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 9,
+     "offset": 0,
+     "expect": {
+      "result": "rejected",
+      "abandoned": 1
+     },
+     "hex": "00"
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "rejected",
+      "abandoned": null
+     },
+     "hex": "00"
+    },
+    {
+     "op": "receiving",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "id": "bad-length-ends-the-incumbent",
+   "note": "a refused start still ends the incomplete image, and its own data frames are dropped",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 20,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "buffered"
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 2,
+     "width": 1,
+     "height": 1,
+     "length": 0,
+     "expect": {
+      "placement": "alt",
+      "reason": "bad_length",
+      "abandoned": 1
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 8,
+     "expect": {
+      "result": "rejected",
+      "abandoned": null
+     },
+     "hex": "00"
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 2,
+     "offset": 0,
+     "expect": {
+      "result": "dropped"
+     },
+     "hex": "00"
+    }
+   ]
+  },
+  {
+   "id": "length-is-checked-before-the-id",
+   "note": "an out-of-range length is reported before a duplicate id",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 1,
+      "format": "png",
+      "bytes": 8
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 0,
+     "expect": {
+      "placement": "alt",
+      "reason": "bad_length",
+      "abandoned": null
+     }
+    }
+   ],
+   "in_flight_total": 0
+  },
+  {
+   "id": "size-is-checked-before-the-id",
+   "note": "a bad size hint is reported before a duplicate id",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 1,
+      "format": "png",
+      "bytes": 8
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 0,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "alt",
+      "reason": "invalid_hint",
+      "abandoned": null
+     }
+    }
+   ],
+   "in_flight_total": 0
+  },
+  {
+   "id": "locked-drops-and-a-foreign-frame-does-not-stop-it",
+   "note": "while images are locked, data frames for that id are dropped, and another id does not clear that",
+   "gate": "locked",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 100,
+     "expect": {
+      "placement": "alt",
+      "reason": "locked",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "dropped"
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 2,
+     "offset": 0,
+     "expect": {
+      "result": "rejected",
+      "abandoned": null
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 50,
+     "expect": {
+      "result": "dropped"
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "receiving",
+     "bytes": 0
+    }
+   ]
+  },
+  {
+   "id": "ssh-drops",
+   "note": "an unsigned image on an SSH session is not received",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "alt",
+      "reason": "ssh_session",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "dropped"
+     },
+     "hex": "89504e470d0a1a0a"
+    }
+   ],
+   "ssh": true
+  },
+  {
+   "id": "unregistered-producer-is-ssh",
+   "note": "a producer the terminal cannot place is treated as an SSH session",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "alt",
+      "reason": "ssh_session",
+      "abandoned": null
+     }
+    }
+   ],
+   "register": false
+  },
+  {
+   "id": "held-exactly-32",
+   "note": "32 MiB queued is allowed, one more byte is refused, and the producer is degraded until the command ends",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 16777216,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "fill",
+     "producer": 1,
+     "id": 1,
+     "total": 16777216,
+     "chunk": 262144,
+     "prefix_hex": "89504e470d0a1a0a",
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 1,
+      "format": "png",
+      "bytes": 16777216
+     }
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 2,
+     "width": 1,
+     "height": 1,
+     "length": 16777216,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "fill",
+     "producer": 1,
+     "id": 2,
+     "total": 16777216,
+     "chunk": 262144,
+     "prefix_hex": "89504e470d0a1a0a",
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 2,
+      "format": "png",
+      "bytes": 16777216
+     }
+    },
+    {
+     "op": "held",
+     "bytes": 33554432
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 3,
+     "width": 1,
+     "height": 1,
+     "length": 1,
+     "expect": {
+      "placement": "alt",
+      "reason": "held_bytes",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 4,
+     "width": 1,
+     "height": 1,
+     "length": 1,
+     "expect": {
+      "placement": "alt",
+      "reason": "degraded",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "end",
+     "expect": {
+      "abandoned": null
+     }
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 5,
+     "width": 1,
+     "height": 1,
+     "length": 1,
+     "expect": {
+      "placement": "alt",
+      "reason": "held_bytes",
+      "abandoned": null
+     }
+    }
+   ],
+   "in_flight_total": 0
+  },
+  {
+   "id": "held-degrade-lifts",
+   "note": "after the command ends, a start that fits in the bytes still held is received",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 10485760,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "fill",
+     "producer": 1,
+     "id": 1,
+     "total": 10485760,
+     "chunk": 262144,
+     "prefix_hex": "89504e470d0a1a0a",
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 1,
+      "format": "png",
+      "bytes": 10485760
+     }
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 2,
+     "width": 1,
+     "height": 1,
+     "length": 10485760,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "fill",
+     "producer": 1,
+     "id": 2,
+     "total": 10485760,
+     "chunk": 262144,
+     "prefix_hex": "89504e470d0a1a0a",
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 2,
+      "format": "png",
+      "bytes": 10485760
+     }
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 3,
+     "width": 1,
+     "height": 1,
+     "length": 10485760,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "fill",
+     "producer": 1,
+     "id": 3,
+     "total": 10485760,
+     "chunk": 262144,
+     "prefix_hex": "89504e470d0a1a0a",
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 3,
+      "format": "png",
+      "bytes": 10485760
+     }
+    },
+    {
+     "op": "held",
+     "bytes": 31457280
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 4,
+     "width": 1,
+     "height": 1,
+     "length": 3145728,
+     "expect": {
+      "placement": "alt",
+      "reason": "held_bytes",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 5,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "alt",
+      "reason": "degraded",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "end",
+     "expect": {
+      "abandoned": null
+     }
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 6,
+     "width": 1,
+     "height": 1,
+     "length": 1048576,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    }
+   ],
+   "in_flight_total": 0
+  },
+  {
+   "id": "queue-full",
+   "note": "a ninth image waiting is alt text",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "repeat",
+     "from": 1,
+     "count": 8,
+     "length": 8,
+     "prefix_hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 9,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 9,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "alt",
+      "reason": "queue_full",
+      "id": 9
+     },
+     "hex": "89504e470d0a1a0a"
+    }
+   ],
+   "in_flight_total": 0
+  },
+  {
+   "id": "queued-id-stays-after-the-command",
+   "note": "ending the command frees an incomplete image and leaves a queued id in use",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "repeat",
+     "from": 1,
+     "count": 1,
+     "length": 8,
+     "prefix_hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "end",
+     "expect": {
+      "abandoned": null
+     }
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "alt",
+      "reason": "duplicate_id",
+      "abandoned": null
+     }
+    }
+   ],
+   "in_flight_total": 0
+  },
+  {
+   "id": "shown-id-stays-in-use",
+   "note": "an id stays in use after the image is decoded",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 1,
+      "format": "png",
+      "bytes": 8
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "alt",
+      "reason": "duplicate_id",
+      "abandoned": null
+     }
+    }
+   ]
+  },
+  {
+   "id": "unsupported-signatures",
+   "note": "JPEG and WebP are accepted from their signatures; GIF, BMP and a short PNG are refused, and a refusal is not a crash",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 3,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 1,
+      "format": "jpeg",
+      "bytes": 3
+     },
+     "hex": "ffd8ff"
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 2,
+     "width": 1,
+     "height": 1,
+     "length": 12,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 2,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 2,
+      "format": "webp",
+      "bytes": 12
+     },
+     "hex": "524946460000000057454250"
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 3,
+     "width": 1,
+     "height": 1,
+     "length": 6,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 3,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "alt",
+      "reason": "refused",
+      "id": 3
+     },
+     "hex": "474946383961"
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 3,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 3,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 3,
+      "format": "png",
+      "bytes": 8
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 4,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 4,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "alt",
+      "reason": "refused",
+      "id": 4
+     },
+     "hex": "424d000000000000"
+    },
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 5,
+     "width": 1,
+     "height": 1,
+     "length": 4,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 5,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "alt",
+      "reason": "refused",
+      "id": 5
+     },
+     "hex": "89504e47"
+    }
+   ]
+  },
+  {
+   "id": "two-producers",
+   "note": "one producer's data frame does not end the other's image",
+   "gate": "open",
+   "steps": [
+    {
+     "op": "start",
+     "producer": 1,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 16,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "buffered"
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "data",
+     "producer": 2,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "rejected",
+      "abandoned": null
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "receiving",
+     "producer": 1,
+     "bytes": 8
+    },
+    {
+     "op": "start",
+     "producer": 2,
+     "id": 1,
+     "width": 1,
+     "height": 1,
+     "length": 8,
+     "expect": {
+      "placement": "receiving",
+      "abandoned": null
+     }
+    },
+    {
+     "op": "data",
+     "producer": 2,
+     "id": 1,
+     "offset": 0,
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 1,
+      "format": "png",
+      "bytes": 8
+     },
+     "hex": "89504e470d0a1a0a"
+    },
+    {
+     "op": "data",
+     "producer": 1,
+     "id": 1,
+     "offset": 8,
+     "expect": {
+      "result": "submitted",
+      "submit": "queued",
+      "id": 1,
+      "format": "png",
+      "bytes": 16
+     },
+     "hex": "0000000000000000"
+    }
+   ],
+   "producers": [
+    {
+     "id": 1,
+     "ssh": false,
+     "register": true
+    },
+    {
+     "id": 2,
+     "ssh": false,
+     "register": true
+    }
+   ]
+  }
+ ],
+ "wire": [
+  {
+   "id": "wire-two-chunks",
+   "note": "a start and two data frames, split into separate reads, reassemble",
+   "gate": "open",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f38300000014000000010100000001000000010000000c000161"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f38400000010000000010000000089504e470d0a1a0a"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3840000000c000000010000000800000000"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 131,
+      "payload": {
+       "hex": "000000010100000001000000010000000c000161"
+      }
+     }
+    },
+    {
+     "frame": {
+      "kind": 132,
+      "payload": {
+       "hex": "000000010000000089504e470d0a1a0a"
+      }
+     }
+    },
+    {
+     "frame": {
+      "kind": 132,
+      "payload": {
+       "hex": "000000010000000800000000"
+      }
+     }
+    }
+   ],
+   "outcome": {
+    "receiving": 0,
+    "submit": {
+     "id": 1,
+     "submit": "queued",
+     "format": "png",
+     "bytes": 12
+    }
+   }
+  },
+  {
+   "id": "wire-format-hint-ignored",
+   "note": "format byte 9 is a hint; JPEG bytes are JPEG",
+   "gate": "open",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f383000000140000000109000000010000000100000003000161"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3840000000b0000000100000000ffd8ff"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 131,
+      "payload": {
+       "hex": "0000000109000000010000000100000003000161"
+      }
+     }
+    },
+    {
+     "frame": {
+      "kind": 132,
+      "payload": {
+       "hex": "0000000100000000ffd8ff"
+      }
+     }
+    }
+   ],
+   "outcome": {
+    "receiving": 0,
+    "submit": {
+     "id": 1,
+     "submit": "queued",
+     "format": "jpeg",
+     "bytes": 3
+    }
+   }
+  },
+  {
+   "id": "wire-malformed-start-has-no-effect",
+   "note": "a start whose alt text contains ESC does not parse, so it does not end the image already being received",
+   "gate": "open",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f38300000014000000010100000001000000010000000c000161"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f38400000010000000010000000089504e470d0a1a0a"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f38300000014000000010900000001000000010000000c00011b"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3840000000c000000010000000800000000"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 131,
+      "payload": {
+       "hex": "000000010100000001000000010000000c000161"
+      }
+     }
+    },
+    {
+     "frame": {
+      "kind": 132,
+      "payload": {
+       "hex": "000000010000000089504e470d0a1a0a"
+      }
+     }
+    },
+    {
+     "frame": {
+      "kind": 131,
+      "payload": {
+       "hex": "000000010900000001000000010000000c00011b"
+      }
+     }
+    },
+    {
+     "frame": {
+      "kind": 132,
+      "payload": {
+       "hex": "000000010000000800000000"
+      }
+     }
+    }
+   ],
+   "outcome": {
+    "receiving": 0,
+    "submit": {
+     "id": 1,
+     "submit": "queued",
+     "format": "png",
+     "bytes": 12
+    }
+   }
+  },
+  {
+   "id": "wire-oversized-header-does-not-swallow",
+   "note": "a declared length past 1 MiB does not swallow the data frame that completes the image",
+   "gate": "open",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f38300000014000000010100000001000000010000000c000161"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f38400000010000000010000000089504e470d0a1a0a"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f38400100001"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3840000000c000000010000000800000000"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 131,
+      "payload": {
+       "hex": "000000010100000001000000010000000c000161"
+      }
+     }
+    },
+    {
+     "frame": {
+      "kind": 132,
+      "payload": {
+       "hex": "000000010000000089504e470d0a1a0a"
+      }
+     }
+    },
+    {
+     "rejected": {
+      "hex": "1b5f8a4c554d454e01f38400100001"
+     }
+    },
+    {
+     "escaped": {
+      "hex": "8a4c554d454e01f38400100001"
+     }
+    },
+    {
+     "frame": {
+      "kind": 132,
+      "payload": {
+       "hex": "000000010000000800000000"
+      }
+     }
+    }
+   ],
+   "outcome": {
+    "receiving": 0,
+    "submit": {
+     "id": 1,
+     "submit": "queued",
+     "format": "png",
+     "bytes": 12
+    }
+   }
+  },
+  {
+   "id": "wire-trigger-does-not-keep-the-truncated-bytes",
+   "note": "a trigger inside a data frame truncates it, the truncated bytes are not a chunk, and the inner frame completes the image",
+   "gate": "open",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f38300000014000000010100000001000000010000000c000161"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f38400000010000000010000000089504e470d0a1a0a"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3840000004000000001000000081b5f8a4c554d454e01f3840000000c000000010000000800000000"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 131,
+      "payload": {
+       "hex": "000000010100000001000000010000000c000161"
+      }
+     }
+    },
+    {
+     "frame": {
+      "kind": 132,
+      "payload": {
+       "hex": "000000010000000089504e470d0a1a0a"
+      }
+     }
+    },
+    {
+     "truncated": {
+      "hex": "0000000100000008"
+     }
+    },
+    {
+     "frame": {
+      "kind": 132,
+      "payload": {
+       "hex": "000000010000000800000000"
+      }
+     }
+    }
+   ],
+   "outcome": {
+    "receiving": 0,
+    "submit": {
+     "id": 1,
+     "submit": "queued",
+     "format": "png",
+     "bytes": 12
+    }
+   }
+  },
+  {
+   "id": "wire-truncated-payload-has-no-effect",
+   "note": "a data frame cut short by the end of the stream is not applied",
+   "gate": "open",
+   "input": [
+    {
+     "hex": "1b5f8a4c554d454e01f38300000014000000010100000001000000010000000c000161"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f38400000010000000010000000089504e470d0a1a0a"
+    },
+    {
+     "hex": "1b5f8a4c554d454e01f3840000001400000001"
+    }
+   ],
+   "events": [
+    {
+     "frame": {
+      "kind": 131,
+      "payload": {
+       "hex": "000000010100000001000000010000000c000161"
+      }
+     }
+    },
+    {
+     "frame": {
+      "kind": 132,
+      "payload": {
+       "hex": "000000010000000089504e470d0a1a0a"
+      }
+     }
+    },
+    {
+     "truncated": {
+      "hex": "00000001"
+     }
+    }
+   ],
+   "outcome": {
+    "receiving": 8,
+    "submit": null
+   }
+  }
+ ]
+}

@@ -94,8 +94,7 @@
    ],
    "expect": {
     "error": "unknown_kind"
-   },
-   "note": ""
+   }
   },
   {
    "id": "trailing-bytes",
@@ -155,86 +154,6 @@
    ],
    "expect": {
     "error": "bad_level"
-   }
-  },
-  {
-   "id": "image-start-ok",
-   "kind": 131,
-   "payload": [
-    {
-     "hex": "00000007010000028000000140000004d200056120636174"
-    }
-   ],
-   "expect": {
-    "ok": "image_start"
-   }
-  },
-  {
-   "id": "image-start-truncated",
-   "kind": 131,
-   "payload": [
-    {
-     "hex": "00000007010000028000000140000004d20005612063"
-    }
-   ],
-   "expect": {
-    "error": "malformed"
-   }
-  },
-  {
-   "id": "image-data-ok",
-   "kind": 132,
-   "payload": [
-    {
-     "hex": "000000070000000089504e47"
-    }
-   ],
-   "expect": {
-    "ok": "image_data"
-   }
-  },
-  {
-   "id": "image-data-at-chunk-cap",
-   "kind": 132,
-   "payload": [
-    {
-     "hex": "0000000700000000"
-    },
-    {
-     "fill": "61",
-     "count": 262144
-    }
-   ],
-   "expect": {
-    "ok": "image_data"
-   }
-  },
-  {
-   "id": "image-data-over-chunk-cap",
-   "kind": 132,
-   "payload": [
-    {
-     "hex": "0000000700000000"
-    },
-    {
-     "fill": "61",
-     "count": 262145
-    }
-   ],
-   "expect": {
-    "error": "malformed"
-   }
-  },
-  {
-   "id": "image-data-empty",
-   "kind": 132,
-   "payload": [
-    {
-     "hex": "0000000700000000"
-    }
-   ],
-   "expect": {
-    "error": "malformed"
    }
   }
  ],
@@ -303,28 +222,60 @@
     "image-frame-on-track-b-16-mib-plus-1",
     "a-big-frame-that-is-not-a-track-b-image"
    ],
-   "covers": "model"
-  },
-  {
-   "id": "image-data-chunk",
-   "value": "262144 bytes",
-   "spec": "images.md#images.frames",
-   "status": "vector",
-   "vectors": [
-    "image-data-at-chunk-cap",
-    "image-data-over-chunk-cap",
-    "image-data-empty"
-   ]
-  },
-  {
-   "id": "image-length",
-   "value": "16 MiB, checked against the declared length by the receiver",
-   "spec": "images.md#images.frames",
-   "status": "pending",
-   "reason": "enforced by the image receiver, not the parser; the receiver's tests cover it"
-  },
-  {
-   "id": "nesting-depth",
+    "covers": "model"
+   },
+   {
+    "id": "image-encoded-length",
+    "value": "1 to 16777216 bytes, checked by the receiver; the parser keeps any declared length",
+    "spec": "images.md#images.frames",
+    "status": "vector",
+    "vectors": [
+     "image-start-length-min",
+     "image-start-length-max",
+     "image-start-length-zero",
+     "image-start-length-over",
+     "length-at-max-reassembled",
+     "length-over-max-refused"
+    ]
+   },
+   {
+    "id": "image-data-chunk",
+    "value": "1 to 262144 bytes",
+    "spec": "images.md#images.frames",
+    "status": "vector",
+    "vectors": [
+     "image-data-one-byte",
+     "image-data-at-chunk-cap",
+     "image-data-over-chunk-cap",
+     "image-data-empty"
+    ]
+   },
+   {
+    "id": "image-frame-header",
+    "value": "1 MiB frame limit, including an image type; a partial or bad header is not a frame",
+    "spec": "transport.md#transport.limits",
+    "status": "vector",
+    "vectors": [
+     "image-header-over-1mib",
+     "image-payload-truncated",
+     "image-partial-header",
+     "image-bad-tag"
+    ]
+   },
+   {
+    "id": "image-alt-string",
+    "value": "4 KiB UTF-8; controls and invalid UTF-8 are malformed",
+    "spec": "transport.md#transport.limits",
+    "status": "vector",
+    "vectors": [
+     "image-alt-at-cap",
+     "image-alt-over-cap",
+     "image-alt-esc",
+     "image-alt-bad-utf8"
+    ]
+   },
+   {
+    "id": "nesting-depth",
    "value": "32",
    "spec": "transport.md#transport.limits",
    "status": "vector",

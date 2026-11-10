@@ -624,4 +624,8 @@ fn image_frames_are_blocks_in_the_container_and_text_outside_it() {
             data: b"\x89PNG".to_vec()
         })]
     );
+    // The alternate screen renders every unsealed frame as text, image or not.
+    let mut alt = no_ctx();
+    alt.alt_screen = true;
+    assert!(matches!(l.feed(&start, alt).as_slice(), [Item::Text(_)]));
 }
