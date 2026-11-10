@@ -10,7 +10,8 @@
 //! The file is `$HOME/.config/lumen/policy.toml`. Its syntax is the small part
 //! of TOML the settings need: `key = true` or `key = false` on a line, `#`
 //! comments and blank lines. The keys are the notification settings
-//! `allow_unsigned`, `os_notifications` and `os_text`, each off by default.
+//! `allow_unsigned`, `os_notifications` and `os_text`, each off by default, and
+//! `images`, on by default: `images = false` always shows the alt text.
 //!
 //! The checks are stricter than the file alone: the file must not be a symbolic
 //! link, the directory that holds it must be owned by the user and not be
@@ -66,6 +67,8 @@ pub enum Policy {
         path: PathBuf,
         /// The settings it gave.
         settings: Settings,
+        /// The `images` setting it gave; `true` when it says nothing.
+        images: bool,
     },
     /// The file exists but was not used, and the defaults apply.
     Ignored {
@@ -83,6 +86,16 @@ impl Policy {
         match self {
             Self::Loaded { settings, .. } => *settings,
             Self::Defaults | Self::Ignored { .. } => Settings::default(),
+        }
+    }
+
+    /// Whether images may be shown, as far as the user's setting goes: on unless
+    /// the file says `images = false`. The build's gate records still decide.
+    #[must_use]
+    pub fn images(&self) -> bool {
+        match self {
+            Self::Loaded { images, .. } => *images,
+            Self::Defaults | Self::Ignored { .. } => true,
         }
     }
 
@@ -119,8 +132,19 @@ impl Policy {
 /// Returns the line and the reason for the first line that is not a blank line,
 /// a comment, or `key = true|false` for a known key written once.
 pub fn parse(text: &str) -> Result<Settings, (usize, &'static str)> {
+    parse_all(text).map(|(settings, _)| settings)
+}
+
+/// Parse the text of a policy file into the notification settings and the
+/// `images` setting (`true` when the file does not give it).
+///
+/// # Errors
+///
+/// As [`parse`].
+pub fn parse_all(text: &str) -> Result<(Settings, bool), (usize, &'static str)> {
     let mut settings = Settings::default();
-    let mut seen = [false; 3];
+    let mut images = true;
+    let mut seen = [false; 4];
     for (n, raw) in text.lines().enumerate() {
         let line = n + 1;
         let content = raw.split('#').next().unwrap_or("").trim();
@@ -136,6 +160,7 @@ pub fn parse(text: &str) -> Result<Settings, (usize, &'static str)> {
             _ => return Err((line, "the value must be true or false")),
         };
         let (slot, index) = match key.trim() {
+            "images" => (&mut images, 3),
             "allow_unsigned" => (&mut settings.allow_unsigned, 0),
             "os_notifications" => (&mut settings.os_notifications, 1),
             "os_text" => (&mut settings.os_text, 2),
@@ -146,7 +171,7 @@ pub fn parse(text: &str) -> Result<Settings, (usize, &'static str)> {
         }
         *slot = value;
     }
-    Ok(settings)
+    Ok((settings, images))
 }
 
 /// Load the policy from `$HOME/.config/lumen/policy.toml`, or the defaults if
@@ -190,7 +215,7 @@ pub fn load_as(path: &Path, uid: u32) -> Policy {
 
 #[cfg(unix)]
 mod unix {
-    use super::{Ignored, MAX_BYTES, Policy, parse};
+    use super::{Ignored, MAX_BYTES, Policy, parse_all};
     use std::io::Read;
     use std::os::unix::fs::MetadataExt;
     use std::path::Path;
@@ -252,10 +277,11 @@ mod unix {
                 },
             );
         }
-        match parse(&text) {
-            Ok(settings) => Policy::Loaded {
+        match parse_all(&text) {
+            Ok((settings, images)) => Policy::Loaded {
                 path: path.to_path_buf(),
                 settings,
+                images,
             },
             Err((line, why)) => ignored(path, Ignored::Invalid { line, why }),
         }

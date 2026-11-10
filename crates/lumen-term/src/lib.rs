@@ -22,6 +22,7 @@ pub mod grid;
 pub mod guard;
 #[cfg(feature = "window")]
 pub mod host;
+pub mod images;
 pub mod isolate;
 pub mod keys;
 pub mod layer;

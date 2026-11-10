@@ -287,3 +287,27 @@ mod files {
         );
     }
 }
+
+#[test]
+fn the_images_setting_is_on_unless_the_file_turns_it_off() {
+    use lumen_term::policy::parse_all;
+    assert_eq!(
+        parse_all(""),
+        Ok((lumen_term::notify::Settings::default(), true))
+    );
+    assert_eq!(
+        parse_all("images = false\n"),
+        Ok((lumen_term::notify::Settings::default(), false))
+    );
+    assert_eq!(
+        parse_all("images = true # on\n"),
+        Ok((lumen_term::notify::Settings::default(), true))
+    );
+    assert!(parse_all("images = off\n").is_err());
+    assert!(parse_all("images = true\nimages = false\n").is_err());
+    // The notification settings are read as before.
+    assert_eq!(
+        parse("images = false\nos_text = true\n").map(|s| s.os_text),
+        Ok(true)
+    );
+}

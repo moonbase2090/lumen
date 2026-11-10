@@ -118,7 +118,7 @@ fn tree(files: &[(&str, &str)]) -> Result<std::path::PathBuf, Box<dyn Error>> {
     Ok(root)
 }
 
-const BASE: [(&str, &str); 18] = [
+const BASE: [(&str, &str); 26] = [
     ("crates/lumen-decoder/src/decode.rs", "d"),
     ("crates/lumen-decoder/src/ffi_sandbox.rs", "s"),
     ("crates/lumen-decoder/src/ffi_alloc.rs", "a"),
@@ -134,6 +134,14 @@ const BASE: [(&str, &str); 18] = [
     ("crates/lumen-decoder/src/frames.rs", "z"),
     ("crates/lumen-decoder/src/lib.rs", "i"),
     ("crates/lumen-decoder/src/bin/lumen-decoder-hostile.rs", "h"),
+    ("crates/lumen-track0/src/lib.rs", "t"),
+    ("crates/lumen-track0/Cargo.toml", "T"),
+    ("crates/lumen-arm-b/src/lib.rs", "b"),
+    ("crates/lumen-term/src/images.rs", "I"),
+    ("crates/lumen-term/src/document.rs", "D"),
+    ("crates/lumen-term/src/layer.rs", "L"),
+    ("crates/lumen-term/src/raster.rs", "R"),
+    ("crates/lumen-term/Cargo.toml", "C"),
     ("crates/lumen-decoder/Cargo.toml", "m"),
     ("Cargo.lock", "k"),
     ("crates/lumen-decoder/src/notes.txt", "n"),
@@ -475,5 +483,29 @@ fn a_gate_that_passed_for_only_one_identity_shows_alt_text() -> R {
     assert_eq!(now.decoder_build, record.decoder_build);
     assert_ne!(now.image_path_build, record.image_path_build);
     assert!(!images_enabled(true, "linux", &now, &[record]));
+    Ok(())
+}
+
+#[test]
+fn the_terminal_side_of_the_image_path_is_in_its_identity_only() -> R {
+    let root = tree(&BASE)?;
+    let (d, p) = (
+        id(&root, Identity::Decoder, "c", "")?,
+        id(&root, Identity::ImagePath, "c", "")?,
+    );
+    for path in [
+        "crates/lumen-track0/src/lib.rs",
+        "crates/lumen-arm-b/src/lib.rs",
+        "crates/lumen-term/src/images.rs",
+        "crates/lumen-term/src/document.rs",
+        "crates/lumen-term/src/layer.rs",
+        "crates/lumen-term/src/raster.rs",
+    ] {
+        let before = std::fs::read_to_string(root.join(path))?;
+        std::fs::write(root.join(path), "changed")?;
+        assert_eq!(d, id(&root, Identity::Decoder, "c", "")?, "{path}");
+        assert_ne!(p, id(&root, Identity::ImagePath, "c", "")?, "{path}");
+        std::fs::write(root.join(path), before)?;
+    }
     Ok(())
 }

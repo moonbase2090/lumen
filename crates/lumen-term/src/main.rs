@@ -42,6 +42,7 @@ fn snapshot(o: &Options, policy: &Policy, path: &str) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
     app.use_settings(policy.settings());
+    app.use_images(policy.images());
     let end = Instant::now() + o.wait;
     while Instant::now() < end && !app.has_exited() {
         app.pump();
@@ -68,6 +69,7 @@ fn window(o: &Options, policy: &Policy) -> Result<(), String> {
         scale: o.scale,
         exit_after: o.exit_after,
         notifications: policy.settings(),
+        images: policy.images(),
     })
 }
 
@@ -79,12 +81,17 @@ fn window(_: &Options, _: &Policy) -> Result<(), String> {
 fn describe(policy: &Policy) -> String {
     match policy {
         Policy::Defaults => "policy: no file; every setting is at its default (all off)".to_owned(),
-        Policy::Loaded { path, settings } => format!(
-            "policy: {} allow_unsigned={} os_notifications={} os_text={}",
+        Policy::Loaded {
+            path,
+            settings,
+            images,
+        } => format!(
+            "policy: {} allow_unsigned={} os_notifications={} os_text={} images={}",
             path.display(),
             settings.allow_unsigned,
             settings.os_notifications,
-            settings.os_text
+            settings.os_text,
+            images
         ),
         Policy::Ignored { .. } => format!("policy: {}", policy.notice().unwrap_or_default()),
     }

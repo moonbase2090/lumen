@@ -12,6 +12,7 @@
 
 use crate::document::{Block, Document, RichBlock};
 use crate::grid::GridBlock;
+use crate::images::Pixels;
 use crate::layout::{GUTTER_COLUMNS, Rect, StripPlacement, layout, notification_area};
 use crate::notify::Toast;
 use lumen_track0::Block as Track0Block;
@@ -28,6 +29,8 @@ const FACE: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf");
 pub const BASE_PX: f32 = 14.0;
 /// The label every rich block's container carries.
 pub const CONTAINER_LABEL: &str = "unverified output";
+/// The most rows of cells a decoded image is drawn at in its container.
+pub const IMAGE_MAX_ROWS: u64 = 40;
 /// The most lines of text in a toast; the rest is cut.
 pub const TOAST_MAX_LINES: usize = 3;
 /// The terminal's own text in the header strip of the trust margin.
@@ -514,8 +517,65 @@ impl Renderer {
     /// The height in pixels of a rich block's container.
     #[must_use]
     pub fn rich_height(&self, block: &RichBlock, columns: usize) -> u32 {
+        if let Some(pixels) = &block.image {
+            let (_, h) = self.image_size(pixels, columns);
+            return 2 * self.scale + self.cell_h + h;
+        }
         let (lines, _) = Self::body(&block.content, columns.saturating_sub(2).max(1));
         2 * self.scale + (1 + u32::try_from(lines.len()).unwrap_or(0)) * self.cell_h
+    }
+
+    /// The size a decoded image is drawn at in a container `columns` wide: its
+    /// own size, reduced to fit the width inside the container and
+    /// [`IMAGE_MAX_ROWS`] rows, keeping its proportions, never enlarged. The
+    /// size the producer declared is not used.
+    #[must_use]
+    pub fn image_size(&self, pixels: &Pixels, columns: usize) -> (u32, u32) {
+        let max_w = u64::from(u32::try_from(columns.saturating_sub(2).max(1)).unwrap_or(1))
+            * u64::from(self.cell_w);
+        let max_h = IMAGE_MAX_ROWS * u64::from(self.cell_h);
+        let (w, h) = (
+            u64::from(pixels.width.max(1)),
+            u64::from(pixels.height.max(1)),
+        );
+        // The largest factor, as a fraction, that fits both limits and is at most 1.
+        let (mut num, mut den) = (1u64, 1u64);
+        for (limit, side) in [(max_w, w), (max_h, h)] {
+            if side * num > limit * den {
+                (num, den) = (limit, side);
+            }
+        }
+        let fit = |side: u64| u32::try_from((side * num / den).max(1)).unwrap_or(u32::MAX);
+        (fit(w), fit(h))
+    }
+
+    /// Draw decoded premultiplied RGBA scaled (nearest neighbour) to `w` by `h`
+    /// at `x`, `y`, over what is already in the frame.
+    fn paint_pixels(frame: &mut Frame, at: (u32, u32), size: (u32, u32), src: &Pixels) {
+        let (left, top) = at;
+        let (width, height) = size;
+        for dy in 0..height {
+            let from_row = u64::from(dy) * u64::from(src.height) / u64::from(height);
+            for dx in 0..width {
+                let from_col = u64::from(dx) * u64::from(src.width) / u64::from(width);
+                let index = (from_row * u64::from(src.width) + from_col) * 4;
+                let Some(px) = usize::try_from(index)
+                    .ok()
+                    .and_then(|i| src.rgba.get(i..i + 4))
+                else {
+                    continue;
+                };
+                let inverse = 255 - u32::from(px[3]);
+                let under = frame.pixel(left + dx, top + dy).unwrap_or([0, 0, 0]);
+                let mut out = [0u8; 3];
+                for (channel, slot) in out.iter_mut().enumerate() {
+                    let value =
+                        u32::from(px[channel]) + (u32::from(under[channel]) * inverse + 127) / 255;
+                    *slot = u8::try_from(value.min(255)).unwrap_or(255);
+                }
+                frame.put(left + dx, top + dy, out);
+            }
+        }
     }
 
     /// Paint a rich block in its container, `columns` cells wide, with its top
@@ -536,6 +596,11 @@ impl Renderer {
         let mut line_y = y + self.scale;
         self.text_line(frame, inner, line_y, CONTAINER_LABEL, t.label);
         line_y += self.cell_h;
+        if let Some(pixels) = &block.image {
+            let size = self.image_size(pixels, columns);
+            Self::paint_pixels(frame, (inner, line_y), size, pixels);
+            return;
+        }
         let (lines, kind) = Self::body(&block.content, columns.saturating_sub(2).max(1));
         for line in &lines {
             let colour = match kind {
