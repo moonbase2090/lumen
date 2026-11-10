@@ -1,5 +1,6 @@
-//! The stop rule's view of a format must agree with the judge that decides the
-//! gate, or the campaign would stop on something the judge then fails.
+//! The campaign's view of a format must agree with the judge that decides the
+//! gate, or the campaign would stop on something the judge then fails. The gate
+//! is a floor of 250 CPU-hours and no open crash or confirmed hang.
 
 #![allow(missing_docs)]
 
@@ -21,6 +22,13 @@ fn crashes(at: &[f64]) -> Vec<Value> {
         .collect()
 }
 
+/// Records of a raw timeout that a replay under the production limits cleared.
+fn cleared(at: &[f64]) -> Vec<Value> {
+    at.iter()
+        .map(|h| json!({"at_cpu_hour": h, "kind": "hang", "cleared": true}))
+        .collect()
+}
+
 /// What the judge says about one format with these samples and crashes.
 fn judged(samples: &[Value], crashes: &[Value]) -> bool {
     let Ok(entry) = ledger::format_entry("png", samples, crashes) else {
@@ -31,17 +39,16 @@ fn judged(samples: &[Value], crashes: &[Value]) -> bool {
 }
 
 #[test]
-fn a_format_that_meets_every_part_holds() {
-    let s = samples(&[(100.0, 900.0), (830.0, 950.0), (1000.0, 950.0)]);
+fn a_format_at_the_floor_with_no_open_finding_holds() {
+    let s = samples(&[(100.0, 950.0), (260.0, 950.0)]);
     let st = status(&s, &crashes(&[])).unwrap_or_else(|_| unreachable_status());
     assert!(st.holds);
-    assert_eq!(st.cpu_hours, 1000.0);
-    assert!(!st.over_cap);
-    assert!(st.plateau);
-    assert_eq!(st.hours_since_new_crash, 1000.0, "no crash: all of them");
+    assert_eq!(st.cpu_hours, 260.0);
+    assert_eq!((st.crashes, st.open), (0, 0));
+    assert_eq!(st.hours_since_new_crash, 260.0, "no crash: all of them");
     assert_eq!(
-        st.hours_since_coverage_gain, 170.0,
-        "coverage last grew at 830"
+        st.hours_since_coverage_gain, 160.0,
+        "coverage last grew at 100"
     );
 }
 
@@ -50,6 +57,7 @@ fn unreachable_status() -> lumen_decoder_tools::gate::Status {
         cpu_hours: -1.0,
         edges: 0.0,
         crashes: 0,
+        open: 0,
         over_cap: false,
         hours_since_new_crash: 0.0,
         hours_since_coverage_gain: 0.0,
@@ -59,71 +67,66 @@ fn unreachable_status() -> lumen_decoder_tools::gate::Status {
 }
 
 #[test]
-fn each_part_of_the_gate_can_fail_it() {
-    let flat = [(100.0, 900.0), (500.0, 950.0), (1000.0, 950.0)];
-    let hold =
-        |p: &[(f64, f64)], c: &[f64]| status(&samples(p), &crashes(c)).is_ok_and(|st| st.holds);
-    assert!(hold(&flat, &[]));
+fn only_the_floor_and_open_findings_decide() {
+    let hold = |p: &[(f64, f64)], c: Vec<Value>| status(&samples(p), &c).is_ok_and(|st| st.holds);
+    let growing = [(100.0, 900.0), (400.0, 950.0), (600.0, 951.0)];
     assert!(
-        !hold(&[(50.0, 950.0), (249.0, 950.0)], &[]),
+        hold(&growing, vec![]),
+        "coverage still growing: not a condition"
+    );
+    assert!(
+        !hold(&[(50.0, 950.0), (249.0, 950.0)], vec![]),
         "249 CPU-hours, under the floor"
     );
     assert!(
-        hold(&[(50.0, 950.0), (250.0, 950.0)], &[]),
-        "the floor is enough: the earlier 1000 no longer applies"
-    );
-    assert!(!hold(&flat, &[900.0]), "a crash inside the window");
-    assert!(!hold(&flat, &[40.0]), "a crash long ago still fails");
-    assert!(
-        !hold(&[(50.0, 950.0), (1201.0, 950.0)], &[]),
-        "past the cap"
-    );
-    assert!(hold(&[(50.0, 950.0), (1200.0, 950.0)], &[]), "at the cap");
-    assert!(
-        !hold(
-            &[
-                (100.0, 900.0),
-                (500.0, 950.0),
-                (900.0, 951.0),
-                (1000.0, 951.0)
-            ],
-            &[]
-        ),
-        "coverage grew inside the window"
+        hold(&[(50.0, 950.0), (250.0, 950.0)], vec![]),
+        "the floor is enough"
     );
     assert!(
-        !hold(&[(900.0, 950.0), (1000.0, 950.0)], &[]),
-        "no reading from before the window to compare with"
+        hold(&[(50.0, 950.0), (1500.0, 950.0)], vec![]),
+        "past the budget cap"
     );
+    assert!(!hold(&growing, crashes(&[500.0])), "an open crash fails");
+    assert!(
+        !hold(&growing, crashes(&[40.0])),
+        "a crash long ago still fails"
+    );
+    assert!(
+        hold(&growing, cleared(&[40.0, 500.0])),
+        "raw timeouts replayed clean under the production limits are not open"
+    );
+    let mut mixed = cleared(&[40.0]);
+    mixed.extend(crashes(&[500.0]));
+    assert!(
+        !hold(&growing, mixed),
+        "one open record among cleared ones fails"
+    );
+    let st = status(&samples(&growing), &cleared(&[40.0, 500.0]));
+    assert!(st.is_ok_and(|st| st.crashes == 2 && st.open == 0));
 }
 
 #[test]
-fn the_stop_rule_agrees_with_the_judge_on_the_boundaries() {
-    // Hours are chosen so that the window starts at exactly 832.
-    for (points, crash_at) in [
-        (vec![(832.0, 950.0), (1000.0, 950.0)], vec![832.0]), // a crash exactly 168 before the end: still a crash
-        (vec![(832.0, 950.0), (1000.0, 950.0)], vec![832.5]), // just inside
-        (vec![(832.0, 950.0), (1000.0, 950.0)], vec![]),      // reading exactly at the window start
-        (vec![(832.5, 950.0), (1000.0, 950.0)], vec![]),      // reading just after it
+fn the_campaign_agrees_with_the_judge_on_the_boundaries() {
+    for (points, records) in [
+        (vec![(80.0, 950.0), (249.5, 950.0)], crashes(&[])), // just under the floor
+        (vec![(82.0, 950.0), (250.0, 950.0)], crashes(&[])), // at the floor
+        (vec![(100.0, 900.0), (1000.0, 951.0)], crashes(&[])), // growing at the end
+        (vec![(100.0, 950.0), (1200.5, 950.0)], crashes(&[])), // past the budget cap
+        (vec![(999.9, 950.0), (500.0, 950.0)], crashes(&[])), // unordered samples
+        (vec![(100.0, 950.0), (300.0, 950.0)], crashes(&[300.0])), // an open crash at the end
         (
-            vec![(100.0, 900.0), (832.0, 950.0), (1000.0, 951.0)],
-            vec![],
-        ), // grew at the end
-        (vec![(100.0, 900.0), (1000.0, 950.0)], vec![]), // grew, then reading before window is lower
-        (vec![(999.9, 950.0), (500.0, 950.0)], vec![]),  // unordered samples
-        (vec![(100.0, 950.0), (1200.0, 950.0)], vec![]), // at the cap
-        (vec![(100.0, 950.0), (1200.5, 950.0)], vec![]), // just past it
-        (vec![(80.0, 950.0), (249.5, 950.0)], vec![]),   // just under the floor
-        (vec![(82.0, 950.0), (250.0, 950.0)], vec![]),   // at the floor
+            vec![(100.0, 950.0), (300.0, 950.0)],
+            cleared(&[10.0, 300.0]),
+        ), // all cleared
     ] {
-        let (s, c) = (samples(&points), crashes(&crash_at));
-        let mine = status(&s, &c).is_ok_and(|st| st.holds);
-        assert_eq!(mine, judged(&s, &c), "{points:?} {crash_at:?}");
+        let s = samples(&points);
+        let mine = status(&s, &records).is_ok_and(|st| st.holds);
+        assert_eq!(mine, judged(&s, &records), "{points:?} {records:?}");
     }
 }
 
 #[test]
-fn the_stop_rule_agrees_with_the_judge_on_many_generated_runs() {
+fn the_campaign_agrees_with_the_judge_on_many_generated_runs() {
     // A small deterministic generator, so a failure can be reproduced.
     let mut state = 0x2545_F491_u32;
     let mut next = move || {
@@ -139,23 +142,21 @@ fn the_stop_rule_agrees_with_the_judge_on_many_generated_runs() {
         let (mut hour, mut edges) = (0_u32, 800_u32);
         while hour < end {
             hour += 1 + next() % 90;
-            // Coverage mostly flat, sometimes a gain.
             if next() % 4 == 0 {
                 edges += next() % 5;
             }
             points.push((f64::from(hour.min(end)), f64::from(edges)));
         }
-        let crash_count = next() % 3;
-        let crash_hours: Vec<f64> = (0..crash_count)
-            .map(|_| f64::from(next() % (end + 1)))
-            .collect();
-        let (samples, crashes) = (samples(&points), crashes(&crash_hours));
-        let mine = status(&samples, &crashes).is_ok_and(|st| st.holds);
-        assert_eq!(
-            mine,
-            judged(&samples, &crashes),
-            "{points:?} {crash_hours:?}"
-        );
+        let record_count = next() % 3;
+        let mut records = Vec::new();
+        for _ in 0..record_count {
+            let at = f64::from(next() % (end + 1));
+            // About half of the records were replayed clean.
+            records.push(json!({"at_cpu_hour": at, "kind": "hang", "cleared": next() % 2 == 0}));
+        }
+        let samples = samples(&points);
+        let mine = status(&samples, &records).is_ok_and(|st| st.holds);
+        assert_eq!(mine, judged(&samples, &records), "{points:?} {records:?}");
         total += 1;
         holding += i32::from(mine);
     }

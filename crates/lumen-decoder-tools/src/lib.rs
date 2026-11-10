@@ -6,7 +6,7 @@
 //! - [`ledger`] builds the ledger `lumen-evidence --decoder` judges from the
 //!   records a campaign keeps.
 //! - [`miri`] checks the record `scripts/decoder-miri.sh` writes.
-//! - [`gate`] says where a format stands against the gate, for the stop rule.
+//! - [`gate`] says where a format stands against the gate: the floor and no open crash or confirmed hang.
 //! - [`slice`] sizes the last slice so the CPU-hour cap holds.
 //! - [`ckpt`] writes a block of bytes as console lines and reads the newest
 //!   verified one back out of noisy console text.

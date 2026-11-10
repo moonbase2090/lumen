@@ -12,13 +12,13 @@
 # more slices. Nothing here proves the gate; the ledger is judged by
 # `lumen-evidence --decoder --ledger DIR/ledger.json`.
 #
-# The gate run (--gate-run), with the stop rule of the campaign plan:
+# The gate run (--gate-run), which stops a format on the release criteria's gate:
 #   --gate-run             run every format in round-robin slices; count measured
 #                          CPU time (not workers x wall time); stop a format when
-#                          the gate holds for it (at least 250 CPU-hours, no crash
-#                          at all, coverage flat over the last 168, by the judge's
-#                          rule), or at --cap-cpu-hours; write status.json
-#   --cap-cpu-hours H      cap per format (default 1200). The last slice is sized
+#                          the gate holds for it (at least 250 CPU-hours and no
+#                          open crash or confirmed hang, by the judge's rule), or
+#                          at --cap-cpu-hours (a budget, not a pass); write status.json
+#   --cap-cpu-hours H      budget cap per format (default 1200). The last slice is sized
 #                          in crates/lumen-decoder-tools/src/slice.rs from what is
 #                          left of the cap, assuming the worst of two things: a
 #                          startup of 30 CPU-seconds per slice, and a rate of 1.25

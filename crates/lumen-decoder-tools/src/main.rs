@@ -129,7 +129,7 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
                 "{}",
                 json!({
                     "cpu_hours": st.cpu_hours, "edges": st.edges, "crashes": st.crashes,
-                    "over_cap": st.over_cap,
+                    "open": st.open, "over_cap": st.over_cap,
                     "hours_since_new_crash": st.hours_since_new_crash,
                     "hours_since_coverage_gain": st.hours_since_coverage_gain,
                     "plateau": st.plateau, "holds": st.holds,

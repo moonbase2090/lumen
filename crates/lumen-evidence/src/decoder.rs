@@ -3,9 +3,8 @@
 //! The driver does not fuzz. There is no image decoder in this repository and
 //! images are off, so there is nothing to fuzz yet. This mode reads the
 //! ledger that a decoder fuzzing run writes and applies the release criteria's
-//! rule (a floor of 250 CPU-hours, a stop after 168 CPU-hours with no new crash
-//! or coverage edge, a cap of 1200, and any crash fails the build identity) to
-//! it, so a run's verdict does not depend on who read the numbers. With no
+//! rule (a floor of 250 CPU-hours and no open crash or confirmed hang for the
+//! build identity) to it, so a run's verdict does not depend on who read the numbers. With no
 //! ledger it reports `not measured`.
 //!
 //! # Ledger format
@@ -17,9 +16,11 @@
 //!   fuzzed; the gate covers both.
 //! - `formats`: one entry per enabled image format with `name`, `cpu_hours`,
 //!   `crashes` (each `{"at_cpu_hour": h, "kind": ".."}`, where a hang over
-//!   2 s, memory over 512 MiB and a sanitizer report all count as crashes)
+//!   2 s, memory over 512 MiB and a sanitizer report all count as crashes;
+//!   an optional `"cleared": true` says the record was replayed under the
+//!   production limits and stayed inside them, so it is not an open finding)
 //!   and `coverage` (each `{"at_cpu_hour": h, "edges": n}`, the cumulative
-//!   coverage edges found by then).
+//!   coverage edges found by then, kept for the record).
 //! - `sandbox_escape`: `{"revision": "..", "passed": n, "total": n}` for the
 //!   named test set.
 
@@ -33,11 +34,9 @@ use crate::HARNESS_VERSION;
 
 /// The floor: CPU-hours of fuzzing each enabled format needs before it is judged.
 pub const MIN_CPU_HOURS: f64 = 250.0;
-/// The stop rule's window: the run stops when it has seen no new coverage edge
-/// (and no crash) in this many CPU-hours.
+/// The window the report uses to say whether coverage has levelled off. It is
+/// information only: it is not part of the gate.
 pub const WINDOW_CPU_HOURS: f64 = 168.0;
-/// The cap: a run does not go past this many CPU-hours for one format.
-pub const MAX_CPU_HOURS: f64 = 1200.0;
 
 /// One format's verdict.
 #[derive(Debug, Clone, PartialEq)]
@@ -46,12 +45,12 @@ pub struct FormatResult {
     pub name: String,
     /// CPU-hours of fuzzing.
     pub cpu_hours: f64,
-    /// Crashes found. Any crash fails the build identity the ledger covers; a
-    /// crash does not age out of the window.
+    /// Crash and hang records in the ledger, cleared ones included.
     pub crashes: usize,
-    /// The run went past [`MAX_CPU_HOURS`].
-    pub over_cap: bool,
-    /// No new coverage edge in the last window.
+    /// Records not cleared by a replay under the production limits. Any open
+    /// one fails the build identity the ledger covers.
+    pub open: usize,
+    /// No new coverage edge in the last window. Information only.
     pub plateau: bool,
     /// Every part of the threshold holds for this format.
     pub pass: bool,
@@ -113,11 +112,11 @@ impl Report {
                 for f in formats {
                     let _ = writeln!(
                         out,
-                        "format {} cpu_hours={} (floor {MIN_CPU_HOURS}, cap {MAX_CPU_HOURS}) crashes={} over_cap={} plateau={} {}",
+                        "format {} cpu_hours={} (floor {MIN_CPU_HOURS}) records={} open={} plateau={} (information only) {}",
                         f.name,
                         f.cpu_hours,
                         f.crashes,
-                        f.over_cap,
+                        f.open,
                         f.plateau,
                         if f.pass { "pass" } else { "FAIL" }
                     );
@@ -157,8 +156,12 @@ fn format_of(v: &Value) -> Result<FormatResult, String> {
     let crashes = v["crashes"]
         .as_array()
         .ok_or_else(|| ctx("crashes is not a list".into()))?;
+    let mut open = 0;
     for c in crashes {
         num(&c["at_cpu_hour"], "a crash's at_cpu_hour").map_err(ctx)?;
+        if c["cleared"].as_bool() != Some(true) {
+            open += 1;
+        }
     }
     let coverage = v["coverage"]
         .as_array()
@@ -172,18 +175,16 @@ fn format_of(v: &Value) -> Result<FormatResult, String> {
             before = Some(before.map_or(edges, |b| b.max(edges)));
         }
     }
-    // The plateau needs a coverage reading from before the window to compare to.
     let plateau = before.is_some_and(|b| b >= overall);
-    let over_cap = cpu_hours > MAX_CPU_HOURS;
-    // A crash ends the run for this build identity, however long ago it was
-    // found; reaching the cap before the stop rule holds is not a pass either,
-    // because the plateau test above is the stop rule.
-    let pass = cpu_hours >= MIN_CPU_HOURS && crashes.is_empty() && plateau && !over_cap;
+    // The gate: the floor, and no open crash or confirmed hang. An open one
+    // fails the build identity however long ago it was found. The coverage
+    // plateau and the run's length are reported and are not conditions.
+    let pass = cpu_hours >= MIN_CPU_HOURS && open == 0;
     Ok(FormatResult {
         name,
         cpu_hours,
         crashes: crashes.len(),
-        over_cap,
+        open,
         plateau,
         pass,
     })
@@ -326,55 +327,55 @@ mod tests {
     }
 
     #[test]
-    fn a_run_past_the_cap_fails_and_the_cap_itself_does_not() {
+    fn the_run_length_beyond_the_floor_is_not_a_condition() {
         let mut v = good();
-        v["formats"][0]["crashes"] = json!([]);
-        v["formats"][0]["cpu_hours"] = json!(1200.0);
-        assert!(judged(&v).passes());
-        v["formats"][0]["cpu_hours"] = json!(1200.5);
-        v["formats"][0]["coverage"] = json!([{"at_cpu_hour": 100.0, "edges": 950}]);
-        assert!(!judged(&v).passes());
+        for hours in [250.0, 1200.0, 1200.5, 3000.0] {
+            v["formats"][0]["cpu_hours"] = json!(hours);
+            assert!(judged(&v).passes(), "{hours} CPU-hours with nothing open");
+        }
     }
 
     #[test]
-    fn a_run_that_reaches_the_cap_with_coverage_still_growing_has_not_passed() {
-        let mut v = good();
-        v["formats"][0]["crashes"] = json!([]);
-        v["formats"][0]["coverage"] = json!([
-            {"at_cpu_hour": 100.0, "edges": 900},
-            {"at_cpu_hour": 1100.0, "edges": 951}
-        ]);
-        assert!(!judged(&v).passes());
-    }
-
-    #[test]
-    fn the_window_edge_belongs_to_the_older_side() {
-        let mut v = good();
-        v["formats"][0]["crashes"] = json!([]);
-        v["formats"][0]["coverage"] = json!([{"at_cpu_hour": 1032.0, "edges": 950}]);
-        assert!(judged(&v).passes());
-        v["formats"][0]["coverage"] = json!([{"at_cpu_hour": 1033.0, "edges": 950}]);
-        assert!(
-            !judged(&v).passes(),
-            "no reading at or before the window start"
-        );
-    }
-
-    #[test]
-    fn new_coverage_inside_the_window_means_no_plateau() {
+    fn coverage_that_is_still_growing_does_not_fail_and_is_reported() {
         let mut v = good();
         v["formats"][0]["coverage"] = json!([
             {"at_cpu_hour": 100.0, "edges": 900},
             {"at_cpu_hour": 1200.0, "edges": 951}
         ]);
-        assert!(!judged(&v).passes());
+        let report = judged(&v);
+        assert!(report.passes());
+        let Report::Judged { formats, .. } = &report else {
+            unreachable!("judged")
+        };
+        assert!(!formats[0].plateau, "reported as not levelled off");
+        v["formats"][0]["coverage"] = json!([]);
+        assert!(
+            judged(&v).passes(),
+            "a ledger with no coverage readings still judges"
+        );
     }
 
     #[test]
-    fn a_plateau_needs_a_reading_from_before_the_window() {
+    fn a_record_cleared_by_a_replay_is_not_open_and_an_uncleared_one_is() {
         let mut v = good();
-        v["formats"][0]["coverage"] = json!([{"at_cpu_hour": 1100.0, "edges": 950}]);
-        assert!(!judged(&v).passes());
+        v["formats"][0]["crashes"] = json!([
+            {"at_cpu_hour": 8.0, "kind": "hang", "cleared": true},
+            {"at_cpu_hour": 16.0, "kind": "hang", "cleared": true}
+        ]);
+        let report = judged(&v);
+        assert!(report.passes());
+        let Report::Judged { formats, .. } = &report else {
+            unreachable!("judged")
+        };
+        assert_eq!((formats[0].crashes, formats[0].open), (2, 0));
+        v["formats"][0]["crashes"] = json!([
+            {"at_cpu_hour": 8.0, "kind": "hang", "cleared": true},
+            {"at_cpu_hour": 16.0, "kind": "hang"}
+        ]);
+        assert!(!judged(&v).passes(), "no cleared flag means open");
+        v["formats"][0]["crashes"] =
+            json!([{"at_cpu_hour": 8.0, "kind": "hang", "cleared": "yes"}]);
+        assert!(!judged(&v).passes(), "only a true flag clears");
     }
 
     #[test]

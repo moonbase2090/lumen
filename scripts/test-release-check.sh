@@ -16,6 +16,11 @@ GOOD='{"revision":"fz-1","decoder_build":"d1","image_path_build":"p1",
 CRASHED='{"decoder_build":"d1","image_path_build":"p1",
  "formats":[{"name":"png","cpu_hours":900,"crashes":[{"at_cpu_hour":300,"kind":"memory"}],"coverage":[]}]}'
 
+CLEARED='{"decoder_build":"d1","image_path_build":"p1",
+ "formats":[{"name":"png","cpu_hours":900,"crashes":[{"at_cpu_hour":300,"kind":"hang","cleared":true}],"coverage":[]}]}'
+MIXED='{"decoder_build":"d1","image_path_build":"p1",
+ "formats":[{"name":"png","cpu_hours":900,"crashes":[{"at_cpu_hour":300,"kind":"hang","cleared":true},{"at_cpu_hour":400,"kind":"hang"}],"coverage":[]}]}'
+
 FAILED=0
 
 # run_case <description> <expected exit> [VAR=value ...]
@@ -78,6 +83,8 @@ run_case "a ledger with no format refuses" 1 'LEDGER_TEXT={"decoder_build":"d1",
 run_case "a ledger without the decoder identity refuses" 1 'LEDGER_TEXT={"image_path_build":"p1","formats":[{"name":"png","crashes":[]}]}'
 run_case "a ledger whose format has no crash list refuses" 1 'LEDGER_TEXT={"decoder_build":"d1","image_path_build":"p1","formats":[{"name":"png"}]}'
 run_case "an open crash refuses even when the judge is stubbed to pass" 1 "LEDGER_TEXT=$CRASHED"
+run_case "a record cleared by a replay does not refuse" 0 "LEDGER_TEXT=$CLEARED"
+run_case "an uncleared record among cleared ones refuses" 1 "LEDGER_TEXT=$MIXED"
 run_case "a decoder identity mismatch refuses" 1 DEC_ID=d2
 run_case "an image-path identity mismatch refuses" 1 IMG_ID=p2
 run_case "no fuzz flags file refuses" 1 NOFLAGS
