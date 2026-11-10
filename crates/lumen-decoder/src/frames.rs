@@ -115,6 +115,9 @@ impl Receiver {
         start: Start,
     ) -> Started {
         let state = self.producers.entry(producer).or_default();
+        // The image being received has its id in use, though the manager does
+        // not know it yet. Note it before this start ends that image.
+        let incumbent = state.partial.as_ref().map(|p| p.id);
         let abandoned = state.partial.take().map(|p| p.id);
         state.skipping = None;
         let refuse = |state: &mut State, reason: AltReason| {
@@ -133,7 +136,7 @@ impl Receiver {
         if limits::rgba_bytes(u64::from(start.width), u64::from(start.height)).is_none() {
             return refuse(state, AltReason::InvalidHint);
         }
-        if manager.has_id(producer, start.id) {
+        if manager.has_id(producer, start.id) || incumbent == Some(start.id) {
             return refuse(state, AltReason::DuplicateId);
         }
         if manager.held_bytes(producer) + u64::from(start.length) > MAX_HELD_BYTES {
@@ -162,8 +165,13 @@ impl Receiver {
         bytes: &[u8],
     ) -> Data {
         let state = self.producers.entry(producer).or_default();
-        if state.partial.is_none() && state.skipping == Some(id) {
-            return Data::Dropped;
+        if state.partial.is_none() {
+            // Only the refused id is dropped. A frame for any other id is
+            // rejected and does not stop the dropping.
+            if state.skipping == Some(id) {
+                return Data::Dropped;
+            }
+            return Data::Rejected { abandoned: None };
         }
         let fits = state.partial.as_ref().is_some_and(|p| {
             p.id == id
