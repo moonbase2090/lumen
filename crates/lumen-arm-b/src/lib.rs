@@ -484,6 +484,11 @@ impl Layer {
             return;
         }
         match parse(kind, payload) {
+            // An image is received only inside the unverified-output container:
+            // the strip holds no image and the bytes are not kept for it.
+            Ok(Block::ImageStart { .. } | Block::ImageData { .. }) if !self.container_open => {
+                items.push(text(&raw));
+            }
             Ok(block) if self.container_open => items.push(Item::Block(block)),
             Ok(_) if self.config.background_as_text => items.push(text(&raw)),
             Ok(block) => items.push(Item::Background(block)),
@@ -517,6 +522,8 @@ pub fn item_summary(item: &Item) -> (&'static str, usize) {
         match block {
             Block::Paragraph(text) | Block::Heading { text, .. } => text.len(),
             Block::Code { lang, text, .. } => lang.len() + text.len(),
+            Block::ImageStart { alt, .. } => alt.len(),
+            Block::ImageData { data, .. } => data.len(),
         }
     }
     match item {

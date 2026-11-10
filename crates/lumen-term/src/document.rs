@@ -205,6 +205,10 @@ impl Document {
                     line.extend_from_slice(b"\r\n");
                     self.grid().feed(&line);
                 }
+                // Image bytes are not a row, in the container or in a strip.
+                // This build does not decode, so a data frame is not kept.
+                Piece::Rich(Track0Block::ImageData { .. })
+                | Piece::Background(Track0Block::ImageData { .. }) => {}
                 Piece::Rich(content) => self.blocks.push(Block::Rich(RichBlock {
                     content,
                     background: false,

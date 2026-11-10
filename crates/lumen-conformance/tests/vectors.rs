@@ -2,7 +2,7 @@
 //! detector and Track 0 parser.
 
 use lumen_detector::{Detector, Event};
-use lumen_track0::{Error, KIND_PARAGRAPH, escaped_text, parse};
+use lumen_track0::{Block, Error, KIND_PARAGRAPH, escaped_text, parse};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -184,6 +184,8 @@ fn limit_vectors_for_track0() {
             (Ok(_), Some("paragraph"), _) => {
                 assert_eq!(kind_of(&v["kind"]), KIND_PARAGRAPH, "{id}");
             }
+            (Ok(Block::ImageStart { .. }), Some("image_start"), _)
+            | (Ok(Block::ImageData { .. }), Some("image_data"), _) => {}
             (Err(e), _, Some(name)) => assert_eq!(error_name(*e), name, "{id}"),
             _ => unreachable!("{id}: got {got:?}, wanted {want}"),
         }
@@ -217,6 +219,12 @@ fn listed_limits_have_a_vector_or_a_stated_reason() {
     }
     for v in array(&load("framing.json"), "vectors") {
         ids.insert(text(v, "id").to_owned());
+    }
+    let images = load("image-frames.json");
+    for key in ["parse", "detector", "reassembly", "wire", "escaped"] {
+        for v in array(&images, key) {
+            assert!(ids.insert(text(v, "id").to_owned()), "duplicate id {key}");
+        }
     }
     let budgets = load("budgets.json");
     for key in ["ledger_vectors", "rate_vectors", "item_vectors"] {

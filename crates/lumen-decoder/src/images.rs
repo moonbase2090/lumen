@@ -110,6 +110,15 @@ pub enum AltReason {
     TextureBudget,
     /// The sink could not take the upload.
     UploadFailed,
+    /// The declared encoded length is zero or over the image limit.
+    BadLength,
+    /// The producer holds too many encoded bytes; it is now degraded.
+    HeldBytes,
+    /// The image's frames came out of order or did not match its start.
+    OutOfOrder,
+    /// A new image started, or the command or layer ended, before this one
+    /// was complete.
+    Abandoned,
 }
 
 /// A texture the sink holds.
@@ -302,6 +311,51 @@ impl<T: TextureSink> ImageManager<T> {
         }
     }
 
+    /// Why an image from `producer` would be shown as alt text right now
+    /// whatever its size: images are locked, the producer is on an SSH session
+    /// or it is degraded. `None` means a submission is considered. Nothing is
+    /// reserved or recorded.
+    #[must_use]
+    pub fn refusal(&self, producer: Producer) -> Option<AltReason> {
+        let state = self.producers.get(&producer);
+        let trust = state
+            .and_then(|p| p.trust)
+            .unwrap_or(Trust::Unsigned { ssh_session: true });
+        if !self.gate.open() {
+            Some(AltReason::Locked)
+        } else if matches!(trust, Trust::Unsigned { ssh_session: true }) {
+            Some(AltReason::SshSession)
+        } else if state.is_some_and(|p| p.degraded) {
+            Some(AltReason::Degraded)
+        } else {
+            None
+        }
+    }
+
+    /// Whether `producer` has an image in use under `id` (waiting, decoding or
+    /// shown).
+    #[must_use]
+    pub fn has_id(&self, producer: Producer, id: ImageId) -> bool {
+        self.producers
+            .get(&producer)
+            .is_some_and(|p| p.ids.contains(&id))
+    }
+
+    /// Encoded bytes `producer` has waiting for a decode.
+    #[must_use]
+    pub fn held_bytes(&self, producer: Producer) -> u64 {
+        self.queue
+            .iter()
+            .filter(|j| j.producer == producer)
+            .map(|j| j.bytes.len() as u64)
+            .sum()
+    }
+
+    /// Puts `producer` on alt text for the rest of the command.
+    pub fn degrade(&mut self, producer: Producer) {
+        self.producers.entry(producer).or_default().degraded = true;
+    }
+
     /// Submits an image whose bytes have arrived. Nothing is decoded or reserved
     /// unless every rule allows it.
     pub fn submit(
@@ -386,7 +440,9 @@ impl<T: TextureSink> ImageManager<T> {
             }
             self.in_flight_total += 1;
             let (tx, decoder) = (self.tx.clone(), Arc::clone(&self.decoder));
-            let (id, format, hint, bytes) = (job.id, job.format, job.hint, job.bytes.clone());
+            let mut job = job;
+            let (id, format, hint) = (job.id, job.format, job.hint);
+            let bytes = std::mem::take(&mut job.bytes);
             self.jobs.insert((producer, id), job);
             std::thread::spawn(move || {
                 // A panic in the decoder call is a crash, not a lost image.
