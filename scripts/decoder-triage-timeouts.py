@@ -2,7 +2,7 @@
 """Replays the timeout artifacts of a fuzz run under the production limits and
 writes one triage record per artifact.
 
-    decoder-triage-timeouts.py WORKER FORMAT CRASHES.jsonl ARTIFACTS_DIR OUT.jsonl [JOBS]
+    decoder-triage-timeouts.py WORKER FORMAT CRASHES.jsonl ARTIFACTS_DIR OUT.jsonl [JOBS] [--apply]
 
 Each artifact the run recorded as a hang is replayed through the real worker with
 the sandbox's own limits (2 s CPU, 512 MiB) and the host's 4 s wall limit, up to
@@ -12,6 +12,12 @@ wall limit, was stopped by a signal, or used 2 s of CPU or more. An artifact is 
 time; an artifact that looks slow in that pass (wall 1 s or more) is replayed
 again on its own, one try at a time, so that load on the machine is not mistaken
 for a hang. Every record keeps the measurements of its last two tries.
+
+With `--apply`, the verdicts are written back into CRASHES.jsonl: a record whose
+replay stayed inside the limits gets `"cleared": true` and the replay summary, so
+the gate (which counts only records that are not cleared) no longer counts it; a
+confirmed hang gets the replay summary and stays open. A record that already has
+a finished replay is not replayed again, and the file is replaced in one rename.
 
 Exit status 0 if no artifact is a confirmed hang, 1 if any is (their names are
 printed), 2 on a usage error.
@@ -83,7 +89,30 @@ def record(entry, tries):
     }
 
 
+def apply_verdicts(crashes, records):
+    """Writes the verdicts of `records` (by artifact name) into the crashes file."""
+    verdicts = {r["artifact"]: r["replay"] for r in records}
+    lines = []
+    for line in open(crashes):
+        if not line.strip():
+            continue
+        e = json.loads(line)
+        replay = verdicts.get(e.get("artifact"))
+        if replay is not None:
+            e["replay"] = replay
+            if not replay["confirmed_hang"]:
+                e["cleared"] = True
+        lines.append(json.dumps(e))
+    tmp = crashes + ".tmp"
+    with open(tmp, "w") as fh:
+        fh.write("".join(l + "\n" for l in lines))
+    os.replace(tmp, crashes)
+
+
 def main(argv):
+    apply = bool(argv) and argv[-1] == "--apply"
+    if apply:
+        argv = argv[:-1]
     if len(argv) not in (5, 6):
         sys.stderr.write(__doc__)
         return 2
@@ -91,7 +120,10 @@ def main(argv):
     jobs = int(argv[5]) if len(argv) == 6 else 4
     entries = [json.loads(line) for line in open(crashes) if line.strip()]
     entries = [e for e in entries if e.get("artifact", "").startswith("timeout-")]
+    if apply:
+        entries = [e for e in entries if not (e.get("replay") or {}).get("done")]
     hangs = []
+    records = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool, open(out_path, "w") as out:
         # Pass 1 runs JOBS at a time; slow ones are settled afterwards, alone.
         first = list(pool.map(lambda e: run_one(worker, fmt, os.path.join(artifacts, e["artifact"])), entries))
@@ -101,6 +133,9 @@ def main(argv):
             if rec["replay"]["confirmed_hang"]:
                 hangs.append(e["artifact"])
             out.write(json.dumps(rec) + "\n")
+            records.append(rec)
+    if apply:
+        apply_verdicts(crashes, records)
     print(f"{len(entries)} timeout artifacts replayed; {len(hangs)} confirmed hangs")
     for h in hangs:
         print("HANG", h)

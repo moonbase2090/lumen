@@ -96,6 +96,38 @@ class Triage(unittest.TestCase):
         rc, recs = self.run_triage(["timeout-a"])
         self.assertEqual([r["artifact"] for r in recs], ["timeout-a"])
 
+    def test_apply_clears_a_clean_replay_and_leaves_a_hang_open(self):
+        self.put("timeout-fine", b"plain")
+        self.put("timeout-stuck", b"SLEEP")
+        crashes = os.path.join(self.dir, "crashes.jsonl")
+        with open(crashes, "w") as fh:
+            for n in ("timeout-fine", "timeout-stuck"):
+                fh.write(json.dumps({"at_cpu_hour": 1.0, "kind": "hang", "artifact": n}) + "\n")
+            fh.write(json.dumps({"at_cpu_hour": 2.0, "kind": "sanitizer", "artifact": "crash-1"}) + "\n")
+        out = os.path.join(self.dir, "out.jsonl")
+        rc = triage.main([self.worker, "jpeg", crashes, self.art, out, "2", "--apply"])
+        self.assertEqual(rc, 1, "one confirmed hang")
+        recs = {r["artifact"]: r for r in map(json.loads, open(crashes))}
+        self.assertIs(recs["timeout-fine"].get("cleared"), True)
+        self.assertFalse(recs["timeout-fine"]["replay"]["confirmed_hang"])
+        self.assertNotIn("cleared", recs["timeout-stuck"])
+        self.assertTrue(recs["timeout-stuck"]["replay"]["confirmed_hang"])
+        self.assertNotIn("cleared", recs["crash-1"], "a sanitizer record is never cleared by a replay")
+        self.assertEqual(recs["crash-1"]["kind"], "sanitizer")
+
+    def test_apply_does_not_replay_a_finished_record_again(self):
+        self.put("timeout-fine", b"plain")
+        crashes = os.path.join(self.dir, "crashes.jsonl")
+        with open(crashes, "w") as fh:
+            fh.write(json.dumps({"at_cpu_hour": 1.0, "kind": "hang", "artifact": "timeout-fine"}) + "\n")
+        out = os.path.join(self.dir, "out.jsonl")
+        self.assertEqual(triage.main([self.worker, "jpeg", crashes, self.art, out, "2", "--apply"]), 0)
+        os.remove(os.path.join(self.art, "timeout-fine"))  # a second pass must not need it
+        self.assertEqual(triage.main([self.worker, "jpeg", crashes, self.art, out, "2", "--apply"]), 0)
+        self.assertEqual([json.loads(l) for l in open(out)], [])
+        rec = json.loads(open(crashes).read())
+        self.assertIs(rec.get("cleared"), True)
+
 
 if __name__ == "__main__":
     unittest.main()

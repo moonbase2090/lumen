@@ -11,6 +11,7 @@ This page describes the pieces that exist for the [decoder gate](../../spec/v0/c
 | Crash classifier | `decoder-fuzz-tools classify LOG` | Hang, memory, sanitizer, panic or other, from a libFuzzer log. Tested against excerpts of real logs in `crates/lumen-decoder-tools/tests/fixtures`. |
 | Build identity | `decoder-fuzz-tools identity ROOT FLAGS` | SHA-256 over the decoder sources (not the test-only worker), its manifest, the lockfile, `rustc -vV` and the flags. |
 | Campaign driver | `scripts/decoder-fuzz.sh` | Runs slices per format, keeps corpora, coverage samples and crashes, runs the G4 suite for the sandbox escape result and writes `ledger.json`. |
+| Timeout triage | `scripts/decoder-triage-timeouts.py` | The campaign driver runs it after every slice and before the ledger. It replays each raw timeout record under the production limits (4 s wall, 2 s CPU, 512 MiB, two tries) and writes the verdict into `crashes.jsonl`: a record that stayed inside the limits is marked `"cleared": true` and is not open; a confirmed hang stays open. A failed replay clears nothing. |
 | Ledger | `decoder-fuzz-tools ledger ...` | The format `lumen-evidence --decoder` reads. A test builds ledgers with these tools and has the real judge decide them. |
 
 Run a short campaign and judge it:
