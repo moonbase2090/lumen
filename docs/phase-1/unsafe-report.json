@@ -614,6 +614,17 @@
      "methods": 0
     }
    },
+   "byteorder-lite 0.1.0": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_items": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
    "bytes 1.12.1": {
     "forbids_unsafe": false,
     "source": "Registry",
@@ -922,6 +933,17 @@
      "methods": 0
     }
    },
+   "image-webp 0.2.4": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_items": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
    "inout 0.1.4": {
     "forbids_unsafe": false,
     "source": "Registry",
@@ -997,6 +1019,17 @@
      "item_impls": 0,
      "item_traits": 0,
      "methods": 0
+    }
+   },
+   "lumen-decoder 0.0.0": {
+    "forbids_unsafe": false,
+    "source": "Path",
+    "unsafe_items": {
+     "exprs": 206,
+     "functions": 0,
+     "item_impls": 1,
+     "item_traits": 0,
+     "methods": 4
     }
    },
    "lumen-detector 0.0.0": {
@@ -1153,6 +1186,17 @@
      "methods": 0
     }
    },
+   "png 0.18.1": {
+    "forbids_unsafe": true,
+    "source": "Registry",
+    "unsafe_items": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
    "polling 3.11.0": {
     "forbids_unsafe": false,
     "source": "Registry",
@@ -1228,6 +1272,17 @@
      "item_impls": 0,
      "item_traits": 0,
      "methods": 3
+    }
+   },
+   "quick-error 2.0.1": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_items": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
     }
    },
    "quick-xml 0.41.0": {
@@ -1866,6 +1921,28 @@
      "item_impls": 1,
      "item_traits": 0,
      "methods": 2
+    }
+   },
+   "zune-core 0.5.3": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_items": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "zune-jpeg 0.5.16-rc3": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_items": {
+     "exprs": 1297,
+     "functions": 22,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 1
     }
    }
   }
