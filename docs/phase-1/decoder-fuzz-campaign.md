@@ -61,7 +61,7 @@ CPU-hours are wall seconds times workers, summed over slices; that is an approxi
 
 ## What the smoke run showed
 
-A two-slice run of 20 s with 2 workers on `png` and `webp` produced a ledger of 0.022 CPU-hours per format, edges 1537 to 1593 for PNG and 1178 to 1206 for WebP, no crashes, and the G4 suite at 33 of 33. `lumen-evidence --decoder` judged it `FAIL` (needs the 250 CPU-hour floor, no stop rule shown). That is the expected result for a smoke run, and it shows the pieces fit together; it says nothing about the decoder's robustness.
+A two-slice run of 20 s with 2 workers on `png` and `webp` produced a ledger of 0.022 CPU-hours per format, edges 1537 to 1593 for PNG and 1178 to 1206 for WebP, no crashes, and the G4 suite at 33 of 33. `lumen-evidence --decoder` judged it `FAIL` (under the 250 CPU-hour floor). That is the expected result for a smoke run, and it shows the pieces fit together; it says nothing about the decoder's robustness.
 
 ## The guarded campaign
 
