@@ -18,6 +18,10 @@ triage.SLOW = 0.5
 WORKER = """#!{python}
 import os, sys, time
 data = sys.stdin.buffer.read()
+if b"EXIT70" in data:
+    sys.exit(70)
+if b"PANIC" in data:
+    sys.exit(101)
 if b"SLEEP" in data:
     time.sleep(30)
 elif b"ONCE" in data:
@@ -153,6 +157,20 @@ class Triage(unittest.TestCase):
         rec = json.loads(open(crashes).read())
         self.assertNotIn("cleared", rec)
         self.assertFalse(rec["replay"]["done"])
+
+    def test_a_worker_that_exits_without_answering_never_clears(self):
+        for name, body in (("timeout-70", b"EXIT70"), ("timeout-101", b"PANIC")):
+            self.put(name, body)
+        crashes = os.path.join(self.dir, "crashes.jsonl")
+        with open(crashes, "w") as fh:
+            for n in ("timeout-70", "timeout-101"):
+                fh.write(json.dumps({"at_cpu_hour": 1.0, "kind": "hang", "artifact": n}) + "\n")
+        out = os.path.join(self.dir, "out.jsonl")
+        triage.main([self.worker, "jpeg", crashes, self.art, out, "2", "--apply"])
+        for rec in map(json.loads, open(crashes)):
+            self.assertNotIn("cleared", rec, rec)
+            self.assertFalse(rec["replay"]["done"], rec)
+            self.assertFalse(rec["replay"]["confirmed_hang"], rec)
 
 
 if __name__ == "__main__":

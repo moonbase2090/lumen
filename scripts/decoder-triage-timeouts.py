@@ -14,10 +14,10 @@ again on its own, one try at a time, so that load on the machine is not mistaken
 for a hang. Every record keeps the measurements of its last two tries.
 
 With `--apply`, the verdicts are written back into CRASHES.jsonl: a record whose
-replay was measured and stayed inside the limits gets `"cleared": true` and the replay summary, so
+replay measured a decode (the worker answered) that stayed inside the limits gets `"cleared": true` and the replay summary, so
 the gate (which counts only records that are not cleared) no longer counts it; a
-confirmed hang, or a replay that could not be measured (a missing artifact, a
-failure to run), gets the replay summary and stays open. A record that already has
+confirmed hang, or a replay that could not be measured (a missing artifact, a worker
+that exited without answering), gets the replay summary and stays open. A record that already has
 a finished replay is not replayed again, and the file is replaced in one rename.
 
 Exit status 0 if no artifact is a confirmed hang, 1 if any is (their names are
@@ -48,9 +48,16 @@ def over_limits(r):
 
 
 def failed(t):
-    """True when a replay produced no measurement: the replay tool failed (a
-    missing artifact, a worker that could not start), so nothing is known."""
-    return bool(t.get("error") is not None or (t.get("exit") is None and not t.get("timed_out")))
+    """True when a replay did not measure a decode: the replay tool failed (a
+    missing artifact), or the worker neither answered nor broke a limit (it
+    exited early, for example because its sandbox could not start, or crashed
+    without a reply). Nothing is known about such a try, so it never clears a
+    record. A try that broke a limit is measured: it is evidence of a hang."""
+    if t.get("error") is not None:
+        return True
+    if over_limits(t):
+        return False
+    return t.get("exit") != 0 or t.get("status") is None
 
 
 def classify(tries):
