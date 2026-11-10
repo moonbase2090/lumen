@@ -1349,7 +1349,7 @@
   },
   {
    "id": "empty-chunk-ends-the-image",
-   "note": "a chunk of no bytes, handed to reassembly, ends the image",
+   "note": "a chunk of no bytes handed straight to reassembly ends the image; on the wire such a frame is malformed at the parser and never reaches reassembly (see parse vectors), so there the image stays",
    "gate": "open",
    "steps": [
     {
@@ -1514,8 +1514,8 @@
    ]
   },
   {
-   "id": "same-id-begins-nothing",
-   "note": "a start that reuses the id being received ends that image and begins no new one",
+   "id": "same-id-restarts",
+   "note": "a start that reuses the id being received first ends that image, freeing the id, so it is a fresh start and not a duplicate",
    "gate": "open",
    "steps": [
     {
@@ -1548,8 +1548,7 @@
      "height": 1,
      "length": 20,
      "expect": {
-      "placement": "alt",
-      "reason": "duplicate_id",
+      "placement": "receiving",
       "abandoned": 1
      }
     },
@@ -1559,7 +1558,7 @@
      "id": 1,
      "offset": 0,
      "expect": {
-      "result": "dropped"
+      "result": "buffered"
      },
      "hex": "89504e470d0a1a0a"
     },
@@ -1570,7 +1569,7 @@
      "offset": 0,
      "expect": {
       "result": "rejected",
-      "abandoned": null
+      "abandoned": 1
      },
      "hex": "00"
     },
@@ -1580,7 +1579,8 @@
      "id": 1,
      "offset": 0,
      "expect": {
-      "result": "dropped"
+      "result": "rejected",
+      "abandoned": null
      },
      "hex": "00"
     },
