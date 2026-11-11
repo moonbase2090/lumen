@@ -4,11 +4,13 @@ Host: fresh virtual machine from a clean macOS image, macOS 26.6.2 arm64, delete
 Build: cargo build --release -p lumen-term --features window, on the build host (a multi-arch build host); the binary was copied into the VM and its SHA-256 checked there
 Command (run in the VM's logged-in GUI session): lumen-term --size 800x600 --exit-after 40000 -- sh -c 'echo lumen window proof; sleep 60'
 Binary SHA-256: 21ce79230f352627940b1848a86bffe38964053b7781104c7e28b4ba91f82589
-Window created: true (a titled "lumen" window with the program's output and the input prompt; the app menu showed lumen-term)
-Window size: 800x600 content area at scale 2 (capture is 2048x1536)
+Window created: true (a titled "lumen" window with the program's output and the input prompt)
+Window size: 800x600 content area at scale 2 (the original capture was 2048x1536)
 Capture: taken from outside the guest, with the process running
 Window process exit: 0 (closed by --exit-after, not killed)
 Window process terminated after capture: true
-Capture SHA-256: ee4234a3ca86be4c87484902461003417ccc63d0588414adfe741414eb066aa3
+Original capture SHA-256: ee4234a3ca86be4c87484902461003417ccc63d0588414adfe741414eb066aa3
+Committed image: the window cropped out of that capture (1592x1256), because the full screen showed other windows of the virtual machine's session; nothing else was changed
+Committed image SHA-256: fc0794278f667b5bbd9fde149e28ecb06708238c07e805816ef7e9ecdc27446f
 Capture: macos-window.png
 Not shown here: a physical display, other macOS versions, release-signed builds (the macOS gate on signed builds is a separate task)
