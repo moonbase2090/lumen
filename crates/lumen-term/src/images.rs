@@ -70,7 +70,8 @@ impl Store {
 
 /// What the build knows about its two identities and the gate results it was
 /// shipped with. The release process sets them at build time
-/// (`LUMEN_DECODER_BUILD`, `LUMEN_IMAGE_PATH_BUILD`, `LUMEN_GATE_RECORDS`); a
+/// (`LUMEN_DECODER_BUILD`, `LUMEN_IMAGE_PATH_BUILD`, `LUMEN_GATE_RECORDS`; the
+/// crate's build script takes them from `release/gate-records.txt`); a
 /// build without them has identities that never unlock and no records.
 #[must_use]
 pub fn build_gate(setting_on: bool) -> Gate {
@@ -101,13 +102,16 @@ pub const fn platform() -> &'static str {
     }
 }
 
-/// Gate records as text: one per line, `platform decoder_build image_path_build
-/// decoder_gate memory_gate` separated by spaces, the two gates as `pass` or
-/// anything else for not passed. A line that is not of that shape is ignored,
-/// which only ever leaves images locked.
+/// Gate records as text: one per line (or separated by `;`), `platform
+/// decoder_build image_path_build decoder_gate memory_gate` separated by spaces, the two gates as `pass` or
+/// anything else for not passed. A line that starts with `#` is a comment. A
+/// line that is not of that shape is ignored, which only ever leaves images
+/// locked.
 #[must_use]
 pub fn parse_records(text: &str) -> Vec<GateRecord> {
     text.lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .flat_map(|line| line.split(';'))
         .filter_map(|line| {
             let f: Vec<&str> = line.split_whitespace().collect();
             let [platform, decoder, path, dg, mg] = f.as_slice() else {

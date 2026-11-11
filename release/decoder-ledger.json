@@ -1,0 +1,689 @@
+{
+ "revision": "carried-forward-1",
+ "decoder_build": "686e0adda8554e613333014d00dace4aff901e2f37f131078e1e2f0ea9aed586",
+ "image_path_build": "6c5a72fa88ee939fab4a3168647027de00ccd9f2f939a0f9b16a5effa60193b3",
+ "formats": [
+  {
+   "name": "png",
+   "cpu_hours": 352.0,
+   "crashes": [],
+   "coverage": [
+    {
+     "at_cpu_hour": 8.0,
+     "at_epoch": 1793613744,
+     "edges": 2500
+    },
+    {
+     "at_cpu_hour": 16.0,
+     "at_epoch": 1793614657,
+     "edges": 2683
+    },
+    {
+     "at_cpu_hour": 24.0,
+     "at_epoch": 1793615567,
+     "edges": 2700
+    },
+    {
+     "at_cpu_hour": 32.0,
+     "at_epoch": 1793616477,
+     "edges": 2705
+    },
+    {
+     "at_cpu_hour": 40.0,
+     "at_epoch": 1793617386,
+     "edges": 2705
+    },
+    {
+     "at_cpu_hour": 48.0,
+     "at_epoch": 1793618296,
+     "edges": 2707
+    },
+    {
+     "at_cpu_hour": 56.0,
+     "at_epoch": 1793619206,
+     "edges": 2707
+    },
+    {
+     "at_cpu_hour": 64.0,
+     "at_epoch": 1793620116,
+     "edges": 2707
+    },
+    {
+     "at_cpu_hour": 72.0,
+     "at_epoch": 1793621026,
+     "edges": 2715
+    },
+    {
+     "at_cpu_hour": 80.0,
+     "at_epoch": 1793621936,
+     "edges": 2724
+    },
+    {
+     "at_cpu_hour": 88.0,
+     "at_epoch": 1793622846,
+     "edges": 2724
+    },
+    {
+     "at_cpu_hour": 96.0,
+     "at_epoch": 1793623756,
+     "edges": 2724
+    },
+    {
+     "at_cpu_hour": 104.0,
+     "at_epoch": 1793624666,
+     "edges": 2726
+    },
+    {
+     "at_cpu_hour": 112.0,
+     "at_epoch": 1793625576,
+     "edges": 2726
+    },
+    {
+     "at_cpu_hour": 120.0,
+     "at_epoch": 1793626486,
+     "edges": 2727
+    },
+    {
+     "at_cpu_hour": 128.0,
+     "at_epoch": 1793628538,
+     "edges": 2706
+    },
+    {
+     "at_cpu_hour": 136.0,
+     "at_epoch": 1793629442,
+     "edges": 2706
+    },
+    {
+     "at_cpu_hour": 144.0,
+     "at_epoch": 1793630346,
+     "edges": 2706
+    },
+    {
+     "at_cpu_hour": 148.0,
+     "at_epoch": 1793632320,
+     "edges": 2728
+    },
+    {
+     "at_cpu_hour": 152.0,
+     "at_epoch": 1793633229,
+     "edges": 2728
+    },
+    {
+     "at_cpu_hour": 156.0,
+     "at_epoch": 1793634138,
+     "edges": 2728
+    },
+    {
+     "at_cpu_hour": 160.0,
+     "at_epoch": 1793635046,
+     "edges": 2728
+    },
+    {
+     "at_cpu_hour": 168.0,
+     "at_epoch": 1793636658,
+     "edges": 2729
+    },
+    {
+     "at_cpu_hour": 176.0,
+     "at_epoch": 1793638961,
+     "edges": 2729
+    },
+    {
+     "at_cpu_hour": 180.0,
+     "at_epoch": 1793640286,
+     "edges": 2729
+    },
+    {
+     "at_cpu_hour": 184.0,
+     "at_epoch": 1793641194,
+     "edges": 2729
+    },
+    {
+     "at_cpu_hour": 188.0,
+     "at_epoch": 1793642103,
+     "edges": 2729
+    },
+    {
+     "at_cpu_hour": 192.0,
+     "at_epoch": 1793643012,
+     "edges": 2729
+    },
+    {
+     "at_cpu_hour": 196.0,
+     "at_epoch": 1793643920,
+     "edges": 2729
+    },
+    {
+     "at_cpu_hour": 200.0,
+     "at_epoch": 1793644829,
+     "edges": 2729
+    },
+    {
+     "at_cpu_hour": 208.0,
+     "at_epoch": 1793646549,
+     "edges": 2729
+    },
+    {
+     "at_cpu_hour": 216.0,
+     "at_epoch": 1793647460,
+     "edges": 2729
+    },
+    {
+     "at_cpu_hour": 224.0,
+     "at_epoch": 1793648370,
+     "edges": 2729
+    },
+    {
+     "at_cpu_hour": 232.0,
+     "at_epoch": 1793650118,
+     "edges": 2708
+    },
+    {
+     "at_cpu_hour": 240.0,
+     "at_epoch": 1793651022,
+     "edges": 2708
+    },
+    {
+     "at_cpu_hour": 248.0,
+     "at_epoch": 1793651927,
+     "edges": 2708
+    },
+    {
+     "at_cpu_hour": 256.0,
+     "at_epoch": 1793652831,
+     "edges": 2708
+    },
+    {
+     "at_cpu_hour": 264.0,
+     "at_epoch": 1793653736,
+     "edges": 2708
+    },
+    {
+     "at_cpu_hour": 272.0,
+     "at_epoch": 1793654640,
+     "edges": 2715
+    },
+    {
+     "at_cpu_hour": 280.0,
+     "at_epoch": 1793655544,
+     "edges": 2715
+    },
+    {
+     "at_cpu_hour": 288.0,
+     "at_epoch": 1793656448,
+     "edges": 2717
+    },
+    {
+     "at_cpu_hour": 296.0,
+     "at_epoch": 1793657352,
+     "edges": 2717
+    },
+    {
+     "at_cpu_hour": 304.0,
+     "at_epoch": 1793658256,
+     "edges": 2717
+    },
+    {
+     "at_cpu_hour": 312.0,
+     "at_epoch": 1793659161,
+     "edges": 2717
+    },
+    {
+     "at_cpu_hour": 320.0,
+     "at_epoch": 1793660065,
+     "edges": 2717
+    },
+    {
+     "at_cpu_hour": 328.0,
+     "at_epoch": 1793660969,
+     "edges": 2717
+    },
+    {
+     "at_cpu_hour": 336.0,
+     "at_epoch": 1793661873,
+     "edges": 2717
+    },
+    {
+     "at_cpu_hour": 344.0,
+     "at_epoch": 1793662777,
+     "edges": 2717
+    },
+    {
+     "at_cpu_hour": 352.0,
+     "at_epoch": 1793663681,
+     "edges": 2717
+    }
+   ]
+  },
+  {
+   "name": "jpeg",
+   "cpu_hours": 378.3,
+   "crashes": [],
+   "coverage": [
+    {
+     "at_cpu_hour": 8.024420555555556,
+     "at_epoch": 1794047475,
+     "edges": 3146
+    },
+    {
+     "at_cpu_hour": 15.984512222222223,
+     "at_epoch": 1794048387,
+     "edges": 3891
+    },
+    {
+     "at_cpu_hour": 23.805175277777774,
+     "at_epoch": 1794049295,
+     "edges": 4080
+    },
+    {
+     "at_cpu_hour": 31.5685775,
+     "at_epoch": 1794050205,
+     "edges": 4200
+    },
+    {
+     "at_cpu_hour": 39.29459333333333,
+     "at_epoch": 1794051118,
+     "edges": 4222
+    },
+    {
+     "at_cpu_hour": 46.8979,
+     "at_epoch": 1794052027,
+     "edges": 4240
+    },
+    {
+     "at_cpu_hour": 54.520229444444446,
+     "at_epoch": 1794052941,
+     "edges": 4248
+    },
+    {
+     "at_cpu_hour": 62.16997833333333,
+     "at_epoch": 1794053864,
+     "edges": 4254
+    },
+    {
+     "at_cpu_hour": 69.73553277777778,
+     "at_epoch": 1794064788,
+     "edges": 4255
+    },
+    {
+     "at_cpu_hour": 77.30688277777777,
+     "at_epoch": 1794065703,
+     "edges": 4257
+    },
+    {
+     "at_cpu_hour": 84.83144444444444,
+     "at_epoch": 1794066616,
+     "edges": 4285
+    },
+    {
+     "at_cpu_hour": 92.3501547222222,
+     "at_epoch": 1794067523,
+     "edges": 4294
+    },
+    {
+     "at_cpu_hour": 99.87934777777777,
+     "at_epoch": 1794068435,
+     "edges": 4296
+    },
+    {
+     "at_cpu_hour": 107.4085775,
+     "at_epoch": 1794069345,
+     "edges": 4297
+    },
+    {
+     "at_cpu_hour": 114.978685,
+     "at_epoch": 1794070260,
+     "edges": 4298
+    },
+    {
+     "at_cpu_hour": 122.45077333333332,
+     "at_epoch": 1794071171,
+     "edges": 4299
+    },
+    {
+     "at_cpu_hour": 129.92218305555556,
+     "at_epoch": 1794072083,
+     "edges": 4299
+    },
+    {
+     "at_cpu_hour": 137.38166527777778,
+     "at_epoch": 1794072994,
+     "edges": 4299
+    },
+    {
+     "at_cpu_hour": 144.85779555555555,
+     "at_epoch": 1794073909,
+     "edges": 4300
+    },
+    {
+     "at_cpu_hour": 152.3307597222222,
+     "at_epoch": 1794074828,
+     "edges": 4300
+    },
+    {
+     "at_cpu_hour": 159.77480805555555,
+     "at_epoch": 1794075739,
+     "edges": 4300
+    },
+    {
+     "at_cpu_hour": 167.21071,
+     "at_epoch": 1794076650,
+     "edges": 4300
+    },
+    {
+     "at_cpu_hour": 174.708235,
+     "at_epoch": 1794077569,
+     "edges": 4300
+    },
+    {
+     "at_cpu_hour": 182.3085716666667,
+     "at_epoch": 1794078502,
+     "edges": 4301
+    },
+    {
+     "at_cpu_hour": 189.83170361111112,
+     "at_epoch": 1794079424,
+     "edges": 4301
+    },
+    {
+     "at_cpu_hour": 197.31630055555556,
+     "at_epoch": 1794080342,
+     "edges": 4301
+    },
+    {
+     "at_cpu_hour": 204.78199777777775,
+     "at_epoch": 1794081259,
+     "edges": 4301
+    },
+    {
+     "at_cpu_hour": 212.21572111111112,
+     "at_epoch": 1794082174,
+     "edges": 4302
+    },
+    {
+     "at_cpu_hour": 219.622755,
+     "at_epoch": 1794083085,
+     "edges": 4302
+    },
+    {
+     "at_cpu_hour": 227.0464202777778,
+     "at_epoch": 1794083999,
+     "edges": 4302
+    },
+    {
+     "at_cpu_hour": 234.4629144444445,
+     "at_epoch": 1794084910,
+     "edges": 4302
+    },
+    {
+     "at_cpu_hour": 241.8692627777778,
+     "at_epoch": 1794085822,
+     "edges": 4302
+    },
+    {
+     "at_cpu_hour": 249.3031155555556,
+     "at_epoch": 1794086736,
+     "edges": 4302
+    },
+    {
+     "at_cpu_hour": 256.7345886111111,
+     "at_epoch": 1794087649,
+     "edges": 4303
+    },
+    {
+     "at_cpu_hour": 264.1708272222222,
+     "at_epoch": 1794088563,
+     "edges": 4305
+    },
+    {
+     "at_cpu_hour": 271.6319986111111,
+     "at_epoch": 1794089481,
+     "edges": 4305
+    },
+    {
+     "at_cpu_hour": 279.0955225,
+     "at_epoch": 1794090400,
+     "edges": 4306
+    },
+    {
+     "at_cpu_hour": 286.5490113888889,
+     "at_epoch": 1794091316,
+     "edges": 4306
+    },
+    {
+     "at_cpu_hour": 293.96291583333334,
+     "at_epoch": 1794092229,
+     "edges": 4306
+    },
+    {
+     "at_cpu_hour": 301.3682952777778,
+     "at_epoch": 1794093141,
+     "edges": 4306
+    },
+    {
+     "at_cpu_hour": 308.7735244444445,
+     "at_epoch": 1794094055,
+     "edges": 4307
+    },
+    {
+     "at_cpu_hour": 316.1929136111112,
+     "at_epoch": 1794094969,
+     "edges": 4307
+    },
+    {
+     "at_cpu_hour": 323.6369880555556,
+     "at_epoch": 1794095887,
+     "edges": 4307
+    },
+    {
+     "at_cpu_hour": 326.4510608333334,
+     "at_epoch": 1794096283,
+     "edges": 4307
+    }
+   ]
+  },
+  {
+   "name": "webp",
+   "cpu_hours": 411.8,
+   "crashes": [],
+   "coverage": [
+    {
+     "at_cpu_hour": 8.030733055555555,
+     "at_epoch": 1794047480,
+     "edges": 3899
+    },
+    {
+     "at_cpu_hour": 15.94067722222222,
+     "at_epoch": 1794048392,
+     "edges": 3956
+    },
+    {
+     "at_cpu_hour": 23.852524999999996,
+     "at_epoch": 1794049304,
+     "edges": 3962
+    },
+    {
+     "at_cpu_hour": 31.708809999999996,
+     "at_epoch": 1794050210,
+     "edges": 4023
+    },
+    {
+     "at_cpu_hour": 39.55818694444445,
+     "at_epoch": 1794051117,
+     "edges": 4033
+    },
+    {
+     "at_cpu_hour": 47.40669333333333,
+     "at_epoch": 1794052024,
+     "edges": 4045
+    },
+    {
+     "at_cpu_hour": 55.255957499999994,
+     "at_epoch": 1794052931,
+     "edges": 4052
+    },
+    {
+     "at_cpu_hour": 63.10844305555555,
+     "at_epoch": 1794053841,
+     "edges": 4055
+    },
+    {
+     "at_cpu_hour": 70.95925444444444,
+     "at_epoch": 1794054751,
+     "edges": 4056
+    },
+    {
+     "at_cpu_hour": 78.80942694444444,
+     "at_epoch": 1794055662,
+     "edges": 4054
+    },
+    {
+     "at_cpu_hour": 86.65941694444444,
+     "at_epoch": 1794056572,
+     "edges": 4107
+    },
+    {
+     "at_cpu_hour": 94.5098225,
+     "at_epoch": 1794057482,
+     "edges": 4108
+    },
+    {
+     "at_cpu_hour": 102.3588725,
+     "at_epoch": 1794058394,
+     "edges": 4111
+    },
+    {
+     "at_cpu_hour": 110.2083688888889,
+     "at_epoch": 1794059304,
+     "edges": 4112
+    },
+    {
+     "at_cpu_hour": 118.05836555555555,
+     "at_epoch": 1794060214,
+     "edges": 4113
+    },
+    {
+     "at_cpu_hour": 125.90939805555556,
+     "at_epoch": 1794061125,
+     "edges": 4113
+    },
+    {
+     "at_cpu_hour": 133.76006138888891,
+     "at_epoch": 1794062036,
+     "edges": 4115
+    },
+    {
+     "at_cpu_hour": 141.60998444444448,
+     "at_epoch": 1794062947,
+     "edges": 4113
+    },
+    {
+     "at_cpu_hour": 149.45984444444449,
+     "at_epoch": 1794063858,
+     "edges": 4118
+    },
+    {
+     "at_cpu_hour": 157.30907777777782,
+     "at_epoch": 1794064769,
+     "edges": 4117
+    },
+    {
+     "at_cpu_hour": 165.15883083333338,
+     "at_epoch": 1794065679,
+     "edges": 4115
+    },
+    {
+     "at_cpu_hour": 173.0080644444445,
+     "at_epoch": 1794066590,
+     "edges": 4116
+    },
+    {
+     "at_cpu_hour": 180.85777916666672,
+     "at_epoch": 1794067502,
+     "edges": 4116
+    },
+    {
+     "at_cpu_hour": 188.72585611111117,
+     "at_epoch": 1794068415,
+     "edges": 4116
+    },
+    {
+     "at_cpu_hour": 196.5752019444445,
+     "at_epoch": 1794069327,
+     "edges": 4116
+    },
+    {
+     "at_cpu_hour": 204.42864888888897,
+     "at_epoch": 1794070239,
+     "edges": 4124
+    },
+    {
+     "at_cpu_hour": 212.2210169444445,
+     "at_epoch": 1794071145,
+     "edges": 4128
+    },
+    {
+     "at_cpu_hour": 220.01128500000004,
+     "at_epoch": 1794072050,
+     "edges": 4139
+    },
+    {
+     "at_cpu_hour": 227.7999230555556,
+     "at_epoch": 1794072956,
+     "edges": 4139
+    },
+    {
+     "at_cpu_hour": 235.58765166666672,
+     "at_epoch": 1794073860,
+     "edges": 4139
+    },
+    {
+     "at_cpu_hour": 243.43859416666672,
+     "at_epoch": 1794074772,
+     "edges": 4139
+    },
+    {
+     "at_cpu_hour": 251.28897138888897,
+     "at_epoch": 1794075684,
+     "edges": 4139
+    },
+    {
+     "at_cpu_hour": 259.07774250000006,
+     "at_epoch": 1794076590,
+     "edges": 4140
+    },
+    {
+     "at_cpu_hour": 266.8647122222223,
+     "at_epoch": 1794077495,
+     "edges": 4139
+    },
+    {
+     "at_cpu_hour": 274.65237750000006,
+     "at_epoch": 1794078400,
+     "edges": 4141
+    },
+    {
+     "at_cpu_hour": 279.4109925000001,
+     "at_epoch": 1794078963,
+     "edges": 4141
+    }
+   ]
+  }
+ ],
+ "sandbox_escape": {
+  "revision": "g4-c77545c64b3c",
+  "passed": 34,
+  "total": 34
+ },
+ "notes": {
+  "basis": "owner-accepted carry-forward: the guarded-campaign fuzz runs are counted as satisfying the decoder gate for the current decoder and image-path build identities, on every platform; no new fuzzing",
+  "identity": "source-only: the hash of the listed sources and the lockfile, with the compiler and flags left out, so one identity serves every platform",
+  "runs": {
+   "png": "352 CPU-hours, no crash, on the build before the WebP guard",
+   "jpeg": "378 CPU-hours, guarded build; 945 raw timeouts replayed under the production limits (4 s wall clock, 2 s CPU, 512 MiB), none exceeded a limit, so none is an open hang",
+   "webp": "412 CPU-hours, guarded build, no crash"
+  },
+  "raw_artifacts": "not committed",
+  "escape_suite": "run on macOS at this revision; the same suite runs in CI on Linux and Windows"
+ }
+}

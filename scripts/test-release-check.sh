@@ -88,6 +88,7 @@ run_case "an uncleared record among cleared ones refuses" 1 "LEDGER_TEXT=$MIXED"
 run_case "a decoder identity mismatch refuses" 1 DEC_ID=d2
 run_case "an image-path identity mismatch refuses" 1 IMG_ID=p2
 run_case "no fuzz flags file refuses" 1 NOFLAGS
+run_case "the source-only flags string passes through to the identity tool and passes" 0 FLAGS=source-only
 run_case "an empty fuzz flags file refuses" 1 FLAGS=
 run_case "flags that differ from the recorded ones change the identity and refuse" 1 "FLAGS=other flags" DEC_ID=wrong-flags
 run_case "an identity tool that fails refuses" 1 ID_RC=4
