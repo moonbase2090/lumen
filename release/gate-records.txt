@@ -3,7 +3,7 @@
 # starts with # is a comment. A build whose identities have no line here shows
 # the alt text.
 #
-# Basis: the owner-accepted carry-forward in docs/release-criteria.md. The
+# Basis: the maintainer-accepted carry-forward in docs/release-criteria.md. The
 # decoder gate rests on the guarded fuzz runs in release/decoder-ledger.json
 # (PNG, JPEG and WebP each over 250 CPU-hours, no open crash or confirmed
 # hang). The memory gate rests on the decoder's memory tests (declared sizes

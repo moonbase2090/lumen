@@ -676,7 +676,7 @@
   "total": 34
  },
  "notes": {
-  "basis": "owner-accepted carry-forward: the guarded-campaign fuzz runs are counted as satisfying the decoder gate for the current decoder and image-path build identities, on every platform; no new fuzzing",
+  "basis": "maintainer-accepted carry-forward: the guarded-campaign fuzz runs are counted as satisfying the decoder gate for the current decoder and image-path build identities, on every platform; no new fuzzing",
   "identity": "source-only: the hash of the listed sources and the lockfile, with the compiler and flags left out, so one identity serves every platform",
   "runs": {
    "png": "352 CPU-hours, no crash, on the build before the WebP guard",
