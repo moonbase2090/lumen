@@ -97,8 +97,11 @@ pub const fn platform() -> &'static str {
         "macos"
     } else if cfg!(windows) {
         "windows"
-    } else {
+    } else if cfg!(target_os = "linux") {
         "linux"
+    } else {
+        // No gate record is kept under this name: images stay locked.
+        "unsupported"
     }
 }
 

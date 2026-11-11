@@ -72,6 +72,7 @@ const IMAGE_PATH_OTHER: &[&str] = &[
     "crates/lumen-term/src/raster.rs",
     "crates/lumen-term/Cargo.toml",
     "crates/lumen-term/build.rs",
+    "crates/lumen-term/build_support/gate.rs",
 ];
 
 fn sources(kind: Kind) -> &'static [&'static str] {
