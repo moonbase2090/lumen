@@ -188,13 +188,13 @@ mod tests {
     /// The hash of one file at a nested path is pinned, so the change to path
     /// handling cannot move an identity on Linux or macOS.
     #[test]
-    fn hash_of_nested_file_is_pinned() {
+    fn hash_of_nested_file_is_pinned() -> io::Result<()> {
         let root = std::env::temp_dir().join(format!("lumen-identity-{}", std::process::id()));
         let dir = root.join("a").join("b");
-        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(&dir)?;
         let f = dir.join("c.rs");
-        fs::write(&f, b"x").unwrap();
-        let got = hash(&root, &[f], "", "source-only").unwrap();
+        fs::write(&f, b"x")?;
+        let got = hash(&root, &[f], "", "source-only")?;
         let mut h = Sha256::new();
         h.update(b"a/b/c.rs");
         h.update([0]);
@@ -204,8 +204,13 @@ mod tests {
         h.update(b"");
         h.update(b"flags\0");
         h.update(b"source-only");
-        let want: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        let want = h.finalize().iter().fold(String::new(), |mut s, b| {
+            use std::fmt::Write as _;
+            let _ = write!(s, "{b:02x}");
+            s
+        });
         fs::remove_dir_all(&root).ok();
         assert_eq!(got, want);
+        Ok(())
     }
 }
