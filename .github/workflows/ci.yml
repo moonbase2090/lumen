@@ -53,6 +53,8 @@ jobs:
         run: scripts/test-check-public-text.sh
       - name: Release gate tests
         run: scripts/test-release-check.sh
+      - name: Release set check tests
+        run: scripts/test-verify-release-set.sh
       - name: Test capture check tests
         run: scripts/test-capture-tests.sh
       - name: Comparison launcher tests

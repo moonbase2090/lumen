@@ -28,11 +28,14 @@ jobs:
           PUBLIC_TEXT_DENYLIST: ${{ secrets.PUBLIC_TEXT_DENYLIST }}
         run: scripts/release-check.sh
 
-  # Builds lumen-term and lumen-holder, signs them with the hardened runtime and
-  # a Developer ID certificate, and verifies the result. It refuses when the
-  # certificate secrets are absent: there is no unsigned fallback. It does not
-  # notarize, publish or release. The signed binaries are the input for the
-  # macOS release gates (task-port denial and non-dumpability).
+  # Builds the release set: lumen-term with the window feature, the decoder
+  # worker that has to sit beside it (images stay on their alt text without
+  # it) and lumen-holder. It signs all three with the hardened runtime and a
+  # Developer ID certificate, and verifies the set and the signatures. It
+  # refuses when the certificate secrets are absent: there is no unsigned
+  # fallback. It does not notarize, publish or release. The signed binaries are
+  # the input for the macOS release gates (task-port denial and
+  # non-dumpability).
   macos-signed:
     runs-on: macos-latest
     timeout-minutes: 45
@@ -43,19 +46,33 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Signing script tests
         run: scripts/test-macos-signing.sh
-      - name: Build the release binaries
-        run: cargo build --locked --release -p lumen-term -p lumen-holder
+      - name: Release set check tests
+        run: scripts/test-verify-release-set.sh
+      - name: Build the terminal with its window
+        run: cargo build --locked --release -p lumen-term --features window
+      - name: Build the decoder worker and the holder
+        run: cargo build --locked --release -p lumen-decoder -p lumen-holder --bin lumen-decoder-worker --bin lumen-holder
+      - name: Gather the release set
+        run: |
+          set -euo pipefail
+          mkdir release-set
+          cp target/release/lumen-term target/release/lumen-decoder-worker target/release/lumen-holder release-set/
+      - name: Check that the release set holds the window and the worker
+        run: scripts/verify-release-set.sh release-set
       - name: Sign with the hardened runtime
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: scripts/sign-macos-binaries.sh target/release/lumen-term target/release/lumen-holder
+        run: scripts/sign-macos-binaries.sh release-set/lumen-term release-set/lumen-decoder-worker release-set/lumen-holder
       - name: Verify the signatures
-        run: scripts/verify-macos-signed.sh target/release/lumen-term target/release/lumen-holder
+        run: scripts/verify-macos-signed.sh release-set/lumen-term release-set/lumen-decoder-worker release-set/lumen-holder
+      - name: Check the signed release set again
+        run: scripts/verify-release-set.sh release-set
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: lumen-macos-signed
           path: |
-            target/release/lumen-term
-            target/release/lumen-holder
+            release-set/lumen-term
+            release-set/lumen-decoder-worker
+            release-set/lumen-holder
           if-no-files-found: error
