@@ -71,6 +71,8 @@ const IMAGE_PATH_OTHER: &[&str] = &[
     "crates/lumen-term/src/layer.rs",
     "crates/lumen-term/src/raster.rs",
     "crates/lumen-term/Cargo.toml",
+    "crates/lumen-term/build.rs",
+    "crates/lumen-term/build_support/gate.rs",
 ];
 
 fn sources(kind: Kind) -> &'static [&'static str] {
@@ -128,6 +130,13 @@ pub fn uncovered(root: &Path) -> io::Result<Vec<PathBuf>> {
     all.sort();
     Ok(all)
 }
+
+/// The flags string that asks for a source-only identity: the compiler
+/// description is left out of the hash, so the identity is the same on every
+/// platform and toolchain. The release uses it for gate records that carry
+/// earlier fuzz evidence forward (see the release criteria); the fuzz campaign
+/// itself records the real compiler and flags.
+pub const SOURCE_ONLY: &str = "source-only";
 
 /// Hashes `files` (path relative to `root`, then contents), then the compiler
 /// description and the build flags, as lower-case hex.

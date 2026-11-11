@@ -1,0 +1,15 @@
+# Gate records for the shipped build: platform, decoder build identity,
+# image-path build identity, decoder gate, decoder memory gate. A line that
+# starts with # is a comment. A build whose identities have no line here shows
+# the alt text.
+#
+# Basis: the maintainer-accepted carry-forward in docs/release-criteria.md. The
+# decoder gate rests on the guarded fuzz runs in release/decoder-ledger.json
+# (PNG, JPEG and WebP each over 250 CPU-hours, no open crash or confirmed
+# hang). The memory gate rests on the decoder's memory tests (declared sizes
+# checked before any reservation, the 512 MiB worker limit, the reply
+# reservation) that run in CI. One line serves all three formats: the formats
+# are in the ledger.
+linux 686e0adda8554e613333014d00dace4aff901e2f37f131078e1e2f0ea9aed586 2cf937b5074070aa8f5753b7c77f5c1abba36ba987974b027b8e9725a42e560a pass pass
+macos 686e0adda8554e613333014d00dace4aff901e2f37f131078e1e2f0ea9aed586 2cf937b5074070aa8f5753b7c77f5c1abba36ba987974b027b8e9725a42e560a pass pass
+windows 686e0adda8554e613333014d00dace4aff901e2f37f131078e1e2f0ea9aed586 2cf937b5074070aa8f5753b7c77f5c1abba36ba987974b027b8e9725a42e560a pass pass

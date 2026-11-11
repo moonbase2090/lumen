@@ -113,18 +113,48 @@ fn image_bytes() -> Vec<u8> {
 }
 
 #[test]
-fn a_build_without_gate_records_is_locked() {
+fn the_shipped_records_unlock_images_on_this_platform() {
+    use lumen_decoder::unlock::images_enabled;
     let g = build_gate(true);
-    assert_eq!(g.records, Vec::new());
-    assert!(g.identities.decoder_build.starts_with("absent"));
-    // Nothing in the environment of the build unlocks it.
-    let (mut doc, mut layer) = setup(false);
-    doc.receive(&mut layer, &start(1, 40, "a cat"), Context::default());
-    doc.receive(&mut layer, &data(1, 0, &image_bytes()), Context::default());
-    assert!(!doc.poll_images());
-    let blocks = rich(&doc);
-    assert_eq!(blocks.len(), 1);
-    assert!(blocks[0].image.is_none());
+    assert!(
+        !g.identities.decoder_build.starts_with("absent")
+            && !g.identities.image_path_build.starts_with("absent"),
+        "the build carries both identities"
+    );
+    assert!(
+        images_enabled(true, &g.platform, &g.identities, &g.records),
+        "images are on in a default build"
+    );
+    // The local setting still wins, and so does an identity the records do not name.
+    assert!(!images_enabled(
+        false,
+        &g.platform,
+        &g.identities,
+        &g.records
+    ));
+    let mut other = g.identities.clone();
+    other.decoder_build.push('0');
+    assert!(!images_enabled(true, &g.platform, &other, &g.records));
+    let mut other = g.identities.clone();
+    other.image_path_build.push('0');
+    assert!(!images_enabled(true, &g.platform, &other, &g.records));
+    // Every platform has a record, each with both gates passed.
+    for platform in ["linux", "macos", "windows"] {
+        assert!(
+            images_enabled(true, platform, &g.identities, &g.records),
+            "no passing record for {platform}"
+        );
+    }
+}
+
+#[test]
+fn a_comment_line_in_the_records_is_not_a_record() {
+    assert_eq!(parse_records("# linux d p pass pass\n"), Vec::new());
+    assert_eq!(
+        parse_records("# c\nlinux d p pass pass;mac d p pass pass").len(),
+        2
+    );
+    assert_eq!(parse_records("# c; linux d p pass pass"), Vec::new());
 }
 
 #[test]

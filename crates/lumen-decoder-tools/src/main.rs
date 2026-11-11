@@ -5,6 +5,8 @@
 //! - `replay-kind RECORD` prints `memory` or `asan-artifact` for a replay record
 //!   of an `oom-*` artifact (see `scripts/decoder-replay.py`).
 //! - `identity ROOT [RUSTFLAGS] [decoder|image-path]` prints a build identity.
+//!   With the flags `source-only` the compiler is left out, which gives the
+//!   same identity on every platform.
 //! - `format NAME SAMPLES CRASHES` prints one format's ledger entry.
 //! - `escape TESTLOG REVISION` prints `{revision, passed, total}` for the G4
 //!   suite from a `cargo test` log.
@@ -79,7 +81,11 @@ fn run(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
             let root = Path::new(arg(1)?);
             let flags = args.get(2).map_or("", String::as_str);
             let rustc = Command::new("rustc").arg("-vV").output()?;
-            let compiler = String::from_utf8_lossy(&rustc.stdout);
+            let compiler = if flags == identity::SOURCE_ONLY {
+                std::borrow::Cow::Borrowed("")
+            } else {
+                String::from_utf8_lossy(&rustc.stdout)
+            };
             let kind = match args.get(3).map(String::as_str) {
                 None | Some("decoder") => identity::Kind::Decoder,
                 Some("image-path") => identity::Kind::ImagePath,
