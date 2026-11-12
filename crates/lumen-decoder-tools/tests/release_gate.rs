@@ -64,12 +64,20 @@ fn the_ledger_is_for_the_identities_of_this_tree() -> R {
 }
 
 #[test]
-fn every_platform_has_a_record_for_this_tree_with_both_gates_passed() -> R {
+fn linux_and_macos_have_a_record_for_this_tree_and_windows_has_none() -> R {
     let decoder = source_identity(Kind::Decoder)?;
     let path = source_identity(Kind::ImagePath)?;
     let records = records()?;
-    assert_eq!(records.len(), 3, "one record for each platform, no other");
-    for platform in ["linux", "macos", "windows"] {
+    assert_eq!(
+        records.len(),
+        2,
+        "one record each for linux and macos, none for windows: images are unsupported there in v0"
+    );
+    assert!(
+        records.iter().all(|r| r[0] != "windows"),
+        "a windows record would unlock images on a platform whose console cannot carry the frames"
+    );
+    for platform in ["linux", "macos"] {
         let mine: Vec<&Record> = records.iter().filter(|r| r[0] == platform).collect();
         assert_eq!(mine.len(), 1, "one record for {platform}");
         let r = mine[0];
