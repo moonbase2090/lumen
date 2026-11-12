@@ -138,13 +138,18 @@ fn the_shipped_records_unlock_images_on_this_platform() {
     let mut other = g.identities.clone();
     other.image_path_build.push('0');
     assert!(!images_enabled(true, &g.platform, &other, &g.records));
-    // Every platform has a record, each with both gates passed.
-    for platform in ["linux", "macos", "windows"] {
+    // Linux and macOS have a record with both gates passed. Windows has none:
+    // images are unsupported there in v0, so a Windows build stays locked.
+    for platform in ["linux", "macos"] {
         assert!(
             images_enabled(true, platform, &g.identities, &g.records),
             "no passing record for {platform}"
         );
     }
+    assert!(
+        !images_enabled(true, "windows", &g.identities, &g.records),
+        "a windows record would unlock images on a platform whose console cannot carry the frames"
+    );
 }
 
 #[test]
