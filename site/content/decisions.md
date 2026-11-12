@@ -62,7 +62,7 @@ Every decision listed here is **Adopted**: the specification follows it.
 
 ### Images are on, behind the decoder gates
 
-- **Status:** Adopted. Images are on in the build that ships, on Linux, macOS and Windows.
+- **Status:** Adopted. Images are on in the build that ships, on Linux and macOS. Windows is unsupported for images in v0 and shows the alt text.
 - **Effect:** Images are enabled on a platform only after the decoder gate and the decoder memory gate pass for the decoder build, and for the terminal's image path. A change to either re-runs the gates. The maintainers accepted the earlier guarded fuzz runs (PNG, JPEG and WebP, each past 250 CPU-hours, no open crash or confirmed hang) for the current identities, with no new fuzzing; see the accepted residual risk below. The setting `images = false` always shows the alt text.
 - **Where:** [Images and the decoder](@/spec/v0/images.md#images.unlock), [Conformance gates](@/spec/v0/conformance.md#gate.decoder).
 
