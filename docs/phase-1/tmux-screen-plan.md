@@ -1,6 +1,6 @@
 # tmux and screen support: design plan (post-v0)
 
-A plan, not an implementation. Nothing in the terminal, the producers or the wire format changes with this document. It says how Lumen output could reach the terminal through tmux and GNU screen after v0, what breaks, and how each step would be tested, so the owner can decide whether and in what order to build it.
+A plan, not an implementation. Nothing in the terminal, the producers or the wire format changes with this document. It says how Lumen output could reach the terminal through tmux and GNU screen after v0, what breaks, and how each step would be tested, so the maintainers can decide whether and in what order to build it.
 
 ## Today
 
@@ -39,7 +39,7 @@ Both multiplexers can pass a device control string to the outer terminal without
 
 | Problem | Why | Plan |
 | --- | --- | --- |
-| The alternate screen rule | tmux and screen run on the outer terminal's alternate screen, so today's rule would turn every frame into escaped text. | The alternate-screen rule is relaxed only for frames that arrive wrapped by a multiplexer the layer is known to be running, and stays for a program that enters the alternate screen itself. This is a specification change and needs the owner's decision. |
+| The alternate screen rule | tmux and screen run on the outer terminal's alternate screen, so today's rule would turn every frame into escaped text. | The alternate-screen rule is relaxed only for frames that arrive wrapped by a multiplexer the layer is known to be running, and stays for a program that enters the alternate screen itself. This is a specification change and needs a maintainer decision. |
 | Content is not kept by the multiplexer | tmux repaints the pane from its own model, so a drawn block is not redrawn after a scroll, a pane switch, copy mode, a resize, or a detach and reattach. | The block is anchored to the terminal's own cells. When the multiplexer writes over those cells (which is what its repaint does), the block collapses to its alt text, as an image is cleared when its cells are overwritten. The result is transient blocks. This is stated as the behaviour, not hidden. |
 | Interleaving | The multiplexer writes its own output (status line, repaints) between passthrough writes, so a multi-frame image may be split by unrelated bytes. | The detector already ignores bytes outside frames, and image reassembly is in order by offset. Whether other bytes can fall between two frames of one image has to be measured. If they can, the terminal tolerates it, and if reassembly breaks, the image shows alt text. |
 | Size limits | A multiplexer may cap one passthrough string. | Measured per multiplexer and version. The producer chunks image data to fit the limit it finds, never below the frame's own minimum. |
@@ -63,12 +63,12 @@ Each step has a test that fails if the claim is false. All of it runs headless o
 ## Order of work
 
 1. Measurements only: steps 1 to 3, as a small tool and a report, no change to the terminal. This answers the open questions below and may end the plan for screen.
-2. Specification change (a new revision): the multiplexer rule, the alternate-screen relaxation, the labelled container, the setting and the producer MAY. Needs the owner's decision and a review as a change to the specification.
+2. Specification change (a new revision): the multiplexer rule, the alternate-screen relaxation, the labelled container, the setting and the producer MAY. Needs a maintainer decision and a review as a change to the specification.
 3. Terminal: the relaxed rule, anchoring and collapsing, the setting.
 4. Producers' helper: detection, the option check, wrapping, chunking to the measured limit.
 5. Tests 4 to 8 in CI, then the documentation: the multiplexers page, the platform page and the README.
 
-## Open questions for the owner
+## Open questions for the maintainers
 
 - May the alternate-screen rule be relaxed for a known multiplexer, as above, or should the multiplexer path be limited to a program that is not on the alternate screen at all (which would exclude the common case)?
 - Are transient blocks, which disappear when the multiplexer repaints, acceptable for the first version, or is a block that survives a repaint required? The second needs the multiplexer to cooperate (a Lumen-aware multiplexer) and is the sealed multiplexer project, not this one.
