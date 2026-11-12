@@ -15,6 +15,10 @@ Linux supports default sealing (see [requirements](@/spec/v0/sealed-layers.md#se
 
 v0 creates no keys on macOS, so layers are grid plus Track 0. Images need the [decoder memory gate](@/spec/v0/conformance.md#gate.decoder-memory) and the [decoder gate](@/spec/v0/conformance.md#gate.decoder) to pass on macOS. Track B paths follow the macOS rule in [Transport](@/spec/v0/transport.md#transport.track-b).
 
+## Windows {#platforms.windows}
+
+Images are not supported on Windows in v0. The Windows console is a text channel: it reads the bytes a program writes as text in the console code page and re-encodes them as UTF-8, so the binary image frames (a kind byte, a big-endian length and the image bytes) do not arrive intact. The system pseudo-console also drops the escape string the frames travel in, and a pseudo-console shipped with the terminal carries that string but still changes the bytes inside it, with or without its pass-through mode. A Windows build carries no gate record, so it shows the alt text and never draws an image. Supporting Windows would need a frame encoding that survives text (for example 7-bit safe), which is a change to the wire format and not part of v0.
+
 ## Flatpak, Snap and rootless containers {#platforms.sandboxed}
 
 - No Flatpak build is provided for v0.

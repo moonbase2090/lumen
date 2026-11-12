@@ -10,6 +10,9 @@
 # checked before any reservation, the 512 MiB worker limit, the reply
 # reservation) that run in CI. One line serves all three formats: the formats
 # are in the ledger.
+#
+# There is no windows line on purpose: images are not supported on Windows in
+# v0, because the Windows console cannot carry the binary image frames, so a
+# Windows build stays locked and shows the alt text (see spec/v0/platforms.md).
 linux 686e0adda8554e613333014d00dace4aff901e2f37f131078e1e2f0ea9aed586 2cf937b5074070aa8f5753b7c77f5c1abba36ba987974b027b8e9725a42e560a pass pass
 macos 686e0adda8554e613333014d00dace4aff901e2f37f131078e1e2f0ea9aed586 2cf937b5074070aa8f5753b7c77f5c1abba36ba987974b027b8e9725a42e560a pass pass
-windows 686e0adda8554e613333014d00dace4aff901e2f37f131078e1e2f0ea9aed586 2cf937b5074070aa8f5753b7c77f5c1abba36ba987974b027b8e9725a42e560a pass pass
