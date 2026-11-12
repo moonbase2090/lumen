@@ -20,6 +20,22 @@ fn frame(kind: u8, body: &[u8]) -> Vec<u8> {
     v
 }
 
+/// Where the frames go. On Windows the standard library refuses to write bytes
+/// that are not UTF-8 to a console, so the console is opened directly: the
+/// frames are binary, and the Windows console still changes them on the way
+/// (images are not supported on Windows in v0), which is what the refusal
+/// proof exercises.
+#[cfg(windows)]
+fn output() -> std::io::Result<impl Write> {
+    std::fs::OpenOptions::new().write(true).open("CONOUT$")
+}
+
+#[cfg(not(windows))]
+#[allow(clippy::unnecessary_wraps)]
+fn output() -> std::io::Result<impl Write> {
+    Ok(std::io::stdout().lock())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(path) = args.first() else {
@@ -40,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     start.extend_from_slice(&u16::try_from(alt.len())?.to_be_bytes());
     start.extend_from_slice(alt.as_bytes());
 
-    let mut out = std::io::stdout().lock();
+    let mut out = output()?;
     out.write_all(&frame(lumen_track0::KIND_IMAGE_START, &start))?;
     let mut offset = 0u32;
     for chunk in bytes.chunks(MAX_CHUNK) {
