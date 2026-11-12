@@ -138,6 +138,15 @@ pub fn uncovered(root: &Path) -> io::Result<Vec<PathBuf>> {
 /// itself records the real compiler and flags.
 pub const SOURCE_ONLY: &str = "source-only";
 
+/// A path as it enters the hash: components joined with `/`, so a Windows
+/// checkout (backslash separators) gives the same identity as Linux and macOS.
+fn key(rel: &Path) -> String {
+    rel.components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// Hashes `files` (path relative to `root`, then contents), then the compiler
 /// description and the build flags, as lower-case hex.
 ///
@@ -148,7 +157,7 @@ pub fn hash(root: &Path, files: &[PathBuf], compiler: &str, flags: &str) -> io::
     for f in files {
         let rel = f.strip_prefix(root).unwrap_or(f);
         let bytes = fs::read(f)?;
-        h.update(rel.to_string_lossy().as_bytes());
+        h.update(key(rel).as_bytes());
         h.update([0]);
         h.update((bytes.len() as u64).to_le_bytes());
         h.update(&bytes);
@@ -162,4 +171,46 @@ pub fn hash(root: &Path, files: &[PathBuf], compiler: &str, flags: &str) -> io::
         let _ = write!(s, "{b:02x}");
         s
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_joins_components_with_forward_slashes() {
+        let p: PathBuf = ["crates", "lumen-decoder", "src", "decode.rs"]
+            .iter()
+            .collect();
+        assert_eq!(key(&p), "crates/lumen-decoder/src/decode.rs");
+    }
+
+    /// The hash of one file at a nested path is pinned, so the change to path
+    /// handling cannot move an identity on Linux or macOS.
+    #[test]
+    fn hash_of_nested_file_is_pinned() -> io::Result<()> {
+        let root = std::env::temp_dir().join(format!("lumen-identity-{}", std::process::id()));
+        let dir = root.join("a").join("b");
+        fs::create_dir_all(&dir)?;
+        let f = dir.join("c.rs");
+        fs::write(&f, b"x")?;
+        let got = hash(&root, &[f], "", "source-only")?;
+        let mut h = Sha256::new();
+        h.update(b"a/b/c.rs");
+        h.update([0]);
+        h.update(1u64.to_le_bytes());
+        h.update(b"x");
+        h.update(b"compiler\0");
+        h.update(b"");
+        h.update(b"flags\0");
+        h.update(b"source-only");
+        let want = h.finalize().iter().fold(String::new(), |mut s, b| {
+            use std::fmt::Write as _;
+            let _ = write!(s, "{b:02x}");
+            s
+        });
+        fs::remove_dir_all(&root).ok();
+        assert_eq!(got, want);
+        Ok(())
+    }
 }
