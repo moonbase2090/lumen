@@ -4,7 +4,7 @@
 //! the frame [`App::view`] returns, so everything it does is tested here
 //! without a window.
 
-use crate::design::{Appearance, ThemeChoice};
+use crate::design::{Appearance, Fonts, ThemeChoice};
 use crate::document::{Block, Event};
 use crate::keys::{self, Key, Mods};
 use crate::layer::Layer;
@@ -193,6 +193,26 @@ impl App {
     #[must_use]
     pub fn theme_choice(&self) -> ThemeChoice {
         self.theme_choice
+    }
+
+    /// Use `fonts` from the next frame on, with no restart: the cells are
+    /// measured again and the program's grid is resized to fit the window.
+    /// Returns whether anything changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns why a face could not be read or the program could not be
+    /// resized. The fonts in use are kept when a face cannot be read.
+    pub fn set_fonts(&mut self, fonts: &Fonts) -> Result<bool, SpawnError> {
+        if self.renderer.fonts() == fonts {
+            return Ok(false);
+        }
+        let renderer =
+            Renderer::with_fonts(self.renderer.scale(), self.renderer.theme().clone(), fonts)
+                .map_err(SpawnError)?;
+        self.renderer = renderer;
+        self.resize(self.width, self.height)?;
+        Ok(true)
     }
 
     /// Draw, and answer colour queries, in the palette the choice and the

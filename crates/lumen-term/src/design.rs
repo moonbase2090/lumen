@@ -496,6 +496,154 @@ impl ThemeChoice {
     }
 }
 
+/// The smallest font size a user may choose, in pixels at scale 1.
+pub const MIN_FONT_PX: u32 = 8;
+/// The largest font size a user may choose, in pixels at scale 1.
+pub const MAX_FONT_PX: u32 = 72;
+// Every size a user may choose is over the spec's 6 px floor for a visible run.
+const _: () = assert!(MIN_FONT_PX >= 6);
+/// The most bytes a font file may hold.
+pub const MAX_FONT_BYTES: u64 = 32 << 20;
+
+/// Where a face's glyphs come from.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum FontFile {
+    /// The face bundled with the terminal.
+    #[default]
+    Bundled,
+    /// A font file the user chose: its bytes, already checked to be a font
+    /// ([`FontFile::load`]).
+    Data(std::sync::Arc<[u8]>),
+}
+
+/// Why a font file was refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FontRefused {
+    /// It could not be read, or is not a regular file.
+    Unreadable,
+    /// It is larger than [`MAX_FONT_BYTES`].
+    TooLarge,
+    /// It is not a font, or has no glyphs for basic Latin text.
+    NotAFont,
+}
+
+impl std::fmt::Display for FontRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Unreadable => "the font file could not be read",
+            Self::TooLarge => "the font file is too large",
+            Self::NotAFont => "the file is not a font with Latin letters",
+        })
+    }
+}
+
+impl FontFile {
+    /// The font in `bytes`.
+    ///
+    /// # Errors
+    ///
+    /// [`FontRefused::NotAFont`] unless `bytes` is a font (the first in a
+    /// collection) with glyphs for `M`, `a` and `0`.
+    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, FontRefused> {
+        let face = swash::FontRef::from_index(&bytes, 0).ok_or(FontRefused::NotAFont)?;
+        let map = face.charmap();
+        if ['M', 'a', '0'].iter().any(|c| map.map(*c) == 0) {
+            return Err(FontRefused::NotAFont);
+        }
+        Ok(Self::Data(bytes.into()))
+    }
+
+    /// The font file at `path`.
+    ///
+    /// # Errors
+    ///
+    /// As [`from_bytes`](Self::from_bytes), and [`FontRefused::Unreadable`] or
+    /// [`FontRefused::TooLarge`] for a file that cannot be read or is over
+    /// [`MAX_FONT_BYTES`].
+    pub fn load(path: &std::path::Path) -> Result<Self, FontRefused> {
+        let meta = std::fs::metadata(path).map_err(|_| FontRefused::Unreadable)?;
+        if !meta.is_file() {
+            return Err(FontRefused::Unreadable);
+        }
+        if meta.len() > MAX_FONT_BYTES {
+            return Err(FontRefused::TooLarge);
+        }
+        let bytes = std::fs::read(path).map_err(|_| FontRefused::Unreadable)?;
+        if bytes.len() as u64 > MAX_FONT_BYTES {
+            return Err(FontRefused::TooLarge);
+        }
+        Self::from_bytes(bytes)
+    }
+}
+
+/// The user's fonts: a face and a size for monospace text (grids, code and
+/// the editor) and for prose (paragraphs and headings in rich blocks).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fonts {
+    /// The monospace face.
+    pub mono: FontFile,
+    /// The proportional face.
+    pub prose: FontFile,
+    /// Monospace size in pixels at scale 1.
+    mono_px: u32,
+    /// Prose size in pixels at scale 1.
+    prose_px: u32,
+}
+
+impl Default for Fonts {
+    fn default() -> Self {
+        Self {
+            mono: FontFile::Bundled,
+            prose: FontFile::Bundled,
+            mono_px: TYPE_SCALE[BODY_STEP],
+            prose_px: TYPE_SCALE[BODY_STEP],
+        }
+    }
+}
+
+impl Fonts {
+    /// These fonts with the monospace face `file`.
+    #[must_use]
+    pub fn with_mono(mut self, file: FontFile) -> Self {
+        self.mono = file;
+        self
+    }
+
+    /// These fonts with the proportional face `file`.
+    #[must_use]
+    pub fn with_prose(mut self, file: FontFile) -> Self {
+        self.prose = file;
+        self
+    }
+
+    /// These fonts with the monospace size `px`, clamped to
+    /// [`MIN_FONT_PX`]..=[`MAX_FONT_PX`].
+    #[must_use]
+    pub fn with_mono_px(mut self, px: u32) -> Self {
+        self.mono_px = px.clamp(MIN_FONT_PX, MAX_FONT_PX);
+        self
+    }
+
+    /// These fonts with the prose size `px`, clamped the same way.
+    #[must_use]
+    pub fn with_prose_px(mut self, px: u32) -> Self {
+        self.prose_px = px.clamp(MIN_FONT_PX, MAX_FONT_PX);
+        self
+    }
+
+    /// Monospace size in pixels at scale 1.
+    #[must_use]
+    pub const fn mono_px(&self) -> u32 {
+        self.mono_px
+    }
+
+    /// Prose size in pixels at scale 1.
+    #[must_use]
+    pub const fn prose_px(&self) -> u32 {
+        self.prose_px
+    }
+}
+
 /// The spec's semantic colour tokens for a text run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunColour {
