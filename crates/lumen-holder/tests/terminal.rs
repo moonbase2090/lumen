@@ -202,3 +202,100 @@ fn another_layers_receiver_does_not_read_this_holders_frames() {
         "each layer's key is its own, even with the same layer id"
     );
 }
+
+// The channels are made before the shell exists: the shell gets its end, and
+// the holder is started afterwards with the rest.
+
+use lumen_holder::spawn::Channels;
+use lumen_holder::terminal::{start_layer_on, start_layer_on_with};
+
+#[test]
+fn a_layer_started_on_channels_made_first_seals_for_the_shell_that_holds_its_end() {
+    let mut channels = Channels::new().unwrap_or_else(|e| unreachable!("{e}"));
+    // This process plays the shell: it takes the shell's end before any holder.
+    let shell_end = channels
+        .take_shell_end()
+        .unwrap_or_else(|| unreachable!("the shell end is there once"));
+    assert!(channels.take_shell_end().is_none(), "the shell end is taken once");
+    let pidfd = pidfd_open(std::process::id()).unwrap_or_else(|e| unreachable!("pidfd_open: {e}"));
+    let (running, receiver) = start_layer_on(
+        &Decision::Seal,
+        holder(),
+        channels,
+        &pidfd,
+        std::process::id(),
+        std::process::id(),
+        1,
+    )
+    .unwrap_or_else(|e| unreachable!("the layer starts: {e}"));
+    send(
+        &shell_end,
+        &protocol::ready(1),
+    );
+    send(
+        &shell_end,
+        &seal_request(2, KIND_COMMAND_START, &7u32.to_be_bytes())
+            .unwrap_or_else(|| unreachable!("fits")),
+    );
+    let reply = answer(&shell_end);
+    assert_eq!(reply[1], SEALED, "{reply:?}");
+    let mut layer = layer_with(receiver);
+    let items = layer.feed(&on_the_wire(&reply[SEALED_HEADER_LEN..]), Context::default());
+    assert_eq!(
+        sealed_items(items),
+        vec![(KIND_COMMAND_START, 7u32.to_be_bytes().to_vec())]
+    );
+    drop(running);
+}
+
+#[test]
+fn a_holder_is_not_started_while_the_terminal_still_holds_the_shells_end() {
+    let channels = Channels::new().unwrap_or_else(|e| unreachable!("{e}"));
+    let pidfd = pidfd_open(std::process::id()).unwrap_or_else(|e| unreachable!("pidfd_open: {e}"));
+    let Err(e) = start_layer_on(
+        &Decision::Seal,
+        holder(),
+        channels,
+        &pidfd,
+        std::process::id(),
+        std::process::id(),
+        1,
+    ) else {
+        unreachable!("no shell took its end, so no holder starts")
+    };
+    assert!(e.to_string().contains("never given to a shell"), "{e}");
+}
+
+#[test]
+fn a_refused_decision_on_channels_made_first_makes_no_key_and_closes_the_shells_channel() {
+    let mut channels = Channels::new().unwrap_or_else(|e| unreachable!("{e}"));
+    let shell_end = channels
+        .take_shell_end()
+        .unwrap_or_else(|| unreachable!("the shell end is there"));
+    let pidfd = pidfd_open(std::process::id()).unwrap_or_else(|e| unreachable!("pidfd_open: {e}"));
+    let asked_for_a_key = std::cell::Cell::new(false);
+    let Err(e) = start_layer_on_with(
+        &Decision::GridOnly(Reason::YamaTooLow(0)),
+        Path::new("/nonexistent/lumen-holder"),
+        channels,
+        &pidfd,
+        std::process::id(),
+        std::process::id(),
+        1,
+        &|| {
+            asked_for_a_key.set(true);
+            Ok(zeroize::Zeroizing::new([0u8; 32]))
+        },
+    ) else {
+        unreachable!("a grid-only layer must not start a holder")
+    };
+    assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied, "{e}");
+    assert!(!asked_for_a_key.get(), "no key was made for a refused layer");
+    // The holder's end was dropped with the channels, so the shell's end is
+    // closed at the other side: a send fails rather than queueing for no one.
+    let mut file = std::fs::File::from(shell_end);
+    assert!(
+        std::io::Write::write_all(&mut file, &protocol::ready(1)).is_err(),
+        "the shell's channel is closed when the layer is grid-only"
+    );
+}
