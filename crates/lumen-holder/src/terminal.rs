@@ -10,7 +10,7 @@
 //! frames from the shell to the terminal, and there is no terminal-to-shell
 //! sealed frame yet.
 
-use crate::spawn::{self, Started};
+use crate::spawn::{self, Channels, Running, Started};
 use lumen_seal::Decision;
 use lumen_sealed::{Direction, DirectionKeys, LayerId, LayerRoot, Receiver};
 use std::io::{self, Read as _};
@@ -91,4 +91,74 @@ pub fn start_layer_with(
     );
     let receiver = Receiver::new(keys, LayerId(layer), Direction::ToTerminal);
     Ok((started, receiver))
+}
+
+/// [`start_layer`] for a shell that was started with its end of the seal
+/// channel: the channels were made first ([`Channels::new`]), the shell took
+/// its end ([`Channels::take_shell_end`]), and its pid and pidfd exist now.
+///
+/// The decision is checked before anything else. On `GridOnly` no root is made,
+/// no process is started, and `channels` is dropped, which closes the holder's
+/// ends so the shell sees its channel close.
+///
+/// # Errors
+///
+/// As [`start_layer`].
+pub fn start_layer_on(
+    decision: &Decision,
+    program: &Path,
+    channels: Channels,
+    shell_pidfd: &OwnedFd,
+    shell_pid: u32,
+    terminal: u32,
+    layer: u32,
+) -> io::Result<(Running, Receiver)> {
+    start_layer_on_with(
+        decision,
+        program,
+        channels,
+        shell_pidfd,
+        shell_pid,
+        terminal,
+        layer,
+        &fresh_root,
+    )
+}
+
+/// [`start_layer_on`] with the source of the root given, for tests.
+///
+/// # Errors
+///
+/// As [`start_layer`].
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the same inputs as start_layer_with, plus the channels"
+)]
+pub fn start_layer_on_with(
+    decision: &Decision,
+    program: &Path,
+    channels: Channels,
+    shell_pidfd: &OwnedFd,
+    shell_pid: u32,
+    terminal: u32,
+    layer: u32,
+    make_root: &dyn Fn() -> io::Result<Zeroizing<[u8; 32]>>,
+) -> io::Result<(Running, Receiver)> {
+    if let Decision::GridOnly(reason) = decision {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("the layer is grid-only: {reason:?}"),
+        ));
+    }
+    let root = make_root()?;
+    let running = spawn::start_on(channels, program, shell_pidfd, shell_pid, terminal, &[])?;
+    // Dropping `running` on an error closes the EOF pipe, which ends the holder.
+    spawn::deliver_key_on(&running.spawn, 1, layer, &root)?;
+    let keys = DirectionKeys::derive(
+        &LayerRoot::new(*root),
+        LayerId(layer),
+        Direction::ToTerminal,
+    );
+    let receiver = Receiver::new(keys, LayerId(layer), Direction::ToTerminal);
+    Ok((running, receiver))
 }

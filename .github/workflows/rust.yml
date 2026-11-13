@@ -40,10 +40,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      # The sealed-shell tests start a real zsh on Linux.
+      - name: Install zsh
+        if: runner.os == 'Linux'
+        run: command -v zsh >/dev/null || sudo apt-get install -y zsh
       - run: cargo test --locked --workspace
       - run: cargo test --locked --workspace --all-features
       # The earlier text rules stay available without the default features and keep their tests.
       - run: cargo test --locked -p lumen-track0 -p lumen-term --no-default-features
+      # A holder without seal requests treats one as an unknown message; that stays tested.
+      - run: cargo test --locked -p lumen-holder --no-default-features
       # A library that panics with overflow checks wraps in release; the shipped worker must still answer status 4.
       - run: cargo test --locked --release -p lumen-decoder --test webp_code_length_wrap
 

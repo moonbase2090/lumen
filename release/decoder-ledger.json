@@ -1,7 +1,7 @@
 {
  "revision": "carried-forward-1",
- "decoder_build": "686e0adda8554e613333014d00dace4aff901e2f37f131078e1e2f0ea9aed586",
- "image_path_build": "2cf937b5074070aa8f5753b7c77f5c1abba36ba987974b027b8e9725a42e560a",
+ "decoder_build": "af18ba62b6daad464a3e94314354b3121d4698f6bae815d7e5055ca7b965401b",
+ "image_path_build": "c98cb864f242963b10f44b028298fef3944e7fc7a2f9da8340797e48121c0e7c",
  "formats": [
   {
    "name": "png",

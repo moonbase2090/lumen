@@ -1043,6 +1043,28 @@
      "methods": 0
     }
    },
+   "lumen-holder 0.0.0": {
+    "forbids_unsafe": false,
+    "source": "Path",
+    "unsafe_items": {
+     "exprs": 91,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "lumen-seal 0.0.0": {
+    "forbids_unsafe": false,
+    "source": "Path",
+    "unsafe_items": {
+     "exprs": 5,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
    "lumen-sealed 0.0.0": {
     "forbids_unsafe": true,
     "source": "Path",

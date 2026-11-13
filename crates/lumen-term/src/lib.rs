@@ -40,6 +40,8 @@ pub mod policy;
 mod pty;
 pub mod raster;
 pub mod reply;
+#[cfg(target_os = "linux")]
+pub mod seal;
 pub mod session;
 pub mod strip;
 mod writer;
