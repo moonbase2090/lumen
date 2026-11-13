@@ -211,6 +211,10 @@ pub struct Config {
     pub notifications: crate::notify::Settings,
     /// The user's `images` setting; `false` always shows the alt text.
     pub images: bool,
+    /// The user's choice of look.
+    pub theme: crate::design::ThemeChoice,
+    /// The user's fonts.
+    pub fonts: crate::design::Fonts,
 }
 
 struct Running {
@@ -315,8 +319,13 @@ impl ApplicationHandler for Host {
             Ok(mut app) => {
                 app.use_settings(self.config.notifications);
                 app.use_images(self.config.images);
-                // The system's appearance, if it says; light until it does.
+                // The user's look, then the system's appearance, if it says;
+                // light until it does.
+                app.set_theme_choice(self.config.theme);
                 app.set_appearance(appearance(window.theme()));
+                if let Err(e) = app.set_fonts(&self.config.fonts) {
+                    eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
+                }
                 window.request_redraw();
                 self.state = Some(Running {
                     window,

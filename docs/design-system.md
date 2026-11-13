@@ -72,4 +72,4 @@ The window is drawn in the palette the theme choice and the system's appearance 
 
 The renderer's `Theme` (colours by where they are painted) lives in the design module with the palettes. Its fixed `Theme::light` is kept unchanged for the pinned conditions of the pixel evidence, and the default fonts give the same cells and pixels as before, so baselines stay comparable. Neither the palettes, the theme nor the fonts read decoded image pixels, so none of them is part of the image path's build identity, and changing them never moves it.
 
-Not yet drawn from tokens: the type scale's heading steps (headings use the prose size), spacing and corner radii (the layout is on the cell grid). Where the user's theme and font choices are stored, and an in-app picker, come with the settings file.
+Not yet drawn from tokens: the type scale's heading steps (headings use the prose size), spacing and corner radii (the layout is on the cell grid). The user's theme and font choices are read from the [settings file](phase-1/settings-file.md); there is no in-app picker yet.
