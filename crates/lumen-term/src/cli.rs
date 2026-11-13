@@ -17,6 +17,8 @@ pub struct Options {
     pub exit_after: Option<Duration>,
     /// Print what the policy file gave (or why it was ignored) and exit.
     pub show_policy: bool,
+    /// Print what the settings file gave (or why it was ignored) and exit.
+    pub show_settings: bool,
     /// The program and its arguments; empty means the user's shell.
     pub command: Vec<String>,
 }
@@ -30,13 +32,14 @@ impl Default for Options {
             wait: Duration::from_millis(1500),
             exit_after: None,
             show_policy: false,
+            show_settings: false,
             command: Vec::new(),
         }
     }
 }
 
 /// The usage text.
-pub const USAGE: &str = "usage: bright [--scale N] [--size WxH] [--snapshot FILE [--wait MS]] [--exit-after MS] [--show-policy] [--] [PROGRAM [ARGS...]]";
+pub const USAGE: &str = "usage: bright [--scale N] [--size WxH] [--snapshot FILE [--wait MS]] [--exit-after MS] [--show-policy] [--show-settings] [--] [PROGRAM [ARGS...]]";
 
 fn number(flag: &str, value: Option<&String>) -> Result<u64, String> {
     value
@@ -84,6 +87,7 @@ impl Options {
                     at += 1;
                 }
                 "--show-policy" => options.show_policy = true,
+                "--show-settings" => options.show_settings = true,
                 "--snapshot" => {
                     options.snapshot =
                         Some(args.get(at + 1).ok_or("--snapshot needs a path")?.clone());
