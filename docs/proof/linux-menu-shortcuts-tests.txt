@@ -1,0 +1,20 @@
+   Compiling lumen-detector v0.0.0 (/proof/crates/lumen-detector)
+   Compiling lumen-arm-b v0.0.0 (/proof/crates/lumen-arm-b)
+   Compiling softbuffer v0.4.8
+   Compiling swash v0.2.10
+   Compiling prismattyc-emulator v0.3.52 (https://github.com/moonbase2090/Prismattyc?rev=ca7b9f8d6541988c76eae1425db125ee613cd3c6#ca7b9f8d)
+   Compiling lumen-holder v0.0.0 (/proof/crates/lumen-holder)
+   Compiling lumen-decoder v0.0.0 (/proof/crates/lumen-decoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 39.17s
+     Running tests/actions.rs (target/debug/build/lumen-term/0d5261b8a7d5e153/out/actions-0d5261b8a7d5e153)
+
+running 6 tests
+test a_paste_carrying_a_frame_introducer_is_refused_and_nothing_is_sent ... ok
+test the_shortcut_for_each_action_is_the_one_the_platform_uses ... ok
+test paste_sends_the_clipboard_text_to_the_program ... ok
+test quit_and_close_end_the_application ... ok
+test a_multi_line_paste_reaches_the_program_as_one_line_and_runs_nothing ... ok
+test zoom_changes_the_size_the_running_program_is_told ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+
