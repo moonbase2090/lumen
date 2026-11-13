@@ -1,0 +1,23 @@
+macOS menu bar and shortcuts proof
+Revision: da355dce7974f7d97566c99754bd6cf20c5e38b2 (the feature branch head the binary was built from)
+Host: fresh virtual machine from a clean macOS image, macOS 26.6.2 arm64, deleted after the run
+Build: cargo build --locked --release -p lumen-term --features window, on the build host; binary SHA-256 e3e15397307c1344d3ba26d7e2c298e7358571675aff8f30824583b9c8499079 (checked equal in the guest)
+Program in the window: a generic shell script that reads a line, prints it as got:[line] and runs stty size
+How driven: real key presses and mouse clicks over the virtual machine's screen-sharing (VNC) connection into its logged-in desktop session. The Command key is sent as Alt_L, which that connection maps to Command.
+Clipboard: the text "text from the clipboard", set in the guest with pbcopy before the run
+
+What the captures show (all taken from inside the guest):
+- macos-shortcuts-paste-zoom.png, after the whole sequence, top to bottom:
+  1. Command+V pasted the clipboard text; Return sent it: got:[text from the clipboard], and the program's window was 24 rows by 101 columns.
+  2. Edit > Paste (chosen with the mouse) did the same.
+  3. Command+= (zoom in): the program was told 14 rows by 68 columns.
+  4. Command+- twice (zoom out twice, to the smallest size): 50 rows by 221 columns.
+  5. Command+0 (actual size): back to 24 rows by 101 columns.
+- macos-menu-paste.png: the Edit menu with Paste and its Command+V chord.
+- macos-menu-view.png: the View menu with Zoom In, Zoom Out and Actual Size and their chords. The tab-bar items and Toggle Full Screen are added by the system.
+- macos-menu-app.png: the application menu: About, Services, Hide, Hide Others, Show All and Quit with their chords.
+- macos-hidden.png: after Command+H the application's window is gone and the menu bar belongs to the Finder; the process kept running.
+Process checks in the guest, by pgrep after each run: Command+Q ended the process, and Command+W ended the process; Command+H left it running.
+Lines the program read in the paste run (from its own log): the clipboard text twice (chord and menu), then three empty lines for the three sizes.
+
+Not shown here: a physical display, other macOS versions, release-signed builds. The application menu's title is the process name until the Bright rename lands. Copy and select all are not part of this change.
