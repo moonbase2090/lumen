@@ -1,23 +1,30 @@
 //! The design system: the named tokens the terminal's look is built from.
 //!
 //! Colours are named by role, not by where they are painted, so a theme is a
-//! choice of values for the same roles. [`Palette::light`] is the built-in
-//! look and the one the terminal uses; [`theme`] maps it onto the renderer's
-//! [`Theme`]. [`Theme::light`] stays as it was, because the pinned conditions
-//! of the pixel evidence use it.
+//! choice of values for the same roles. There are three built-in palettes
+//! ([`Builtin`]): light, dark and high contrast. [`Palette::theme`] maps a
+//! palette onto the renderer's [`Theme`]. [`Theme::light`] stays as it was,
+//! because the pinned conditions of the pixel evidence use it.
 //!
-//! Rules every palette keeps (the tests check them):
+//! Each built-in palette keeps the [`Floors`] of its kind (the tests check
+//! them, and [`Palette::check`] reports what a palette misses):
 //!
 //! - Every text role is at least 4.5:1 against every surface it is drawn on
-//!   (WCAG AA for body text). The spec's floor for a visible run is 3:1, so
-//!   no text the terminal draws in its own colours can fall under it.
+//!   (WCAG AA for body text), 7:1 in high contrast. The spec's floor for a
+//!   visible run is 3:1, so no text the terminal draws in its own colours can
+//!   fall under it.
 //! - The run colour tokens of the spec (`fg`, `muted`, `accent`, `error`) map
 //!   to text roles, so they keep the same floor.
-//! - The ANSI colours a program uses for text (0 to 6 and 8 to 14) are at
-//!   least 3:1 against the canvas. 7 and 15 are the light greys by convention.
+//! - The ANSI colours a program uses for text are at least 3:1 against the
+//!   canvas and the surface (4.5:1 in high contrast). The black and white
+//!   slots that sit next to the background by convention (7 and 15 on a light
+//!   palette, 0 on a dark one) are exempt.
 //! - The control border (the editor's edge, and the edge of the container
 //!   of unverified output) is at least 3:1 against the surfaces on both of
 //!   its sides, the WCAG floor for the boundary of a control.
+//!
+//! A palette from a theme file only has to keep the spec's floor for text,
+//! 3:1 ([`Floors::USER`]), since a run under it would be hidden.
 
 use crate::frame::Rgb;
 
@@ -97,6 +104,167 @@ impl Palette {
                 [238, 240, 244],
             ],
         }
+    }
+
+    /// The built-in dark look.
+    #[must_use]
+    pub const fn dark() -> Self {
+        Self {
+            canvas: [22, 24, 29],
+            surface: [30, 33, 40],
+            sunken: [36, 40, 48],
+            field: [26, 28, 34],
+            chrome: [28, 31, 38],
+            text: [226, 229, 235],
+            text_strong: [243, 245, 248],
+            text_muted: [160, 167, 180],
+            chrome_text: [170, 177, 190],
+            accent: [122, 162, 255],
+            error: [255, 117, 117],
+            caution: [230, 176, 80],
+            control_border: [110, 118, 134],
+            notice: [44, 38, 24],
+            notice_border: [190, 140, 50],
+            ansi: [
+                [36, 40, 48],
+                [255, 110, 110],
+                [110, 210, 130],
+                [230, 190, 90],
+                [122, 162, 255],
+                [210, 140, 240],
+                [90, 205, 215],
+                [200, 205, 214],
+                [125, 133, 148],
+                [255, 140, 140],
+                [140, 230, 155],
+                [245, 210, 120],
+                [150, 185, 255],
+                [225, 165, 250],
+                [125, 225, 235],
+                [243, 245, 248],
+            ],
+        }
+    }
+
+    /// The built-in high-contrast look: black on white, text at 7:1 or more.
+    #[must_use]
+    pub const fn high_contrast() -> Self {
+        Self {
+            canvas: [255, 255, 255],
+            surface: [250, 250, 250],
+            sunken: [240, 240, 240],
+            field: [255, 255, 255],
+            chrome: [235, 235, 235],
+            text: [0, 0, 0],
+            text_strong: [0, 0, 0],
+            text_muted: [55, 55, 55],
+            chrome_text: [30, 30, 30],
+            accent: [0, 51, 170],
+            error: [160, 0, 0],
+            caution: [100, 55, 0],
+            control_border: [0, 0, 0],
+            notice: [255, 255, 255],
+            notice_border: [0, 0, 0],
+            ansi: [
+                [0, 0, 0],
+                [160, 0, 0],
+                [0, 100, 0],
+                [110, 70, 0],
+                [0, 51, 170],
+                [120, 0, 140],
+                [0, 90, 110],
+                [200, 200, 200],
+                [60, 60, 60],
+                [190, 0, 0],
+                [0, 120, 0],
+                [130, 85, 0],
+                [0, 70, 200],
+                [140, 0, 160],
+                [0, 105, 125],
+                [245, 245, 245],
+            ],
+        }
+    }
+
+    /// Whether the canvas is dark: its luminance is under that of mid grey.
+    #[must_use]
+    pub fn is_dark(&self) -> bool {
+        luminance(self.canvas) < luminance([128, 128, 128])
+    }
+
+    /// The surfaces text is drawn on, by role name.
+    #[must_use]
+    pub const fn surfaces(&self) -> [(&'static str, Rgb); 6] {
+        [
+            ("canvas", self.canvas),
+            ("surface", self.surface),
+            ("sunken", self.sunken),
+            ("field", self.field),
+            ("chrome", self.chrome),
+            ("notice", self.notice),
+        ]
+    }
+
+    /// The text roles, by role name.
+    #[must_use]
+    pub const fn text_roles(&self) -> [(&'static str, Rgb); 7] {
+        [
+            ("text", self.text),
+            ("text_strong", self.text_strong),
+            ("text_muted", self.text_muted),
+            ("chrome_text", self.chrome_text),
+            ("accent", self.accent),
+            ("error", self.error),
+            ("caution", self.caution),
+        ]
+    }
+
+    /// What this palette misses of `floors`, one line each; empty if none.
+    #[must_use]
+    pub fn check(&self, floors: &Floors) -> Vec<String> {
+        let mut misses = Vec::new();
+        for (name, fg) in self.text_roles() {
+            for (surface, bg) in self.surfaces() {
+                let ratio = contrast(fg, bg);
+                if ratio < floors.text {
+                    misses.push(format!(
+                        "{name} on {surface} is {ratio:.2}:1, under {}:1",
+                        floors.text
+                    ));
+                }
+            }
+        }
+        if let Some(floor) = floors.ansi {
+            let exempt: &[usize] = if self.is_dark() { &[0] } else { &[7, 15] };
+            for (i, colour) in self.ansi.iter().enumerate() {
+                if exempt.contains(&i) {
+                    continue;
+                }
+                for (surface, bg) in [("canvas", self.canvas), ("surface", self.surface)] {
+                    let ratio = contrast(*colour, bg);
+                    if ratio < floor {
+                        misses.push(format!(
+                            "ANSI {i} on {surface} is {ratio:.2}:1, under {floor}:1"
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some(floor) = floors.border {
+            for (surface, bg) in [
+                ("canvas", self.canvas),
+                ("field", self.field),
+                ("surface", self.surface),
+            ] {
+                let ratio = contrast(self.control_border, bg);
+                if ratio < floor {
+                    misses.push(format!(
+                        "control_border on {surface} is {ratio:.2}:1, under {floor}:1"
+                    ));
+                }
+            }
+        }
+        misses
     }
 
     /// The colour of one of the spec's run colour tokens.
@@ -206,6 +374,91 @@ impl Theme {
             toast: [255, 250, 230],
             toast_border: [190, 150, 60],
         }
+    }
+}
+
+/// The contrast floors a palette is held to.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Floors {
+    /// Every text role against every surface.
+    pub text: f64,
+    /// The ANSI colours used for text against the canvas and the surface;
+    /// `None` checks nothing.
+    pub ansi: Option<f64>,
+    /// The control border against the surfaces beside it; `None` checks
+    /// nothing.
+    pub border: Option<f64>,
+}
+
+impl Floors {
+    /// The built-in light and dark palettes.
+    pub const STANDARD: Self = Self {
+        text: 4.5,
+        ansi: Some(3.0),
+        border: Some(3.0),
+    };
+    /// The built-in high-contrast palette.
+    pub const HIGH_CONTRAST: Self = Self {
+        text: 7.0,
+        ansi: Some(4.5),
+        border: Some(3.0),
+    };
+    /// A palette from a theme file: the spec's visibility floor for text.
+    pub const USER: Self = Self {
+        text: 3.0,
+        ansi: None,
+        border: None,
+    };
+}
+
+/// The built-in palettes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Builtin {
+    /// [`Palette::light`].
+    Light,
+    /// [`Palette::dark`].
+    Dark,
+    /// [`Palette::high_contrast`].
+    HighContrast,
+}
+
+impl Builtin {
+    /// Every built-in palette.
+    pub const ALL: [Self; 3] = [Self::Light, Self::Dark, Self::HighContrast];
+
+    /// The palette.
+    #[must_use]
+    pub const fn palette(self) -> Palette {
+        match self {
+            Self::Light => Palette::light(),
+            Self::Dark => Palette::dark(),
+            Self::HighContrast => Palette::high_contrast(),
+        }
+    }
+
+    /// The floors it keeps.
+    #[must_use]
+    pub const fn floors(self) -> Floors {
+        match self {
+            Self::Light | Self::Dark => Floors::STANDARD,
+            Self::HighContrast => Floors::HIGH_CONTRAST,
+        }
+    }
+
+    /// Its name in settings and theme files.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Light => "light",
+            Self::Dark => "dark",
+            Self::HighContrast => "high-contrast",
+        }
+    }
+
+    /// The built-in palette called `name`.
+    #[must_use]
+    pub fn named(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|b| b.name() == name)
     }
 }
 

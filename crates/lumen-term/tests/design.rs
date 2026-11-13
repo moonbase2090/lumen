@@ -3,8 +3,25 @@
 
 use lumen_term::Theme;
 use lumen_term::design::{
-    self, Family, Palette, RunColour, TYPE_SCALE, contrast, default_step, size_px,
+    self, Builtin, Family, Floors, Palette, RunColour, TYPE_SCALE, contrast, default_step, size_px,
 };
+
+/// Each built-in palette with the text, ANSI and border floors it keeps and
+/// the ANSI slots exempt by convention, written out here, not taken from the
+/// code under test.
+fn builtins() -> [(&'static str, Palette, f64, f64, &'static [usize]); 3] {
+    [
+        ("light", Palette::light(), 4.5, 3.0, &[7, 15]),
+        ("dark", Palette::dark(), 4.5, 3.0, &[0]),
+        (
+            "high contrast",
+            Palette::high_contrast(),
+            7.0,
+            4.5,
+            &[7, 15],
+        ),
+    ]
+}
 
 fn surfaces(p: &Palette) -> [(&'static str, [u8; 3]); 6] {
     [
@@ -40,58 +57,143 @@ fn contrast_matches_the_wcag_reference_values() {
 }
 
 #[test]
-fn every_text_role_is_at_least_four_and_a_half_to_one_on_every_surface() {
-    let p = Palette::light();
-    for (name, fg) in text_roles(&p) {
-        for (surface, bg) in surfaces(&p) {
-            let ratio = contrast(fg, bg);
-            assert!(ratio >= 4.5, "{name} on {surface} is {ratio:.2}:1");
+fn every_text_role_clears_its_palettes_floor_on_every_surface() {
+    for (palette, p, floor, _, _) in builtins() {
+        for (name, fg) in text_roles(&p) {
+            for (surface, bg) in surfaces(&p) {
+                let ratio = contrast(fg, bg);
+                assert!(
+                    ratio >= floor,
+                    "{palette}: {name} on {surface} is {ratio:.2}:1"
+                );
+            }
         }
     }
 }
 
 #[test]
 fn the_run_colour_tokens_clear_the_specs_visibility_floor_with_room() {
-    let p = Palette::light();
-    for token in [
-        RunColour::Fg,
-        RunColour::Muted,
-        RunColour::Accent,
-        RunColour::Error,
-    ] {
-        for (surface, bg) in surfaces(&p) {
-            let ratio = contrast(p.run(token), bg);
-            assert!(ratio >= 4.5, "{token:?} on {surface} is {ratio:.2}:1");
+    for (palette, p, _, _, _) in builtins() {
+        for token in [
+            RunColour::Fg,
+            RunColour::Muted,
+            RunColour::Accent,
+            RunColour::Error,
+        ] {
+            for (surface, bg) in surfaces(&p) {
+                let ratio = contrast(p.run(token), bg);
+                assert!(
+                    ratio >= 4.5,
+                    "{palette}: {token:?} on {surface} is {ratio:.2}:1"
+                );
+            }
         }
     }
 }
 
 #[test]
 fn ansi_text_colours_are_readable_on_the_canvas_and_the_surface() {
-    let p = Palette::light();
-    for (i, colour) in p.ansi.iter().enumerate() {
-        if i == 7 || i == 15 {
-            continue;
+    for (palette, p, _, floor, exempt) in builtins() {
+        for (i, colour) in p.ansi.iter().enumerate() {
+            if exempt.contains(&i) {
+                continue;
+            }
+            for (surface, bg) in [("canvas", p.canvas), ("surface", p.surface)] {
+                let ratio = contrast(*colour, bg);
+                assert!(
+                    ratio >= floor,
+                    "{palette}: ANSI {i} on {surface} is {ratio:.2}:1"
+                );
+            }
         }
-        for (surface, bg) in [("canvas", p.canvas), ("surface", p.surface)] {
-            let ratio = contrast(*colour, bg);
-            assert!(ratio >= 3.0, "ANSI {i} on {surface} is {ratio:.2}:1");
-        }
+        // The default foreground's ANSI slot is the readable one of black
+        // and white.
+        let readable = if p.is_dark() { p.ansi[15] } else { p.ansi[0] };
+        assert!(contrast(readable, p.canvas) >= 4.5, "{palette}");
     }
 }
 
 #[test]
 fn the_editor_and_container_edges_are_visible_as_control_boundaries() {
-    let p = Palette::light();
-    for (surface, bg) in [
-        ("canvas", p.canvas),
-        ("field", p.field),
-        ("surface", p.surface),
-    ] {
-        let ratio = contrast(p.control_border, bg);
-        assert!(ratio >= 3.0, "control border on {surface} is {ratio:.2}:1");
+    for (palette, p, _, _, _) in builtins() {
+        for (surface, bg) in [
+            ("canvas", p.canvas),
+            ("field", p.field),
+            ("surface", p.surface),
+        ] {
+            let ratio = contrast(p.control_border, bg);
+            assert!(
+                ratio >= 3.0,
+                "{palette}: control border on {surface} is {ratio:.2}:1"
+            );
+        }
     }
-    assert_eq!(design::theme().border, p.control_border);
+    assert_eq!(design::theme().border, Palette::light().control_border);
+}
+
+#[test]
+fn dark_is_dark_and_the_others_are_light() {
+    assert!(Palette::dark().is_dark());
+    assert!(!Palette::light().is_dark());
+    assert!(!Palette::high_contrast().is_dark());
+}
+
+#[test]
+fn builtins_are_found_by_their_names() {
+    assert_eq!(Builtin::named("light"), Some(Builtin::Light));
+    assert_eq!(Builtin::named("dark"), Some(Builtin::Dark));
+    assert_eq!(Builtin::named("high-contrast"), Some(Builtin::HighContrast));
+    assert_eq!(Builtin::named("Dark"), None);
+    assert_eq!(Builtin::named(""), None);
+    assert_eq!(Builtin::Dark.palette(), Palette::dark());
+    assert_eq!(Builtin::HighContrast.floors(), Floors::HIGH_CONTRAST);
+}
+
+#[test]
+fn every_builtin_passes_its_own_check() {
+    for b in Builtin::ALL {
+        assert_eq!(
+            b.palette().check(&b.floors()),
+            Vec::<String>::new(),
+            "{b:?}"
+        );
+    }
+}
+
+#[test]
+fn the_check_names_each_miss() {
+    let mut p = Palette::light();
+    p.text_muted = [200, 200, 200];
+    p.ansi[1] = [250, 250, 250];
+    p.control_border = [240, 240, 240];
+    let misses = p.check(&Floors::STANDARD);
+    assert!(
+        misses
+            .iter()
+            .any(|m| m.starts_with("text_muted on canvas is 1.67:1")),
+        "{misses:?}"
+    );
+    assert!(
+        misses.iter().any(|m| m.starts_with("ANSI 1 on canvas")),
+        "{misses:?}"
+    );
+    assert!(
+        misses
+            .iter()
+            .any(|m| m.starts_with("control_border on canvas")),
+        "{misses:?}"
+    );
+    // A theme file is held only to the spec's floor for text.
+    let user = p.check(&Floors::USER);
+    assert!(
+        user.iter().all(|m| m.starts_with("text_muted on ")),
+        "{user:?}"
+    );
+    assert!(!user.is_empty());
+    // Exempt slots are not checked: white 15 on a light canvas is fine.
+    let mut q = Palette::light();
+    q.ansi[15] = [255, 255, 255];
+    assert!(q.check(&Floors::STANDARD).is_empty());
 }
 
 #[test]
