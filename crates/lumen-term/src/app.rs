@@ -149,7 +149,7 @@ impl App {
         width: u32,
         height: u32,
     ) -> Result<Self, SpawnError> {
-        let renderer = Renderer::light(scale).map_err(SpawnError)?;
+        let renderer = Renderer::new(scale, crate::design::theme()).map_err(SpawnError)?;
         let (columns, rows) = cells_for(width, height, renderer.cell());
         let (block_columns, block_rows) = block_cells(columns, rows);
         let session = Session::start(layer, block_columns, block_rows, program, arguments)?;

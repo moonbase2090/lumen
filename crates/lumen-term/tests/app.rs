@@ -189,7 +189,7 @@ fn a_window_too_small_for_the_margin_still_has_a_one_by_one_block_area() {
 
 #[test]
 fn the_view_draws_the_trust_margin_the_producer_cannot_reach() {
-    let Ok(r) = lumen_term::Renderer::light(1) else {
+    let Ok(r) = lumen_term::Renderer::new(1, lumen_term::design::theme()) else {
         unreachable!("the face loads")
     };
     let mut app = start("echo shown", 640, 380);
