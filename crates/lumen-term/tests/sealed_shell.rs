@@ -115,6 +115,10 @@ fn home(name: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     assert!(std::fs::create_dir_all(&dir).is_ok());
     assert!(std::fs::write(dir.join(".zshrc"), "PS1='% '\n").is_ok());
+    // The machine's own startup files (a CI image's compinit asks questions)
+    // are none of this test's business. This also runs the shim's hand-over to
+    // the user's own .zshenv.
+    assert!(std::fs::write(dir.join(".zshenv"), "setopt no_global_rcs\n").is_ok());
     dir
 }
 
