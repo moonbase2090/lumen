@@ -1,14 +1,20 @@
 //! The headless rasteriser: blocks to an RGBA frame, with no window.
 //!
-//! One bundled face (IBM Plex Mono Regular, see `NOTICE.txt`), integer
-//! blending and a fixed light theme, so the same document gives the same
+//! Two bundled faces (IBM Plex Mono Regular and IBM Plex Sans Regular, see
+//! `NOTICE.txt`), integer blending and a fixed light theme, so the same document gives the same
 //! pixels every time on a platform. That is the groundwork for the pixel
 //! oracle of criterion 2.3: a baseline is taken twice and must match exactly,
 //! and baselines are kept per platform.
 //!
-//! What it does not do: bold or italic faces (there is one face), glyphs the
-//! face lacks (they are skipped), combining marks (the base glyph only), a
-//! cursor (off unless asked), or any text shaping.
+//! Grids and code blocks are drawn on the monospace cell grid. Paragraph and
+//! heading text in a rich block is laid out in the proportional face: each
+//! glyph advances by its own width, and lines wrap at the container's pixel
+//! width. A character the proportional face lacks is drawn from the monospace
+//! face in whole cells.
+//!
+//! What it does not do: bold or italic faces, glyphs neither face has (they are
+//! skipped), combining marks (the base glyph only), a cursor (off unless
+//! asked), kerning, or any other text shaping.
 
 use crate::document::{Block, Document, RichBlock};
 use crate::grid::GridBlock;
@@ -23,8 +29,14 @@ use swash::FontRef;
 use swash::scale::{Render, ScaleContext, Source};
 use swash::zeno::Format;
 
-/// The bundled face.
+/// The bundled monospace face.
 const FACE: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf");
+/// The bundled proportional face, for text in rich blocks.
+const SANS: &[u8] = include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf");
+/// Proportional advances are measured in 64ths of a pixel, so a line is as
+/// wide as its glyphs add up to and rounding does not build up along it.
+const SUBPIXELS: usize = 64;
+const SUBPIXELS_F: f32 = 64.0;
 /// Pixel size of the face at scale 1.
 pub const BASE_PX: f32 = 14.0;
 /// The label every rich block's container carries.
@@ -220,6 +232,12 @@ impl Frame {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Face {
+    Mono,
+    Sans,
+}
+
 struct Glyph {
     xmin: i32,
     ymin: i32,
@@ -231,6 +249,7 @@ struct Glyph {
 /// Turns blocks into pixels.
 pub struct Renderer {
     font: FontRef<'static>,
+    sans: FontRef<'static>,
     scaler: RefCell<ScaleContext>,
     px: f32,
     scale: u32,
@@ -238,7 +257,8 @@ pub struct Renderer {
     cell_h: u32,
     ascent: i32,
     theme: Theme,
-    cache: RefCell<HashMap<char, Glyph>>,
+    cache: RefCell<HashMap<(Face, char), Glyph>>,
+    advances: RefCell<HashMap<char, usize>>,
 }
 
 fn resolve(colour: Color, default: Rgb, theme: &Theme) -> Rgb {
@@ -274,6 +294,7 @@ impl Renderer {
     /// build, since it is compiled in.
     pub fn new(scale: u32, theme: Theme) -> Result<Self, String> {
         let font = FontRef::from_index(FACE, 0).ok_or("the face could not be read")?;
+        let sans = FontRef::from_index(SANS, 0).ok_or("the proportional face could not be read")?;
         #[allow(
             clippy::cast_precision_loss,
             reason = "a scale is a small whole number"
@@ -296,6 +317,7 @@ impl Renderer {
         );
         Ok(Self {
             font,
+            sans,
             scaler: RefCell::new(ScaleContext::new()),
             px,
             scale: scale.max(1),
@@ -304,6 +326,7 @@ impl Renderer {
             ascent,
             theme,
             cache: RefCell::new(HashMap::new()),
+            advances: RefCell::new(HashMap::new()),
         })
     }
 
@@ -329,14 +352,34 @@ impl Renderer {
     }
 
     fn draw_glyph(&self, frame: &mut Frame, ch: char, x: u32, y: u32, cells: u32, colour: Rgb) {
-        let glyph = self.font.charmap().map(ch);
+        let band = (i64::from(x), i64::from(x + cells * self.cell_w));
+        self.draw_face(frame, Face::Mono, ch, (x, y), band, colour);
+    }
+
+    /// Draw `ch` from `face` with its origin at `at`, clipped to the pixel
+    /// columns `band` and to the row below `at.1`.
+    fn draw_face(
+        &self,
+        frame: &mut Frame,
+        face: Face,
+        ch: char,
+        at: (u32, u32),
+        band: (i64, i64),
+        colour: Rgb,
+    ) {
+        let (x, y) = at;
+        let font = match face {
+            Face::Mono => self.font,
+            Face::Sans => self.sans,
+        };
+        let glyph = font.charmap().map(ch);
         if ch == ' ' || ch == '\0' || glyph == 0 {
             return;
         }
         let mut cache = self.cache.borrow_mut();
-        let g = cache.entry(ch).or_insert_with(|| {
+        let g = cache.entry((face, ch)).or_insert_with(|| {
             let mut context = self.scaler.borrow_mut();
-            let mut scaler = context.builder(self.font).size(self.px).hint(false).build();
+            let mut scaler = context.builder(font).size(self.px).hint(false).build();
             let Some(image) = Render::new(&[Source::Outline])
                 .format(Format::Alpha)
                 .render(&mut scaler, glyph)
@@ -363,7 +406,7 @@ impl Renderer {
         let rows = i64::try_from(g.height).unwrap_or(0);
         let top = i64::from(y) + i64::from(self.ascent) - i64::from(g.ymin) - rows;
         let left = i64::from(x) + i64::from(g.xmin);
-        let (band_start, band_end) = (i64::from(x), i64::from(x + cells * self.cell_w));
+        let (band_start, band_end) = band;
         let (cell_top, cell_bottom) = (i64::from(y), i64::from(y + self.cell_h));
         for row in 0..g.height {
             for col in 0..g.width {
@@ -425,12 +468,107 @@ impl Renderer {
         }
     }
 
+    /// The face a character of proportional text is drawn from: the
+    /// proportional one when it has the glyph and the character takes one cell,
+    /// else the monospace one.
+    fn proportional_face(&self, ch: char) -> Face {
+        if self.sans.charmap().map(ch) != 0 && grapheme_display_width(ch, &[]) == 1 {
+            Face::Sans
+        } else {
+            Face::Mono
+        }
+    }
+
+    /// The advance of `ch` in the proportional layout, in 64ths of a pixel. A
+    /// character that draws nothing has none. One the proportional face lacks,
+    /// or one that takes two cells, takes whole cells, as it does on the grid.
+    fn advance(&self, ch: char) -> usize {
+        let cells = grapheme_display_width(ch, &[]);
+        if cells == 0 {
+            return 0;
+        }
+        if let Some(a) = self.advances.borrow().get(&ch) {
+            return *a;
+        }
+        let a = if self.proportional_face(ch) == Face::Sans {
+            let glyph = self.sans.charmap().map(ch);
+            let w = self
+                .sans
+                .glyph_metrics(&[])
+                .scale(self.px)
+                .advance_width(glyph);
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "an advance of a 14 to 100 pixel face is small and positive"
+            )]
+            let units = (w * SUBPIXELS_F).round().max(0.0) as usize;
+            units
+        } else {
+            cells * self.cell_w as usize * SUBPIXELS
+        };
+        self.advances.borrow_mut().insert(ch, a);
+        a
+    }
+
+    /// The width of `text` in the proportional layout, in 64ths of a pixel.
+    #[must_use]
+    pub fn text_width(&self, text: &str) -> usize {
+        text.chars().map(|c| self.advance(c)).sum()
+    }
+
+    /// Draw `text` in the proportional face with its top left at `x`, `y`,
+    /// each glyph advancing by its own width, clipped to `limit` pixels from
+    /// `x`.
+    fn proportional_line(
+        &self,
+        frame: &mut Frame,
+        at: (u32, u32),
+        text: &str,
+        colour: Rgb,
+        limit: u32,
+    ) {
+        let (x, y) = at;
+        let band = (i64::from(x), i64::from(x) + i64::from(limit));
+        let mut pos = 0usize;
+        for ch in text.chars() {
+            let a = self.advance(ch);
+            if a > 0 {
+                let left = x + u32::try_from((pos + SUBPIXELS / 2) / SUBPIXELS).unwrap_or(0);
+                let face = self.proportional_face(ch);
+                self.draw_face(frame, face, ch, (left, y), band, colour);
+            }
+            pos += a;
+        }
+    }
+
+    /// Draw one line of a rich block's body: code on the cell grid, anything
+    /// else proportional.
+    fn body_line(
+        &self,
+        frame: &mut Frame,
+        at: (u32, u32),
+        text: &str,
+        kind: Style2,
+        colour: Rgb,
+        limit: u32,
+    ) {
+        if kind == Style2::Code {
+            self.text_line(frame, at.0, at.1, text, colour);
+        } else {
+            self.proportional_line(frame, at, text, colour, limit);
+        }
+    }
+
     /// The lines of a rich block's body, wrapped to `width` cells, with a flag
-    /// for the code background.
-    fn body(block: &Track0Block, width: usize) -> (Vec<String>, Style2) {
+    /// for the code background. Code is cut at the cell; other text is wrapped
+    /// by the widths of its glyphs.
+    fn body(&self, block: &Track0Block, width: usize) -> (Vec<String>, Style2) {
+        let limit = width * self.cell_w as usize * SUBPIXELS;
+        let flow = |t: &str| wrap_by(t, limit, &|c| self.advance(c));
         match block {
-            Track0Block::Paragraph(t) => (wrap(t, width), Style2::Plain),
-            Track0Block::Heading { text, .. } => (wrap(text, width), Style2::Heading),
+            Track0Block::Paragraph(t) => (flow(t), Style2::Plain),
+            Track0Block::Heading { text, .. } => (flow(text), Style2::Heading),
             Track0Block::Code { text, stripped, .. } => {
                 let mut lines: Vec<String> = text.lines().map(|l| clip(l, width)).collect();
                 if *stripped > 0 {
@@ -440,7 +578,7 @@ impl Renderer {
             }
             // Until an image is decoded, and while images are locked, the alt
             // text stands in for it. The data frames have no row.
-            Track0Block::ImageStart { alt, .. } => (wrap(alt, width), Style2::Plain),
+            Track0Block::ImageStart { alt, .. } => (flow(alt), Style2::Plain),
             Track0Block::ImageData { .. } => (Vec::new(), Style2::Plain),
         }
     }
@@ -505,10 +643,11 @@ impl Renderer {
         self.text_line(region, self.cell_w, y, &strip.label(), t.label);
         if strip.open {
             for (i, block) in strip.blocks.iter().enumerate() {
-                let (lines, _) = Self::body(&block.content, inner);
+                let (lines, kind) = self.body(&block.content, inner);
                 let first = lines.first().map_or("", String::as_str);
                 let row = y + u32::try_from(i + 1).unwrap_or(u32::MAX) * self.cell_h;
-                self.text_line(region, self.cell_w, row, &clip(first, inner), t.foreground);
+                let limit = u32::try_from(inner).unwrap_or(1) * self.cell_w;
+                self.body_line(region, (self.cell_w, row), first, kind, t.foreground, limit);
             }
         }
         height
@@ -521,7 +660,7 @@ impl Renderer {
             let (_, h) = self.image_size(pixels, columns);
             return 2 * self.scale + self.cell_h + h;
         }
-        let (lines, _) = Self::body(&block.content, columns.saturating_sub(2).max(1));
+        let (lines, _) = self.body(&block.content, columns.saturating_sub(2).max(1));
         2 * self.scale + (1 + u32::try_from(lines.len()).unwrap_or(0)) * self.cell_h
     }
 
@@ -601,7 +740,8 @@ impl Renderer {
             Self::paint_pixels(frame, (inner, line_y), size, pixels);
             return;
         }
-        let (lines, kind) = Self::body(&block.content, columns.saturating_sub(2).max(1));
+        let (lines, kind) = self.body(&block.content, columns.saturating_sub(2).max(1));
+        let limit = u32::try_from(columns.saturating_sub(2).max(1)).unwrap_or(1) * self.cell_w;
         for line in &lines {
             let colour = match kind {
                 Style2::Heading => t.heading,
@@ -616,7 +756,7 @@ impl Renderer {
                     t.code,
                 );
             }
-            self.text_line(frame, inner, line_y, line, colour);
+            self.body_line(frame, (inner, line_y), line, kind, colour, limit);
             line_y += self.cell_h;
         }
     }
@@ -726,15 +866,17 @@ impl Renderer {
             self.text_line(&mut region, self.cell_w, 0, &strip.label(), t.label);
             if strip.open {
                 for (i, block) in strip.blocks.iter().enumerate() {
-                    let (lines, _) = Self::body(&block.content, width.max(1));
+                    let (lines, kind) = self.body(&block.content, width.max(1));
                     let first = lines.first().map_or("", String::as_str);
                     let row = u32::try_from(i + 1).unwrap_or(u32::MAX) * self.cell_h;
-                    self.text_line(
+                    let limit = u32::try_from(width.max(1)).unwrap_or(1) * self.cell_w;
+                    self.body_line(
                         &mut region,
-                        self.cell_w,
-                        row,
-                        &clip(first, width),
+                        (self.cell_w, row),
+                        first,
+                        kind,
                         t.foreground,
+                        limit,
                     );
                 }
             }
@@ -769,7 +911,7 @@ impl Renderer {
         let mut used = 0;
         let mut out = Vec::new();
         for toast in toasts {
-            let mut lines = wrap(&toast.text, inner);
+            let mut lines = wrap_by(&toast.text, inner, &cells);
             lines.truncate(TOAST_MAX_LINES);
             let rows = u32::try_from(lines.len()).unwrap_or(0) + u32::from(toast.unsigned);
             let height = rows * self.cell_h + 2 * self.scale;
@@ -896,16 +1038,28 @@ enum Style2 {
     Code,
 }
 
-fn width_of(s: &str) -> usize {
-    s.chars().map(|c| grapheme_display_width(c, &[])).sum()
+/// How wide a character is in the unit a layout counts in.
+type Measure<'a> = &'a dyn Fn(char) -> usize;
+
+fn cells(c: char) -> usize {
+    grapheme_display_width(c, &[])
+}
+
+fn width_by(s: &str, m: Measure<'_>) -> usize {
+    s.chars().map(m).sum()
 }
 
 /// Cut `s` to `width` cells.
 fn clip(s: &str, width: usize) -> String {
+    clip_by(s, width, &cells)
+}
+
+/// Cut `s` to `width` units of `m`.
+fn clip_by(s: &str, width: usize, m: Measure<'_>) -> String {
     let mut out = String::new();
     let mut used = 0;
     for c in s.chars() {
-        let w = grapheme_display_width(c, &[]);
+        let w = m(c);
         if used + w > width {
             break;
         }
@@ -951,8 +1105,8 @@ fn segments(paragraph: &str) -> Vec<(String, bool)> {
 /// cut: while the last character kept or the next one is a joiner, the last
 /// character kept goes to the next line. If the joined run is too long for the
 /// line to hold at all, the plain cut stands.
-fn cut_word(word: &str, width: usize) -> String {
-    let head = clip(word, width);
+fn cut_word(word: &str, width: usize, m: Measure<'_>) -> String {
+    let head = clip_by(word, width, m);
     if !cfg!(feature = "zero-width-text") {
         return head;
     }
@@ -977,12 +1131,14 @@ fn cut_word(word: &str, width: usize) -> String {
 /// unless the joined run is wider than the line. Every character is kept.
 #[must_use]
 pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
-    wrap(text, width)
+    wrap_by(text, width, &cells)
 }
 
-/// Greedy word wrap to `width` cells, breaking a word that is longer than a line.
-/// Characters that draw nothing take no cells and are kept in the line.
-fn wrap(text: &str, width: usize) -> Vec<String> {
+/// Greedy word wrap to `width` units of `m`, breaking a word that is longer
+/// than a line. Characters that draw nothing take no room and are kept in the
+/// line.
+fn wrap_by(text: &str, width: usize, m: Measure<'_>) -> Vec<String> {
+    let blank = m(' ');
     let mut lines = Vec::new();
     for paragraph in text.split('\n') {
         let mut line = String::new();
@@ -990,16 +1146,16 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
             let mut word = segment;
             let mut space = space_before;
             loop {
-                let gap = usize::from(space && !line.is_empty());
-                if width_of(&line) + gap + width_of(&word) <= width {
-                    if gap == 1 {
+                let gap = if space && !line.is_empty() { blank } else { 0 };
+                if width_by(&line, m) + gap + width_by(&word, m) <= width {
+                    if gap > 0 {
                         line.push(' ');
                     }
                     line.push_str(&word);
                     break;
                 }
                 if line.is_empty() {
-                    let head = cut_word(&word, width.max(1));
+                    let head = cut_word(&word, width.max(1), m);
                     // A character wider than the line leaves `head` empty: drop
                     // that whole character, never part of it, so the cut stays on
                     // a character boundary and the loop still makes progress.
