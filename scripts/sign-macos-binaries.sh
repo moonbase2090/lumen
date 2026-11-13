@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Sign macOS binaries with the hardened runtime and no entitlements, so a
-# signed lumen-term and lumen-holder can be handed to the macOS release gates
+# Sign macOS executables or app bundles with the hardened runtime and no
+# entitlements, so Bright can be handed to the macOS release gates
 # (task-port denial, non-dumpability). It signs and nothing else: no
 # notarization, no upload, no release.
 #
-# usage: sign-macos-binaries.sh [--adhoc] BINARY...
+# usage: sign-macos-binaries.sh [--adhoc] [--identifier-prefix PREFIX] PATH...
 #
 # Signing in place. The certificate comes from the environment and is never
 # printed or written outside a throwaway keychain that is deleted on exit:
@@ -16,10 +16,19 @@
 set -euo pipefail
 
 adhoc=0
+identifier_prefix=""
 bins=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --adhoc) adhoc=1; shift ;;
+    --identifier-prefix)
+      [[ $# -ge 2 && -n "$2" && "$2" != -* ]] || {
+        echo "sign-macos-binaries: --identifier-prefix needs a value" >&2
+        exit 2
+      }
+      identifier_prefix="$2"
+      shift 2
+      ;;
     -h|--help) sed -n 2,16p "$0"; exit 0 ;;
     -*) echo "sign-macos-binaries: unknown argument $1" >&2; exit 2 ;;
     *) bins+=("$1"); shift ;;
@@ -34,12 +43,34 @@ if [[ "$(uname -s)" != Darwin ]]; then
   exit 1
 fi
 for b in "${bins[@]}"; do
-  [[ -f "$b" ]] || { echo "sign-macos-binaries: missing binary: $b" >&2; exit 1; }
+  [[ -f "$b" || -d "$b" ]] || { echo "sign-macos-binaries: missing path: $b" >&2; exit 1; }
 done
+
+identifier_for() {
+  local name
+  name="$(basename "$1")"
+  case "$name" in
+    Bright.app|bright) printf '%s\n' "$identifier_prefix" ;;
+    lumen-decoder-worker) printf '%s.decoder\n' "$identifier_prefix" ;;
+    lumen-holder) printf '%s.holder\n' "$identifier_prefix" ;;
+    *) printf '%s.%s\n' "$identifier_prefix" "$name" ;;
+  esac
+}
+
+sign_one() {
+  local identity="$1" path="$2"
+  shift 2
+  if [[ -n "$identifier_prefix" ]]; then
+    codesign --force "$@" --options runtime --identifier "$(identifier_for "$path")" \
+      --sign "$identity" "$path"
+  else
+    codesign --force "$@" --options runtime --sign "$identity" "$path"
+  fi
+}
 
 if [[ "$adhoc" -eq 1 ]]; then
   for b in "${bins[@]}"; do
-    codesign --force --timestamp=none --options runtime --sign - "$b"
+    sign_one - "$b" --timestamp=none
   done
   echo "sign-macos-binaries: signed ${#bins[@]} binaries ad hoc (tests only)"
   exit 0
@@ -90,6 +121,6 @@ fi
 identity="$(printf '%s\n' "$identities" | awk '{print $2}')"
 
 for b in "${bins[@]}"; do
-  codesign --force --timestamp --options runtime --keychain "$keychain" --sign "$identity" "$b"
+  sign_one "$identity" "$b" --timestamp --keychain "$keychain"
 done
 echo "sign-macos-binaries: signed ${#bins[@]} binaries with the hardened runtime"

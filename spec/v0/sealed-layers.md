@@ -29,15 +29,13 @@ v0 has exactly one layer per terminal-spawned shell. Nested shells, attaching an
 
 ## Shim {#sealed.shim}
 
-A Lumen shim starts each listed shell (for zsh, a `ZDOTDIR` shim; other listed shells use the equivalent). The terminal sets `LUMEN_SHELL_PID` to the spawned pid, which is not secret. The shim:
+A Lumen shim starts each listed shell (for zsh, a `ZDOTDIR` shim; other listed shells use the equivalent). The terminal starts the shell directly, with its end of the seal channel at a fixed descriptor. The shim:
 
-1. Proceeds only if the shell's own pid equals `LUMEN_SHELL_PID`.
-2. Unsets `LUMEN_SHELL_PID`.
-3. Restores or unsets `ZDOTDIR` (or the equivalent) for children.
-4. Checks with `fstat` that the seal fd and control fd are Unix sockets.
-5. Sets `FD_CLOEXEC` on both fds before it sources the user's own startup files.
+1. Proceeds only if the shell is interactive and the fixed descriptor is a Unix socket (checked with `fstat`).
+2. Restores or unsets `ZDOTDIR` (or the equivalent) for the user's files and for children, and removes its own variables from the environment.
+3. Moves the seal fd out of the low descriptor numbers, and closes the fixed one, before it sources the user's own startup files. A shell that can mark the fd close-on-exec does so; zsh cannot (it has no way to set the flag on an inherited descriptor), so a process the zsh shell starts inherits the shell's end of the seal channel.
 
-If any check fails, the shim does nothing and touches no fd. A nested shell therefore never runs the shim. A shell with no shim gets no keys. No fd is received after start.
+If any check fails, the shim does nothing and touches no fd. A nested shell therefore never runs the shim: it has no descriptor at the fixed number. The shim does not compare the shell's pid with a variable the terminal sets: the pid does not exist before the shell is spawned. The holder instead accepts a message only from a sender whose kernel credentials, attached to each message, are the spawned shell's pid and start time. A program the shell starts therefore cannot get a frame sealed, even though it inherits the descriptor; it can only read or hold the channel, which can make the shell's integration miss frames (see the residuals). A shell with no shim gets no keys. No fd is received after start.
 
 ## Shell replacement {#sealed.exec-detector}
 

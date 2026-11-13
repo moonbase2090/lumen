@@ -46,6 +46,34 @@ b="$(fresh good)"; "$SIGN" --adhoc "$b" >/dev/null
 expect "hardened-runtime signature passes with --allow-adhoc" 0 "$VERIFY" --allow-adhoc "$b"
 expect "an ad-hoc signature is refused in release mode" 1 "$VERIFY" "$b"
 
+b="$(fresh bright)"
+"$SIGN" --adhoc --identifier-prefix app.brightterm.Bright "$b" >/dev/null
+expect "Bright's signing identifier passes" 0 "$VERIFY" --allow-adhoc --identifier-prefix app.brightterm.Bright "$b"
+expect "a wrong Bright signing identifier is refused" 1 "$VERIFY" --allow-adhoc --identifier-prefix example.invalid.Bright "$b"
+
+app="$WORK/Bright.app"
+mkdir -p "$app/Contents/MacOS"
+cp "$WORK/base" "$app/Contents/MacOS/bright"
+cp "$WORK/base" "$app/Contents/MacOS/lumen-decoder-worker"
+cp "$WORK/base" "$app/Contents/MacOS/lumen-holder"
+cat >"$app/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>bright</string>
+<key>CFBundleIdentifier</key><string>app.brightterm.Bright</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+</dict></plist>
+PLIST
+"$SIGN" --adhoc --identifier-prefix app.brightterm.Bright \
+  "$app/Contents/MacOS/bright" \
+  "$app/Contents/MacOS/lumen-decoder-worker" \
+  "$app/Contents/MacOS/lumen-holder" \
+  "$app" >/dev/null
+expect "the signed Bright app bundle passes" 0 "$VERIFY" --allow-adhoc --identifier-prefix app.brightterm.Bright "$app"
+expect "the signed decoder identifier passes" 0 "$VERIFY" --allow-adhoc --identifier-prefix app.brightterm.Bright "$app/Contents/MacOS/lumen-decoder-worker"
+expect "the signed holder identifier passes" 0 "$VERIFY" --allow-adhoc --identifier-prefix app.brightterm.Bright "$app/Contents/MacOS/lumen-holder"
+
 b="$(fresh unsigned)"
 expect "an unsigned binary is refused" 1 "$VERIFY" --allow-adhoc "$b"
 
@@ -69,6 +97,7 @@ expect "a refused signing leaves the binary unsigned" 1 "$VERIFY" --allow-adhoc 
 expect "signing with only half the certificate settings refuses" 1 env -u APPLE_CERTIFICATE_PASSWORD APPLE_CERTIFICATE_P12=eA== "$SIGN" "$b"
 expect "signing a missing binary refuses" 1 "$SIGN" --adhoc "$WORK/nope"
 expect "an unknown signer argument is a usage error" 2 "$SIGN" --bogus
+expect "a signer identifier without a value is a usage error" 2 "$SIGN" --identifier-prefix
 expect "no binary is a signer usage error" 2 "$SIGN"
 
 exit "$FAILED"

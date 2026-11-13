@@ -57,6 +57,12 @@ muda = { version = "0.21", default-features = false, optional = true }
 winit = { version = "0.30", default-features = false, features = ["rwh_06"], optional = true }
 softbuffer = { version = "0.4", default-features = false, optional = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# The holder that seals shell integration, and the conditions that decide
+# whether a layer may have one. Linux only: elsewhere there is no holder.
+lumen-holder = { path = "../lumen-holder", features = ["seal-requests"] }
+lumen-seal = { path = "../lumen-seal" }
+
 [target.'cfg(unix)'.dependencies]
 # The user's id, through a safe call, to check who owns the policy file.
 rustix = { version = "0.38", default-features = false, features = ["std", "process"] }

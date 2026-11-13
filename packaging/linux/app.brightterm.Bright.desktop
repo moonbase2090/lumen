@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Bright
+Comment=The Lumen reference terminal
+Exec=bright
+Icon=utilities-terminal
+Categories=System;TerminalEmulator;
+Terminal=false
+StartupNotify=true
+StartupWMClass=Bright

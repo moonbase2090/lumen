@@ -19,7 +19,7 @@ The fuzzing run cannot start until these exist. None of them is in the repositor
 
 ## The run
 
-> **Superseded numbers.** The CPU-hour totals and the plateau in the earlier version of this table were the earlier decoder gate; the table now states the release criteria's rule. The fuzzing quantities live in the [Lumen Term release criteria](../release-criteria.md#decoder-fuzzing) (a floor of 250 CPU-hours per format and no open crash or confirmed hang, continuous fuzzing, a re-fuzz on every decoder version bump); the specification keeps only the testable safety obligations. This page is the phase 0.5 plan.
+> **Superseded numbers.** The CPU-hour totals and the plateau in the earlier version of this table were the earlier decoder gate; the table now states the release criteria's rule. The fuzzing quantities live in the [Bright release criteria](../release-criteria.md#decoder-fuzzing) (a floor of 250 CPU-hours per format and no open crash or confirmed hang, continuous fuzzing, a re-fuzz on every decoder version bump); the specification keeps only the testable safety obligations. This page is the phase 0.5 plan.
 
 When those exist, the run is the one the gate describes, once per format and per platform:
 

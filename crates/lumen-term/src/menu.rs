@@ -8,8 +8,7 @@ use crate::actions::Action;
 use muda::accelerator::{Accelerator, Code, Modifiers};
 use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 
-/// The name the application menu shows.
-pub const APP_NAME: &str = "lumen";
+use crate::APP_NAME;
 
 /// The menu id of an action's item.
 #[must_use]

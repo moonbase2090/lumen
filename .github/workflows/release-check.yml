@@ -28,12 +28,13 @@ jobs:
           PUBLIC_TEXT_DENYLIST: ${{ secrets.PUBLIC_TEXT_DENYLIST }}
         run: scripts/release-check.sh
 
-  # Builds the release set: lumen-term with the window feature, the decoder
-  # worker that has to sit beside it (images stay on their alt text without
-  # it) and lumen-holder. It signs all three with the hardened runtime and a
-  # Developer ID certificate, and verifies the set and the signatures. It
-  # refuses when the certificate secrets are absent: there is no unsigned
-  # fallback. It does not notarize, publish or release. The signed binaries are
+  # Builds Bright.app: the terminal with the window feature, the decoder worker
+  # that has to sit beside it (images stay on their alt text without it) and
+  # lumen-holder. It signs the nested executables and app with the hardened
+  # runtime and a Developer ID certificate, then verifies the package and
+  # signatures. It refuses when the certificate secrets are absent: there is
+  # no unsigned fallback. It does not notarize, publish or release. The signed
+  # binaries are
   # the input for the macOS release gates (task-port denial and
   # non-dumpability).
   macos-signed:
@@ -48,31 +49,59 @@ jobs:
         run: scripts/test-macos-signing.sh
       - name: Release set check tests
         run: scripts/test-verify-release-set.sh
+      - name: Packaging tests
+        run: scripts/test-bright-packaging.sh
       - name: Build the terminal with its window
         run: cargo build --locked --release -p lumen-term --features window
       - name: Build the decoder worker and the holder
         run: cargo build --locked --release -p lumen-decoder -p lumen-holder --bin lumen-decoder-worker --bin lumen-holder
-      - name: Gather the release set
-        run: |
-          set -euo pipefail
-          mkdir release-set
-          cp target/release/lumen-term target/release/lumen-decoder-worker target/release/lumen-holder release-set/
+      - name: Package Bright
+        run: scripts/package-bright-macos.sh target/release release-set
       - name: Check that the release set holds the window and the worker
         run: scripts/verify-release-set.sh release-set
       - name: Sign with the hardened runtime
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: scripts/sign-macos-binaries.sh release-set/lumen-term release-set/lumen-decoder-worker release-set/lumen-holder
+        run: |
+          scripts/sign-macos-binaries.sh --identifier-prefix app.brightterm.Bright \
+            release-set/Bright.app/Contents/MacOS/bright \
+            release-set/Bright.app/Contents/MacOS/lumen-decoder-worker \
+            release-set/Bright.app/Contents/MacOS/lumen-holder \
+            release-set/Bright.app
       - name: Verify the signatures
-        run: scripts/verify-macos-signed.sh release-set/lumen-term release-set/lumen-decoder-worker release-set/lumen-holder
+        run: |
+          scripts/verify-macos-signed.sh --identifier-prefix app.brightterm.Bright \
+            release-set/Bright.app/Contents/MacOS/bright \
+            release-set/Bright.app/Contents/MacOS/lumen-decoder-worker \
+            release-set/Bright.app/Contents/MacOS/lumen-holder \
+            release-set/Bright.app
       - name: Check the signed release set again
         run: scripts/verify-release-set.sh release-set
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
-          name: lumen-macos-signed
-          path: |
-            release-set/lumen-term
-            release-set/lumen-decoder-worker
-            release-set/lumen-holder
+          name: bright-macos-signed
+          path: release-set/Bright.app
+          if-no-files-found: error
+
+  linux-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Packaging tests
+        run: scripts/test-bright-packaging.sh
+      - name: Build Bright and its helpers
+        run: |
+          cargo build --locked --release -p lumen-term --features window
+          cargo build --locked --release -p lumen-decoder -p lumen-holder --bin lumen-decoder-worker --bin lumen-holder
+      - name: Package Bright
+        run: scripts/package-bright-linux.sh target/release release-set x86_64
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: bright-linux-x86_64
+          path: release-set/bright-linux-x86_64
           if-no-files-found: error

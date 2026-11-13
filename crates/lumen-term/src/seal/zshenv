@@ -1,0 +1,137 @@
+# Lumen shell integration shim for zsh.
+#
+# The terminal starts the shell with ZDOTDIR pointing at the directory of this
+# file and the holder's seal channel on descriptor 3. This runs before any file
+# of the user's. It only does anything if descriptor 3 is a Unix socket, so a
+# shell started from inside this one (which has no such descriptor) does
+# nothing. Any failure leaves the shell as it was, with no seal channel.
+
+# Put ZDOTDIR back for the user's own files and for every child.
+if [[ -n ${LUMEN_USER_ZDOTDIR-} ]]; then
+  ZDOTDIR=$LUMEN_USER_ZDOTDIR
+else
+  unset ZDOTDIR
+fi
+unset LUMEN_USER_ZDOTDIR
+
+# _lumen_bytes N VALUE...: the low N bytes of each value, big endian, in REPLY.
+_lumen_bytes() {
+  emulate -L zsh
+  unsetopt multibyte
+  local -i n=$1 i v
+  local out= h
+  shift
+  for v in "$@"; do
+    for (( i = n - 1; i >= 0; i-- )); do
+      h=${(l:2::0:)$(( [##16] (v >> (8 * i)) & 255 ))}
+      printf -v h "\\x$h"
+      out+=$h
+    done
+  done
+  REPLY=$out
+}
+
+# _lumen_send ready, or _lumen_send seal KIND [VALUE...] (four bytes each):
+# one datagram to the holder. For a seal request the answer is read and, if it
+# is a sealed frame, written to the terminal.
+_lumen_send() {
+  emulate -L zsh
+  unsetopt multibyte
+  local what=$1 kind
+  shift
+  (( _lumen_n++ ))
+  local msg num
+  _lumen_bytes 4 $_lumen_n; num=$REPLY
+  if [[ $what == ready ]]; then
+    printf -v msg '\x01\x01'
+    msg+=$num
+    syswrite -o $_lumen_fd -- $msg || return 1
+    return 0
+  fi
+  kind=$1
+  shift
+  local body=
+  if (( $# )); then _lumen_bytes 4 "$@"; body=$REPLY; fi
+  printf -v msg '\x01\x03'
+  _lumen_bytes 1 $kind
+  msg+=$num$REPLY$body
+  # The holder may not have its key yet when the first request arrives, and it
+  # answers "not ready" or "no key" (reasons 1 and 2) until it has. Ask again
+  # for a short while; any other answer is final.
+  local reply tries
+  for (( tries = 0; tries < 40; tries++ )); do
+    syswrite -o $_lumen_fd -- $msg || return 1
+    sysread -i $_lumen_fd -t 5 -s 128 reply || return 1
+    [[ ${reply[1,2]} == $'\x01\x05' && ( ${reply[7]} == $'\x01' || ${reply[7]} == $'\x02' ) ]] || break
+    zselect -t 5
+  done
+  # version 1, type 4 (sealed), then the number back
+  [[ ${reply[1,2]} == $'\x01\x04' && ${reply[3,6]} == $num ]] || return 1
+  local sealed=${reply[7,-1]} tag lenb kb
+  printf -v tag '\x8aLUMEN\x01\xf3'
+  _lumen_bytes 1 $kind; kb=$REPLY
+  _lumen_bytes 4 ${#sealed}; lenb=$REPLY
+  # ESC _, the tag, the type, the length, the sealed frame; kept until
+  # _lumen_flush writes it.
+  _lumen_out+=$'\e_'$tag$kb$lenb$sealed
+}
+
+# Write what _lumen_send kept. The frames are binary and the terminal driver
+# would turn a 0x0a byte in one into CR LF, so output processing is off for the
+# write and back on after it. If stty cannot be run the frames are dropped.
+_lumen_flush() {
+  emulate -L zsh
+  unsetopt multibyte
+  [[ -n $_lumen_out ]] || return 0
+  if command stty -opost </dev/tty 2>/dev/null; then
+    print -rn -- $_lumen_out
+    command stty opost </dev/tty 2>/dev/null
+  fi
+  _lumen_out=
+}
+
+# Command start (type 0x10): a new command number.
+_lumen_preexec() {
+  (( _lumen_id++, _lumen_ran = 1 ))
+  _lumen_send seal 16 $_lumen_id
+  _lumen_flush
+}
+
+# Command end (0x12) with the status of the command that ran, then prompt (0x11).
+_lumen_precmd() {
+  local -i status_=$?
+  if (( _lumen_ran )); then
+    _lumen_ran=0
+    _lumen_send seal 18 $_lumen_id $status_
+  fi
+  _lumen_send seal 17
+  _lumen_flush
+}
+
+# Last, once the functions above exist.
+() {
+  emulate -L zsh
+  [[ -o interactive ]] || return 0
+  zmodload zsh/system zsh/stat zsh/zselect 2>/dev/null || return 0
+  local -a mode
+  # Descriptor 3 has to be a socket (S_IFSOCK).
+  zstat -A mode +mode -f 3 2>/dev/null || return 0
+  (( (mode[1] & 8#170000) == 8#140000 )) || return 0
+  # Move it above the low descriptor numbers a script uses, then close 3. zsh
+  # cannot mark a descriptor close-on-exec, so a program the shell starts
+  # inherits this one; the holder takes messages only from the shell's own pid.
+  local fd
+  exec {fd}<&3 3<&- || return 0
+  typeset -gi _lumen_fd=$fd _lumen_n=0 _lumen_id=0 _lumen_ran=0
+  typeset -g _lumen_out=
+  _lumen_send ready || { exec {_lumen_fd}<&-; unset _lumen_fd; return 0; }
+  autoload -Uz add-zsh-hook 2>/dev/null
+  add-zsh-hook preexec _lumen_preexec
+  add-zsh-hook precmd _lumen_precmd
+}
+
+# zsh reads one .zshenv, from ZDOTDIR as it was at the start, so the user's own
+# is read here, with ZDOTDIR back where the user had it.
+if [[ -r "${ZDOTDIR:-$HOME}/.zshenv" ]]; then
+  source "${ZDOTDIR:-$HOME}/.zshenv"
+fi

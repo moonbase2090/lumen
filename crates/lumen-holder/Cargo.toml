@@ -9,11 +9,11 @@ repository.workspace = true
 publish.workspace = true
 
 [features]
-default = []
+default = ["seal-requests"]
 # The seal request on the seal channel: the holder seals command-structure
-# frames when the shell asks. Off by default, so a holder built without it
-# treats a seal request as an unknown message type; turning it on by default
-# is its own change.
+# frames when the shell asks. On by default: the terminal's Linux sealed shell
+# needs it. A holder built without it treats a seal request as an unknown
+# message type.
 seal-requests = []
 
 [[bin]]

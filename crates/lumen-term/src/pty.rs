@@ -126,6 +126,38 @@ impl Pty {
         Self::from_session(session)
     }
 
+    /// Run a listed shell with its end of the seal channel mapped into it at
+    /// `seal_target`, and `environment` added to its own. The descriptor goes
+    /// into this child only.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn spawn_with_seal_channel<S: AsRef<std::ffi::OsStr>>(
+        columns: usize,
+        rows: usize,
+        program: &str,
+        arguments: &[S],
+        environment: &std::collections::BTreeMap<String, String>,
+        seal_end: std::os::fd::OwnedFd,
+        seal_target: std::os::fd::RawFd,
+    ) -> Result<Self, SpawnError> {
+        let size = pty_size_with_cell_pixels(columns, rows, CELL_PX.0, CELL_PX.1);
+        let session = PtySession::spawn_config_with_fds(
+            program,
+            arguments,
+            None,
+            environment,
+            size,
+            vec![(seal_end, seal_target)],
+        )
+        .map_err(|e| SpawnError(e.to_string()))?;
+        Self::from_session(session)
+    }
+
+    /// The program's process id, while it has one.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn process_id(&self) -> Option<u32> {
+        self.session.process_id()
+    }
+
     /// The bytes the program has written since the last call, without waiting.
     pub fn poll(&mut self) -> Vec<u8> {
         let mut bytes = Vec::new();

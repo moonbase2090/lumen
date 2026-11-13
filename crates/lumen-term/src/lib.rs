@@ -1,4 +1,4 @@
-//! The Lumen terminal, headless part: blocks, and the arm layer in front of them.
+//! The headless core of Bright: blocks, and the Lumen arm layer in front of them.
 //!
 //! A [`GridBlock`] is a region of terminal cells with its own emulator and,
 //! when it runs a program, its own PTY sized to the block. A [`RichBlock`] is a
@@ -14,6 +14,9 @@
 #![forbid(unsafe_code)]
 
 pub mod actions;
+/// The terminal's user-facing name.
+pub const APP_NAME: &str = "Bright";
+
 pub mod app;
 pub mod cli;
 #[cfg(feature = "links-clipboard")]
@@ -42,6 +45,8 @@ pub mod policy;
 mod pty;
 pub mod raster;
 pub mod reply;
+#[cfg(target_os = "linux")]
+pub mod seal;
 pub mod session;
 pub mod strip;
 mod writer;
