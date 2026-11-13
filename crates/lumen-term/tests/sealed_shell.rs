@@ -202,7 +202,8 @@ fn one_command_in_a_real_zsh_produces_sealed_frames_from_a_real_holder() {
     assert_eq!(comm.trim(), "lumen-holder");
 
     let mut events = Vec::new();
-    // The first prompt is sealed: the shim said ready and asked for it.
+    // The first prompt is sealed: the shim said ready and asked for it, and
+    // asks again while the holder has no key yet.
     assert!(
         pump_until(&mut s, &mut events, |_, e| sealed(e)
             .iter()
@@ -252,18 +253,31 @@ fn one_command_in_a_real_zsh_produces_sealed_frames_from_a_real_holder() {
 }
 
 #[test]
-fn a_shell_started_inside_the_sealed_shell_has_no_seal_channel() {
+fn a_program_the_shell_starts_cannot_get_a_frame_sealed_and_the_users_own_files_ran() {
     let Some(shell) = shell_or_skip() else { return };
-    let cfg = config(1, &home("sealed-shell-nested"));
+    let home = home("sealed-shell-child");
+    // A program that writes a valid seal request (command start, number 99,
+    // command id 77) on the descriptor it inherited from the shell. zsh cannot
+    // mark the descriptor close-on-exec, so the child has it; the holder takes
+    // messages only from the shell's own pid and start time.
+    assert!(
+        std::fs::write(
+            home.join("child.zsh"),
+            "zmodload zsh/system\nsyswrite -o $1 -- $'\\x01\\x03\\x00\\x00\\x00\\x63\\x10\\x00\\x00\\x00\\x4d'\nprint child-sent:$?\n"
+        )
+        .is_ok()
+    );
+    let cfg = config(1, &home);
     let mut s = Session::start_with_seal(layer(), 100, 30, &shell, &[] as &[&str], &cfg)
         .unwrap_or_else(|e| unreachable!("the shell starts: {e}"));
     assert_eq!(s.seal_status(), Status::Sealed);
     let mut events = Vec::new();
     assert!(pump_until(&mut s, &mut events, |_, e| !sealed(e).is_empty()));
-    // The count of sockets a child holds, and whether the shim's variables are gone.
     assert!(
-        s.send(b"echo \"sockets:$(ls -l /proc/self/fd | grep -c socket) envfile:${LUMEN_TEST_ENVFILE-missing} leak:${LUMEN_USER_ZDOTDIR:+yes}\"\n")
-            .is_ok()
+        s.send(
+            b"zsh -f $HOME/child.zsh $_lumen_fd; echo \"envfile:${LUMEN_TEST_ENVFILE-missing} leak:${LUMEN_USER_ZDOTDIR:+yes}\"\n"
+        )
+        .is_ok()
     );
     assert!(
         pump_until(&mut s, &mut events, |s, _| {
@@ -274,14 +288,33 @@ fn a_shell_started_inside_the_sealed_shell_has_no_seal_channel() {
         "{:?}",
         text(&s)
     );
+    // Let any frame the child's request might have produced arrive.
+    for _ in 0..10 {
+        s.pump_wait(Duration::from_millis(100));
+        events.extend(s.take_events());
+    }
     let shown = text(&s);
     assert!(
-        shown.contains("sockets:0"),
-        "a child holds the seal channel: {shown:?}"
+        shown.contains("child-sent:0"),
+        "the child did not write: {shown:?}"
     );
     assert!(
-        !shown.contains("leak"),
+        shown.contains("envfile:ran"),
+        "the user's own .zshenv did not run: {shown:?}"
+    );
+    assert!(
+        !shown.contains("leak:yes"),
         "the shim's variable reached a child: {shown:?}"
+    );
+    let got = sealed(&events);
+    assert!(
+        got.iter().any(|(k, _)| *k == KIND_COMMAND_START),
+        "the shell's own frames still arrive: {got:?}"
+    );
+    assert!(
+        !got.iter()
+            .any(|(k, b)| *k == KIND_COMMAND_START && *b == 77u32.to_be_bytes().to_vec()),
+        "a program the shell started got a frame sealed: {got:?}"
     );
 }
 

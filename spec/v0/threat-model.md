@@ -62,6 +62,7 @@ The maintainers accepted the following residual effects for v0. They are describ
 
 - **Corrupted frames.** Sealed frames that arrive damaged are rejected, and the layer can fall back to grid mode until the user restores it.
 - **Slow shell start.** A shell with heavy startup files may miss the ready window. It then runs as grid plus Track 0, with a notice.
+- **Seal channel inherited by a zsh shell's children.** A program the user starts from a sealed zsh shell inherits the shell's end of the seal channel, because zsh cannot mark it close-on-exec. The holder accepts a message only from the shell's own pid and start time, so the program cannot get anything sealed. It can read the holder's reply to the shell, or hold the channel, so that the shell's integration misses frames (the layer then shows less, never more). Any program of the same user can already do worse to its own shell.
 - **Sandboxed and user installs.** Sandboxed terminals get no shell integration. In hardened mode, user-space installs get none either, and the root-owned binaries cannot be inspected by the user.
 
 **Local timing and same-user processes**

@@ -18,7 +18,7 @@
 //! variable, because the pid does not exist before the spawn and the environment
 //! is fixed at spawn: the holder instead refuses any sender whose kernel peer
 //! credentials are not the shell's pid and start time, and the descriptor is
-//! closed-on-exec in the shell so a nested shell never has it.
+//! a nested shell has no descriptor at the fixed number. zsh cannot mark the descriptor close-on-exec, so the shell's children do inherit it; the holder's check keeps them from sealing anything.
 
 use crate::pty::{Pty, SpawnError};
 use lumen_holder::ffi_linux::pidfd_open;

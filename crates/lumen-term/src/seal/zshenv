@@ -55,9 +55,16 @@ _lumen_send() {
   printf -v msg '\x01\x03'
   _lumen_bytes 1 $kind
   msg+=$num$REPLY$body
-  syswrite -o $_lumen_fd -- $msg || return 1
-  local reply
-  sysread -i $_lumen_fd -t 2 -s 128 reply || return 1
+  # The holder may not have its key yet when the first request arrives, and it
+  # answers "not ready" or "no key" (reasons 1 and 2) until it has. Ask again
+  # for a short while; any other answer is final.
+  local reply tries
+  for (( tries = 0; tries < 40; tries++ )); do
+    syswrite -o $_lumen_fd -- $msg || return 1
+    sysread -i $_lumen_fd -t 5 -s 128 reply || return 1
+    [[ ${reply[1,2]} == $'\x01\x05' && ( ${reply[7]} == $'\x01' || ${reply[7]} == $'\x02' ) ]] || break
+    zselect -t 5
+  done
   # version 1, type 4 (sealed), then the number back
   [[ ${reply[1,2]} == $'\x01\x04' && ${reply[3,6]} == $num ]] || return 1
   local sealed=${reply[7,-1]} tag lenb kb
@@ -105,13 +112,14 @@ _lumen_precmd() {
 () {
   emulate -L zsh
   [[ -o interactive ]] || return 0
-  zmodload zsh/system zsh/stat 2>/dev/null || return 0
+  zmodload zsh/system zsh/stat zsh/zselect 2>/dev/null || return 0
   local -a mode
   # Descriptor 3 has to be a socket (S_IFSOCK).
   zstat -A mode +mode -f 3 2>/dev/null || return 0
   (( (mode[1] & 8#170000) == 8#140000 )) || return 0
-  # Move it above the descriptors a script uses; zsh closes these on exec. Then
-  # close 3, so nothing the user's files start or redirect can reach it.
+  # Move it above the low descriptor numbers a script uses, then close 3. zsh
+  # cannot mark a descriptor close-on-exec, so a program the shell starts
+  # inherits this one; the holder takes messages only from the shell's own pid.
   local fd
   exec {fd}<&3 3<&- || return 0
   typeset -gi _lumen_fd=$fd _lumen_n=0 _lumen_id=0 _lumen_ran=0
