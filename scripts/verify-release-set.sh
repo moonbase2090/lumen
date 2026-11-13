@@ -3,13 +3,12 @@
 #
 # usage: verify-release-set.sh DIR
 #
-# DIR holds the binaries of one release. Each check below has to hold; the first
-# failure exits 1.
-#   - lumen-term, lumen-decoder-worker and lumen-holder are there, are regular
-#     files and are executable. The worker has to sit next to the terminal: the
-#     terminal looks for it beside its own executable, and without it every
-#     image stays on its alt text.
-#   - lumen-term was built with the `window` feature. A build without it holds
+# DIR holds Bright.app. Each check below has to hold; the first failure exits 1.
+#   - bright, lumen-decoder-worker and lumen-holder are regular executables in
+#     Contents/MacOS. The worker has to sit next to Bright: the terminal looks
+#     for it beside its own executable, and without it every image stays on its
+#     alt text.
+#   - bright was built with the `window` feature. A build without it holds
 #     the refusal text "this build has no window" and cannot open a window.
 #   - the test-only worker lumen-decoder-hostile is not in the set.
 set -euo pipefail
@@ -22,12 +21,31 @@ dir="$1"
 fail() { echo "verify-release-set: $1" >&2; exit 1; }
 
 [[ -d "$dir" ]] || fail "not a directory: $dir"
-for name in lumen-term lumen-decoder-worker lumen-holder; do
-  [[ -f "$dir/$name" && ! -L "$dir/$name" ]] || fail "$name is missing from $dir"
-  [[ -x "$dir/$name" ]] || fail "$name is not executable"
+app="$dir/Bright.app"
+contents="$app/Contents"
+macos="$contents/MacOS"
+plist="$contents/Info.plist"
+[[ -d "$app" && ! -L "$app" ]] || fail "Bright.app is missing from $dir"
+[[ -f "$plist" && ! -L "$plist" ]] || fail "Info.plist is missing from Bright.app"
+plist_value() {
+  python3 - "$plist" "$1" <<'PY'
+import plistlib
+import sys
+with open(sys.argv[1], "rb") as source:
+    value = plistlib.load(source).get(sys.argv[2], "")
+print(value if isinstance(value, str) else "")
+PY
+}
+[[ "$(plist_value CFBundleDisplayName)" == "Bright" ]] || fail "CFBundleDisplayName is not Bright"
+[[ "$(plist_value CFBundleName)" == "Bright" ]] || fail "CFBundleName is not Bright"
+[[ "$(plist_value CFBundleExecutable)" == "bright" ]] || fail "CFBundleExecutable is not bright"
+[[ "$(plist_value CFBundleIdentifier)" == "app.brightterm.Bright" ]] || fail "CFBundleIdentifier is not app.brightterm.Bright"
+for name in bright lumen-decoder-worker lumen-holder; do
+  [[ -f "$macos/$name" && ! -L "$macos/$name" ]] || fail "$name is missing from Bright.app"
+  [[ -x "$macos/$name" ]] || fail "$name is not executable"
 done
-[[ ! -e "$dir/lumen-decoder-hostile" ]] || fail "the test-only lumen-decoder-hostile is in the set"
-if grep -aq 'this build has no window' "$dir/lumen-term"; then
-  fail "lumen-term was built without the window feature"
+[[ ! -e "$macos/lumen-decoder-hostile" ]] || fail "the test-only lumen-decoder-hostile is in Bright.app"
+if grep -aq 'this build has no window' "$macos/bright"; then
+  fail "bright was built without the window feature"
 fi
-echo "verify-release-set: ok (lumen-term with a window, lumen-decoder-worker beside it, lumen-holder)"
+echo "verify-release-set: ok (Bright.app with a window, lumen-decoder-worker beside it, lumen-holder)"

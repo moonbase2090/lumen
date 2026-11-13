@@ -171,6 +171,7 @@ fn the_programs_are_fixed_absolute_paths_started_without_a_shell() {
         "options end before the title and the text: {linux:?}"
     );
     assert_eq!(linux[2], TITLE);
+    assert_eq!(linux[0], "--app-name=Bright");
 
     let windows = as_strings(&invocation(Platform::Windows, &note("x")).args);
     assert_eq!(
@@ -179,6 +180,7 @@ fn the_programs_are_fixed_absolute_paths_started_without_a_shell() {
     );
     assert_eq!(windows.len(), 4);
     assert!(windows[3].contains("CreateTextNode($env:LUMEN_NOTIFICATION_TEXT)"));
+    assert!(windows[3].contains("CreateToastNotifier('Bright')"));
     assert!(!windows[3].contains("<text>' + $env:"));
 }
 

@@ -23,6 +23,6 @@ os_text = false
 
 On a platform without Unix file modes the file is not read yet and the defaults apply.
 
-**Checking it.** `lumen-term --show-policy` prints the file that was read and the settings it gave, the defaults, or why the file was ignored, and exits. A normal run prints the same notice on standard error when the file is ignored; the window does not draw chrome notices yet.
+**Checking it.** `bright --show-policy` prints the file that was read and the settings it gave, the defaults, or why the file was ignored, and exits. A normal run prints the same notice on standard error when the file is ignored; the window does not draw chrome notices yet.
 
 **What the settings do today.** They only widen what the notification rules allow. In a real run an unsigned toast and an operating-system notification still need a layer shown to be local, which the terminal cannot show yet, so neither appears; see [the notification rules](../../spec/v0/trust.md#trust.notifications).

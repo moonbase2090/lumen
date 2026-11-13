@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The title of every notification: fixed, from the terminal.
-pub const TITLE: &str = "Lumen terminal";
+pub const TITLE: &str = crate::APP_NAME;
 
 /// The most launches in flight at once. The notifier's own budget is far
 /// below this; it bounds the processes if the clock or the budget is wrong.
@@ -83,7 +83,7 @@ $x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Wi
 $t = $x.GetElementsByTagName('text').Item(0); \
 [void]$t.AppendChild($x.CreateTextNode($env:LUMEN_NOTIFICATION_TEXT)); \
 $toast = [Windows.UI.Notifications.ToastNotification]::new($x); \
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Lumen').Show($toast)";
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Bright').Show($toast)";
 
 /// Undo [`crate::notify::escape_markup`], for an API that shows plain text.
 /// Only the five entities the escape writes are read; anything else stays as it is.
@@ -132,7 +132,7 @@ pub fn invocation(platform: Platform, note: &OsNotification) -> Invocation {
         Platform::Linux => Invocation {
             program: PathBuf::from("/usr/bin/notify-send"),
             args: vec![
-                OsString::from("--app-name=Lumen"),
+                OsString::from("--app-name=Bright"),
                 OsString::from("--"),
                 OsString::from(TITLE),
                 OsString::from(&note.text),

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Bright</string>
+	<key>CFBundleExecutable</key>
+	<string>bright</string>
+	<key>CFBundleIdentifier</key>
+	<string>app.brightterm.Bright</string>
+	<key>CFBundleName</key>
+	<string>Bright</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>

@@ -1,6 +1,6 @@
-# Lumen Term release criteria
+# Bright release criteria
 
-What has to hold before a Lumen Term release. The [specification](../spec/v0/conformance.md) says what any implementation must do; this page says what this implementation must have shown before it ships. The first criterion here is decoder fuzzing. More are added as they are decided.
+What has to hold before a Bright release. The [specification](../spec/v0/conformance.md) says what any implementation must do; this page says what this implementation must have shown before it ships. The first criterion here is decoder fuzzing. More are added as they are decided.
 
 ## Decoder fuzzing
 
@@ -48,12 +48,12 @@ The decoder judge in the comparison harness (`lumen-evidence --decoder`), the ca
 
 There is no waiver switch, and the check does not tag, publish or release anything. `scripts/test-release-check.sh` holds a positive case and a negative case for each rule. The evidence in item 2 is committed in `release/`, so the check passes for the current tree and refuses when a decoder or image-path source or the lockfile changes without new records. `crates/lumen-decoder-tools/tests/release_gate.rs` runs the same comparisons in the test suite.
 
-## Signed macOS binaries
+## Signed macOS app
 
-The macOS release gates (task-port denial and non-dumpability) are judged on the binaries a release ships, so those binaries have to be signed first. The `macos-signed` job in `.github/workflows/release-check.yml` builds `lumen-term` with the `window` feature, the decoder worker `lumen-decoder-worker` and `lumen-holder`, gathers them in one directory, signs all three with `scripts/sign-macos-binaries.sh`, checks them with `scripts/verify-macos-signed.sh`, and keeps them as the `lumen-macos-signed` workflow artifact for the gate runs.
+The macOS release gates (task-port denial and non-dumpability) are judged on the app a release ships, so the app has to be signed first. The `macos-signed` job in `.github/workflows/release-check.yml` builds the internal `lumen-term` target with the `window` feature, packages it as `Bright.app` with the `bright` executable, and places `lumen-decoder-worker` and `lumen-holder` beside it. The job signs the nested executables and app with identifiers rooted at `app.brightterm.Bright`, verifies them, and keeps the app as the `bright-macos-signed` workflow artifact for the gate runs.
 
 - The signature is made with the hardened runtime and no entitlements. The verifier refuses a binary that is unsigned, whose signature does not verify, that lacks the hardened runtime flag, that carries `get-task-allow`, that is signed ad hoc, or that is not a Developer ID Application signature with a team identifier.
 - The Developer ID certificate comes from the repository secrets `APPLE_CERTIFICATE_P12` and `APPLE_CERTIFICATE_PASSWORD`, is imported into a throwaway keychain that is deleted on exit, and is never printed. With either secret missing the job refuses; there is no unsigned fallback and no waiver.
-- `scripts/verify-release-set.sh` refuses a release set (before and after signing) that lacks `lumen-term`, `lumen-decoder-worker` or `lumen-holder`, that holds a `lumen-term` built without the window feature (it cannot open a window), or that holds the test-only `lumen-decoder-hostile`. The terminal looks for the worker beside its own executable, so a set without it shows every image as alt text. `scripts/test-verify-release-set.sh` covers each refusal and runs in CI.
+- `scripts/verify-release-set.sh` refuses a release set (before and after signing) that lacks `Bright.app`, its `bright` executable, `lumen-decoder-worker` or `lumen-holder`; has the wrong bundle identity; holds a terminal built without the window feature; or holds the test-only `lumen-decoder-hostile`. Bright looks for the worker beside its own executable, so a set without it shows every image as alt text. `scripts/test-verify-release-set.sh` covers each refusal and runs in CI.
 - The job does not notarize, publish or release anything, and it leaves the decoder fuzz checks above untouched.
 - `scripts/test-macos-signing.sh` runs on macOS in CI and in the job, with ad-hoc signatures instead of a certificate. It proves the verifier refuses every non-release shape; it cannot make a Developer ID signature, so that path is exercised only by the job itself once the secrets exist.

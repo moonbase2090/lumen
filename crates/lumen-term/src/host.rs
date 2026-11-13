@@ -200,7 +200,7 @@ impl ApplicationHandler for Host {
             return;
         }
         let attributes = Window::default_attributes()
-            .with_title("lumen")
+            .with_title(crate::APP_NAME)
             .with_inner_size(winit::dpi::LogicalSize::new(
                 f64::from(self.config.size.0),
                 f64::from(self.config.size.1),

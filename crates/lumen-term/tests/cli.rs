@@ -108,7 +108,7 @@ fn the_binary_refuses_bad_arguments_with_the_usage() {
         unreachable!("the binary runs")
     };
     assert_eq!(out.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&out.stderr).contains("usage: lumen-term"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("usage: bright"));
 }
 
 #[test]
