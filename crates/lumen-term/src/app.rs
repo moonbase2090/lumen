@@ -471,7 +471,7 @@ impl App {
     ///
     /// Returns the write error.
     pub fn key(&mut self, key: Key, mods: Mods) -> std::io::Result<()> {
-        let bytes = keys::bytes_in(key, mods, self.session.document().key_modes());
+        let bytes = keys::bytes_in(key, mods, self.session.key_modes());
         if bytes.is_empty() {
             return Ok(());
         }

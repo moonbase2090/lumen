@@ -259,6 +259,14 @@ impl Session {
         self.document.set_images_setting(on);
     }
 
+    /// The key modes the program has set: application cursor keys and keypad.
+    /// Each grid block records what it changed; they are folded in order, so a
+    /// mode survives a rich block between two grid blocks.
+    #[must_use]
+    pub fn key_modes(&self) -> crate::modes::KeyModes {
+        crate::modes::key_modes_of(self.document.blocks())
+    }
+
     /// Milliseconds since the session started: the clock the notifier uses.
     #[must_use]
     pub fn now_ms(&self) -> u64 {

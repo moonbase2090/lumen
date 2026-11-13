@@ -65,6 +65,29 @@ fn other_modes_and_look_alikes_change_nothing() {
 }
 
 #[test]
+fn modes_survive_a_rich_block_between_grid_blocks() {
+    use lumen_term::modes::key_modes_of;
+    use lumen_term::{Document, Piece};
+    use lumen_track0::Block as Track0Block;
+    let mut d = Document::new(40, 4);
+    d.apply(vec![Piece::Bytes(b"\x1b[?1h\x1b=".to_vec())]);
+    d.apply(vec![Piece::Rich(Track0Block::Paragraph("between".into()))]);
+    // The second grid block never saw the sequences, but the modes hold.
+    d.apply(vec![Piece::Bytes(b"after".to_vec())]);
+    assert_eq!(d.blocks().len(), 3);
+    assert_eq!(
+        key_modes_of(d.blocks()),
+        KeyModes {
+            cursor_app: true,
+            keypad_app: true
+        }
+    );
+    // A reset in the later block clears what an earlier block set.
+    d.apply(vec![Piece::Bytes(b"\x1b[!p".to_vec())]);
+    assert_eq!(key_modes_of(d.blocks()), KeyModes::default());
+}
+
+#[test]
 fn soft_and_full_reset_return_to_normal() {
     let both = b"\x1b[?1h\x1b=";
     assert_eq!(after(&[both, b"\x1b[!p"]), KeyModes::default());
@@ -123,18 +146,15 @@ printf 'NORMAL %s\r\n' "$(dd bs=1 count=5 2>/dev/null | od -An -tx1 | tr -d ' \n
         .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
         let none = Mods::default();
         wait_for(&mut app, "READY1");
-        assert!(app.session().document().key_modes().cursor_app);
-        assert!(app.session().document().key_modes().keypad_app);
+        assert!(app.session().key_modes().cursor_app);
+        assert!(app.session().key_modes().keypad_app);
         for key in [Key::Up, Key::Home, Key::Keypad('5'), Key::KeypadEnter] {
             assert!(app.key(key, none).is_ok());
         }
         wait_for(&mut app, "APP 1b4f411b4f481b4f751b4f4d");
 
         wait_for(&mut app, "READY2");
-        assert_eq!(
-            app.session().document().key_modes(),
-            lumen_term::KeyModes::default()
-        );
+        assert_eq!(app.session().key_modes(), lumen_term::KeyModes::default());
         for key in [Key::Up, Key::Keypad('5'), Key::KeypadEnter] {
             assert!(app.key(key, none).is_ok());
         }
