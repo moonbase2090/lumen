@@ -305,3 +305,75 @@ fn the_editor_prompt_is_drawn_in_the_accent() -> Result<(), Box<dyn std::error::
     }
     Ok(())
 }
+
+#[cfg(unix)]
+fn canvas_and_gutter(
+    app: &lumen_term::App,
+) -> Result<([u8; 3], [u8; 3]), Box<dyn std::error::Error>> {
+    let frame = app.view();
+    let (cell_w, cell_h) = lumen_term::Renderer::light(1)?.cell();
+    // The gutter, halfway down; and the content area, right of the gutter on
+    // the row above the editor, which `sleep` leaves empty.
+    let gutter = frame
+        .pixel(cell_w * lumen_term::GUTTER_COLUMNS / 2, frame.height / 2)
+        .ok_or("no pixel")?;
+    let canvas = frame
+        .pixel(frame.width - cell_w, cell_h * 4 + cell_h / 2)
+        .ok_or("no pixel")?;
+    Ok((canvas, gutter))
+}
+
+/// The look follows the system's appearance at once, with no restart.
+#[cfg(unix)]
+#[test]
+fn the_look_follows_the_system_appearance_live() -> Result<(), Box<dyn std::error::Error>> {
+    use lumen_term::design::Appearance;
+    use lumen_term::{App, Passthrough};
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", "sleep 3"],
+        1,
+        400,
+        300,
+    )?;
+    let (light, dark) = (Palette::light(), Palette::dark());
+    assert_eq!(canvas_and_gutter(&app)?, (light.canvas, light.chrome));
+
+    assert!(app.set_appearance(Appearance::Dark));
+    assert_eq!(canvas_and_gutter(&app)?, (dark.canvas, dark.chrome));
+    // Told again, nothing changes and nothing needs drawing.
+    assert!(!app.set_appearance(Appearance::Dark));
+
+    assert!(app.set_appearance(Appearance::Light));
+    assert_eq!(canvas_and_gutter(&app)?, (light.canvas, light.chrome));
+    Ok(())
+}
+
+/// A fixed choice stays put whatever the system shows, and switches live.
+#[cfg(unix)]
+#[test]
+fn a_fixed_choice_ignores_the_appearance() -> Result<(), Box<dyn std::error::Error>> {
+    use lumen_term::design::{Appearance, ThemeChoice};
+    use lumen_term::{App, Passthrough};
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", "sleep 3"],
+        1,
+        400,
+        300,
+    )?;
+    let hc = Palette::high_contrast();
+    assert!(app.set_theme_choice(ThemeChoice::Fixed(hc)));
+    assert_eq!(app.theme_choice(), ThemeChoice::Fixed(hc));
+    assert_eq!(canvas_and_gutter(&app)?, (hc.canvas, hc.chrome));
+    assert!(!app.set_appearance(Appearance::Dark));
+    assert_eq!(canvas_and_gutter(&app)?, (hc.canvas, hc.chrome));
+
+    // Back to following the system, which is now dark.
+    assert!(app.set_theme_choice(ThemeChoice::System));
+    let dark = Palette::dark();
+    assert_eq!(canvas_and_gutter(&app)?, (dark.canvas, dark.chrome));
+    Ok(())
+}

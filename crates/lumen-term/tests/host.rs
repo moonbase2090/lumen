@@ -194,3 +194,13 @@ fn numeric_keypad_keys_are_keypad_keys() {
         Some((Key::Home, plain))
     );
 }
+
+#[test]
+fn the_systems_window_theme_is_the_appearance_and_light_when_unsaid() {
+    use lumen_term::design::Appearance;
+    use lumen_term::host::appearance;
+    use winit::window::Theme;
+    assert_eq!(appearance(Some(Theme::Dark)), Appearance::Dark);
+    assert_eq!(appearance(Some(Theme::Light)), Appearance::Light);
+    assert_eq!(appearance(None), Appearance::Light);
+}

@@ -462,6 +462,40 @@ impl Builtin {
     }
 }
 
+/// Whether the system shows light or dark windows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Appearance {
+    /// Light windows; also what the terminal assumes when the system does
+    /// not say.
+    #[default]
+    Light,
+    /// Dark windows.
+    Dark,
+}
+
+/// The user's choice of look.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ThemeChoice {
+    /// Follow the system: the light palette in a light appearance, the dark
+    /// one in a dark appearance.
+    #[default]
+    System,
+    /// One palette, whatever the system shows.
+    Fixed(Palette),
+}
+
+impl ThemeChoice {
+    /// The palette to draw with when the system shows `appearance`.
+    #[must_use]
+    pub const fn palette(&self, appearance: Appearance) -> Palette {
+        match (self, appearance) {
+            (Self::Fixed(p), _) => *p,
+            (Self::System, Appearance::Light) => Palette::light(),
+            (Self::System, Appearance::Dark) => Palette::dark(),
+        }
+    }
+}
+
 /// The spec's semantic colour tokens for a text run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunColour {
@@ -511,7 +545,8 @@ pub const fn default_step(family: Family) -> i8 {
     }
 }
 
-/// The theme the terminal draws with: the built-in light look.
+/// The theme the terminal starts with, before the system's appearance is
+/// known: the built-in light look.
 #[must_use]
 pub const fn theme() -> Theme {
     Palette::light().theme()
