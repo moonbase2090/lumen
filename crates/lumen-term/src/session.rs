@@ -61,6 +61,12 @@ impl MultiplexerClientProgram {
     }
 }
 
+/// The capability a sealed frame type is sealed under, for the layer.
+#[cfg(target_os = "linux")]
+fn sealed_capability(kind: u8) -> u8 {
+    lumen_sealed::types::capability_of(kind).unwrap_or(0)
+}
+
 fn check_size(columns: usize, rows: usize) -> Result<(), SpawnError> {
     if (1..=MAX_COLUMNS).contains(&columns) && (1..=MAX_ROWS).contains(&rows) {
         Ok(())
@@ -77,6 +83,10 @@ fn check_size(columns: usize, rows: usize) -> Result<(), SpawnError> {
 /// of the block its output lands in. Every byte it writes goes through the
 /// layer before the emulator sees it.
 pub struct Session {
+    /// The holder and what goes with it, for a sealed shell. Declared before
+    /// the PTY so the holder ends before the shell's PTY closes.
+    #[cfg(target_os = "linux")]
+    sealing: Option<crate::seal::Sealing>,
     document: Document,
     layer: Box<dyn Layer + Send>,
     pty: Pty,
@@ -90,6 +100,8 @@ impl Session {
     fn from_pty(mut layer: Box<dyn Layer + Send>, columns: usize, rows: usize, pty: Pty) -> Self {
         layer.open_container();
         Self {
+            #[cfg(target_os = "linux")]
+            sealing: None,
             document: Document::new(columns, rows),
             layer,
             pty,
@@ -114,9 +126,70 @@ impl Session {
         program: &str,
         arguments: &[S],
     ) -> Result<Self, SpawnError> {
+        #[cfg(target_os = "linux")]
+        return Self::start_with_seal(
+            layer,
+            columns,
+            rows,
+            program,
+            arguments,
+            &crate::seal::Config::default(),
+        );
+        #[cfg(not(target_os = "linux"))]
+        {
+            check_size(columns, rows)?;
+            let pty = Pty::spawn(columns, rows, program, arguments)?;
+            Ok(Self::from_pty(layer, columns, rows, pty))
+        }
+    }
+
+    /// [`start`](Self::start) with the sealed layer's settings given. A listed
+    /// shell started directly gets a sealed layer if the sealing conditions
+    /// hold; anything else runs as before.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the program could not be started.
+    #[cfg(target_os = "linux")]
+    pub fn start_with_seal<S: AsRef<std::ffi::OsStr>>(
+        mut layer: Box<dyn Layer + Send>,
+        columns: usize,
+        rows: usize,
+        program: &str,
+        arguments: &[S],
+        config: &crate::seal::Config,
+    ) -> Result<Self, SpawnError> {
         check_size(columns, rows)?;
-        let pty = Pty::spawn(columns, rows, program, arguments)?;
-        Ok(Self::from_pty(layer, columns, rows, pty))
+        if !crate::seal::is_candidate(config, program, arguments) {
+            let pty = Pty::spawn(columns, rows, program, arguments)?;
+            return Ok(Self::from_pty(layer, columns, rows, pty));
+        }
+        let started = crate::seal::start(columns, rows, program, config)?;
+        if let Some(receiver) = started.receiver {
+            layer.attach_sealed(receiver, sealed_capability);
+        }
+        let mut session = Self::from_pty(layer, columns, rows, started.pty);
+        session.sealing = Some(started.sealing);
+        Ok(session)
+    }
+
+    /// Whether the shell has a sealed layer, and if not, why. Not applicable
+    /// for a program that is not a listed shell started directly.
+    #[cfg(target_os = "linux")]
+    #[must_use]
+    pub fn seal_status(&self) -> crate::seal::Status {
+        self.sealing
+            .as_ref()
+            .map_or(crate::seal::Status::NotApplicable, |s| s.status().clone())
+    }
+
+    /// The holder's process id, if the layer is sealed.
+    #[cfg(target_os = "linux")]
+    #[must_use]
+    pub fn holder_pid(&self) -> Option<u32> {
+        self.sealing
+            .as_ref()
+            .and_then(crate::seal::Sealing::holder_pid)
     }
 
     /// Spawn the checked multiplexer client with its scoped key source mapped

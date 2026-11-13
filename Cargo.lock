@@ -946,6 +946,8 @@ dependencies = [
  "lumen-arm-b",
  "lumen-decoder",
  "lumen-detector",
+ "lumen-holder",
+ "lumen-seal",
  "lumen-sealed",
  "lumen-term",
  "lumen-track0",
