@@ -18,7 +18,7 @@
 
 use crate::document::{Block, Document, RichBlock};
 use crate::grid::GridBlock;
-use crate::images::Pixels;
+use crate::image_draw;
 use crate::layout::{GUTTER_COLUMNS, Rect, StripPlacement, layout, notification_area};
 use crate::notify::Toast;
 use lumen_track0::Block as Track0Block;
@@ -41,15 +41,13 @@ const SUBPIXELS_F: f32 = 64.0;
 pub const BASE_PX: f32 = 14.0;
 /// The label every rich block's container carries.
 pub const CONTAINER_LABEL: &str = "unverified output";
-/// The most rows of cells a decoded image is drawn at in its container.
-pub const IMAGE_MAX_ROWS: u64 = 40;
+pub use crate::image_draw::IMAGE_MAX_ROWS;
 /// The most lines of text in a toast; the rest is cut.
 pub const TOAST_MAX_LINES: usize = 3;
 /// The terminal's own text in the header strip of the trust margin.
 pub const MARGIN_LABEL: &str = "lumen";
 
-/// A colour.
-pub type Rgb = [u8; 3];
+pub use crate::frame::{Frame, Rgb};
 
 /// The colours of a render. The pinned conditions of 2.3 use the light theme.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,104 +130,6 @@ pub struct Window {
     pub editor_row: u32,
     /// Rows of the editor.
     pub editor_rows: u32,
-}
-
-/// An RGBA image.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Frame {
-    /// Width in pixels.
-    pub width: u32,
-    /// Height in pixels.
-    pub height: u32,
-    /// `width * height * 4` bytes, rows top to bottom, alpha always 255.
-    pub rgba: Vec<u8>,
-}
-
-impl Frame {
-    /// A frame filled with `colour`.
-    #[must_use]
-    pub fn new(width: u32, height: u32, colour: Rgb) -> Self {
-        let mut rgba = Vec::with_capacity((width as usize) * (height as usize) * 4);
-        for _ in 0..(width as usize) * (height as usize) {
-            rgba.extend_from_slice(&[colour[0], colour[1], colour[2], 255]);
-        }
-        Self {
-            width,
-            height,
-            rgba,
-        }
-    }
-
-    fn index(&self, x: u32, y: u32) -> Option<usize> {
-        (x < self.width && y < self.height)
-            .then(|| ((y as usize) * (self.width as usize) + x as usize) * 4)
-    }
-
-    /// The pixel at `x`, `y`, or `None` outside the frame.
-    #[must_use]
-    pub fn pixel(&self, x: u32, y: u32) -> Option<Rgb> {
-        let i = self.index(x, y)?;
-        Some([self.rgba[i], self.rgba[i + 1], self.rgba[i + 2]])
-    }
-
-    fn put(&mut self, x: u32, y: u32, colour: Rgb) {
-        if let Some(i) = self.index(x, y) {
-            self.rgba[i..i + 3].copy_from_slice(&colour);
-        }
-    }
-
-    fn blend(&mut self, x: u32, y: u32, colour: Rgb, coverage: u8) {
-        let Some(i) = self.index(x, y) else { return };
-        let a = u32::from(coverage);
-        for (k, c) in colour.iter().enumerate() {
-            let under = u32::from(self.rgba[i + k]);
-            let mixed = (u32::from(*c) * a + under * (255 - a) + 127) / 255;
-            self.rgba[i + k] = u8::try_from(mixed).unwrap_or(255);
-        }
-    }
-
-    /// Fill a rectangle, clipped to the frame.
-    pub fn fill(&mut self, x: u32, y: u32, w: u32, h: u32, colour: Rgb) {
-        for yy in y..y.saturating_add(h).min(self.height) {
-            for xx in x..x.saturating_add(w).min(self.width) {
-                self.put(xx, yy, colour);
-            }
-        }
-    }
-
-    /// A `width` by `height` window onto this frame: when the frame is taller
-    /// than the window, the bottom of it (the newest blocks), otherwise the
-    /// frame at the top; the rest, and any width beyond the frame, is `colour`.
-    #[must_use]
-    pub fn viewport(&self, width: u32, height: u32, colour: Rgb) -> Frame {
-        let mut out = Frame::new(width, height, colour);
-        let skip = self.height.saturating_sub(height);
-        let rows = self.height - skip;
-        let copy = self.width.min(width) as usize * 4;
-        for y in 0..rows.min(height) {
-            let from = (((y + skip) as usize) * self.width as usize) * 4;
-            let to = ((y as usize) * width as usize) * 4;
-            out.rgba[to..to + copy].copy_from_slice(&self.rgba[from..from + copy]);
-        }
-        out
-    }
-
-    /// The frame as a PNG.
-    ///
-    /// # Errors
-    ///
-    /// Returns the encoder's error.
-    pub fn to_png(&self) -> Result<Vec<u8>, png::EncodingError> {
-        let mut out = Vec::new();
-        {
-            let mut enc = png::Encoder::new(&mut out, self.width, self.height);
-            enc.set_color(png::ColorType::Rgba);
-            enc.set_depth(png::BitDepth::Eight);
-            let mut writer = enc.write_header()?;
-            writer.write_image_data(&self.rgba)?;
-        }
-        Ok(out)
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -657,64 +557,22 @@ impl Renderer {
     #[must_use]
     pub fn rich_height(&self, block: &RichBlock, columns: usize) -> u32 {
         if let Some(pixels) = &block.image {
-            let (_, h) = self.image_size(pixels, columns);
-            return 2 * self.scale + self.cell_h + h;
+            return image_draw::block_height(
+                pixels,
+                columns,
+                (self.cell_w, self.cell_h),
+                self.scale,
+            );
         }
         let (lines, _) = self.body(&block.content, columns.saturating_sub(2).max(1));
         2 * self.scale + (1 + u32::try_from(lines.len()).unwrap_or(0)) * self.cell_h
     }
 
-    /// The size a decoded image is drawn at in a container `columns` wide: its
-    /// own size, reduced to fit the width inside the container and
-    /// [`IMAGE_MAX_ROWS`] rows, keeping its proportions, never enlarged. The
-    /// size the producer declared is not used.
+    /// The size a decoded image is drawn at in a container `columns` wide; see
+    /// [`image_draw::size`].
     #[must_use]
-    pub fn image_size(&self, pixels: &Pixels, columns: usize) -> (u32, u32) {
-        let max_w = u64::from(u32::try_from(columns.saturating_sub(2).max(1)).unwrap_or(1))
-            * u64::from(self.cell_w);
-        let max_h = IMAGE_MAX_ROWS * u64::from(self.cell_h);
-        let (w, h) = (
-            u64::from(pixels.width.max(1)),
-            u64::from(pixels.height.max(1)),
-        );
-        // The largest factor, as a fraction, that fits both limits and is at most 1.
-        let (mut num, mut den) = (1u64, 1u64);
-        for (limit, side) in [(max_w, w), (max_h, h)] {
-            if side * num > limit * den {
-                (num, den) = (limit, side);
-            }
-        }
-        let fit = |side: u64| u32::try_from((side * num / den).max(1)).unwrap_or(u32::MAX);
-        (fit(w), fit(h))
-    }
-
-    /// Draw decoded premultiplied RGBA scaled (nearest neighbour) to `w` by `h`
-    /// at `x`, `y`, over what is already in the frame.
-    fn paint_pixels(frame: &mut Frame, at: (u32, u32), size: (u32, u32), src: &Pixels) {
-        let (left, top) = at;
-        let (width, height) = size;
-        for dy in 0..height {
-            let from_row = u64::from(dy) * u64::from(src.height) / u64::from(height);
-            for dx in 0..width {
-                let from_col = u64::from(dx) * u64::from(src.width) / u64::from(width);
-                let index = (from_row * u64::from(src.width) + from_col) * 4;
-                let Some(px) = usize::try_from(index)
-                    .ok()
-                    .and_then(|i| src.rgba.get(i..i + 4))
-                else {
-                    continue;
-                };
-                let inverse = 255 - u32::from(px[3]);
-                let under = frame.pixel(left + dx, top + dy).unwrap_or([0, 0, 0]);
-                let mut out = [0u8; 3];
-                for (channel, slot) in out.iter_mut().enumerate() {
-                    let value =
-                        u32::from(px[channel]) + (u32::from(under[channel]) * inverse + 127) / 255;
-                    *slot = u8::try_from(value.min(255)).unwrap_or(255);
-                }
-                frame.put(left + dx, top + dy, out);
-            }
-        }
+    pub fn image_size(&self, pixels: &crate::images::Pixels, columns: usize) -> (u32, u32) {
+        image_draw::size(pixels, columns, (self.cell_w, self.cell_h))
     }
 
     /// Paint a rich block in its container, `columns` cells wide, with its top
@@ -736,8 +594,13 @@ impl Renderer {
         self.text_line(frame, inner, line_y, CONTAINER_LABEL, t.label);
         line_y += self.cell_h;
         if let Some(pixels) = &block.image {
-            let size = self.image_size(pixels, columns);
-            Self::paint_pixels(frame, (inner, line_y), size, pixels);
+            image_draw::paint_block(
+                frame,
+                (inner, line_y),
+                columns,
+                (self.cell_w, self.cell_h),
+                pixels,
+            );
             return;
         }
         let (lines, kind) = self.body(&block.content, columns.saturating_sub(2).max(1));
