@@ -32,14 +32,6 @@ fn main() -> std::process::ExitCode {
     println!("status: {:?}", session.seal_status());
     let holder = session.holder_pid();
     println!("holder running: {}", holder.is_some());
-    if let Some(pid) = holder {
-        let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
-        for key in ["Name:", "NoNewPrivs:", "Seccomp:", "CapEff:"] {
-            if let Some(line) = status.lines().find(|l| l.starts_with(key)) {
-                println!("holder {line}");
-            }
-        }
-    }
     let mut frames = Vec::new();
     let pump = |session: &mut Session, frames: &mut Vec<(u8, usize)>, seconds: u64| {
         let end = Instant::now() + Duration::from_secs(seconds);
@@ -53,6 +45,15 @@ fn main() -> std::process::ExitCode {
         }
     };
     pump(&mut session, &mut frames, 3);
+    // Read after the holder has had time to harden itself.
+    if let Some(pid) = holder {
+        let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
+        for key in ["Name:", "NoNewPrivs:", "Seccomp:", "CapEff:"] {
+            if let Some(line) = status.lines().find(|l| l.starts_with(key)) {
+                println!("holder {line}");
+            }
+        }
+    }
     let _ = session.send(b"echo sealed-proof\n");
     pump(&mut session, &mut frames, 3);
     println!("sealed frames (type, payload bytes): {frames:?}");
