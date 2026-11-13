@@ -160,11 +160,18 @@ impl Session {
         config: &crate::seal::Config,
     ) -> Result<Self, SpawnError> {
         check_size(columns, rows)?;
-        if !crate::seal::is_candidate(config, program, arguments) {
+        // A listed shell started directly (no arguments, so no `-c`) is run by
+        // its resolved path; anything else runs as before.
+        let resolved = if arguments.is_empty() {
+            crate::seal::resolve(config, program)
+        } else {
+            None
+        };
+        let Some(resolved) = resolved else {
             let pty = Pty::spawn(columns, rows, program, arguments)?;
             return Ok(Self::from_pty(layer, columns, rows, pty));
-        }
-        let started = crate::seal::start(columns, rows, program, config)?;
+        };
+        let started = crate::seal::start(columns, rows, &resolved, config)?;
         if let Some(receiver) = started.receiver {
             layer.attach_sealed(receiver, sealed_capability);
         }

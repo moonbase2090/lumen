@@ -56,17 +56,24 @@ fn zsh() -> Option<String> {
 }
 
 /// The holder next to this test's target directory, built if it is not there.
+/// Built once: the tests run in parallel and must not rebuild it under each other.
 fn holder() -> PathBuf {
-    let exe = std::env::current_exe().unwrap_or_default();
-    let dir = exe.parent().and_then(std::path::Path::parent);
-    let path = dir.map(|d| d.join("lumen-holder")).unwrap_or_default();
-    if !path.is_file() {
-        let status = std::process::Command::new(env!("CARGO"))
-            .args(["build", "-p", "lumen-holder", "--features", "seal-requests"])
-            .status();
-        assert!(status.is_ok_and(|s| s.success()), "the holder is built");
-    }
-    path
+    static HOLDER: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    HOLDER
+        .get_or_init(|| {
+            let exe = std::env::current_exe().unwrap_or_default();
+            let dir = exe.parent().and_then(std::path::Path::parent);
+            let path = dir.map(|d| d.join("lumen-holder")).unwrap_or_default();
+            if !path.is_file() {
+                let status = std::process::Command::new(env!("CARGO"))
+                    .args(["build", "-p", "lumen-holder", "--features", "seal-requests"])
+                    .status();
+                assert!(status.is_ok_and(|s| s.success()), "the holder is built");
+            }
+            assert!(path.is_file(), "the holder is at {}", path.display());
+            path
+        })
+        .clone()
 }
 
 fn config(yama: u32, home: &std::path::Path) -> Config {
@@ -315,4 +322,32 @@ fn killing_the_shell_ends_the_holder() {
         }
     }
     assert!(gone, "the holder outlived its shell");
+}
+
+#[test]
+fn a_link_to_a_listed_shell_resolves_to_the_path_that_runs_and_other_paths_do_not() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("sealed-shell-resolve");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(std::fs::create_dir_all(&dir).is_ok());
+    let real = dir.join("zsh5");
+    assert!(std::fs::write(&real, b"").is_ok());
+    let link = dir.join("zsh");
+    assert!(std::os::unix::fs::symlink(&real, &link).is_ok());
+    let canonical = std::fs::canonicalize(&real).unwrap_or_default();
+    let canonical = canonical.display().to_string();
+    let mut cfg = config(1, &dir);
+    cfg.listed = vec![canonical.clone()];
+    assert_eq!(
+        lumen_term::seal::resolve(&cfg, &link.display().to_string()),
+        Some(canonical.clone())
+    );
+    assert_eq!(lumen_term::seal::resolve(&cfg, &canonical), Some(canonical));
+    // Not listed, not absolute, or not there: no sealed layer.
+    cfg.listed = vec!["/usr/bin/zsh".to_owned()];
+    assert_eq!(
+        lumen_term::seal::resolve(&cfg, &link.display().to_string()),
+        None
+    );
+    assert_eq!(lumen_term::seal::resolve(&cfg, "zsh"), None);
+    assert_eq!(lumen_term::seal::resolve(&cfg, "/nonexistent/zsh"), None);
 }

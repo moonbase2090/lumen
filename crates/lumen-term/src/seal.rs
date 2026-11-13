@@ -40,7 +40,18 @@ pub const SHELL_SEAL_FD: RawFd = 3;
 
 /// The shells that may have a sealed layer, by the absolute path the terminal
 /// executes. Only zsh has a shim.
-pub const LISTED: [&str; 3] = ["/bin/zsh", "/usr/bin/zsh", "/usr/local/bin/zsh"];
+///
+/// A program given as a link is resolved first ([`resolve`]) and the resolved
+/// path is what is listed and what is executed. On Debian and Ubuntu `zsh` is a
+/// link to `zsh5`, and the kernel names the running program `zsh5`, which is the
+/// name the conditions compare against.
+pub const LISTED: [&str; 5] = [
+    "/bin/zsh",
+    "/bin/zsh5",
+    "/usr/bin/zsh",
+    "/usr/bin/zsh5",
+    "/usr/local/bin/zsh",
+];
 
 /// The layer number of the one layer a terminal-spawned shell has.
 const LAYER: u32 = 1;
@@ -105,15 +116,21 @@ fn sealer() -> &'static Arc<Sealer> {
     SEALER.get_or_init(|| Arc::new(Sealer::new()))
 }
 
-/// Whether `program` with `arguments` is a listed shell started directly: its
-/// path is as listed, and it has no arguments, so no `-c` command.
+/// The listed path `program` resolves to, if it is an absolute path to a
+/// listed shell. Links are followed here, in the terminal, and the result is
+/// what is executed, so the path the conditions see is the path that runs.
 #[must_use]
-pub fn is_candidate<S: AsRef<std::ffi::OsStr>>(
-    config: &Config,
-    program: &str,
-    arguments: &[S],
-) -> bool {
-    arguments.is_empty() && config.listed.iter().any(|l| l == program)
+pub fn resolve(config: &Config, program: &str) -> Option<String> {
+    if !Path::new(program).is_absolute() {
+        return None;
+    }
+    let resolved = std::fs::canonicalize(program).ok()?;
+    let resolved = resolved.to_str()?;
+    config
+        .listed
+        .iter()
+        .any(|l| l == resolved)
+        .then(|| resolved.to_owned())
 }
 
 /// The private directory that holds the shim: owned by the user, mode 0700,
