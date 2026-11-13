@@ -1,6 +1,6 @@
 # Links, copy and paste safety
 
-What `lumen-term` has for the rules in the specification's [links, clipboard, copy and paste](../../spec/v0/links-and-clipboard.md) page. It is behind the `links-clipboard` Cargo feature of `lumen-term`, off by default, and nothing in the terminal calls it yet: there is no link frame in the v0 frame table, no selection and no paste handler in the window, so these are the checks those pieces will call.
+What `lumen-term` has for the rules in the specification's [links, clipboard, copy and paste](../../spec/v0/links-and-clipboard.md) page. It is in the `links-clipboard` Cargo feature of `lumen-term`, on by default, and nothing in the terminal calls it yet: there is no link frame in the v0 frame table, no selection and no paste handler in the window, so these are the checks those pieces will call.
 
 ## Links (`link`)
 
