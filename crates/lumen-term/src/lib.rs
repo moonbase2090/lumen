@@ -50,6 +50,7 @@ pub mod reply;
 pub mod seal;
 pub mod session;
 pub mod strip;
+pub mod theme_file;
 mod writer;
 
 pub use app::App;

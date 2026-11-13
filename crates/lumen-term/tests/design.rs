@@ -189,11 +189,11 @@ fn the_check_names_each_miss() {
         user.iter().all(|m| m.starts_with("text_muted on ")),
         "{user:?}"
     );
-    assert!(!user.is_empty());
+    assert_ne!(user, Vec::<String>::new());
     // Exempt slots are not checked: white 15 on a light canvas is fine.
     let mut q = Palette::light();
     q.ansi[15] = [255, 255, 255];
-    assert!(q.check(&Floors::STANDARD).is_empty());
+    assert_eq!(q.check(&Floors::STANDARD), Vec::<String>::new());
 }
 
 #[test]
