@@ -5,7 +5,8 @@
 //! Track 0 block the arm layer let through. The [`Document`] turns the pieces
 //! a [`Layer`] yields for the bytes of a stream into a list of blocks.
 //!
-//! [`raster`] paints blocks to an RGBA frame with one bundled face. Nothing
+//! [`raster`] paints blocks to an RGBA frame with one bundled face, in the
+//! colours of the [`design`] tokens. Nothing
 //! here opens a window. The terminal is built on Arm B (Track 0 rich on every
 //! layer, with the sealed upgrade): [`Layer`] is implemented for its layer, and
 //! the plain [`Passthrough`] layer is for a stream with no arm in front of it.
@@ -20,6 +21,7 @@ pub mod app;
 pub mod cli;
 #[cfg(feature = "links-clipboard")]
 pub mod copy;
+pub mod design;
 pub mod document;
 pub mod grid;
 pub mod guard;

@@ -359,8 +359,10 @@ mod pty {
                 &format!("reply-{label}"),
                 b"\x1b]11;?\x1b\\\x1b]4;2;?\x07",
             );
+            // The terminal's theme (the design tokens): a white canvas and
+            // ANSI 2 of [24, 128, 56].
             assert_eq!(
-                got, b"\x1b]11;rgb:ffff/ffff/ffff\x1b\\\x1b]4;2;rgb:2525/bcbc/2424\x1b\\",
+                got, b"\x1b]11;rgb:ffff/ffff/ffff\x1b\\\x1b]4;2;rgb:1818/8080/3838\x1b\\",
                 "{label}"
             );
         }
