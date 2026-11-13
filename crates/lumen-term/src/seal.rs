@@ -14,9 +14,9 @@
 //! and this module is not built.
 //!
 //! The shim is a zsh `ZDOTDIR` file ([`ZSHENV`]), the only listed shell. A shell
-//! with no shim gets no keys. The spec's `LUMEN_SHELL_PID` check is not used,
-//! because the pid does not exist before the spawn and the environment is fixed
-//! at spawn: the holder instead refuses any sender whose kernel peer
+//! with no shim gets no keys. The shim does not compare the shell's pid with a
+//! variable, because the pid does not exist before the spawn and the environment
+//! is fixed at spawn: the holder instead refuses any sender whose kernel peer
 //! credentials are not the shell's pid and start time, and the descriptor is
 //! closed-on-exec in the shell so a nested shell never has it.
 
