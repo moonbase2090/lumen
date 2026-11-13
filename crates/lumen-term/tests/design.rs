@@ -110,6 +110,7 @@ fn the_theme_is_the_palette_by_role() {
     assert_eq!(t.editor, p.field);
     assert_eq!(t.toast, p.notice);
     assert_eq!(t.toast_border, p.notice_border);
+    assert_eq!(t.prompt, p.accent);
     // The evidence theme is left as it was.
     assert_ne!(t, Theme::light());
 }
@@ -148,5 +149,57 @@ fn the_app_draws_in_the_design_theme() -> Result<(), Box<dyn std::error::Error>>
         .ok_or("no pixel")?;
     assert_eq!(gutter, design::theme().margin);
     assert_ne!(gutter, Theme::light().margin);
+    Ok(())
+}
+
+/// The editor's prompt mark is drawn in the accent, so the place to type is
+/// the one coloured thing in the chrome.
+#[cfg(unix)]
+#[test]
+fn the_editor_prompt_is_drawn_in_the_accent() -> Result<(), Box<dyn std::error::Error>> {
+    use lumen_term::app::{cells_for, window_for};
+    use lumen_term::{App, Passthrough, layout};
+    let app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", "sleep 2"],
+        1,
+        640,
+        380,
+    )?;
+    let frame = app.view();
+    let (cw, ch) = lumen_term::Renderer::new(1, design::theme())?.cell();
+    let (cols, rows) = cells_for(640, 380, (cw, ch));
+    let win = window_for(cols, rows);
+    let lay = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
+    // The mark sits in the editor's second cell of its first row.
+    let (x0, y0) = ((lay.editor.x + 1) * cw, lay.editor.y * ch);
+    // Find the most inked pixel of the mark. Glyph edges are blended, so it is
+    // the accent laid over the field at some coverage: every channel must sit
+    // on the line from the field to the accent at the same coverage, which
+    // body text (a near-neutral grey) cannot do.
+    let p = Palette::light();
+    let mut darkest = p.field;
+    for y in y0..y0 + ch {
+        for x in x0..x0 + cw {
+            let px = frame.pixel(x, y).ok_or("outside the frame")?;
+            if px.iter().map(|c| u32::from(*c)).sum::<u32>()
+                < darkest.iter().map(|c| u32::from(*c)).sum::<u32>()
+            {
+                darkest = px;
+            }
+        }
+    }
+    let span = |k: usize| f64::from(p.field[k]) - f64::from(p.accent[k]);
+    let coverage = (f64::from(p.field[0]) - f64::from(darkest[0])) / span(0);
+    assert!(coverage > 0.5, "the mark is barely drawn: {darkest:?}");
+    for k in 1..3 {
+        let want = f64::from(p.field[k]) - coverage * span(k);
+        assert!(
+            (f64::from(darkest[k]) - want).abs() <= 3.0,
+            "{darkest:?} is not the accent {:?} at coverage {coverage:.2}",
+            p.accent
+        );
+    }
     Ok(())
 }

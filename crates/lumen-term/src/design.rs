@@ -3,8 +3,8 @@
 //! Colours are named by role, not by where they are painted, so a theme is a
 //! choice of values for the same roles. [`Palette::light`] is the built-in
 //! look and the one the terminal uses; [`theme`] maps it onto the renderer's
-//! [`Theme`]. The renderer's own [`Theme::light`] stays as it is, because the
-//! pinned conditions of the pixel evidence use it.
+//! [`Theme`]. [`Theme::light`] stays as it was, because the pinned conditions
+//! of the pixel evidence use it.
 //!
 //! Rules every palette keeps (the tests check them):
 //!
@@ -19,7 +19,7 @@
 //!   of unverified output) is at least 3:1 against the surfaces on both of
 //!   its sides, the WCAG floor for the boundary of a control.
 
-use crate::raster::{Rgb, Theme};
+use crate::frame::Rgb;
 
 /// The colour roles of the terminal's look.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,8 +125,86 @@ impl Palette {
             margin: self.chrome,
             margin_text: self.chrome_text,
             editor: self.field,
+            prompt: self.accent,
             toast: self.notice,
             toast_border: self.notice_border,
+        }
+    }
+}
+
+/// The colours of a render, by where they are painted.
+///
+/// [`Theme::light`] is the fixed theme the pinned conditions of the pixel
+/// evidence (criterion 2.3) use, kept as it was so baselines stay comparable.
+/// The terminal draws with [`theme`], the light [`Palette`] mapped by role.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Theme {
+    /// Default foreground.
+    pub foreground: Rgb,
+    /// Default background.
+    pub background: Rgb,
+    /// The sixteen ANSI colours.
+    pub ansi: [Rgb; 16],
+    /// Background of a rich block's container.
+    pub container: Rgb,
+    /// Border of a rich block's container.
+    pub border: Rgb,
+    /// The container's label.
+    pub label: Rgb,
+    /// Background of a code block.
+    pub code: Rgb,
+    /// Foreground of a heading.
+    pub heading: Rgb,
+    /// The trust margin: the gutter and the header strip. Only the terminal paints it.
+    pub margin: Rgb,
+    /// The terminal's own text in the margin.
+    pub margin_text: Rgb,
+    /// The input editor.
+    pub editor: Rgb,
+    /// The editor's prompt mark.
+    pub prompt: Rgb,
+    /// A toast's box.
+    pub toast: Rgb,
+    /// A toast's border.
+    pub toast_border: Rgb,
+}
+
+impl Theme {
+    /// The light theme.
+    #[must_use]
+    pub fn light() -> Self {
+        Self {
+            foreground: [28, 28, 28],
+            background: [255, 255, 255],
+            ansi: [
+                [0, 0, 0],
+                [194, 54, 33],
+                [37, 188, 36],
+                [173, 173, 39],
+                [73, 46, 225],
+                [211, 56, 211],
+                [51, 187, 200],
+                [203, 204, 205],
+                [129, 131, 131],
+                [252, 57, 31],
+                [49, 231, 34],
+                [234, 236, 35],
+                [88, 51, 255],
+                [249, 53, 248],
+                [20, 240, 240],
+                [233, 235, 235],
+            ],
+            container: [244, 244, 244],
+            border: [176, 176, 176],
+            label: [120, 64, 0],
+            code: [232, 234, 240],
+            heading: [20, 60, 120],
+            margin: [226, 230, 238],
+            margin_text: [60, 70, 90],
+            editor: [250, 250, 250],
+            prompt: [28, 28, 28],
+            toast: [255, 250, 230],
+            toast_border: [190, 150, 60],
         }
     }
 }
