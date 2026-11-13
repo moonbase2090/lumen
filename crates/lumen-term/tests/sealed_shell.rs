@@ -413,3 +413,32 @@ fn a_link_to_a_listed_shell_resolves_to_the_path_that_runs_and_other_paths_do_no
     assert_eq!(lumen_term::seal::resolve(&cfg, "zsh"), None);
     assert_eq!(lumen_term::seal::resolve(&cfg, "/nonexistent/zsh"), None);
 }
+
+#[test]
+fn the_users_startup_file_runs_when_its_directory_has_spaces_and_glob_characters() {
+    let Some(shell) = shell_or_skip() else { return };
+    let home = home("sealed shell [home] *");
+    let cfg = config(1, &home);
+    let mut s = Session::start_with_seal(layer(), 100, 30, &shell, &[] as &[&str], &cfg)
+        .unwrap_or_else(|e| unreachable!("the shell starts: {e}"));
+    assert_eq!(s.seal_status(), Status::Sealed);
+    let mut events = Vec::new();
+    assert!(pump_until(&mut s, &mut events, |_, e| !sealed(e).is_empty()));
+    assert!(
+        s.send(b"echo \"envfile:${LUMEN_TEST_ENVFILE-missing}\"\n")
+            .is_ok()
+    );
+    assert!(
+        pump_until(&mut s, &mut events, |s, _| {
+            let t = text(s);
+            t.contains("envfile:ran") || t.contains("envfile:missing")
+        }),
+        "{:?}",
+        text(&s)
+    );
+    assert!(
+        text(&s).contains("envfile:ran"),
+        "the user's own .zshenv did not run: {:?}",
+        text(&s)
+    );
+}

@@ -132,6 +132,6 @@ _lumen_precmd() {
 
 # zsh reads one .zshenv, from ZDOTDIR as it was at the start, so the user's own
 # is read here, with ZDOTDIR back where the user had it.
-if [[ -r ${ZDOTDIR:-$HOME}/.zshenv ]]; then
-  source ${ZDOTDIR:-$HOME}/.zshenv
+if [[ -r "${ZDOTDIR:-$HOME}/.zshenv" ]]; then
+  source "${ZDOTDIR:-$HOME}/.zshenv"
 fi
