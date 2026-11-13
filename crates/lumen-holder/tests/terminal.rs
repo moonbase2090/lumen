@@ -216,7 +216,10 @@ fn a_layer_started_on_channels_made_first_seals_for_the_shell_that_holds_its_end
     let shell_end = channels
         .take_shell_end()
         .unwrap_or_else(|| unreachable!("the shell end is there once"));
-    assert!(channels.take_shell_end().is_none(), "the shell end is taken once");
+    assert!(
+        channels.take_shell_end().is_none(),
+        "the shell end is taken once"
+    );
     let pidfd = pidfd_open(std::process::id()).unwrap_or_else(|e| unreachable!("pidfd_open: {e}"));
     let (running, receiver) = start_layer_on(
         &Decision::Seal,
@@ -228,10 +231,7 @@ fn a_layer_started_on_channels_made_first_seals_for_the_shell_that_holds_its_end
         1,
     )
     .unwrap_or_else(|e| unreachable!("the layer starts: {e}"));
-    send(
-        &shell_end,
-        &protocol::ready(1),
-    );
+    send(&shell_end, &protocol::ready(1));
     send(
         &shell_end,
         &seal_request(2, KIND_COMMAND_START, &7u32.to_be_bytes())
@@ -240,7 +240,10 @@ fn a_layer_started_on_channels_made_first_seals_for_the_shell_that_holds_its_end
     let reply = answer(&shell_end);
     assert_eq!(reply[1], SEALED, "{reply:?}");
     let mut layer = layer_with(receiver);
-    let items = layer.feed(&on_the_wire(&reply[SEALED_HEADER_LEN..]), Context::default());
+    let items = layer.feed(
+        &on_the_wire(&reply[SEALED_HEADER_LEN..]),
+        Context::default(),
+    );
     assert_eq!(
         sealed_items(items),
         vec![(KIND_COMMAND_START, 7u32.to_be_bytes().to_vec())]
@@ -290,7 +293,10 @@ fn a_refused_decision_on_channels_made_first_makes_no_key_and_closes_the_shells_
         unreachable!("a grid-only layer must not start a holder")
     };
     assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied, "{e}");
-    assert!(!asked_for_a_key.get(), "no key was made for a refused layer");
+    assert!(
+        !asked_for_a_key.get(),
+        "no key was made for a refused layer"
+    );
     // The holder's end was dropped with the channels, so the shell's end is
     // closed at the other side: a send fails rather than queueing for no one.
     let mut file = std::fs::File::from(shell_end);
