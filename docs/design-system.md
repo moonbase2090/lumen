@@ -19,7 +19,7 @@ The [text runs](../spec/v0/text-runs.md#runs.colour) section of the spec names c
 | `text_strong` | Headings |
 | `text_muted` | Labels, counts and hints; the `muted` run token |
 | `chrome_text` | The terminal's own text in the trust margin |
-| `accent` | Links and focus; the `accent` run token |
+| `accent` | The editor's prompt mark, links and focus; the `accent` run token |
 | `error` | Errors and failed exits; the `error` run token |
 | `caution` | The **unverified output** label: a caution, not an error |
 | `control_border` | The edge of the input editor and of the unverified output container |
@@ -41,8 +41,8 @@ Runs have a family role (`body`, `heading` or `mono`) and a size step. The type 
 
 ## What uses the tokens today
 
-The window the terminal opens is drawn in the light palette. That covers every colour the renderer paints: the canvas, grid text and the ANSI palette, rich-block containers, code, headings, the trust margin, the editor and toasts. Colour-query replies, when they are turned on, answer from the same palette, so a program sees the colours it is drawn in.
+The window the terminal opens is drawn in the light palette. That covers every colour the renderer paints: the canvas, grid text and the ANSI palette, rich-block containers, code, headings, the trust margin, the editor and toasts. The editor's prompt mark is drawn in the accent, so the place to type is the one coloured mark in the chrome. Colour-query replies, when they are turned on, answer from the same palette, so a program sees the colours it is drawn in.
 
-The renderer's own fixed light theme is kept unchanged for the pinned conditions of the pixel evidence, so that baselines taken before this change stay comparable.
+The renderer's `Theme` (colours by where they are painted) lives in the design module with the palette. Its fixed `Theme::light` is kept unchanged for the pinned conditions of the pixel evidence, so that baselines taken before this change stay comparable. Neither the palette nor the theme reads decoded image pixels, so neither is part of the image path's build identity, and changing a colour never moves it.
 
 Not yet drawn from tokens: the type scale (the renderer has one bundled size), spacing and corner radii (the layout is on the cell grid). Those come with the renderer's proportional text layout and with theming: light, dark and high-contrast palettes, following the system appearance, and the user's choice of fonts and sizes.
