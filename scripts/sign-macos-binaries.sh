@@ -60,11 +60,12 @@ identifier_for() {
 sign_one() {
   local identity="$1" path="$2"
   shift 2
-  local identifier_args=()
   if [[ -n "$identifier_prefix" ]]; then
-    identifier_args=(--identifier "$(identifier_for "$path")")
+    codesign --force "$@" --options runtime --identifier "$(identifier_for "$path")" \
+      --sign "$identity" "$path"
+  else
+    codesign --force "$@" --options runtime --sign "$identity" "$path"
   fi
-  codesign --force "$@" --options runtime "${identifier_args[@]}" --sign "$identity" "$path"
 }
 
 if [[ "$adhoc" -eq 1 ]]; then
