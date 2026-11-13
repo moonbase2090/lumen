@@ -1,4 +1,4 @@
-//! The command line of the `lumen-term` binary.
+//! The command line of the `bright` binary.
 
 use std::time::Duration;
 
@@ -36,7 +36,7 @@ impl Default for Options {
 }
 
 /// The usage text.
-pub const USAGE: &str = "usage: lumen-term [--scale N] [--size WxH] [--snapshot FILE [--wait MS]] [--exit-after MS] [--show-policy] [--] [PROGRAM [ARGS...]]";
+pub const USAGE: &str = "usage: bright [--scale N] [--size WxH] [--snapshot FILE [--wait MS]] [--exit-after MS] [--show-policy] [--] [PROGRAM [ARGS...]]";
 
 fn number(flag: &str, value: Option<&String>) -> Result<u64, String> {
     value

@@ -4,11 +4,16 @@
 #![cfg(feature = "window")]
 
 use lumen_term::host::{map_key, to_xrgb};
-use lumen_term::{Frame, Key, Mods};
+use lumen_term::{APP_NAME, Frame, Key, Mods};
 use winit::keyboard::{Key as W, ModifiersState, NamedKey};
 
 fn none() -> ModifiersState {
     ModifiersState::empty()
+}
+
+#[test]
+fn the_window_uses_the_product_name() {
+    assert_eq!(APP_NAME, "Bright");
 }
 
 fn ch(s: &str) -> W {

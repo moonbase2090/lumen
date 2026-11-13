@@ -1,4 +1,4 @@
-//! `lumen-term`: the Lumen terminal.
+//! `bright`: the Lumen reference terminal.
 //!
 //! With the `window` feature it opens a window. With `--snapshot FILE` it runs
 //! the program headless, waits, and writes a PNG of what the window would show,
@@ -114,7 +114,7 @@ fn main() -> ExitCode {
     // The terminal's own notice: it is not from the program and a program
     // cannot reach it. A window will show it as chrome once chrome notices are drawn.
     if let Some(notice) = policy.notice() {
-        eprintln!("lumen-term: {notice}");
+        eprintln!("bright: {notice}");
     }
     let result = match &options.snapshot {
         Some(path) => snapshot(&options, &policy, path),
@@ -123,7 +123,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("lumen-term: {e}");
+            eprintln!("bright: {e}");
             ExitCode::from(1)
         }
     }

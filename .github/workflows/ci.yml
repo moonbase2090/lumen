@@ -55,6 +55,8 @@ jobs:
         run: scripts/test-release-check.sh
       - name: Release set check tests
         run: scripts/test-verify-release-set.sh
+      - name: Bright packaging tests
+        run: scripts/test-bright-packaging.sh
       - name: Test capture check tests
         run: scripts/test-capture-tests.sh
       - name: Comparison launcher tests
