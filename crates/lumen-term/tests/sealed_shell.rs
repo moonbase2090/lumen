@@ -55,21 +55,36 @@ fn zsh() -> Option<String> {
         .map(|p| (*p).to_owned())
 }
 
-/// The holder next to this test's target directory, built if it is not there.
-/// Built once: the tests run in parallel and must not rebuild it under each other.
+/// The holder executable, from the build itself: cargo says where it put it, so
+/// no layout of the target directory is assumed. Asked once, because the tests
+/// run in parallel and must not build it under each other; a build with nothing
+/// to do is quick.
 fn holder() -> PathBuf {
     static HOLDER: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     HOLDER
         .get_or_init(|| {
-            let exe = std::env::current_exe().unwrap_or_default();
-            let dir = exe.parent().and_then(std::path::Path::parent);
-            let path = dir.map(|d| d.join("lumen-holder")).unwrap_or_default();
-            if !path.is_file() {
-                let status = std::process::Command::new(env!("CARGO"))
-                    .args(["build", "-p", "lumen-holder", "--features", "seal-requests"])
-                    .status();
-                assert!(status.is_ok_and(|s| s.success()), "the holder is built");
-            }
+            let out = std::process::Command::new(env!("CARGO"))
+                .args([
+                    "build",
+                    "-p",
+                    "lumen-holder",
+                    "--features",
+                    "seal-requests",
+                    "--message-format=json",
+                ])
+                .stderr(std::process::Stdio::inherit())
+                .output()
+                .unwrap_or_else(|e| unreachable!("cargo runs: {e}"));
+            assert!(out.status.success(), "the holder is built");
+            let text = String::from_utf8_lossy(&out.stdout);
+            let path = text
+                .lines()
+                .filter(|l| l.contains("\"target\":{") && l.contains("\"name\":\"lumen-holder\""))
+                .filter_map(|l| l.split("\"executable\":\"").nth(1))
+                .filter_map(|r| r.split('"').next())
+                .next_back()
+                .map(PathBuf::from)
+                .unwrap_or_default();
             assert!(path.is_file(), "the holder is at {}", path.display());
             path
         })
