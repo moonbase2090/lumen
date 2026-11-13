@@ -13,8 +13,9 @@ use crate::raster::Frame;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
+use winit::dpi::PhysicalPosition;
 use winit::dpi::PhysicalSize;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key as WinitKey, KeyLocation, ModifiersState, NamedKey};
 use winit::window::{Theme as WinitTheme, Window, WindowId};
@@ -95,7 +96,7 @@ pub fn map_key_at(
     state: ModifiersState,
     location: KeyLocation,
 ) -> Option<(Key, Mods)> {
-    let (mapped, mods) = map_standard(key, text, state)?;
+    let (mapped, mods) = map_key_for(key, text, state, cfg!(target_os = "macos"))?;
     if location != KeyLocation::Numpad {
         return Some((mapped, mods));
     }
@@ -107,13 +108,25 @@ pub fn map_key_at(
     Some((keypad, mods))
 }
 
-fn map_standard(key: &WinitKey, text: Option<&str>, state: ModifiersState) -> Option<(Key, Mods)> {
+/// [`map_key`] with the platform's Option behaviour given. Where `option_composes`
+/// is set (macOS), Alt held with a key that produced non-ASCII text means the
+/// layout made that text (Option+e then e is an accented letter), so the text
+/// is sent as typed and not with an Escape prefix. ASCII text stays Alt.
+#[must_use]
+pub fn map_key_for(
+    key: &WinitKey,
+    text: Option<&str>,
+    state: ModifiersState,
+    option_composes: bool,
+) -> Option<(Key, Mods)> {
     if state.super_key() {
         return None;
     }
+    let produced = text.is_some_and(|t| !t.is_ascii() && t.chars().all(|c| !c.is_control()));
     let mods = Mods {
         ctrl: state.control_key(),
-        alt: state.alt_key(),
+        alt: state.alt_key()
+            && !(option_composes && produced && matches!(key, WinitKey::Character(_))),
         shift: state.shift_key(),
     };
     let mapped = match key {
@@ -174,6 +187,32 @@ pub enum Input<'a> {
     Key(Key, Mods),
     /// Text typed or pasted as a whole.
     Text(&'a str),
+}
+
+/// Apply an input method event to the app. Returns whether the window must draw
+/// again. Composition in progress is kept, not sent; the committed text is sent
+/// once and ends it; turning the input method off drops what was unfinished.
+pub fn ime_event(app: &mut App, event: &Ime) -> bool {
+    match event {
+        Ime::Enabled => false,
+        Ime::Preedit(text, cursor) => {
+            let before = app.preedit().map(|(t, c)| (t.to_owned(), c));
+            app.set_preedit(text, *cursor);
+            before != app.preedit().map(|(t, c)| (t.to_owned(), c))
+        }
+        Ime::Commit(text) => {
+            let had = app.preedit().is_some();
+            // Commit ends the composition even when it sends nothing, and a
+            // refused write puts the app's own notice on screen.
+            let _ = app.commit(text);
+            had || !text.is_empty()
+        }
+        Ime::Disabled => {
+            let had = app.preedit().is_some();
+            app.clear_preedit();
+            had
+        }
+    }
 }
 
 /// Send `input` to the program. Returns whether the window must draw again
@@ -296,6 +335,53 @@ impl Host {
     }
 }
 
+impl Host {
+    /// Handle a key press: the input method owns keys while it composes, then
+    /// shortcuts, then the key is sent to the program.
+    fn on_key(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
+        let Some(run) = &mut self.state else { return };
+        if run.app.preedit().is_some() {
+            // The input method owns the keys while it composes.
+            return;
+        }
+        if let WinitKey::Character(c) = &event.logical_key
+            && let Some(ch) = c.chars().next()
+            && let Some(action) =
+                actions::action_for(Platform::current(), ch, chord(self.modifiers))
+        {
+            self.act(event_loop, action);
+            return;
+        }
+        if let Some((key, mods)) = map_key_at(
+            &event.logical_key,
+            event.text.as_deref(),
+            self.modifiers,
+            event.location,
+        ) {
+            if send_input(&mut run.app, Input::Key(key, mods)) {
+                run.window.request_redraw();
+            }
+        } else if let Some(text) = event.text.as_deref()
+            && !self.modifiers.super_key()
+            && text.chars().count() > 1
+            && send_input(&mut run.app, Input::Text(text))
+        {
+            run.window.request_redraw();
+        }
+    }
+
+    /// Apply an input method event and keep its candidate window at the editor.
+    fn on_ime(&mut self, ime: &Ime) {
+        let Some(run) = &mut self.state else { return };
+        if ime_event(&mut run.app, ime) {
+            run.window.request_redraw();
+        }
+        let (x, y, w, h) = run.app.ime_area();
+        run.window
+            .set_ime_cursor_area(PhysicalPosition::new(x, y), PhysicalSize::new(w, h));
+    }
+}
+
 impl ApplicationHandler for Host {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_some() {
@@ -319,6 +405,7 @@ impl ApplicationHandler for Host {
             Ok(s) => s,
             Err(e) => return self.fail(event_loop, format!("no surface: {e}")),
         };
+        window.set_ime_allowed(true);
         let size = window.inner_size();
         #[allow(
             clippy::cast_possible_truncation,
@@ -380,32 +467,9 @@ impl ApplicationHandler for Host {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                let Some(run) = &mut self.state else { return };
-                if let WinitKey::Character(c) = &event.logical_key
-                    && let Some(ch) = c.chars().next()
-                    && let Some(action) =
-                        actions::action_for(Platform::current(), ch, chord(self.modifiers))
-                {
-                    self.act(event_loop, action);
-                    return;
-                }
-                if let Some((key, mods)) = map_key_at(
-                    &event.logical_key,
-                    event.text.as_deref(),
-                    self.modifiers,
-                    event.location,
-                ) {
-                    if send_input(&mut run.app, Input::Key(key, mods)) {
-                        run.window.request_redraw();
-                    }
-                } else if let Some(text) = event.text.as_deref()
-                    && !self.modifiers.super_key()
-                    && text.chars().count() > 1
-                    && send_input(&mut run.app, Input::Text(text))
-                {
-                    run.window.request_redraw();
-                }
+                self.on_key(event_loop, &event);
             }
+            WindowEvent::Ime(ime) => self.on_ime(&ime),
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = pointer_pixels(position.x, position.y);
                 let held = self.held();
@@ -461,6 +525,9 @@ impl ApplicationHandler for Host {
             WindowEvent::Focused(focused) => {
                 if let Some(run) = &mut self.state {
                     run.app.set_focused(focused);
+                    if !focused {
+                        run.app.clear_preedit();
+                    }
                 }
             }
             WindowEvent::RedrawRequested => self.redraw(),
