@@ -16,6 +16,7 @@
 //! skipped), combining marks (the base glyph only), a cursor (off unless
 //! asked), kerning, or any other text shaping.
 
+use crate::design::{FontFile, Fonts};
 use crate::document::{Block, Document, RichBlock};
 use crate::grid::GridBlock;
 use crate::image_draw;
@@ -25,6 +26,7 @@ use lumen_track0::Block as Track0Block;
 use prismattyc_core::{Color, Style, grapheme_display_width};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Arc;
 use swash::FontRef;
 use swash::scale::{Render, ScaleContext, Source};
 use swash::zeno::Format;
@@ -80,10 +82,14 @@ struct Glyph {
 
 /// Turns blocks into pixels.
 pub struct Renderer {
-    font: FontRef<'static>,
-    sans: FontRef<'static>,
+    font: OwnedFace,
+    sans: OwnedFace,
     scaler: RefCell<ScaleContext>,
+    /// Pixel size of the monospace face.
     px: f32,
+    /// Pixel size of the proportional face.
+    sans_px: f32,
+    fonts: Fonts,
     scale: u32,
     cell_w: u32,
     cell_h: u32,
@@ -91,6 +97,33 @@ pub struct Renderer {
     theme: Theme,
     cache: RefCell<HashMap<(Face, char), Glyph>>,
     advances: RefCell<HashMap<char, usize>>,
+}
+
+/// A face the renderer owns: the bundled bytes or a user's font file.
+struct OwnedFace {
+    data: Arc<[u8]>,
+    offset: u32,
+    key: swash::CacheKey,
+}
+
+impl OwnedFace {
+    fn new(file: &FontFile, bundled: &'static [u8]) -> Result<Self, String> {
+        let data: Arc<[u8]> = match file {
+            FontFile::Bundled => Arc::from(bundled),
+            FontFile::Data(d) => d.clone(),
+        };
+        let face = FontRef::from_index(&data, 0).ok_or("a face could not be read")?;
+        let (offset, key) = (face.offset, face.key);
+        Ok(Self { data, offset, key })
+    }
+
+    fn get(&self) -> FontRef<'_> {
+        FontRef {
+            data: &self.data,
+            offset: self.offset,
+            key: self.key,
+        }
+    }
 }
 
 fn resolve(colour: Color, default: Rgb, theme: &Theme) -> Rgb {
@@ -118,40 +151,61 @@ pub(crate) fn indexed(n: u8, theme: &Theme) -> Rgb {
 }
 
 impl Renderer {
-    /// A renderer for the bundled face at `scale` (the 2.3 conditions use 2).
+    /// A renderer for the bundled faces at `scale` (the 2.3 conditions use 2).
     ///
     /// # Errors
     ///
-    /// Returns a message if the face cannot be read, which would be a broken
-    /// build, since it is compiled in.
+    /// Returns a message if a face cannot be read, which would be a broken
+    /// build, since they are compiled in.
     pub fn new(scale: u32, theme: Theme) -> Result<Self, String> {
-        let font = FontRef::from_index(FACE, 0).ok_or("the face could not be read")?;
-        let sans = FontRef::from_index(SANS, 0).ok_or("the proportional face could not be read")?;
+        Self::with_fonts(scale, theme, &Fonts::default())
+    }
+
+    /// A renderer for `fonts` at `scale`. A cell is as wide as the monospace
+    /// face's `M`, and a row is tall enough for a line of either face, so
+    /// prose set larger than the grid is not cut.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message if a face cannot be read.
+    pub fn with_fonts(scale: u32, theme: Theme, fonts: &Fonts) -> Result<Self, String> {
+        let font = OwnedFace::new(&fonts.mono, FACE)?;
+        let sans = OwnedFace::new(&fonts.prose, SANS)?;
         #[allow(
             clippy::cast_precision_loss,
-            reason = "a scale is a small whole number"
+            reason = "a scale and a font size are small whole numbers"
         )]
-        let px = BASE_PX * scale.max(1) as f32;
-        let lines = font.metrics(&[]).scale(px);
-        let advance = font
+        let (px, sans_px) = (
+            fonts.mono_px() as f32 * scale.max(1) as f32,
+            fonts.prose_px() as f32 * scale.max(1) as f32,
+        );
+        let (mono_ref, sans_ref) = (font.get(), sans.get());
+        let lines = mono_ref.metrics(&[]).scale(px);
+        let sans_lines = sans_ref.metrics(&[]).scale(sans_px);
+        let advance = mono_ref
             .glyph_metrics(&[])
             .scale(px)
-            .advance_width(font.charmap().map('M'));
+            .advance_width(mono_ref.charmap().map('M'));
         #[allow(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
-            reason = "metrics of a 14 to 100 pixel face are small and positive"
+            reason = "metrics of an 8 to 300 pixel face are small and positive"
         )]
         let (cell_w, cell_h, ascent) = (
             advance.round().max(1.0) as u32,
-            (lines.ascent + lines.descent).ceil().max(1.0) as u32,
-            lines.ascent.round() as i32,
+            (lines.ascent + lines.descent)
+                .ceil()
+                .max((sans_lines.ascent + sans_lines.descent).ceil())
+                .max(1.0) as u32,
+            lines.ascent.round().max(sans_lines.ascent.round()) as i32,
         );
         Ok(Self {
             font,
             sans,
             scaler: RefCell::new(ScaleContext::new()),
             px,
+            sans_px,
+            fonts: fonts.clone(),
             scale: scale.max(1),
             cell_w,
             cell_h,
@@ -160,6 +214,18 @@ impl Renderer {
             cache: RefCell::new(HashMap::new()),
             advances: RefCell::new(HashMap::new()),
         })
+    }
+
+    /// The fonts in use.
+    #[must_use]
+    pub fn fonts(&self) -> &Fonts {
+        &self.fonts
+    }
+
+    /// The render scale.
+    #[must_use]
+    pub fn scale(&self) -> u32 {
+        self.scale
     }
 
     /// The bundled face at `scale` in the light theme.
@@ -206,9 +272,9 @@ impl Renderer {
         colour: Rgb,
     ) {
         let (x, y) = at;
-        let font = match face {
-            Face::Mono => self.font,
-            Face::Sans => self.sans,
+        let (font, size) = match face {
+            Face::Mono => (self.font.get(), self.px),
+            Face::Sans => (self.sans.get(), self.sans_px),
         };
         let glyph = font.charmap().map(ch);
         if ch == ' ' || ch == '\0' || glyph == 0 {
@@ -217,7 +283,7 @@ impl Renderer {
         let mut cache = self.cache.borrow_mut();
         let g = cache.entry((face, ch)).or_insert_with(|| {
             let mut context = self.scaler.borrow_mut();
-            let mut scaler = context.builder(font).size(self.px).hint(false).build();
+            let mut scaler = context.builder(font).size(size).hint(false).build();
             let Some(image) = Render::new(&[Source::Outline])
                 .format(Format::Alpha)
                 .render(&mut scaler, glyph)
@@ -310,7 +376,7 @@ impl Renderer {
     /// proportional one when it has the glyph and the character takes one cell,
     /// else the monospace one.
     fn proportional_face(&self, ch: char) -> Face {
-        if self.sans.charmap().map(ch) != 0 && grapheme_display_width(ch, &[]) == 1 {
+        if self.sans.get().charmap().map(ch) != 0 && grapheme_display_width(ch, &[]) == 1 {
             Face::Sans
         } else {
             Face::Mono
@@ -329,11 +395,11 @@ impl Renderer {
             return *a;
         }
         let a = if self.proportional_face(ch) == Face::Sans {
-            let glyph = self.sans.charmap().map(ch);
-            let w = self
-                .sans
+            let sans = self.sans.get();
+            let glyph = sans.charmap().map(ch);
+            let w = sans
                 .glyph_metrics(&[])
-                .scale(self.px)
+                .scale(self.sans_px)
                 .advance_width(glyph);
             #[allow(
                 clippy::cast_possible_truncation,
