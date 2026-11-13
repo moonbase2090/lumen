@@ -74,6 +74,16 @@ impl GridBlock {
             .collect()
     }
 
+    /// The mouse modes the program running in this block has switched on.
+    #[must_use]
+    pub fn mouse_modes(&self) -> crate::mouse::Modes {
+        crate::mouse::Modes {
+            tracking: self.emulator.mouse_tracking(),
+            sgr: self.emulator.mouse_sgr(),
+            wheel: self.emulator.reports_app_wheel(),
+        }
+    }
+
     /// Whether the alternate screen is active.
     #[must_use]
     pub fn alt_active(&self) -> bool {

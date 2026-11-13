@@ -4,10 +4,11 @@
 //! the frame [`App::view`] returns, so everything it does is tested here
 //! without a window.
 
-use crate::document::Event;
+use crate::document::{Block, Event};
 use crate::keys::{self, Key, Mods};
 use crate::layer::Layer;
 use crate::layout::{GUTTER_COLUMNS, HEADER_ROWS, STRIP_COLLAPSED_ROWS};
+use crate::mouse::{Button, Held, Reporter, Wheel};
 use crate::notify::{Desk, Notifier, OsSink, Place, Settings, Toast};
 use crate::pty::SpawnError;
 use crate::raster::{Frame, Renderer, Window};
@@ -23,6 +24,7 @@ pub struct App {
     sink: Box<dyn OsSink + Send>,
     desk: Desk,
     input_notice: Option<InputNotice>,
+    mouse: Reporter,
 }
 
 /// How long the notice that input was not sent stays after the last refusal.
@@ -162,6 +164,7 @@ impl App {
             // would be an OS one needs the window to be shown unfocused.
             desk: Desk::default(),
             input_notice: None,
+            mouse: Reporter::default(),
         };
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
         Ok(app)
@@ -253,6 +256,160 @@ impl App {
             }
             None => false,
         }
+    }
+
+    /// The height of a cell in pixels.
+    #[must_use]
+    pub fn cell_height(&self) -> u32 {
+        self.renderer.cell().1
+    }
+
+    /// The cell of the live grid block under pixel `(x, y)`, from 0, or `None`
+    /// when the pointer is not over it. The live block is the newest block,
+    /// when it is a grid: the one the program writes to. Its place is worked out
+    /// the way the renderer stacks the blocks of the content area.
+    #[must_use]
+    pub fn live_cell(&self, x: u32, y: u32) -> Option<(u32, u32)> {
+        let (cw, ch) = self.renderer.cell();
+        let (cw, ch) = (cw.max(1), ch.max(1));
+        let (columns, rows) = cells_for(self.width, self.height, (cw, ch));
+        let win = window_for(columns, rows);
+        let doc = self.session.document();
+        let Some(Block::Grid(live)) = doc.blocks().last() else {
+            return None;
+        };
+        let content_x = GUTTER_COLUMNS.saturating_mul(cw);
+        let content_y = HEADER_ROWS.saturating_mul(ch);
+        let area_bottom = win.editor_row.saturating_mul(ch);
+        let (px, py) = (x.checked_sub(content_x)?, y.checked_sub(content_y)?);
+        if y >= area_bottom {
+            return None;
+        }
+        let content_columns = usize::try_from(win.cols.saturating_sub(GUTTER_COLUMNS)).unwrap_or(1);
+        let strips = doc.strips();
+        let newest = strips.last().map(|s| s.cycle);
+        let mut top = 0u32;
+        let mut placed: Vec<u32> = Vec::new();
+        let last = doc.blocks().len().saturating_sub(1);
+        for (i, b) in doc.blocks().iter().enumerate() {
+            if i == last {
+                break;
+            }
+            match b {
+                Block::Grid(g) => {
+                    top += u32::try_from(g.size().1).unwrap_or(0) * ch;
+                }
+                Block::Rich(r) if !r.background => {
+                    top += self.renderer.rich_height(r, content_columns);
+                }
+                Block::Rich(r) => {
+                    if Some(r.cycle) == newest || placed.contains(&r.cycle) {
+                        continue;
+                    }
+                    if let Some(strip) = strips.iter().find(|s| s.cycle == r.cycle) {
+                        placed.push(r.cycle);
+                        let n = if strip.open {
+                            1 + strip.blocks.len()
+                        } else {
+                            1
+                        };
+                        top += u32::try_from(n).unwrap_or(u32::MAX) * ch;
+                    }
+                }
+            }
+        }
+        let py = py.checked_sub(top)?;
+        let (bc, br) = live.size();
+        let (col, row) = (px / cw, py / ch);
+        (col < u32::try_from(bc).ok()? && row < u32::try_from(br).ok()?).then_some((col, row))
+    }
+
+    /// A button went down at pixel `(x, y)`. If it is over the live grid block
+    /// and the program asked for mouse reports, the report is sent. Returns
+    /// whether anything was sent.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error.
+    pub fn mouse_press(&mut self, x: u32, y: u32, b: Button, held: Held) -> std::io::Result<bool> {
+        let Some(cell) = self.live_cell(x, y) else {
+            return Ok(false);
+        };
+        let Some(modes) = self.live_modes() else {
+            return Ok(false);
+        };
+        let report = self.mouse.press(modes, b, held, cell);
+        self.send_report(report)
+    }
+
+    /// A button went up at pixel `(x, y)`, which may be outside the block.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error.
+    pub fn mouse_release(
+        &mut self,
+        x: u32,
+        y: u32,
+        b: Button,
+        held: Held,
+    ) -> std::io::Result<bool> {
+        let cell = self.live_cell(x, y);
+        let modes = self.live_modes().unwrap_or(crate::mouse::Modes {
+            tracking: crate::mouse::MouseTracking::Off,
+            sgr: false,
+            wheel: false,
+        });
+        let report = self.mouse.release(modes, b, held, cell);
+        self.send_report(report)
+    }
+
+    /// The pointer moved to pixel `(x, y)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error.
+    pub fn mouse_move(&mut self, x: u32, y: u32, held: Held) -> std::io::Result<bool> {
+        let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes()) else {
+            return Ok(false);
+        };
+        let report = self.mouse.motion(modes, held, cell);
+        self.send_report(report)
+    }
+
+    /// The wheel turned one step with the pointer at pixel `(x, y)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error.
+    pub fn mouse_wheel(
+        &mut self,
+        x: u32,
+        y: u32,
+        step: Wheel,
+        held: Held,
+    ) -> std::io::Result<bool> {
+        let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes()) else {
+            return Ok(false);
+        };
+        let report = Reporter::wheel(modes, step, held, cell);
+        self.send_report(report)
+    }
+
+    fn live_modes(&self) -> Option<crate::mouse::Modes> {
+        match self.session.document().blocks().last() {
+            Some(Block::Grid(g)) => Some(g.mouse_modes()),
+            _ => None,
+        }
+    }
+
+    fn send_report(&mut self, report: Option<Vec<u8>>) -> std::io::Result<bool> {
+        let Some(bytes) = report else {
+            return Ok(false);
+        };
+        let sent = self.send(&bytes);
+        self.note_input(&sent);
+        sent.map(|()| true)
     }
 
     /// Which toast a press at pixel `(x, y)` would dismiss, without dismissing

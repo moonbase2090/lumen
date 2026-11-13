@@ -32,6 +32,7 @@ pub mod layer;
 pub mod layout;
 #[cfg(feature = "links-clipboard")]
 pub mod link;
+pub mod mouse;
 pub mod notify;
 pub mod os_backend;
 #[cfg(feature = "links-clipboard")]
