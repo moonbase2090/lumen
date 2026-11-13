@@ -32,6 +32,7 @@ pub mod layer;
 pub mod layout;
 #[cfg(feature = "links-clipboard")]
 pub mod link;
+pub mod modes;
 pub mod mouse;
 pub mod notify;
 pub mod os_backend;
@@ -55,6 +56,7 @@ pub use layer::{Context, Layer, Notice, Passthrough, Piece};
 pub use layout::{
     GUTTER_COLUMNS, HEADER_ROWS, Layout, Rect, StripPlacement, layout, notification_area,
 };
+pub use modes::{KeyModes, ModeTracker};
 pub use pty::SpawnError;
 pub use raster::{Frame, Renderer, Theme, Window, wrap_text};
 pub use session::Session;

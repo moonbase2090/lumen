@@ -5,6 +5,7 @@ use crate::guard::Guard;
 use crate::images::{ImageHost, Pixels, Shown};
 use crate::isolate::{Isolator, Note, Stats};
 use crate::layer::{Context, Layer, Notice, Piece};
+use crate::modes::{KeyModes, ModeTracker};
 use crate::reply::ColourQuery;
 use crate::strip::Strip;
 use lumen_decoder::frames::{Data, Start};
@@ -75,6 +76,7 @@ pub struct Document {
     events: Vec<Event>,
     colour_queries: Vec<ColourQuery>,
     images: ImageHost,
+    modes: ModeTracker,
 }
 
 /// Most colour queries kept for the owner to answer. Later ones are not kept.
@@ -103,6 +105,7 @@ impl Document {
             events: Vec::new(),
             colour_queries: Vec::new(),
             images,
+            modes: ModeTracker::new(),
         }
     }
 
@@ -158,6 +161,12 @@ impl Document {
         std::mem::take(&mut self.colour_queries)
     }
 
+    /// The key modes the program has set: application cursor keys and keypad.
+    #[must_use]
+    pub fn key_modes(&self) -> KeyModes {
+        self.modes.modes()
+    }
+
     /// What grid isolation has removed so far.
     #[must_use]
     pub fn isolation(&self) -> Stats {
@@ -182,6 +191,7 @@ impl Document {
             }
         }
         if !allowed.is_empty() {
+            self.modes.feed(&allowed);
             self.grid().feed(&allowed);
         }
     }

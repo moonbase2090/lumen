@@ -3,12 +3,12 @@
 
 #![cfg(feature = "window")]
 
-use lumen_term::host::{MAX_WHEEL_STEPS, map_key, to_xrgb, wheel_steps};
+use lumen_term::host::{MAX_WHEEL_STEPS, map_key, map_key_at, to_xrgb, wheel_steps};
 use lumen_term::mouse::Wheel;
 use lumen_term::{APP_NAME, Frame, Key, Mods};
 use winit::dpi::PhysicalPosition;
 use winit::event::MouseScrollDelta;
-use winit::keyboard::{Key as W, ModifiersState, NamedKey};
+use winit::keyboard::{Key as W, KeyLocation, ModifiersState, NamedKey};
 
 fn none() -> ModifiersState {
     ModifiersState::empty()
@@ -169,5 +169,28 @@ fn a_scroll_is_whole_steps_in_the_direction_it_moved() {
         pixels(-2.0),
         Some((Wheel::Down, 1)),
         "a small move is a step"
+    );
+}
+
+#[test]
+fn numeric_keypad_keys_are_keypad_keys() {
+    let plain = Mods::default();
+    let at = |k: &W, loc| map_key_at(k, None, none(), loc);
+    assert_eq!(
+        at(&ch("5"), KeyLocation::Numpad),
+        Some((Key::Keypad('5'), plain))
+    );
+    assert_eq!(
+        at(&ch("5"), KeyLocation::Standard),
+        Some((Key::Char('5'), plain))
+    );
+    assert_eq!(
+        at(&W::Named(NamedKey::Enter), KeyLocation::Numpad),
+        Some((Key::KeypadEnter, plain))
+    );
+    // With Num Lock off the numpad sends navigation keys: those stay as they are.
+    assert_eq!(
+        at(&W::Named(NamedKey::Home), KeyLocation::Numpad),
+        Some((Key::Home, plain))
     );
 }
