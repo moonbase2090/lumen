@@ -4,14 +4,32 @@
 //! the frame [`App::view`] returns, so everything it does is tested here
 //! without a window.
 
+use crate::actions::{self, Action};
+#[cfg(feature = "links-clipboard")]
+use crate::clipboard::Clipboard;
 use crate::document::Event;
 use crate::keys::{self, Key, Mods};
 use crate::layer::Layer;
 use crate::layout::{GUTTER_COLUMNS, HEADER_ROWS, STRIP_COLLAPSED_ROWS};
 use crate::notify::{Desk, Notifier, OsSink, Place, Settings, Toast};
+#[cfg(feature = "links-clipboard")]
+use crate::paste::{self, Decision};
 use crate::pty::SpawnError;
 use crate::raster::{Frame, Renderer, Window};
 use crate::session::{MAX_COLUMNS, MAX_ROWS, Session};
+
+/// What the window does after an action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// Nothing changed.
+    Nothing,
+    /// The view changed: draw again.
+    Redraw,
+    /// The paste was refused, and nothing was sent.
+    Refused,
+    /// The application should end.
+    Exit,
+}
 
 /// A terminal in a window of `width` by `height` pixels.
 pub struct App {
@@ -23,6 +41,9 @@ pub struct App {
     sink: Box<dyn OsSink + Send>,
     desk: Desk,
     input_notice: Option<InputNotice>,
+    /// The render scale the display asked for, and the one in use now.
+    base_scale: u32,
+    scale: u32,
 }
 
 /// How long the notice that input was not sent stays after the last refusal.
@@ -162,6 +183,8 @@ impl App {
             // would be an OS one needs the window to be shown unfocused.
             desk: Desk::default(),
             input_notice: None,
+            base_scale: scale,
+            scale,
         };
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
         Ok(app)
@@ -306,6 +329,57 @@ impl App {
         self.width = width;
         self.height = height;
         Ok(())
+    }
+
+    /// The render scale in use now.
+    #[must_use]
+    pub fn scale(&self) -> u32 {
+        self.scale
+    }
+
+    /// Draw at `scale` from now on: the cells change size, so the program is told
+    /// its new window size.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the renderer could not be made or the program could not be told.
+    pub fn set_scale(&mut self, scale: u32) -> Result<(), SpawnError> {
+        self.renderer = Renderer::light(scale).map_err(SpawnError)?;
+        self.scale = scale;
+        self.resize(self.width, self.height)
+    }
+
+    /// Do `action` for the user. A paste reads `clipboard` and goes through the
+    /// paste rules: text with a line break or a control, which the terminal cannot
+    /// yet ask the user about, is pasted as a single line, and text that carries
+    /// a frame introducer is not pasted at all.
+    #[cfg(feature = "links-clipboard")]
+    pub fn perform(&mut self, action: Action, clipboard: &dyn Clipboard) -> Outcome {
+        match action {
+            Action::Quit | Action::Close => Outcome::Exit,
+            Action::Paste => {
+                let Some(text) = clipboard.text() else {
+                    return Outcome::Nothing;
+                };
+                let to_send = match paste::judge(&text, false) {
+                    Decision::Send(p) => p.text,
+                    Decision::Hold(h) => h.single_line.text,
+                    Decision::Reject(_) => return Outcome::Refused,
+                };
+                if to_send.is_empty() {
+                    return Outcome::Nothing;
+                }
+                // A refused write is noted for the user by `text`.
+                let _ = self.text(&to_send);
+                Outcome::Redraw
+            }
+            Action::ZoomIn | Action::ZoomOut | Action::ZoomReset => {
+                match actions::zoomed(action, self.scale, self.base_scale) {
+                    Some(scale) if self.set_scale(scale).is_ok() => Outcome::Redraw,
+                    _ => Outcome::Nothing,
+                }
+            }
+        }
     }
 
     /// A key was pressed.
