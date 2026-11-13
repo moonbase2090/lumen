@@ -46,9 +46,13 @@ the machine hits both equally.
 
 1. Throughput. A vtebench-style set: scrolling a large file with `cat`, dense
    truecolour cells, wide Unicode and combining marks, cursor motion, and
-   alternate-screen redraws. The metric is wall time from the first byte
-   written to the program's exit and the final frame being committed, for a
-   fixed input of known size, giving MB/s.
+   alternate-screen redraws. The metric is the wall time the writing program
+   spends in its blocking writes to the PTY for a fixed input of known size,
+   giving MB/s. The terminal's read speed throttles the writer, and what is
+   still unread at the end is at most one PTY buffer, small against a payload
+   of hundreds of megabytes. No cursor-position round trip is used to wait for
+   the terminal: the terminal answers no status query from a program, by design,
+   and the measurement does not ask it to.
 2. Input latency. Key to screen with no camera. A test client injects a key
    through the compositor's virtual keyboard at a known time; a small program
    in the terminal echoes it; the compositor-side capture records when the
