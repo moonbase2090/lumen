@@ -118,7 +118,13 @@ fn home(name: &str) -> PathBuf {
     // The machine's own startup files (a CI image's compinit asks questions)
     // are none of this test's business. This also runs the shim's hand-over to
     // the user's own .zshenv.
-    assert!(std::fs::write(dir.join(".zshenv"), "setopt no_global_rcs\n").is_ok());
+    assert!(
+        std::fs::write(
+            dir.join(".zshenv"),
+            "setopt no_global_rcs\nexport LUMEN_TEST_ENVFILE=ran\n"
+        )
+        .is_ok()
+    );
     dir
 }
 
@@ -256,7 +262,7 @@ fn a_shell_started_inside_the_sealed_shell_has_no_seal_channel() {
     assert!(pump_until(&mut s, &mut events, |_, e| !sealed(e).is_empty()));
     // The count of sockets a child holds, and whether the shim's variables are gone.
     assert!(
-        s.send(b"echo \"sockets:$(ls -l /proc/self/fd | grep -c socket) zdotdir:${ZDOTDIR:+set}${LUMEN_USER_ZDOTDIR:+leak}\"\n")
+        s.send(b"echo \"sockets:$(ls -l /proc/self/fd | grep -c socket) envfile:${LUMEN_TEST_ENVFILE-missing} leak:${LUMEN_USER_ZDOTDIR:+yes}\"\n")
             .is_ok()
     );
     assert!(
