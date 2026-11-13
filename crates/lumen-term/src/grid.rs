@@ -51,6 +51,12 @@ impl GridBlock {
         self.emulator.feed(bytes);
     }
 
+    /// The window title the program set since the last call: `Some("")` is a
+    /// reset, `None` is no change.
+    pub fn take_title(&mut self) -> Option<String> {
+        self.emulator.take_pending_title()
+    }
+
     /// Resize the block.
     pub fn resize(&mut self, columns: usize, rows: usize) {
         self.emulator.resize(columns, rows);

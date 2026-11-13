@@ -44,6 +44,7 @@ pub mod reply;
 pub mod seal;
 pub mod session;
 pub mod strip;
+pub mod title;
 mod writer;
 
 pub use app::App;

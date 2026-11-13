@@ -200,7 +200,7 @@ impl ApplicationHandler for Host {
             return;
         }
         let attributes = Window::default_attributes()
-            .with_title(crate::APP_NAME)
+            .with_title(crate::title::window_title(None))
             .with_inner_size(winit::dpi::LogicalSize::new(
                 f64::from(self.config.size.0),
                 f64::from(self.config.size.1),
@@ -316,6 +316,9 @@ impl ApplicationHandler for Host {
             let expired = run.app.tick();
             if run.app.pump() > 0 || expired {
                 run.window.request_redraw();
+            }
+            if let Some(title) = run.app.take_window_title() {
+                run.window.set_title(&title);
             }
             if run.app.has_exited() {
                 event_loop.exit();

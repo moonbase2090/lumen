@@ -384,6 +384,15 @@ impl App {
         bytes
     }
 
+    /// The window title to show if the program changed it since the last call:
+    /// its title with the terminal's name, or the name alone after an empty or
+    /// reset title. For the window chrome only; it is never drawn in the page.
+    pub fn take_window_title(&mut self) -> Option<String> {
+        self.session
+            .take_title()
+            .map(|t| crate::title::window_title(Some(&t)))
+    }
+
     /// Whether the program has exited.
     pub fn has_exited(&mut self) -> bool {
         self.session.has_exited()
