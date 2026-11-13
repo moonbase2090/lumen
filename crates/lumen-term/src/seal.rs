@@ -178,6 +178,19 @@ impl Drop for ShimDir {
     }
 }
 
+/// Wait, for a short while, until `pid` is running `path`: until then `/proc`
+/// names the terminal's own copy, not the shell, and the conditions would read
+/// the wrong `comm`. If it never is, the conditions run anyway and fail closed.
+fn wait_for_exec(pid: u32, path: &str) {
+    let exe = format!("/proc/{pid}/exe");
+    for _ in 0..1000 {
+        if std::fs::read_link(&exe).is_ok_and(|p| p == Path::new(path)) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
 /// What a session keeps of its sealed layer while it lives: the holder, the
 /// terminal's pidfd for the shell and the shim directory. Dropping it ends the
 /// holder.
@@ -270,6 +283,7 @@ pub fn start(
         .process_id()
         .ok_or_else(|| SpawnError("the shell has no process id".to_owned()))?;
     let pidfd = pidfd_open(pid).map_err(|e| fail("could not open a pidfd for the shell", e))?;
+    wait_for_exec(pid, program);
     let shell = Shell {
         pid,
         pidfd: Some(pidfd.as_raw_fd()),

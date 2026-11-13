@@ -266,7 +266,11 @@ fn a_shell_started_inside_the_sealed_shell_has_no_seal_channel() {
             .is_ok()
     );
     assert!(
-        pump_until(&mut s, &mut events, |s, _| text(s).contains("sockets:")),
+        pump_until(&mut s, &mut events, |s, _| {
+            // The typed line shows `envfile:$`; the output shows its value.
+            let t = text(s);
+            t.contains("envfile:ran") || t.contains("envfile:missing")
+        }),
         "{:?}",
         text(&s)
     );
