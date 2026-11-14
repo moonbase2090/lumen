@@ -44,6 +44,7 @@ fn every_role_can_be_set() {
         "sunken",
         "field",
         "chrome",
+        "divider",
         "text",
         "text_strong",
         "text_muted",
@@ -61,6 +62,8 @@ fn every_role_can_be_set() {
         let value = if white { "#ffffff" } else { "#000000" };
         assert!(parse(&format!("{role} = \"{value}\"")).is_ok(), "{role}");
     }
+    let p = parse("divider = \"#010203\"").map_err(|e| e.to_string());
+    assert_eq!(p.map(|p| p.divider), Ok([1, 2, 3]));
     for i in 0..16 {
         let p = parse(&format!("ansi.{i} = \"#010203\"")).map_err(|e| e.to_string());
         assert_eq!(p.map(|p| p.ansi[i]), Ok([1, 2, 3]), "ansi.{i}");

@@ -377,3 +377,70 @@ fn a_fixed_choice_ignores_the_appearance() -> Result<(), Box<dyn std::error::Err
     assert_eq!(canvas_and_gutter(&app)?, (dark.canvas, dark.chrome));
     Ok(())
 }
+
+/// Every built-in palette paints the trust margin in the canvas colour, and
+/// sets it off with a divider that differs from the canvas.
+#[test]
+fn the_builtin_margin_is_the_canvas_with_a_divider() {
+    for b in Builtin::ALL {
+        let p = b.palette();
+        assert_eq!(p.chrome, p.canvas, "{b:?}");
+        assert_ne!(p.divider, p.canvas, "{b:?}");
+    }
+    // High contrast holds the divider to 3:1, so a faint one is a miss.
+    let mut hc = Palette::high_contrast();
+    hc.divider = [235, 235, 235];
+    assert_eq!(
+        hc.check(&Floors::HIGH_CONTRAST),
+        vec![
+            "divider on canvas is 1.19:1, under 3:1".to_owned(),
+            "divider on chrome is 1.19:1, under 3:1".to_owned(),
+        ]
+    );
+}
+
+/// In each built-in look the gutter and the header strip are drawn in the
+/// grid's background, with the divider on their inner edges and the label
+/// still drawn.
+#[cfg(unix)]
+#[test]
+fn the_margin_is_drawn_in_the_grid_background_with_a_divider()
+-> Result<(), Box<dyn std::error::Error>> {
+    use lumen_term::design::ThemeChoice;
+    use lumen_term::{App, GUTTER_COLUMNS, HEADER_ROWS, Passthrough};
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", "sleep 3"],
+        1,
+        400,
+        300,
+    )?;
+    for b in Builtin::ALL {
+        let p = b.palette();
+        app.set_theme_choice(ThemeChoice::Fixed(p));
+        let f = app.view();
+        let (cw, ch) = lumen_term::Renderer::light(1)?.cell();
+        let at = |x: u32, y: u32| f.pixel(x, y).ok_or("outside the frame");
+        let (gutter_right, header_bottom) = (cw * GUTTER_COLUMNS, ch * HEADER_ROWS);
+        let grid = at(f.width - cw, header_bottom + ch * 3 + ch / 2)?;
+        assert_eq!(grid, p.canvas, "{b:?} grid");
+        // Inside the gutter and the header strip, clear of the label.
+        assert_eq!(at(gutter_right / 2, f.height / 2)?, grid, "{b:?} gutter");
+        assert_eq!(at(f.width - cw, header_bottom / 2)?, grid, "{b:?} header");
+        assert_eq!(
+            at(gutter_right - 2, f.height / 2)?,
+            grid,
+            "{b:?} gutter edge"
+        );
+        // The divider: right of the gutter, and under the header.
+        assert_eq!(at(gutter_right - 1, f.height / 2)?, p.divider, "{b:?}");
+        assert_eq!(at(f.width - cw, header_bottom - 1)?, p.divider, "{b:?}");
+        assert_eq!(at(gutter_right, f.height / 2)?, grid, "{b:?} content edge");
+        // The label is drawn in the header strip.
+        let inked = (gutter_right..gutter_right + 6 * cw)
+            .any(|x| (0..header_bottom - 1).any(|y| f.pixel(x, y) != Some(grid)));
+        assert!(inked, "{b:?} label");
+    }
+    Ok(())
+}

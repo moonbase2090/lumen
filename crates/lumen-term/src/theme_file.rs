@@ -84,6 +84,7 @@ fn slot<'a>(p: &'a mut Palette, key: &str) -> Option<&'a mut Rgb> {
         "sunken" => &mut p.sunken,
         "field" => &mut p.field,
         "chrome" => &mut p.chrome,
+        "divider" => &mut p.divider,
         "text" => &mut p.text,
         "text_strong" => &mut p.text_strong,
         "text_muted" => &mut p.text_muted,

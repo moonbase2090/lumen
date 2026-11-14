@@ -39,8 +39,12 @@ pub struct Palette {
     pub sunken: Rgb,
     /// The input editor's field.
     pub field: Rgb,
-    /// The trust margin: the gutter and the header strip.
+    /// The trust margin: the gutter and the header strip. The built-in
+    /// palettes set it to the canvas, so the margin reads as part of the page.
     pub chrome: Rgb,
+    /// The one-pixel line on the inner edges of the trust margin, which
+    /// separates it from the content.
+    pub divider: Rgb,
     /// Body text.
     pub text: Rgb,
     /// Headings.
@@ -74,7 +78,8 @@ impl Palette {
             surface: [247, 248, 250],
             sunken: [239, 241, 245],
             field: [255, 255, 255],
-            chrome: [243, 244, 247],
+            chrome: [255, 255, 255],
+            divider: [222, 225, 231],
             text: [24, 26, 32],
             text_strong: [17, 24, 39],
             text_muted: [88, 95, 110],
@@ -114,7 +119,8 @@ impl Palette {
             surface: [30, 33, 40],
             sunken: [36, 40, 48],
             field: [26, 28, 34],
-            chrome: [28, 31, 38],
+            chrome: [22, 24, 29],
+            divider: [52, 57, 68],
             text: [226, 229, 235],
             text_strong: [243, 245, 248],
             text_muted: [160, 167, 180],
@@ -154,7 +160,8 @@ impl Palette {
             surface: [250, 250, 250],
             sunken: [240, 240, 240],
             field: [255, 255, 255],
-            chrome: [235, 235, 235],
+            chrome: [255, 255, 255],
+            divider: [140, 140, 140],
             text: [0, 0, 0],
             text_strong: [0, 0, 0],
             text_muted: [55, 55, 55],
@@ -264,6 +271,16 @@ impl Palette {
                 }
             }
         }
+        if let Some(floor) = floors.divider {
+            for (surface, bg) in [("canvas", self.canvas), ("chrome", self.chrome)] {
+                let ratio = contrast(self.divider, bg);
+                if ratio < floor {
+                    misses.push(format!(
+                        "divider on {surface} is {ratio:.2}:1, under {floor}:1"
+                    ));
+                }
+            }
+        }
         misses
     }
 
@@ -291,6 +308,7 @@ impl Palette {
             code: self.sunken,
             heading: self.text_strong,
             margin: self.chrome,
+            divider: self.divider,
             margin_text: self.chrome_text,
             editor: self.field,
             prompt: self.accent,
@@ -325,6 +343,8 @@ pub struct Theme {
     pub heading: Rgb,
     /// The trust margin: the gutter and the header strip. Only the terminal paints it.
     pub margin: Rgb,
+    /// The line on the inner edges of the margin.
+    pub divider: Rgb,
     /// The terminal's own text in the margin.
     pub margin_text: Rgb,
     /// The input editor.
@@ -368,6 +388,8 @@ impl Theme {
             code: [232, 234, 240],
             heading: [20, 60, 120],
             margin: [226, 230, 238],
+            // The margin's own colour: no line, so the evidence frames stay as they were.
+            divider: [226, 230, 238],
             margin_text: [60, 70, 90],
             editor: [250, 250, 250],
             prompt: [28, 28, 28],
@@ -388,6 +410,9 @@ pub struct Floors {
     /// The control border against the surfaces beside it; `None` checks
     /// nothing.
     pub border: Option<f64>,
+    /// The margin's divider against the canvas and the margin; `None` checks
+    /// nothing, since a divider may be subtle.
+    pub divider: Option<f64>,
 }
 
 impl Floors {
@@ -396,18 +421,21 @@ impl Floors {
         text: 4.5,
         ansi: Some(3.0),
         border: Some(3.0),
+        divider: None,
     };
     /// The built-in high-contrast palette.
     pub const HIGH_CONTRAST: Self = Self {
         text: 7.0,
         ansi: Some(4.5),
         border: Some(3.0),
+        divider: Some(3.0),
     };
     /// A palette from a theme file: the spec's visibility floor for text.
     pub const USER: Self = Self {
         text: 3.0,
         ansi: None,
         border: None,
+        divider: None,
     };
 }
 

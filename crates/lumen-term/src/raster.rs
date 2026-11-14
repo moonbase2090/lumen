@@ -755,6 +755,24 @@ impl Renderer {
             let (mx, my, mw, mh) = px(m);
             frame.fill(mx, my, mw, mh, t.margin);
         }
+        // The divider: one line along the inner edges of the margin, inside
+        // it, under the header and right of the gutter below the header.
+        let line = self.scale;
+        let [gutter, header] = &lay.margin;
+        let (gx, _, gw, gh) = px(gutter);
+        let (_, hy, hw, hh) = px(header);
+        if hh >= line {
+            frame.fill(0, hy + hh - line, hw, line, t.divider);
+        }
+        if gw >= line {
+            frame.fill(
+                gx + gw - line,
+                hy + hh,
+                line,
+                gh.saturating_sub(hh),
+                t.divider,
+            );
+        }
         self.text_line(
             &mut frame,
             self.cell_w * GUTTER_COLUMNS.min(win.cols),
