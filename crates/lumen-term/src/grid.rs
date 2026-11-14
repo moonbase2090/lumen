@@ -1,5 +1,6 @@
 //! A block of terminal cells: an emulator and the text it holds.
 
+use crate::modes::{Changes, ModeTracker};
 use prismattyc_emulator::Emulator;
 
 /// Scrollback lines kept per block.
@@ -22,6 +23,7 @@ pub const SCROLLBACK: usize = 1000;
 /// ```
 pub struct GridBlock {
     emulator: Emulator,
+    modes: ModeTracker,
 }
 
 impl GridBlock {
@@ -30,6 +32,7 @@ impl GridBlock {
     pub fn new(columns: usize, rows: usize) -> Self {
         Self {
             emulator: Emulator::new(columns, rows, SCROLLBACK),
+            modes: ModeTracker::new(),
         }
     }
 
@@ -48,7 +51,14 @@ impl GridBlock {
 
     /// Give the emulator bytes.
     pub fn feed(&mut self, bytes: &[u8]) {
+        self.modes.feed(bytes);
         self.emulator.feed(bytes);
+    }
+
+    /// What the output this block was given did to the key modes.
+    #[must_use]
+    pub fn key_mode_changes(&self) -> Changes {
+        self.modes.changes()
     }
 
     /// Resize the block.

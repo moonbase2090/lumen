@@ -13,7 +13,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
+use winit::keyboard::{Key as WinitKey, KeyLocation, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
 
 /// A pointer position in physical pixels as whole pixels: negative and
@@ -78,6 +78,33 @@ pub fn map_button(b: MouseButton) -> Option<Button> {
 /// held the logical key is used instead, since the text is a control code then.
 #[must_use]
 pub fn map_key(key: &WinitKey, text: Option<&str>, state: ModifiersState) -> Option<(Key, Mods)> {
+    map_key_at(key, text, state, KeyLocation::Standard)
+}
+
+/// [`map_key`] for a key at `location`: a digit, operator or Enter on the
+/// numeric keypad becomes a keypad key, which a program that has set the
+/// application keypad sees differently from the same character typed above the
+/// letters.
+#[must_use]
+pub fn map_key_at(
+    key: &WinitKey,
+    text: Option<&str>,
+    state: ModifiersState,
+    location: KeyLocation,
+) -> Option<(Key, Mods)> {
+    let (mapped, mods) = map_standard(key, text, state)?;
+    if location != KeyLocation::Numpad {
+        return Some((mapped, mods));
+    }
+    let keypad = match mapped {
+        Key::Enter => Key::KeypadEnter,
+        Key::Char(c) if "0123456789*+,-./=".contains(c) => Key::Keypad(c),
+        other => other,
+    };
+    Some((keypad, mods))
+}
+
+fn map_standard(key: &WinitKey, text: Option<&str>, state: ModifiersState) -> Option<(Key, Mods)> {
     if state.super_key() {
         return None;
     }
@@ -312,9 +339,12 @@ impl ApplicationHandler for Host {
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 let Some(run) = &mut self.state else { return };
-                if let Some((key, mods)) =
-                    map_key(&event.logical_key, event.text.as_deref(), self.modifiers)
-                {
+                if let Some((key, mods)) = map_key_at(
+                    &event.logical_key,
+                    event.text.as_deref(),
+                    self.modifiers,
+                    event.location,
+                ) {
                     if send_input(&mut run.app, Input::Key(key, mods)) {
                         run.window.request_redraw();
                     }

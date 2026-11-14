@@ -42,3 +42,12 @@ VT output inside a grid can never emit Lumen frames, reference images or reach t
 ## Grid input handling {#grid.input}
 
 Grid shell input and grid text get the same bidi and invisible-character handling as command text (the command and code text rule of [Bidi and invisible characters](@/spec/v0/text-runs.md#runs.bidi), not the paragraph rule).
+
+## Grid key modes {#grid.key-modes}
+
+A terminal honours the two key modes a program sets in a grid block, so full-screen programs such as editors and pagers see the sequences they ask for.
+
+- **Application cursor keys** (DECCKM, `CSI ? 1 h`; off with `CSI ? 1 l`). While it is on, an unmodified Up, Down, Right, Left, Home or End sends `ESC O A`, `B`, `C`, `D`, `H` or `F`. With a modifier held the key keeps its `CSI 1 ; modifier letter` form in both states, and keys outside this set (Page Up and Page Down, Insert, Delete, the function keys) do not change.
+- **Application keypad** (DECKPAM, `ESC =`; off with DECKPNM, `ESC >`). While it is on, keys on the numeric keypad send `ESC O` followed by `p` to `y` for 0 to 9, `j` for `*`, `k` for `+`, `l` for `,`, `m` for `-`, `n` for `.`, `o` for `/`, `X` for `=` and `M` for Enter (`ESC O modifier final` when a modifier is held). While it is off they send the character, or CR for Enter. Keys elsewhere on the keyboard are not keypad keys.
+- **Scope.** The modes belong to the program, not to one block: a mode a program set stays set when a rich block separates two grid blocks. A soft reset (`CSI ! p`) and a full reset (`ESC c`) turn both off. Both start off.
+- **Not a trust signal.** The modes change only the bytes sent to the program. They draw nothing, and nothing in the trust margin depends on them.
