@@ -9,7 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [features]
-default = ["zero-width-text"]
+default = ["zero-width-text", "links-clipboard"]
 # The window: winit and softbuffer. Off by default so the headless crate builds
 # without them; the tests turn it on.
 window = ["dep:winit", "dep:softbuffer"]
@@ -20,8 +20,7 @@ window = ["dep:winit", "dep:softbuffer"]
 zero-width-text = ["lumen-track0/zero-width-text", "lumen-arm-b/zero-width-text"]
 # The safety rules for links, copy and paste: what a link target may be, what
 # a copy carries and what a multi-line paste needs first. Nothing in the
-# terminal calls them yet. Off by default; turning it on by default is its own
-# change.
+# terminal calls them yet. On by default.
 links-clipboard = []
 # Answer colour queries (OSC 4, 10, 11, 12, 17, 19 with `?`) from the theme, by
 # writing the fixed reply to the program's PTY. Off by default; turning it on by
