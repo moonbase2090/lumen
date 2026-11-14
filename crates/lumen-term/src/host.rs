@@ -2,7 +2,9 @@
 //! frame on it. Everything it does is a call on [`App`], which is tested
 //! without a window; this file holds only what turns an OS event into one.
 
-use crate::app::App;
+use crate::actions::{self, Action, Platform};
+use crate::app::{App, Outcome};
+use crate::clipboard::SystemClipboard;
 use crate::keys::{Key, Mods};
 use crate::layer::Layer;
 use crate::mouse::{Button, Held, Wheel};
@@ -216,6 +218,8 @@ struct Running {
     window: Rc<Window>,
     surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
     app: App,
+    #[cfg(target_os = "macos")]
+    _menu: Option<crate::menu::MenuBar>,
 }
 
 struct Host {
@@ -263,6 +267,27 @@ impl Host {
         let n = buffer.len().min(words.len());
         buffer[..n].copy_from_slice(&words[..n]);
         let _ = buffer.present();
+    }
+}
+
+fn chord(state: ModifiersState) -> actions::Held {
+    actions::Held {
+        command: state.super_key(),
+        control: state.control_key(),
+        alt: state.alt_key(),
+        shift: state.shift_key(),
+    }
+}
+
+impl Host {
+    /// Do one of the window's own actions, from a menu item or a shortcut.
+    fn act(&mut self, event_loop: &ActiveEventLoop, action: Action) {
+        let Some(run) = &mut self.state else { return };
+        match run.app.perform(action, &SystemClipboard) {
+            Outcome::Exit => event_loop.exit(),
+            Outcome::Redraw => run.window.request_redraw(),
+            Outcome::Nothing | Outcome::Refused => {}
+        }
     }
 }
 
@@ -315,10 +340,15 @@ impl ApplicationHandler for Host {
                 app.use_settings(self.config.notifications);
                 app.use_images(self.config.images);
                 window.request_redraw();
+                // A menu that cannot be built leaves the shortcuts working.
+                #[cfg(target_os = "macos")]
+                let menu = crate::menu::MenuBar::install().ok();
                 self.state = Some(Running {
                     window,
                     surface,
                     app,
+                    #[cfg(target_os = "macos")]
+                    _menu: menu,
                 });
             }
             Err(e) => self.fail(event_loop, e.to_string()),
@@ -339,6 +369,14 @@ impl ApplicationHandler for Host {
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 let Some(run) = &mut self.state else { return };
+                if let WinitKey::Character(c) = &event.logical_key
+                    && let Some(ch) = c.chars().next()
+                    && let Some(action) =
+                        actions::action_for(Platform::current(), ch, chord(self.modifiers))
+                {
+                    self.act(event_loop, action);
+                    return;
+                }
                 if let Some((key, mods)) = map_key_at(
                     &event.logical_key,
                     event.text.as_deref(),
@@ -417,6 +455,10 @@ impl ApplicationHandler for Host {
         {
             event_loop.exit();
             return;
+        }
+        #[cfg(target_os = "macos")]
+        for action in crate::menu::MenuBar::chosen() {
+            self.act(event_loop, action);
         }
         if let Some(run) = &mut self.state {
             let expired = run.app.tick();

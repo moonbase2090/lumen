@@ -13,11 +13,14 @@
 
 #![forbid(unsafe_code)]
 
+pub mod actions;
 /// The terminal's user-facing name.
 pub const APP_NAME: &str = "Bright";
 
 pub mod app;
 pub mod cli;
+#[cfg(feature = "links-clipboard")]
+pub mod clipboard;
 #[cfg(feature = "links-clipboard")]
 pub mod copy;
 pub mod document;
@@ -32,6 +35,8 @@ pub mod layer;
 pub mod layout;
 #[cfg(feature = "links-clipboard")]
 pub mod link;
+#[cfg(all(feature = "window", target_os = "macos"))]
+pub mod menu;
 pub mod modes;
 pub mod mouse;
 pub mod notify;

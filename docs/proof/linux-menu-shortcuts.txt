@@ -1,0 +1,11 @@
+Linux shared shortcuts proof
+Revision: 0d35ed59ae1dd48269f0cb04786f597d6650d80d (clean clone at that commit)
+Host: throwaway cloud virtual machine, Ubuntu 24.04 arm64, an X server without a window manager (Xvfb), destroyed after the run
+Build: cargo build --locked --release -p lumen-term --features window
+Behaviour tests on the virtual machine: see linux-menu-shortcuts-tests.txt (6 passed; the seventh test, the menu ids, is macOS only).
+How driven: the real window, with xdotool key presses; the clipboard was set with xclip to "text from the clipboard". The program is a generic shell script that reads a line, prints got:[line] and runs stty size.
+Captures (from inside the virtual machine):
+- linux-shortcuts-paste.png: Ctrl+Shift+V pasted the clipboard text; Return sent it: got:[text from the clipboard], 23 rows by 108 columns.
+- linux-shortcuts-zoom.png, after the sequence: Ctrl+Shift+plus (zoom in) made the program's window 10 rows by 48 columns; Ctrl+Shift+minus twice returned to the smallest size (23 by 108, which is also the display's own size here), and Ctrl+Shift+0 stayed at 23 by 108.
+Controls: plain Ctrl+V did not paste (the program got the control character, shown as ^), and plain Ctrl+Q did not quit (the process was still running after it).
+Not shown here: Wayland, a window manager, other distributions.
