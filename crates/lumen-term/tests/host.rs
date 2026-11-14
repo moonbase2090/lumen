@@ -3,9 +3,12 @@
 
 #![cfg(feature = "window")]
 
-use lumen_term::host::{map_key, to_xrgb};
+use lumen_term::host::{MAX_WHEEL_STEPS, map_key, map_key_at, to_xrgb, wheel_steps};
+use lumen_term::mouse::Wheel;
 use lumen_term::{APP_NAME, Frame, Key, Mods};
-use winit::keyboard::{Key as W, ModifiersState, NamedKey};
+use winit::dpi::PhysicalPosition;
+use winit::event::MouseScrollDelta;
+use winit::keyboard::{Key as W, KeyLocation, ModifiersState, NamedKey};
 
 fn none() -> ModifiersState {
     ModifiersState::empty()
@@ -145,4 +148,49 @@ fn the_pointer_position_is_whole_pixels_and_never_negative_or_huge() {
     assert_eq!(pointer_pixels(f64::NAN, f64::INFINITY), (0, 0));
     assert_eq!(pointer_pixels(1e30, 1e30), (u32::MAX, u32::MAX));
     assert_eq!(pointer_pixels(0.0, 0.0), (0, 0));
+}
+
+#[test]
+fn a_scroll_is_whole_steps_in_the_direction_it_moved() {
+    let line = |y| wheel_steps(&MouseScrollDelta::LineDelta(0.0, y), 19.0);
+    assert_eq!(line(1.0), Some((Wheel::Up, 1)));
+    assert_eq!(line(-3.0), Some((Wheel::Down, 3)));
+    assert_eq!(line(0.0), None, "no movement, no step");
+    assert_eq!(line(f32::NAN), None);
+    assert_eq!(line(1000.0), Some((Wheel::Up, MAX_WHEEL_STEPS)), "capped");
+    let pixels = |y| {
+        wheel_steps(
+            &MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, y)),
+            19.0,
+        )
+    };
+    assert_eq!(pixels(38.0), Some((Wheel::Up, 2)));
+    assert_eq!(
+        pixels(-2.0),
+        Some((Wheel::Down, 1)),
+        "a small move is a step"
+    );
+}
+
+#[test]
+fn numeric_keypad_keys_are_keypad_keys() {
+    let plain = Mods::default();
+    let at = |k: &W, loc| map_key_at(k, None, none(), loc);
+    assert_eq!(
+        at(&ch("5"), KeyLocation::Numpad),
+        Some((Key::Keypad('5'), plain))
+    );
+    assert_eq!(
+        at(&ch("5"), KeyLocation::Standard),
+        Some((Key::Char('5'), plain))
+    );
+    assert_eq!(
+        at(&W::Named(NamedKey::Enter), KeyLocation::Numpad),
+        Some((Key::KeypadEnter, plain))
+    );
+    // With Num Lock off the numpad sends navigation keys: those stay as they are.
+    assert_eq!(
+        at(&W::Named(NamedKey::Home), KeyLocation::Numpad),
+        Some((Key::Home, plain))
+    );
 }

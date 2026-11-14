@@ -37,6 +37,8 @@ pub mod layout;
 pub mod link;
 #[cfg(all(feature = "window", target_os = "macos"))]
 pub mod menu;
+pub mod modes;
+pub mod mouse;
 pub mod notify;
 pub mod os_backend;
 #[cfg(feature = "links-clipboard")]
@@ -59,6 +61,7 @@ pub use layer::{Context, Layer, Notice, Passthrough, Piece};
 pub use layout::{
     GUTTER_COLUMNS, HEADER_ROWS, Layout, Rect, StripPlacement, layout, notification_area,
 };
+pub use modes::{Changes, KeyModes, ModeTracker};
 pub use pty::SpawnError;
 pub use raster::{Frame, Renderer, Theme, Window, wrap_text};
 pub use session::Session;

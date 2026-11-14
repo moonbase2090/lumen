@@ -2,19 +2,20 @@
 //! frame on it. Everything it does is a call on [`App`], which is tested
 //! without a window; this file holds only what turns an OS event into one.
 
-use crate::actions::{self, Action, Held, Platform};
+use crate::actions::{self, Action, Platform};
 use crate::app::{App, Outcome};
 use crate::clipboard::SystemClipboard;
 use crate::keys::{Key, Mods};
 use crate::layer::Layer;
+use crate::mouse::{Button, Held, Wheel};
 use crate::raster::Frame;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
+use winit::keyboard::{Key as WinitKey, KeyLocation, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
 
 /// A pointer position in physical pixels as whole pixels: negative and
@@ -37,6 +38,41 @@ pub fn pointer_pixels(x: f64, y: f64) -> (u32, u32) {
     (whole(x), whole(y))
 }
 
+/// Most wheel steps one window event sends.
+pub const MAX_WHEEL_STEPS: u32 = 10;
+
+/// The wheel steps a scroll event makes: the direction and how many, at least
+/// one for any movement and at most [`MAX_WHEEL_STEPS`]. `None` when it did not
+/// move. A pixel delta counts a step for each `line` pixels.
+#[must_use]
+pub fn wheel_steps(delta: &MouseScrollDelta, line: f64) -> Option<(Wheel, u32)> {
+    let y = match *delta {
+        MouseScrollDelta::LineDelta(_, y) => f64::from(y),
+        MouseScrollDelta::PixelDelta(p) => p.y / line.max(1.0),
+    };
+    if !y.is_finite() || y == 0.0 {
+        return None;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "clamped to a small positive range first"
+    )]
+    let n = y.abs().round().clamp(1.0, f64::from(MAX_WHEEL_STEPS)) as u32;
+    Some((if y > 0.0 { Wheel::Up } else { Wheel::Down }, n))
+}
+
+/// A window button to the button the program is told of. `None` for the others.
+#[must_use]
+pub fn map_button(b: MouseButton) -> Option<Button> {
+    match b {
+        MouseButton::Left => Some(Button::Left),
+        MouseButton::Middle => Some(Button::Middle),
+        MouseButton::Right => Some(Button::Right),
+        _ => None,
+    }
+}
+
 /// A window key to the key the program gets, with its modifiers. `None` for a
 /// key that sends nothing, or that belongs to the operating system (Super).
 ///
@@ -44,6 +80,33 @@ pub fn pointer_pixels(x: f64, y: f64) -> (u32, u32) {
 /// held the logical key is used instead, since the text is a control code then.
 #[must_use]
 pub fn map_key(key: &WinitKey, text: Option<&str>, state: ModifiersState) -> Option<(Key, Mods)> {
+    map_key_at(key, text, state, KeyLocation::Standard)
+}
+
+/// [`map_key`] for a key at `location`: a digit, operator or Enter on the
+/// numeric keypad becomes a keypad key, which a program that has set the
+/// application keypad sees differently from the same character typed above the
+/// letters.
+#[must_use]
+pub fn map_key_at(
+    key: &WinitKey,
+    text: Option<&str>,
+    state: ModifiersState,
+    location: KeyLocation,
+) -> Option<(Key, Mods)> {
+    let (mapped, mods) = map_standard(key, text, state)?;
+    if location != KeyLocation::Numpad {
+        return Some((mapped, mods));
+    }
+    let keypad = match mapped {
+        Key::Enter => Key::KeypadEnter,
+        Key::Char(c) if "0123456789*+,-./=".contains(c) => Key::Keypad(c),
+        other => other,
+    };
+    Some((keypad, mods))
+}
+
+fn map_standard(key: &WinitKey, text: Option<&str>, state: ModifiersState) -> Option<(Key, Mods)> {
     if state.super_key() {
         return None;
     }
@@ -170,6 +233,15 @@ struct Host {
 }
 
 impl Host {
+    /// The modifier keys held now, as a mouse report counts them.
+    fn held(&self) -> Held {
+        Held {
+            shift: self.modifiers.shift_key(),
+            alt: self.modifiers.alt_key(),
+            ctrl: self.modifiers.control_key(),
+        }
+    }
+
     fn fail(&mut self, event_loop: &ActiveEventLoop, message: String) {
         self.error = Some(message);
         event_loop.exit();
@@ -198,8 +270,8 @@ impl Host {
     }
 }
 
-fn held(state: ModifiersState) -> Held {
-    Held {
+fn chord(state: ModifiersState) -> actions::Held {
+    actions::Held {
         command: state.super_key(),
         control: state.control_key(),
         alt: state.alt_key(),
@@ -300,14 +372,17 @@ impl ApplicationHandler for Host {
                 if let WinitKey::Character(c) = &event.logical_key
                     && let Some(ch) = c.chars().next()
                     && let Some(action) =
-                        actions::action_for(Platform::current(), ch, held(self.modifiers))
+                        actions::action_for(Platform::current(), ch, chord(self.modifiers))
                 {
                     self.act(event_loop, action);
                     return;
                 }
-                if let Some((key, mods)) =
-                    map_key(&event.logical_key, event.text.as_deref(), self.modifiers)
-                {
+                if let Some((key, mods)) = map_key_at(
+                    &event.logical_key,
+                    event.text.as_deref(),
+                    self.modifiers,
+                    event.location,
+                ) {
                     if send_input(&mut run.app, Input::Key(key, mods)) {
                         run.window.request_redraw();
                     }
@@ -321,16 +396,47 @@ impl ApplicationHandler for Host {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = pointer_pixels(position.x, position.y);
-            }
-            WindowEvent::MouseInput {
-                state: ElementState::Pressed,
-                button: MouseButton::Left,
-                ..
-            } => {
+                let held = self.held();
                 if let Some(run) = &mut self.state
-                    && run.app.click(self.pointer.0, self.pointer.1)
+                    && run
+                        .app
+                        .mouse_move(self.pointer.0, self.pointer.1, held)
+                        .unwrap_or(false)
                 {
                     run.window.request_redraw();
+                }
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                let held = self.held();
+                let (x, y) = self.pointer;
+                let Some(run) = &mut self.state else { return };
+                let mut redraw = false;
+                if state == ElementState::Pressed && button == MouseButton::Left {
+                    redraw = run.app.click(x, y);
+                }
+                if let Some(b) = map_button(button) {
+                    redraw |= match state {
+                        ElementState::Pressed => run.app.mouse_press(x, y, b, held),
+                        ElementState::Released => run.app.mouse_release(x, y, b, held),
+                    }
+                    .unwrap_or(false);
+                }
+                if redraw {
+                    run.window.request_redraw();
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let held = self.held();
+                let (x, y) = self.pointer;
+                if let Some(run) = &mut self.state {
+                    let line = f64::from(run.app.cell_height());
+                    if let Some((step, n)) = wheel_steps(&delta, line) {
+                        for _ in 0..n {
+                            if run.app.mouse_wheel(x, y, step, held).unwrap_or(false) {
+                                run.window.request_redraw();
+                            }
+                        }
+                    }
                 }
             }
             WindowEvent::Focused(focused) => {

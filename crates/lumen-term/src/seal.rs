@@ -183,8 +183,14 @@ impl Drop for ShimDir {
 /// the wrong `comm`. If it never is, the conditions run anyway and fail closed.
 fn wait_for_exec(pid: u32, path: &str) {
     let exe = format!("/proc/{pid}/exe");
+    let cmdline = format!("/proc/{pid}/cmdline");
     for _ in 0..1000 {
-        if std::fs::read_link(&exe).is_ok_and(|p| p == Path::new(path)) {
+        // The program is the listed one, and the kernel has finished filling in
+        // what the identity check reads: during an exec the link can change
+        // before the command line is readable.
+        if std::fs::read_link(&exe).is_ok_and(|p| p == Path::new(path))
+            && std::fs::read(&cmdline).is_ok_and(|c| c.first().is_some_and(|b| *b != 0))
+        {
             return;
         }
         std::thread::sleep(std::time::Duration::from_millis(5));
@@ -290,9 +296,23 @@ pub fn start(
         path: program,
         direct: true,
     };
-    let decision = config
+    // Reading the shell's identity can fail for a moment while the kernel
+    // finishes its exec; nothing latches on that, so ask again a few times.
+    let mut decision = config
         .sealer
         .ready(config.probe.as_ref(), &shell, &listed_refs(config));
+    for _ in 0..50 {
+        if !matches!(
+            decision,
+            Decision::GridOnly(lumen_seal::Reason::ShellIdentityUnreadable)
+        ) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        decision = config
+            .sealer
+            .ready(config.probe.as_ref(), &shell, &listed_refs(config));
+    }
     let (running, receiver, status) = match &decision {
         Decision::Seal => match start_layer_on(
             &decision,
