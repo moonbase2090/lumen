@@ -118,7 +118,7 @@ All three licences are covered by `deny.toml`, as `MIT`, `Apache-2.0` or `Zlib`.
 ## What the tests and the fuzz run use
 
 - **Sandbox suite (G4).** Runs the real worker and the real terminal-side runner. It covers: a hint that lies about size in both directions, a decoded size past 16 megapixels or 65535 on a side, a 64-bit overflow in `width * height * 4`, a worker that writes more or less than `data_len`, a stderr flood, a worker that hangs, a worker that spawns a child (the group is killed, nothing survives), an attempt to open a file or a socket from inside the sandbox, and peak terminal memory under a lying worker. Each runs on Linux, macOS and Windows, except the group-kill tests, which are Unix-only because on Windows the job allows no second process to leave behind; the one-process limit is covered by the test that the sandbox denies starting a process.
-- **Fuzz targets.** One per format, calling the worker's decode function directly, built with ASan and UBSan, plus stateful targets for the terminal-side reply validation. The build identities are the ones in the unlock rule, and a changed lockfile re-runs the gate.
+- **Fuzz targets.** One per format, calling the worker's decode function directly, built with ASan and UBSan, plus stateful targets for the terminal-side reply validation. The build identities are the ones in the unlock rule, and a changed lockfile changes them.
 
 ## Out of scope here
 
