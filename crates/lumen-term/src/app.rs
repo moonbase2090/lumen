@@ -10,9 +10,22 @@ use crate::layer::Layer;
 use crate::layout::{GUTTER_COLUMNS, HEADER_ROWS, STRIP_COLLAPSED_ROWS};
 use crate::mouse::{Button, Held, Reporter, Wheel};
 use crate::notify::{Desk, Notifier, OsSink, Place, Settings, Toast};
+use crate::paste::{self, Decision, Hold, Pasted, Rejection};
 use crate::pty::SpawnError;
 use crate::raster::{Frame, Renderer, Window};
 use crate::session::{MAX_COLUMNS, MAX_ROWS, Session};
+
+/// What [`App::paste`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PasteOutcome {
+    /// The paste was sent.
+    Sent,
+    /// The program has not enabled bracketed paste and the text has a line break
+    /// or another control: nothing was sent until the user chooses.
+    Held(Hold),
+    /// The paste was refused (it carries a frame introducer).
+    Rejected(Rejection),
+}
 
 /// A terminal in a window of `width` by `height` pixels.
 pub struct App {
@@ -487,6 +500,47 @@ impl App {
     /// Returns the write error.
     pub fn text(&mut self, text: &str) -> std::io::Result<()> {
         let sent = self.send(text.as_bytes());
+        self.note_input(&sent);
+        sent
+    }
+
+    /// The user pasted `text`. The text is sanitised first (see [`paste::judge`]).
+    /// If the program has turned bracketed paste on (DECSET 2004) the text is sent
+    /// between `ESC [ 200 ~` and `ESC [ 201 ~`, as one unit, whatever its length
+    /// and line breaks. If not, a paste with a line break or another control is
+    /// not sent but returned as [`PasteOutcome::Held`], for the window to show
+    /// and for [`paste_chosen`](Self::paste_chosen) to send once the user picks.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error; the user is shown the not-sent notice.
+    pub fn paste(&mut self, text: &str) -> std::io::Result<PasteOutcome> {
+        let bracketed = self.session.key_modes().bracketed_paste;
+        match paste::judge(text, bracketed) {
+            Decision::Reject(why) => Ok(PasteOutcome::Rejected(why)),
+            Decision::Hold(hold) => Ok(PasteOutcome::Held(hold)),
+            Decision::Send(pasted) => self.paste_chosen(&pasted).map(|()| PasteOutcome::Sent),
+        }
+    }
+
+    /// Send a paste that is already judged: the text of a [`Pasted`] the user
+    /// chose from a held paste, or one [`paste`](Self::paste) found safe. It is
+    /// bracketed if the program has asked for that.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error; the user is shown the not-sent notice.
+    pub fn paste_chosen(&mut self, pasted: &Pasted) -> std::io::Result<()> {
+        let mut bytes = Vec::with_capacity(pasted.text.len() + 12);
+        let bracketed = self.session.key_modes().bracketed_paste;
+        if bracketed {
+            bytes.extend_from_slice(b"\x1b[200~");
+        }
+        bytes.extend_from_slice(pasted.text.as_bytes());
+        if bracketed {
+            bytes.extend_from_slice(b"\x1b[201~");
+        }
+        let sent = self.send(&bytes);
         self.note_input(&sent);
         sent
     }

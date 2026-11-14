@@ -111,10 +111,12 @@ fn function_keys() {
 const CURSOR_APP: KeyModes = KeyModes {
     cursor_app: true,
     keypad_app: false,
+    bracketed_paste: false,
 };
 const KEYPAD_APP: KeyModes = KeyModes {
     cursor_app: false,
     keypad_app: true,
+    bracketed_paste: false,
 };
 
 #[test]
