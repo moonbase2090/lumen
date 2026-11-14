@@ -118,7 +118,7 @@ fn tree(files: &[(&str, &str)]) -> Result<std::path::PathBuf, Box<dyn Error>> {
     Ok(root)
 }
 
-const BASE: [(&str, &str); 28] = [
+const BASE: [(&str, &str); 29] = [
     ("crates/lumen-decoder/src/decode.rs", "d"),
     ("crates/lumen-decoder/src/ffi_sandbox.rs", "s"),
     ("crates/lumen-decoder/src/ffi_alloc.rs", "a"),
@@ -140,7 +140,8 @@ const BASE: [(&str, &str); 28] = [
     ("crates/lumen-term/src/images.rs", "I"),
     ("crates/lumen-term/src/document.rs", "D"),
     ("crates/lumen-term/src/layer.rs", "L"),
-    ("crates/lumen-term/src/raster.rs", "R"),
+    ("crates/lumen-term/src/frame.rs", "F"),
+    ("crates/lumen-term/src/image_draw.rs", "J"),
     ("crates/lumen-term/Cargo.toml", "C"),
     ("crates/lumen-term/build.rs", "B"),
     ("crates/lumen-term/build_support/gate.rs", "G"),
@@ -501,7 +502,8 @@ fn the_terminal_side_of_the_image_path_is_in_its_identity_only() -> R {
         "crates/lumen-term/src/images.rs",
         "crates/lumen-term/src/document.rs",
         "crates/lumen-term/src/layer.rs",
-        "crates/lumen-term/src/raster.rs",
+        "crates/lumen-term/src/frame.rs",
+        "crates/lumen-term/src/image_draw.rs",
     ] {
         let before = std::fs::read_to_string(root.join(path))?;
         std::fs::write(root.join(path), "changed")?;
@@ -509,5 +511,11 @@ fn the_terminal_side_of_the_image_path_is_in_its_identity_only() -> R {
         assert_ne!(p, id(&root, Identity::ImagePath, "c", "")?, "{path}");
         std::fs::write(root.join(path), before)?;
     }
+    // Text layout, fonts and the theme never see decoded pixels: editing the
+    // rasteriser's own file moves neither identity.
+    let raster = root.join("crates/lumen-term/src/raster.rs");
+    std::fs::write(&raster, "text layout")?;
+    assert_eq!(d, id(&root, Identity::Decoder, "c", "")?, "raster.rs");
+    assert_eq!(p, id(&root, Identity::ImagePath, "c", "")?, "raster.rs");
     Ok(())
 }

@@ -25,8 +25,27 @@ pub struct Pixels {
     pub width: u32,
     /// Height in pixels.
     pub height: u32,
-    /// The pixels.
-    pub rgba: Arc<Vec<u8>>,
+    /// The pixels. Private: only `image_draw` reads them, through
+    /// [`Pixels::rgba_bytes`]; a test keeps every other module away from it.
+    rgba: Arc<Vec<u8>>,
+}
+
+impl Pixels {
+    /// Pixels of the given size; `rgba` is 8-bit premultiplied RGBA, top-down.
+    #[must_use]
+    pub fn new(width: u32, height: u32, rgba: Vec<u8>) -> Self {
+        Self {
+            width,
+            height,
+            rgba: Arc::new(rgba),
+        }
+    }
+
+    /// The pixel bytes, for drawing only: `image_draw.rs` is the one module that
+    /// may call this (see the test `only_image_draw_reads_decoded_pixels`).
+    pub(crate) fn rgba_bytes(&self) -> &[u8] {
+        &self.rgba
+    }
 }
 
 #[derive(Default)]
@@ -44,14 +63,8 @@ impl TextureSink for Store {
         let mut held = self.0.lock().map_err(|_| UploadFailed)?;
         held.next += 1;
         let id = TextureId(held.next);
-        held.pixels.insert(
-            id,
-            Pixels {
-                width,
-                height,
-                rgba: Arc::new(rgba.to_vec()),
-            },
-        );
+        held.pixels
+            .insert(id, Pixels::new(width, height, rgba.to_vec()));
         Ok(id)
     }
 

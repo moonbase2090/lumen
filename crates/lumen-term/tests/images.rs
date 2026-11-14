@@ -198,11 +198,7 @@ fn unlocked_an_image_is_decoded_and_its_pixels_are_drawn() {
 fn a_large_image_is_reduced_to_the_width_and_never_enlarged() {
     let r = Renderer::light(1).unwrap_or_else(|e| unreachable!("the face loads: {e}"));
     let (cell_w, cell_h) = r.cell();
-    let p = |w: u32, h: u32| lumen_term::images::Pixels {
-        width: w,
-        height: h,
-        rgba: std::sync::Arc::new(Vec::new()),
-    };
+    let p = |w: u32, h: u32| lumen_term::images::Pixels::new(w, h, Vec::new());
     assert_eq!(r.image_size(&p(10, 10), 60), (10, 10));
     let max_w = 58 * cell_w;
     let (w, h) = r.image_size(&p(max_w * 4, max_w * 2), 60);
@@ -257,4 +253,27 @@ fn the_setting_off_shows_the_alt_text_even_with_a_gate_record() {
     doc.receive(&mut layer, &start(2, 40, "again"), Context::default());
     doc.receive(&mut layer, &data(2, 0, &bytes), Context::default());
     wait_for_image(&mut doc);
+}
+
+/// The decoded pixel bytes are read for drawing in `image_draw.rs` alone (the
+/// module in the image-path build identity). Every other source file of the
+/// crate, `raster.rs` included, must not call `rgba_bytes`; and no file may
+/// reach the field directly, because it is private.
+#[test]
+fn only_image_draw_reads_decoded_pixels() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut seen = Vec::new();
+    for entry in std::fs::read_dir(&src).unwrap_or_else(|e| unreachable!("src dir: {e}")) {
+        let path = entry.unwrap_or_else(|e| unreachable!("entry: {e}")).path();
+        if path.extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+        if text.contains("rgba_bytes") {
+            seen.push(name.unwrap_or_default());
+        }
+    }
+    seen.sort();
+    assert_eq!(seen, ["image_draw.rs", "images.rs"]);
 }

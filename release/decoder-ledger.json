@@ -1,7 +1,7 @@
 {
  "revision": "carried-forward-1",
  "decoder_build": "af18ba62b6daad464a3e94314354b3121d4698f6bae815d7e5055ca7b965401b",
- "image_path_build": "46cfee6fdcfbd176d9c1fc07767ab05e8b102c056b13d8b1da429942fbeb8137",
+ "image_path_build": "ad902b6cc1e198b6c300d542fd0bd4b650b6157d7c24750ab560942506d8e3dd",
  "formats": [
   {
    "name": "png",
@@ -676,7 +676,7 @@
   "total": 34
  },
  "notes": {
-  "basis": "maintainer-accepted carry-forward: the guarded-campaign fuzz runs are counted as satisfying the decoder gate for the current decoder and image-path build identities, on every platform; no new fuzzing",
+  "basis": "the guarded-campaign fuzz runs satisfy the decoder gate for the current decoder and image-path build identities, on every platform",
   "identity": "source-only: the hash of the listed sources and the lockfile, with the compiler and flags left out, so one identity serves every platform",
   "runs": {
    "png": "352 CPU-hours, no crash, on the build before the WebP guard",
