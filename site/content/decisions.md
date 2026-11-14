@@ -66,6 +66,12 @@ Every decision listed here is **Adopted**: the specification follows it.
 - **Effect:** A build shows images on a platform only when the committed gate records name its decoder and image-path identities, and a change to either identity needs a new record. The setting `images = false` always shows the alt text.
 - **Where:** [Images and the decoder](@/spec/v0/images.md#images.unlock), [Conformance gates](@/spec/v0/conformance.md#gate.decoder).
 
+### Image testing is complete, and images are on by default
+
+- **Status:** Adopted on 14 November 2026.
+- **Effect:** Image testing is complete for the current decoder and image-path identities, and images are on by default on Linux and macOS. The gate records for the current identities rest on the guarded fuzz runs of earlier builds; the frame parser and image host were not fuzzed. The release criteria no longer have a separate rule for decoder version bumps: a build shows images only when the committed gate records name its identities.
+- **Where:** [Images and the decoder](@/spec/v0/images.md#images.unlock), [Release criteria](https://github.com/moonbase2090/lumen/blob/main/docs/release-criteria.md#decoder-fuzzing).
+
 ### Release builds are scanned for personal identifiers
 
 - **Status:** Adopted.

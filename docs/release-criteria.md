@@ -23,7 +23,7 @@ The specification's [decoder gate](../spec/v0/conformance.md#gate.decoder) keeps
 
 ### Status
 
-**Met for the current build identities.** Image testing is complete, and images are on by default on Linux and macOS. Windows is not supported for images in v0 and has no record, so a Windows build shows the alt text ([why](../spec/v0/platforms.md#platforms.windows)).
+**Met for the current build identities.** Image testing is complete, and images are on by default on Linux and macOS. The gate records for the current identities rest on the guarded fuzz runs of earlier builds; the frame parser and image host were not fuzzed. Windows is not supported for images in v0 and has no record, so a Windows build shows the alt text ([why](../spec/v0/platforms.md#platforms.windows)).
 
 The decoder ledger records the guarded-campaign fuzz runs: PNG 352 CPU-hours, JPEG 378 and WebP 412, each with no open crash or confirmed hang (930 raw JPEG timeout records were replayed under the production limits and none exceeded a limit; the PNG run is on the build before the WebP guard). What the record does not claim:
 
