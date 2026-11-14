@@ -7,12 +7,12 @@ What Bright draws today, in each built-in theme. Every image is the terminal's o
 | Grid: plain and coloured output, the 16 ANSI colours, bold, underline and inverse | [grid-light.png](grid-light.png) | [grid-dark.png](grid-dark.png) | [grid-high-contrast.png](grid-high-contrast.png) |
 | Rich blocks: two headings, a paragraph, a code block and an image shown by its alt text, each in its unverified-output box | [rich-light.png](rich-light.png) | [rich-dark.png](rich-dark.png) | [rich-high-contrast.png](rich-high-contrast.png) |
 
-Every image also shows the window's own chrome: the trust margin (the gutter on the left and the header strip that reads Bright), and the editor at the bottom.
+Every image also shows the window's own chrome: the trust margin (the gutter on the left and the header strip that reads Bright, in the terminal's background colour and set off by a one-pixel divider), and the editor at the bottom.
 
 ## How they were made
 
-- **Code:** commit `60e8ec4e183573fad1350c0ddbd2098cdcca66e2`, the design tokens, palettes, theme files, fonts and settings file work, with the header strip renamed to Bright. The comps show those palettes, so they are rendered from that commit, not from `main`.
-- **Binary:** `lumen-term`, built in release mode on an Apple silicon Mac at that commit (sha256 `631491f58bc8b1fdb971dd292273f94b54f77c823c5236eb2f161a7d8bb5ac88`).
+- **Code:** commit `894bcc98caa5b44b556f6429a631ffbbdc5eae9a`, the design tokens, palettes, theme files, fonts and settings file work, with the header strip renamed to Bright and the trust margin drawn in the terminal's background colour with a one-pixel divider. The comps show those palettes, so they are rendered from that commit, not from `main`.
+- **Binary:** `lumen-term`, built in release mode on an Apple silicon Mac at that commit with `cargo build --release --locked -p lumen-term` (sha256 `074b806e0f1eb28c9277c19cbbd91ebb87cd1f93465f1722f132fba930d876ed`).
 - **Where:** a fresh macOS 26.6.2 virtual machine, deleted afterwards. The binary and the scene files were copied in and their sha256 checked there before the run.
 - **Scenes:** [`scenes.py`](scenes.py) writes the bytes each scene's program prints: text and colour escapes for the grid, and Track 0 frames for the rich blocks.
 - **Render:** [`make-comps.sh`](make-comps.sh) runs `lumen-term --size 1200x760 --scale 2 --snapshot` once per scene and theme. Each theme gets a throwaway home directory with only a settings file (`theme = "light"`, `"dark"` or `"high-contrast"`) and a policy file (`images = false`, so the image block shows its alt text).
@@ -24,12 +24,12 @@ python3 scenes.py scenes
 
 | File | sha256 |
 |---|---|
-| grid-light.png | `cda6feb1098cab4be022f5a76120bfa075e92f0241f9d9edd9d88b2122c10e22` |
-| grid-dark.png | `d1459010a9c7c4b11621929ab2a6a858875425a59d72ec7169aced54696cdf9a` |
-| grid-high-contrast.png | `b8eee0910b814ee9756afecbacfae986c137720664dbace29b751673b0ce96ad` |
-| rich-light.png | `23e68f55e5eb0678baf3ff04b6fe5220d361bb24df5259a7541d50edba41ba4a` |
-| rich-dark.png | `7a1a9d5b373943912cc1291ec435aaa80ee454210391d6d4d44df61f7286141f` |
-| rich-high-contrast.png | `ab7724492985210ce07a7589abf038d90e5bf4b2a9757bdcd9e6448b3f817445` |
+| grid-light.png | `ba4a1b279fdde9b0f64f840281c2d61cf3ca523d475abdf555a28531c2ceb93a` |
+| grid-dark.png | `ba80748c7e8ff23a699f170baf73efa05e943bcc9595c21d8817f1ed7835a721` |
+| grid-high-contrast.png | `4f2e6151dd14ed5996bfc28b3723ddd4bd05b2a6b8f6f4bd3538439232175b8f` |
+| rich-light.png | `3fab625eab1913cc26c93eca2c55d396f473ea39b058a52fc1f60ef3f14e5974` |
+| rich-dark.png | `fbd68bf93c6483cd9576a5e409eacaa970b26f62850b01b3118a46c925308eb7` |
+| rich-high-contrast.png | `6748902bfbc6d1dc0a98b9689a7cecad43224f9a178edb5ffd1589cc01ee32b5` |
 
 ## What these do not show yet
 
