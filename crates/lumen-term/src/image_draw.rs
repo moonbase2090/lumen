@@ -66,7 +66,7 @@ fn paint_pixels(frame: &mut Frame, at: (u32, u32), size: (u32, u32), src: &Pixel
             let index = (from_row * u64::from(src.width) + from_col) * 4;
             let Some(px) = usize::try_from(index)
                 .ok()
-                .and_then(|i| src.rgba.get(i..i + 4))
+                .and_then(|i| src.rgba_bytes().get(i..i + 4))
             else {
                 continue;
             };
