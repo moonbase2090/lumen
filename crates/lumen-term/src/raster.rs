@@ -47,7 +47,7 @@ pub use crate::image_draw::IMAGE_MAX_ROWS;
 /// The most lines of text in a toast; the rest is cut.
 pub const TOAST_MAX_LINES: usize = 3;
 /// The terminal's own text in the header strip of the trust margin.
-pub const MARGIN_LABEL: &str = "lumen";
+pub const MARGIN_LABEL: &str = "Bright";
 
 pub use crate::frame::{Frame, Rgb};
 
