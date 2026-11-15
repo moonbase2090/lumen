@@ -309,3 +309,24 @@ fn foreground_blocks_stay_above_the_editor() {
         "nothing at or below the editor"
     );
 }
+
+/// The header strip carries the product's name, Bright: six letters, so the
+/// last ink in the header row is in the sixth cell after the gutter.
+#[test]
+fn the_header_strip_reads_bright() {
+    assert_eq!(lumen_term::raster::MARGIN_LABEL, "Bright");
+    let r = renderer();
+    let f = baseline();
+    let (cw, ch) = r.cell();
+    let x0 = cw * layout::GUTTER_COLUMNS;
+    let bg = f.pixel(f.width - 1, 0);
+    let last_ink = (x0..f.width)
+        .filter(|&x| (0..ch).any(|y| f.pixel(x, y) != bg))
+        .max()
+        .unwrap_or(0);
+    assert_eq!(
+        (last_ink - x0) / cw,
+        5,
+        "last ink at x={last_ink}, cell {cw}"
+    );
+}
