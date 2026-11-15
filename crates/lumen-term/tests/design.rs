@@ -388,6 +388,16 @@ fn the_builtin_margin_is_the_canvas_with_a_divider() {
         assert_eq!(p.chrome, p.canvas, "{b:?}");
         assert_ne!(p.divider, p.canvas, "{b:?}");
     }
+    // Visible but subtle in light and dark; clear in high contrast.
+    for p in [Palette::light(), Palette::dark()] {
+        let ratio = contrast(p.divider, p.canvas);
+        assert!((1.15..2.0).contains(&ratio), "{ratio:.2}");
+    }
+    let hc_ratio = contrast(
+        Palette::high_contrast().divider,
+        Palette::high_contrast().canvas,
+    );
+    assert!(hc_ratio >= 3.0, "{hc_ratio:.2}");
     // High contrast holds the divider to 3:1, so a faint one is a miss.
     let mut hc = Palette::high_contrast();
     hc.divider = [235, 235, 235];
