@@ -14,7 +14,8 @@ The [text runs](../spec/v0/text-runs.md#runs.colour) section of the spec names c
 | `surface` | The container of a rich block, and the background-output strip |
 | `sunken` | The background of code |
 | `field` | The input editor |
-| `chrome` | The trust margin: the gutter and the header strip |
+| `chrome` | The trust margin: the gutter and the header strip. The built-in palette sets it to the canvas |
+| `divider` | The one-pixel line on the inner edges of the trust margin: under the header strip and right of the gutter |
 | `text` | Body text; the `fg` run token |
 | `text_strong` | Headings |
 | `text_muted` | Labels, counts and hints; the `muted` run token |
@@ -33,6 +34,7 @@ The tests in `crates/lumen-term/tests/design.rs` check these for each palette.
 - **Text.** Every text role is at least 4.5:1 (WCAG AA for body text) against every surface it is drawn on. The spec's [visibility rule](../spec/v0/text-runs.md#runs.visible) treats a run under 3:1 as hidden, so the terminal's own colours never come near that line.
 - **ANSI.** The colours programs use for text (0 to 6 and 8 to 14) are at least 3:1 against the canvas and the surface. 7 and 15 are the light greys by convention and are exempt.
 - **Edges.** The control border is at least 3:1 against the surfaces on both sides of it, the WCAG floor for the boundary of a control. The edge of the unverified output container uses it, so that boundary is always clearly drawn.
+- **Margin.** The trust margin has the canvas colour, and a one-pixel divider separates it from the content. The header label is `chrome_text`, held to the text floor on the canvas like every text role.
 - **Sizes.** Every step of the type scale is over the spec's 6 px floor for a visible run.
 
 ## Type
