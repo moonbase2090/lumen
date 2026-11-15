@@ -1,7 +1,7 @@
 macOS menu bar and shortcuts proof
-Revision: da355dce7974f7d97566c99754bd6cf20c5e38b2 (the feature branch head the binary was built from)
+Revision: b0ee54f0ac5da2ef114661e40d32d94c9e42665c (the pull request head the binary was built from, after main was merged in)
 Host: fresh virtual machine from a clean macOS image, macOS 26.6.2 arm64, deleted after the run
-Build: cargo build --locked --release -p lumen-term --features window, on the build host; binary SHA-256 e3e15397307c1344d3ba26d7e2c298e7358571675aff8f30824583b9c8499079 (checked equal in the guest)
+Build: cargo build --locked --release -p lumen-term --features window, on the build host; binary SHA-256 38e988588cd392ffc63ea6460e3ae8165593cd4c869caa33ad0aaf11fb18c228 (checked equal in the guest)
 Program in the window: a generic shell script that reads a line, prints it as got:[line] and runs stty size
 How driven: real key presses and mouse clicks over the virtual machine's screen-sharing (VNC) connection into its logged-in desktop session. The Command key is sent as Alt_L, which that connection maps to Command.
 Clipboard: the text "text from the clipboard", set in the guest with pbcopy before the run
@@ -20,4 +20,4 @@ What the captures show (all taken from inside the guest):
 Process checks in the guest, by pgrep after each run: Command+Q ended the process, and Command+W ended the process; Command+H left it running.
 Lines the program read in the paste run (from its own log): the clipboard text twice (chord and menu), then three empty lines for the three sizes.
 
-Not shown here: a physical display, other macOS versions, release-signed builds. The application menu's title is the process name until the Bright rename lands. Copy and select all are not part of this change.
+Not shown here: a physical display, other macOS versions, release-signed builds. The application menu's title is still the process name, because the system supplies it for a bare executable; the window title reads Bright. Copy and select all are not part of this change.
