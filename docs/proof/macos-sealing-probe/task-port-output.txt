@@ -1,0 +1,151 @@
+== guest: 26.6.2 arm64 user=admin groups: staff everyone localaccounts _appserverusr admin _appserveradm _webdeveloper com.apple.sharepoint.group.1 _appstore _lpadmin _lpoperator _developer _analyticsusers com.apple.access_ftp com.apple.access_screensharing com.apple.access_ssh com.apple.access_remote_ae
+== DevToolsSecurity: Developer mode is currently disabled.
+== csrutil: System Integrity Protection status: enabled.
+info: uid=501
+  csr_check(ALLOW_TASK_FOR_PID=0x4)=-1 (0 means the weakening is ON)
+  csr_check(ALLOW_UNRESTRICTED_FS=0x2)=-1
+  kern.tfp.policy r=0 value=2
+  kern.bootargs=''
+######## round 1: admin, developer mode as found (Developer mode is currently disabled.)
+--- target=zsh pid=629 attacker=admin binary=probe
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=-1 errno=1 (Operation not permitted)
+--- target=plain pid=628 attacker=admin binary=probe
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=-1 errno=1 (Operation not permitted)
+--- target=rt pid=630 attacker=admin binary=probe
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=-1 errno=1 (Operation not permitted)
+--- target=gta pid=631 attacker=admin binary=probe
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=-1 errno=1 (Operation not permitted)
+--- target=zsh pid=629 attacker=admin binary=probe-dbg
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=-1 errno=1 (Operation not permitted)
+--- target=plain pid=628 attacker=admin binary=probe-dbg
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=0 errno=0 (Undefined error: 0)
+--- target=rt pid=630 attacker=admin binary=probe-dbg
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=-1 errno=1 (Operation not permitted)
+--- target=gta pid=631 attacker=admin binary=probe-dbg
+  task_for_pid: kr=0 ((os/kern) successful)
+  mach_vm_read: kr=0 ((os/kern) successful)
+  ptrace(PT_ATTACHEXC): r=0 errno=0 (Undefined error: 0)
+./guest.sh: line 24:   625 Terminated: 15          sudo -u $U /tmp/lum100/bin/sleeper-rt sleeper > /dev/null 2>&1
+kill: 630: No such process
+./guest.sh: line 24:   623 Terminated: 15          sudo -u $U /bin/zsh -fc 'sleep 900; true' > /dev/null 2>&1
+kill: 629: No such process
+2026-11-15 22:24:14.989 sysadminctl[760:4985] New account password error.  (5402)
+chown: std: illegal user name
+id: std: no such user
+######## round 2: standard user, developer mode as found
+pgrep: Unknown user `std'
+--- target=zsh pid= attacker=std binary=probe
+pgrep: Unknown user `std'
+--- target=plain pid= attacker=std binary=probe
+pgrep: Unknown user `std'
+--- target=rt pid= attacker=std binary=probe
+pgrep: Unknown user `std'
+--- target=gta pid= attacker=std binary=probe
+pgrep: Unknown user `std'
+--- target=zsh pid= attacker=std binary=probe-dbg
+pgrep: Unknown user `std'
+--- target=plain pid= attacker=std binary=probe-dbg
+pgrep: Unknown user `std'
+--- target=rt pid= attacker=std binary=probe-dbg
+pgrep: Unknown user `std'
+--- target=gta pid= attacker=std binary=probe-dbg
+Developer mode is now enabled.
+######## round 3: admin, Developer mode is currently enabled.
+--- target=zsh pid=865 attacker=admin binary=probe
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=-1 errno=1 (Operation not permitted)
+--- target=plain pid=866 attacker=admin binary=probe
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=-1 errno=1 (Operation not permitted)
+--- target=rt pid=867 attacker=admin binary=probe
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=-1 errno=1 (Operation not permitted)
+--- target=gta pid=864 attacker=admin binary=probe
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=-1 errno=1 (Operation not permitted)
+--- target=zsh pid=865 attacker=admin binary=probe-dbg
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=-1 errno=1 (Operation not permitted)
+--- target=plain pid=866 attacker=admin binary=probe-dbg
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=0 errno=0 (Undefined error: 0)
+--- target=rt pid=867 attacker=admin binary=probe-dbg
+  task_for_pid: kr=5 ((os/kern) failure)
+  ptrace(PT_ATTACHEXC): r=-1 errno=1 (Operation not permitted)
+--- target=gta pid=864 attacker=admin binary=probe-dbg
+  task_for_pid: kr=0 ((os/kern) successful)
+  mach_vm_read: kr=0 ((os/kern) successful)
+  ptrace(PT_ATTACHEXC): r=0 errno=0 (Undefined error: 0)
+./guest.sh: line 24:   861 Terminated: 15          sudo -u $U /tmp/lum100/bin/sleeper-rt sleeper > /dev/null 2>&1
+kill: 867: No such process
+kill: 865: No such process
+./guest.sh: line 24:   859 Terminated: 15          sudo -u $U /bin/zsh -fc 'sleep 900; true' > /dev/null 2>&1
+######## round 4: standard user (not in _developer), Developer mode is currently enabled.
+pgrep: Unknown user `std'
+--- target=zsh pid= attacker=std binary=probe
+pgrep: Unknown user `std'
+--- target=plain pid= attacker=std binary=probe
+pgrep: Unknown user `std'
+--- target=rt pid= attacker=std binary=probe
+pgrep: Unknown user `std'
+--- target=gta pid= attacker=std binary=probe
+pgrep: Unknown user `std'
+--- target=zsh pid= attacker=std binary=probe-dbg
+pgrep: Unknown user `std'
+--- target=plain pid= attacker=std binary=probe-dbg
+pgrep: Unknown user `std'
+--- target=rt pid= attacker=std binary=probe-dbg
+pgrep: Unknown user `std'
+--- target=gta pid= attacker=std binary=probe-dbg
+Record was not found.
+######## round 5: standard user added to _developer, developer mode enabled
+pgrep: Unknown user `std'
+--- target=zsh pid= attacker=std binary=probe
+pgrep: Unknown user `std'
+--- target=plain pid= attacker=std binary=probe
+pgrep: Unknown user `std'
+--- target=rt pid= attacker=std binary=probe
+pgrep: Unknown user `std'
+--- target=gta pid= attacker=std binary=probe
+pgrep: Unknown user `std'
+--- target=zsh pid= attacker=std binary=probe-dbg
+pgrep: Unknown user `std'
+--- target=plain pid= attacker=std binary=probe-dbg
+pgrep: Unknown user `std'
+--- target=rt pid= attacker=std binary=probe-dbg
+pgrep: Unknown user `std'
+--- target=gta pid= attacker=std binary=probe-dbg
+######## behaviour probes (admin)
+--- exec
+  before exec: pid=1092 pidversion=2559
+  after exec: pid=1092 pidversion=2560
+--- sock
+  in forked child (pid 1098): end1 LOCAL_PEERPID=1093
+sock: server pid=1093 shell pid=1094
+  accepted conn 0: LOCAL_PEERPID=1094  LOCAL_PEERTOKEN r=0 pid=1094 pidversion=2563 euid=501
+  data on that connection: shell-writes pid=1094
+child-writes pid=1095
+  accepted conn 1: LOCAL_PEERPID=1096  LOCAL_PEERTOKEN r=0 pid=1096 pidversion=2565 euid=501
+  data on that connection: child-new-connection pid=1096
+  socketpair end0 LOCAL_PEERPID=1093 (creator=1093)
+--- tiocsti
+openpty r=0
+TIOCSCTTY r=0 errno=22
+grandchild TIOCSTI r=0 errno=0 (Undefined error: 0)
+shell read 1 byte(s) from its input: 'X'
+--- kq
+  kevent pid=1103 fflags: EXEC
+  kevent pid=1103 fflags: EXIT
+--- zsh modules and a zsh stream-socket connect (shell identity as the server sees it)
+zsh/net/socket: loaded
+zsh/system: loaded
+zsh version 5.9
+client zsh pid=1116
+  listen: LOCAL_PEERPID=1116 token pid=1116 pidversion=2612 data='hello-from-zsh'
