@@ -1,0 +1,124 @@
+Settings file on a fresh macOS virtual machine, deleted afterwards.
+lumen-term (release, --features window) built at d919bcba7c3d5183da5181cee2eaffc0eb8b4203.
+Each file was sha256-checked in the guest before use. The home directory is a throwaway one under /tmp.
+
+== guest
+ProductName:		macOS
+ProductVersion:		26.6.2
+BuildVersion:		25G83
+arm64
+gui user: admin
+== hashes (host)
+986ab3c39d13149e63ab07b9b8f5660219262ec394b03ca994e23dfeb6ce10e2  grid.bin
+3ab4cf66653002e8d8a4f2a2be3bc294ce5e9bbe8b085c44fddd7c18dfafc04c  guest-prog.sh
+c20b2520395d80223231aea0b78d6d5276b83311911f0c05f5434964ba444786  guest-settings.sh
+13105206d465c38931d3110022170498e68945349fc93c9fb1e04215662942d8  lumen-term
+== hashes checked in the guest
+grid.bin: OK
+guest-prog.sh: OK
+guest-settings.sh: OK
+lumen-term: OK
+
+== no settings file
+-- no settings.toml
+-- bright --show-settings
+settings: no file; the defaults apply
+theme=system mono_font=bundled mono_size=14 prose_font=bundled prose_size=14
+exit 0
+-- snapshot default.png
+1200x760 -> /tmp/st/out/default.png
+exit 0
+ba4a1b279fdde9b0f64f840281c2d61cf3ca523d475abdf555a28531c2ceb93a  default.png
+
+== a fixed dark palette
+-- settings.toml
+theme = "dark"
+-- bright --show-settings
+settings: /tmp/st/home/.config/lumen/settings.toml
+theme=dark mono_font=bundled mono_size=14 prose_font=bundled prose_size=14
+exit 0
+-- snapshot dark.png
+1200x760 -> /tmp/st/out/dark.png
+exit 0
+ba80748c7e8ff23a699f170baf73efa05e943bcc9595c21d8817f1ed7835a721  dark.png
+
+== high contrast, monospace at 20 px
+-- settings.toml
+theme = "high-contrast"
+mono_size = 20
+-- bright --show-settings
+settings: /tmp/st/home/.config/lumen/settings.toml
+theme=high-contrast mono_font=bundled mono_size=20 prose_font=bundled prose_size=14
+exit 0
+-- snapshot high-contrast-20.png
+1200x760 -> /tmp/st/out/high-contrast-20.png
+exit 0
+ea42c822327fa9632a2577772285c7f3b5b58964f140b968deb253f5c08d1d32  high-contrast-20.png
+
+-- green.toml
+# A dark theme with a green accent.
+base = "dark"          # light, dark or high-contrast
+accent = "#7ee2a8"
+ansi.2 = "#7ee2a8"     # ansi.0 to ansi.15
+-- system font: 684624 bytes
+
+== a theme file and a system font
+-- settings.toml
+theme = "./green.toml"  # beside the settings file
+mono_font = "/System/Library/Fonts/Supplemental/Courier New.ttf"
+-- bright --show-settings
+settings: /tmp/st/home/.config/lumen/settings.toml
+theme=/tmp/st/home/.config/lumen/./green.toml mono_font=/System/Library/Fonts/Supplemental/Courier New.ttf mono_size=14 prose_font=bundled prose_size=14
+exit 0
+-- snapshot theme-file-courier.png
+1200x760 -> /tmp/st/out/theme-file-courier.png
+exit 0
+0f171fa8d45b2c986106a73bc77a911b9a5a8e56e958ce3c110f89f91bf10d08  theme-file-courier.png
+
+== a bad line: the whole file is ignored
+-- settings.toml
+theme = "dark"
+mono_size = 99
+-- bright --show-settings
+settings: settings file /tmp/st/home/.config/lumen/settings.toml ignored (line 2: `mono_size` must be a whole number from 8 to 72); the defaults apply
+theme=system mono_font=bundled mono_size=14 prose_font=bundled prose_size=14
+exit 0
+-- snapshot bad-line.png
+bright: settings file /tmp/st/home/.config/lumen/settings.toml ignored (line 2: `mono_size` must be a whole number from 8 to 72); the defaults apply
+1200x760 -> /tmp/st/out/bad-line.png
+exit 0
+ba4a1b279fdde9b0f64f840281c2d61cf3ca523d475abdf555a28531c2ceb93a  bad-line.png
+
+-- faint.toml
+text = "#eeeeee"
+
+== a faint theme and a missing font are left out; the rest applies
+-- settings.toml
+theme = "./faint.toml"
+mono_font = "~/no-such-font.ttf"
+mono_size = 18
+-- bright --show-settings
+settings: /tmp/st/home/.config/lumen/settings.toml
+theme=/tmp/st/home/.config/lumen/./faint.toml mono_font=/tmp/st/home/no-such-font.ttf mono_size=18 prose_font=bundled prose_size=14
+theme file /tmp/st/home/.config/lumen/./faint.toml not used (text would be too faint to show: text on canvas is 1.16:1, under 3:1; text on surface is 1.09:1, under 3:1; text on sunken is 1.03:1, under 3:1; text on field is 1.16:1, under 3:1; text on chrome is 1.16:1, under 3:1; text on notice is 1.11:1, under 3:1); following the system
+mono font /tmp/st/home/no-such-font.ttf not used (the font file could not be read); using the bundled face
+exit 0
+-- snapshot left-out.png
+bright: theme file /tmp/st/home/.config/lumen/./faint.toml not used (text would be too faint to show: text on canvas is 1.16:1, under 3:1; text on surface is 1.09:1, under 3:1; text on sunken is 1.03:1, under 3:1; text on field is 1.16:1, under 3:1; text on chrome is 1.16:1, under 3:1; text on notice is 1.11:1, under 3:1); following the system
+bright: mono font /tmp/st/home/no-such-font.ttf not used (the font file could not be read); using the bundled face
+1200x760 -> /tmp/st/out/left-out.png
+exit 0
+73c2e1affff13a81b4d7d3be949136367d32d9fc35484bcc129383b04a954c44  left-out.png
+
+== same pixels
+ba4a1b279fdde9b0f64f840281c2d61cf3ca523d475abdf555a28531c2ceb93a  default.png
+ba4a1b279fdde9b0f64f840281c2d61cf3ca523d475abdf555a28531c2ceb93a  bad-line.png
+
+== window: fixed dark palette with the system in Light
+theme = "dark"
+system appearance: Light (AppleInterfaceStyle unset)
+Terminal closed
+lumen-term pid: 839
+lumen-term pid after capture: 839
+-- window stderr
+== done
