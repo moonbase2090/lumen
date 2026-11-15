@@ -351,6 +351,38 @@ fn the_look_follows_the_system_appearance_live() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
+/// A zoom changes only the scale: the window draws what one started at the new
+/// scale with the same look and fonts draws.
+#[cfg(unix)]
+#[test]
+fn a_zoom_keeps_the_look_and_the_fonts() -> Result<(), Box<dyn std::error::Error>> {
+    use lumen_term::design::{Appearance, Fonts};
+    use lumen_term::{App, Passthrough};
+    let fonts = Fonts::default().with_mono_px(20);
+    let dark_at = |scale| -> Result<App, Box<dyn std::error::Error>> {
+        let mut app = App::start(
+            Box::new(Passthrough),
+            "/bin/sh",
+            &["-c", "sleep 3"],
+            scale,
+            400,
+            300,
+        )?;
+        app.set_appearance(Appearance::Dark);
+        app.set_fonts(&fonts)?;
+        Ok(app)
+    };
+    let mut zoomed = dark_at(1)?;
+    zoomed.set_scale(2)?;
+    let started = dark_at(2)?;
+    assert_eq!(zoomed.scale(), 2);
+    assert_eq!(zoomed.cell_height(), started.cell_height());
+    assert_eq!(zoomed.view().to_png()?, started.view().to_png()?);
+    let dark = Palette::dark();
+    assert_eq!(canvas_and_gutter(&zoomed)?.1, dark.chrome);
+    Ok(())
+}
+
 /// A fixed choice stays put whatever the system shows, and switches live.
 #[cfg(unix)]
 #[test]

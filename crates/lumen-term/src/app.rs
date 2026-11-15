@@ -552,14 +552,16 @@ impl App {
         self.scale
     }
 
-    /// Draw at `scale` from now on: the cells change size, so the program is told
-    /// its new window size.
+    /// Draw at `scale` from now on, in the same look and fonts: the cells change
+    /// size, so the program is told its new window size.
     ///
     /// # Errors
     ///
     /// Returns why the renderer could not be made or the program could not be told.
     pub fn set_scale(&mut self, scale: u32) -> Result<(), SpawnError> {
-        self.renderer = Renderer::light(scale).map_err(SpawnError)?;
+        self.renderer =
+            Renderer::with_fonts(scale, self.renderer.theme().clone(), self.renderer.fonts())
+                .map_err(SpawnError)?;
         self.scale = scale;
         self.resize(self.width, self.height)
     }
