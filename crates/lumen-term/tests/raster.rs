@@ -204,28 +204,107 @@ fn headings_code_and_the_stripped_count_are_drawn() {
     assert_eq!(r.rich_height(code, 30), 2 * 2 + (1 + 3) * ch);
 }
 
-#[test]
-fn a_long_paragraph_wraps_and_a_long_word_is_broken() {
-    let r = renderer(1);
+/// The lines a paragraph takes in a rich block `columns` cells wide, at scale 1
+/// (a border of one pixel).
+fn paragraph_lines(r: &Renderer, text: &str, columns: usize) -> u32 {
     let (_, ch) = r.cell();
-    let one = |text: &str| {
-        let mut d = Document::new(12, 1);
-        d.apply(vec![Piece::Rich(Track0Block::Paragraph(text.into()))]);
-        let Block::Rich(b) = &d.blocks()[0] else {
-            unreachable!("rich")
-        };
-        (r.rich_height(b, 12) - 2) / ch - 1
+    let mut d = Document::new(columns, 1);
+    d.apply(vec![Piece::Rich(Track0Block::Paragraph(text.into()))]);
+    let Block::Rich(b) = &d.blocks()[0] else {
+        unreachable!("rich")
     };
-    assert_eq!(one("short"), 1);
-    assert_eq!(one("aaaa bbbbb"), 1, "exactly ten cells fits");
-    assert_eq!(one("aaaa bbbbbb"), 2, "eleven cells does not");
-    assert_eq!(one("aaa bbb ccc ddd eee fff"), 3, "wraps at ten cells");
+    (r.rich_height(b, columns) - 2) / ch - 1
+}
+
+#[test]
+fn a_long_paragraph_wraps_by_glyph_width_and_a_long_word_is_broken() {
+    let r = renderer(1);
+    // Twelve cells, so ten inside the container: eighty pixels.
+    let lines = |text: &str| paragraph_lines(&r, text, 12);
+    assert_eq!(lines("short"), 1);
+    assert_eq!(lines("a\nb"), 2, "a newline is a line break");
     assert_eq!(
-        one("abcdefghijklmnopqrstuvwxyz"),
-        3,
-        "a long word breaks at ten cells"
+        lines("iiiiiiiiiiiiiiiiiiii"),
+        1,
+        "twenty narrow glyphs fit where ten wide cells would not"
     );
-    assert_eq!(one("a\nb"), 2, "a newline is a line break");
+    assert_eq!(
+        lines("mmmmmmmmmmmmmmm"),
+        3,
+        "fifteen wide glyphs take three lines, six to a line"
+    );
+    assert_eq!(
+        lines("iii iii iii iii iii iii iii iii iii iii"),
+        2,
+        "words wrap at the pixel width"
+    );
+    assert!(
+        lines("abcdefghijklmnopqrstuvwxyz") >= 2,
+        "a long word breaks at the line width"
+    );
+}
+
+/// The rightmost column in `x0..x1` and rows `y0..y1` that is not `bg`.
+fn ink_right(f: &Frame, (x0, x1): (u32, u32), (y0, y1): (u32, u32), bg: [u8; 3]) -> Option<u32> {
+    (x0..x1)
+        .rev()
+        .find(|&x| (y0..y1).any(|y| f.pixel(x, y) != Some(bg)))
+}
+
+#[test]
+fn rich_paragraph_text_is_drawn_with_proportional_advances() {
+    // Eight glyphs of each. On a cell grid both would be eight cells long; in a
+    // proportional face the narrow ones are far shorter than the wide ones.
+    let r = renderer(2);
+    let (cw, ch) = r.cell();
+    let width = |text: &str| {
+        let mut d = Document::new(30, 1);
+        d.apply(vec![Piece::Rich(Track0Block::Paragraph(text.into()))]);
+        let f = r.render(&d);
+        let bg = r.theme().container;
+        // The body row is the second row of the container, inside its border.
+        let body = (2 + ch, 2 + 2 * ch);
+        let right = ink_right(&f, (cw, 29 * cw), body, bg);
+        right.map_or(0, |x| x + 1 - cw)
+    };
+    let (narrow, wide) = (width("iiiiiiii"), width("mmmmmmmm"));
+    assert!(narrow > 0 && wide > 0, "both are drawn");
+    assert!(
+        narrow * 2 < wide,
+        "eight narrow glyphs ({narrow} px) are less than half as long as eight wide ones ({wide} px)"
+    );
+    assert!(
+        wide > 8 * cw,
+        "eight wide glyphs ({wide} px) run past eight monospace cells ({} px)",
+        8 * cw
+    );
+    assert!(
+        narrow < 5 * cw,
+        "eight narrow glyphs ({narrow} px) are well inside eight cells ({} px)",
+        8 * cw
+    );
+}
+
+#[test]
+fn code_blocks_stay_on_the_cell_grid() {
+    let r = renderer(2);
+    let (cw, ch) = r.cell();
+    let width = |text: &str| {
+        let mut d = Document::new(30, 1);
+        d.apply(vec![Piece::Rich(Track0Block::Code {
+            text: text.into(),
+            lang: String::new(),
+            stripped: 0,
+        })]);
+        let f = r.render(&d);
+        let body = (2 + ch, 2 + 2 * ch);
+        ink_right(&f, (cw, 29 * cw), body, r.theme().code).map_or(0, |x| x + 1 - cw)
+    };
+    let (narrow, wide) = (width("iiiiiiii"), width("mmmmmmmm"));
+    assert!(
+        narrow + 2 * cw > wide,
+        "monospace code: eight narrow ({narrow} px) and eight wide ({wide} px) glyphs take about the same room"
+    );
 }
 
 #[test]
