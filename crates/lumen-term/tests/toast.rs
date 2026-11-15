@@ -165,8 +165,9 @@ fn an_unsigned_toast_carries_the_unverified_output_label_as_an_extra_row() {
     let area = notification_area(&lay());
     let (cw, ch) = r.cell();
     let first_row = |f: &Frame| {
-        (area.y * ch..area.y * ch + ch)
-            .any(|y| (area.x * cw..(area.x + area.w) * cw).any(|x| f.pixel(x, y) == Some(label)))
+        (area.y * ch..area.y * ch + ch).any(|y| {
+            ((area.x * cw + 6)..((area.x + area.w) * cw + 6)).any(|x| f.pixel(x, y) == Some(label))
+        })
     };
     assert!(first_row(&unsigned), "the unverified-output label is drawn");
     assert!(!first_row(&signed), "a signed toast has no such label");
@@ -218,7 +219,7 @@ fn toasts_stack_from_the_top_of_the_area_in_order() {
         (0..one.width).find(|x| (0..one.height).any(|y| one.pixel(*x, y) != base.pixel(*x, y)));
     assert_eq!(
         left_col,
-        Some(area.x * cw),
+        Some(area.x * cw + 6),
         "and fills the width of the area"
     );
 }
@@ -312,7 +313,7 @@ fn the_toast_index_follows_the_stacking_order_and_never_exceeds_what_was_drawn()
     let area = notification_area(&lay());
     let (cw, ch) = r.cell();
     let shown = toasts(&["one", "two", "three"], false);
-    let x = area.x * cw + 2 * cw;
+    let x = (area.x * cw + 6) + 2 * cw;
     let mut last = None;
     let mut seen = Vec::new();
     for y in area.y * ch..(area.y + area.h) * ch {
@@ -351,11 +352,11 @@ fn a_point_outside_the_notification_area_hits_nothing() {
     let (cw, ch) = r.cell();
     for (x, y) in [
         (0, 0),
-        (area.x * cw - 1, area.y * ch + 2),
-        ((area.x + area.w) * cw, area.y * ch + 2),
-        (area.x * cw + 2, 0),
+        ((area.x * cw + 6) - 1, area.y * ch + 2),
+        (((area.x + area.w) * cw + 6), area.y * ch + 2),
+        ((area.x * cw + 6) + 2, 0),
         (u32::MAX, u32::MAX),
-        (area.x * cw + 2, u32::MAX),
+        ((area.x * cw + 6) + 2, u32::MAX),
     ] {
         assert_eq!(r.toast_at(&WIN, &shown, x, y), None, "{x},{y}");
     }

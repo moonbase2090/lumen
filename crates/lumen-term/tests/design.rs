@@ -272,11 +272,12 @@ fn the_editor_prompt_is_drawn_in_the_accent() -> Result<(), Box<dyn std::error::
     )?;
     let frame = app.view();
     let (cw, ch) = lumen_term::Renderer::new(1, design::theme())?.cell();
-    let (cols, rows) = cells_for(640, 380, (cw, ch));
+    let pad = lumen_term::Renderer::new(1, design::theme())?.gutter_pad();
+    let (cols, rows) = cells_for(640 - pad, 380, (cw, ch));
     let win = window_for(cols, rows);
     let lay = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
     // The mark sits in the editor's second cell of its first row.
-    let (x0, y0) = ((lay.editor.x + 1) * cw, lay.editor.y * ch);
+    let (x0, y0) = ((lay.editor.x + 1) * cw + pad, lay.editor.y * ch);
     // Find the most inked pixel of the mark. Glyph edges are blended, so it is
     // the accent laid over the field at some coverage: every channel must sit
     // on the line from the field to the accent at the same coverage, which

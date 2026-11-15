@@ -156,7 +156,7 @@ fn the_window_has_the_size_of_its_cells_and_the_baseline_is_stable() {
     let r = renderer();
     let (cw, ch) = r.cell();
     let a = baseline();
-    assert_eq!((a.width, a.height), (80 * cw, 24 * ch));
+    assert_eq!((a.width, a.height), (80 * cw + r.gutter_pad(), 24 * ch));
     assert_eq!(a, baseline(), "the baseline taken twice must match exactly");
 }
 
@@ -318,7 +318,7 @@ fn the_header_strip_reads_bright() {
     let r = renderer();
     let f = baseline();
     let (cw, ch) = r.cell();
-    let x0 = cw * layout::GUTTER_COLUMNS;
+    let x0 = cw * layout::GUTTER_COLUMNS + r.gutter_pad();
     let bg = f.pixel(f.width - 1, 0);
     let last_ink = (x0..f.width)
         .filter(|&x| (0..ch).any(|y| f.pixel(x, y) != bg))

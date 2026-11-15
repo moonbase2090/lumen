@@ -158,6 +158,16 @@ pub fn block_cells(columns: usize, rows: usize) -> (usize, usize) {
     (usable_columns as usize, usable_rows as usize)
 }
 
+/// The columns and rows of a window of `width` by `height` pixels drawn by
+/// `renderer`, whose text column starts a gutter padding right of the gutter.
+fn window_cells(width: u32, height: u32, renderer: &Renderer) -> (usize, usize) {
+    cells_for(
+        width.saturating_sub(renderer.gutter_pad()),
+        height,
+        renderer.cell(),
+    )
+}
+
 impl App {
     /// Run `program` behind `layer` in a window of `width` by `height` pixels,
     /// drawn at `scale`.
@@ -174,7 +184,7 @@ impl App {
         height: u32,
     ) -> Result<Self, SpawnError> {
         let renderer = Renderer::new(scale, crate::design::theme()).map_err(SpawnError)?;
-        let (columns, rows) = cells_for(width, height, renderer.cell());
+        let (columns, rows) = window_cells(width, height, &renderer);
         let (block_columns, block_rows) = block_cells(columns, rows);
         let session = Session::start(layer, block_columns, block_rows, program, arguments)?;
         let mut app = Self {
@@ -353,13 +363,13 @@ impl App {
     pub fn live_cell(&self, x: u32, y: u32) -> Option<(u32, u32)> {
         let (cw, ch) = self.renderer.cell();
         let (cw, ch) = (cw.max(1), ch.max(1));
-        let (columns, rows) = cells_for(self.width, self.height, (cw, ch));
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         let win = window_for(columns, rows);
         let doc = self.session.document();
         let Some(Block::Grid(live)) = doc.blocks().last() else {
             return None;
         };
-        let content_x = GUTTER_COLUMNS.saturating_mul(cw);
+        let content_x = GUTTER_COLUMNS.saturating_mul(cw) + self.renderer.gutter_pad();
         let content_y = HEADER_ROWS.saturating_mul(ch);
         let area_bottom = win.editor_row.saturating_mul(ch);
         let (px, py) = (x.checked_sub(content_x)?, y.checked_sub(content_y)?);
@@ -498,7 +508,7 @@ impl App {
     /// was not sent, that is its index in the notifier's.
     #[must_use]
     pub fn click_would_hit(&self, x: u32, y: u32) -> Option<usize> {
-        let (columns, rows) = cells_for(self.width, self.height, self.renderer.cell());
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         let win = window_for(columns, rows);
         self.renderer.toast_at(&win, &self.toasts(), x, y)
     }
@@ -538,7 +548,7 @@ impl App {
     ///
     /// Returns why the program could not be told.
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), SpawnError> {
-        let (columns, rows) = cells_for(width, height, self.renderer.cell());
+        let (columns, rows) = window_cells(width, height, &self.renderer);
         let (block_columns, block_rows) = block_cells(columns, rows);
         self.session.resize(block_columns, block_rows)?;
         self.width = width;
@@ -683,7 +693,7 @@ impl App {
     /// The window's contents: exactly `width` by `height` pixels.
     #[must_use]
     pub fn view(&self) -> Frame {
-        let (columns, rows) = cells_for(self.width, self.height, self.renderer.cell());
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         self.renderer
             .render_window_with(
                 self.session.document(),

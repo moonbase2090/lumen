@@ -330,7 +330,10 @@ fn the_frame_size_and_the_baseline_do_not_depend_on_the_input() {
             let base = r.render_window(&doc_for(win), win);
             assert_eq!(
                 (base.width, base.height),
-                ((win.cols * cw).max(1), (win.rows * ch).max(1))
+                (
+                    (win.cols * cw + r.gutter_pad()).max(1),
+                    (win.rows * ch).max(1)
+                )
             );
             for (name, bytes) in adversarial() {
                 let f = render(&r, win, &bytes, true, false);

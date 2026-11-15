@@ -64,7 +64,7 @@ fn pixels_make_cells_within_the_limits() {
 #[test]
 fn the_window_size_sets_the_ptys_size() {
     let mut app = start("stty size", 800, 600);
-    assert!(pump_until(&mut app, |a| text(a).contains("27 96")));
+    assert!(pump_until(&mut app, |a| text(a).contains("27 95")));
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn resizing_the_window_resizes_the_program() {
         "the view follows the window"
     );
     assert!(app.key(Key::Enter, Mods::default()).is_ok());
-    assert!(pump_until(&mut app, |a| text(a).contains("16 46")));
+    assert!(pump_until(&mut app, |a| text(a).contains("16 45")));
 }
 
 #[test]
@@ -196,15 +196,65 @@ fn the_view_draws_the_trust_margin_the_producer_cannot_reach() {
     assert!(pump_until(&mut app, |a| text(a).contains("shown")));
     let view = app.view();
     let (cw, ch) = r.cell();
-    let (cols, rows) = cells_for(640, 380, (cw, ch));
+    let pad = r.gutter_pad();
+    let (cols, rows) = cells_for(640 - pad, 380, (cw, ch));
     let win = window_for(cols, rows);
     let expect = r.render_window(&lumen_term::Document::new(1, 1), &win);
     let lay = lumen_term::layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
     for rect in lay.margin.iter().chain([&lay.editor]) {
         for y in rect.y * ch..(rect.y + rect.h) * ch {
-            for x in rect.x * cw..(rect.x + rect.w) * cw {
+            // Right of the gutter the window is moved right by the padding.
+            let shift = |col: u32| col * cw + if col > GUTTER_COLUMNS { pad } else { 0 };
+            let left = if rect.x >= GUTTER_COLUMNS {
+                rect.x * cw + pad
+            } else {
+                rect.x * cw
+            };
+            for x in left..shift(rect.x + rect.w) {
                 assert_eq!(view.pixel(x, y), expect.pixel(x, y), "pixel {x},{y}");
             }
         }
+    }
+}
+
+/// The text column starts a gutter padding right of the divider, at every
+/// scale, and the input box starts at the same column.
+#[test]
+fn text_starts_clear_of_the_gutter_divider() {
+    for scale in [1u32, 2] {
+        let Ok(mut app) = App::start(
+            Box::new(Passthrough),
+            "/bin/sh",
+            &["-c", "echo shown"],
+            scale,
+            640 * scale,
+            380 * scale,
+        ) else {
+            unreachable!("the app starts")
+        };
+        assert!(pump_until(&mut app, |a| text(a).contains("shown")));
+        let Ok(r) = lumen_term::Renderer::new(scale, lumen_term::design::theme()) else {
+            unreachable!("the face loads")
+        };
+        let (cw, ch) = r.cell();
+        let view = app.view();
+        let divider_right = GUTTER_COLUMNS * cw;
+        let pad = 6 * scale;
+        let bg = lumen_term::design::theme().background;
+        // The first row of content: no pixel of text left of the padded column.
+        let row = HEADER_ROWS * ch;
+        let first_ink = (divider_right..view.width)
+            .find(|&x| (row..row + ch).any(|y| view.pixel(x, y).is_some_and(|c| c != bg)));
+        let Some(first_ink) = first_ink else {
+            unreachable!("the text is drawn")
+        };
+        assert!(
+            first_ink >= divider_right + pad,
+            "scale {scale}: text starts at {first_ink}, divider ends at {divider_right}"
+        );
+        assert!(
+            first_ink < divider_right + pad + cw,
+            "scale {scale}: text starts at {first_ink}, more than a cell past the padding"
+        );
     }
 }
