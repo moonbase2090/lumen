@@ -110,7 +110,7 @@ impl OwnedFace {
     fn new(file: &FontFile, bundled: &'static [u8]) -> Result<Self, String> {
         let data: Arc<[u8]> = match file {
             FontFile::Bundled => Arc::from(bundled),
-            FontFile::Data(d) => d.clone(),
+            FontFile::Data(d) => d.bytes(),
         };
         let face = FontRef::from_index(&data, 0).ok_or("a face could not be read")?;
         let (offset, key) = (face.offset, face.key);

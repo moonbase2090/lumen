@@ -539,9 +539,32 @@ pub enum FontFile {
     /// The face bundled with the terminal.
     #[default]
     Bundled,
-    /// A font file the user chose: its bytes, already checked to be a font
-    /// ([`FontFile::load`]).
-    Data(std::sync::Arc<[u8]>),
+    /// A font file the user chose, checked by [`FontFile::from_bytes`] or
+    /// [`FontFile::load`].
+    Data(FontData),
+}
+
+/// A font's bytes that passed [`FontFile::from_bytes`]: at most
+/// [`MAX_FONT_BYTES`], and a font with glyphs for basic Latin text. Only
+/// those checks make one, so its bytes cannot be set directly:
+///
+/// ```compile_fail
+/// let _ = lumen_term::design::FontData(std::sync::Arc::from(&b"junk"[..]));
+/// ```
+#[derive(Clone, PartialEq, Eq)]
+pub struct FontData(std::sync::Arc<[u8]>);
+
+impl FontData {
+    /// The font's bytes.
+    pub(crate) fn bytes(&self) -> std::sync::Arc<[u8]> {
+        self.0.clone()
+    }
+}
+
+impl std::fmt::Debug for FontData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FontData({} bytes)", self.0.len())
+    }
 }
 
 /// Why a font file was refused.
@@ -570,15 +593,19 @@ impl FontFile {
     ///
     /// # Errors
     ///
-    /// [`FontRefused::NotAFont`] unless `bytes` is a font (the first in a
+    /// [`FontRefused::TooLarge`] if `bytes` is over [`MAX_FONT_BYTES`], and
+    /// [`FontRefused::NotAFont`] unless it is a font (the first in a
     /// collection) with glyphs for `M`, `a` and `0`.
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, FontRefused> {
+        if bytes.len() as u64 > MAX_FONT_BYTES {
+            return Err(FontRefused::TooLarge);
+        }
         let face = swash::FontRef::from_index(&bytes, 0).ok_or(FontRefused::NotAFont)?;
         let map = face.charmap();
         if ['M', 'a', '0'].iter().any(|c| map.map(*c) == 0) {
             return Err(FontRefused::NotAFont);
         }
-        Ok(Self::Data(bytes.into()))
+        Ok(Self::Data(FontData(bytes.into())))
     }
 
     /// The font file at `path`.
@@ -596,10 +623,8 @@ impl FontFile {
         if meta.len() > MAX_FONT_BYTES {
             return Err(FontRefused::TooLarge);
         }
+        // The file can grow between the two reads; from_bytes checks again.
         let bytes = std::fs::read(path).map_err(|_| FontRefused::Unreadable)?;
-        if bytes.len() as u64 > MAX_FONT_BYTES {
-            return Err(FontRefused::TooLarge);
-        }
         Self::from_bytes(bytes)
     }
 }

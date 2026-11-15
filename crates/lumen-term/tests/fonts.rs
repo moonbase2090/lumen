@@ -97,6 +97,21 @@ fn what_is_not_a_font_is_refused() {
 }
 
 #[test]
+fn a_font_over_the_size_limit_is_refused_from_bytes() -> Result<(), Box<dyn std::error::Error>> {
+    // A real font still parses with bytes after its tables, so at the limit it
+    // is accepted and one byte over only the limit refuses it.
+    let mut padded = asset("IBMPlexMono-Regular.ttf");
+    padded.resize(usize::try_from(MAX_FONT_BYTES)?, 0);
+    assert!(matches!(
+        FontFile::from_bytes(padded.clone()),
+        Ok(FontFile::Data(_))
+    ));
+    padded.push(0);
+    assert_eq!(FontFile::from_bytes(padded), Err(FontRefused::TooLarge));
+    Ok(())
+}
+
+#[test]
 fn a_font_file_is_read_whole_or_refused() -> Result<(), Box<dyn std::error::Error>> {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("font-file");
     std::fs::create_dir_all(&dir)?;
