@@ -7,6 +7,7 @@
 use crate::actions::{self, Action};
 #[cfg(feature = "links-clipboard")]
 use crate::clipboard::Clipboard;
+use crate::design::{Appearance, ThemeChoice};
 use crate::document::{Block, Event};
 use crate::keys::{self, Key, Mods};
 use crate::layer::Layer;
@@ -46,6 +47,8 @@ pub struct App {
     base_scale: u32,
     scale: u32,
     mouse: Reporter,
+    theme_choice: ThemeChoice,
+    appearance: Appearance,
 }
 
 /// How long the notice that input was not sent stays after the last refusal.
@@ -188,9 +191,44 @@ impl App {
             base_scale: scale,
             scale,
             mouse: Reporter::default(),
+            theme_choice: ThemeChoice::System,
+            appearance: Appearance::Light,
         };
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
         Ok(app)
+    }
+
+    /// The system now shows `appearance`. With [`ThemeChoice::System`] the look
+    /// follows it at once, with no restart. Returns whether the look changed,
+    /// so the window knows to draw again.
+    pub fn set_appearance(&mut self, appearance: Appearance) -> bool {
+        self.appearance = appearance;
+        self.apply_theme()
+    }
+
+    /// Use `choice` from now on. Returns whether the look changed.
+    pub fn set_theme_choice(&mut self, choice: ThemeChoice) -> bool {
+        self.theme_choice = choice;
+        self.apply_theme()
+    }
+
+    /// The user's choice of look.
+    #[must_use]
+    pub fn theme_choice(&self) -> ThemeChoice {
+        self.theme_choice
+    }
+
+    /// Draw, and answer colour queries, in the palette the choice and the
+    /// appearance give.
+    fn apply_theme(&mut self) -> bool {
+        let theme = self.theme_choice.palette(self.appearance).theme();
+        if *self.renderer.theme() == theme {
+            return false;
+        }
+        #[cfg(feature = "colour-replies")]
+        self.session.set_theme(theme.clone());
+        self.renderer.set_theme(theme);
+        true
     }
 
     /// Set what the layer's notifications may do. `settings` is the user's, off

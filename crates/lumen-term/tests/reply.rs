@@ -345,6 +345,43 @@ mod pty {
         std::fs::read(&out).unwrap_or_default()
     }
 
+    /// A program that asks after the look switched to dark is answered from
+    /// the dark palette: replies follow the live switch, not the start.
+    #[test]
+    fn replies_follow_a_live_switch_of_the_look() {
+        use lumen_term::App;
+        use lumen_term::design::{Appearance, Palette};
+        let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"));
+        let out = dir.join("reply-live-switch.received");
+        let _ = std::fs::remove_file(&out);
+        let script = format!(
+            "sleep 1; stty raw -echo; printf '\\033]11;?\\033\\\\'; stty min 0 time 15; \
+             dd bs=1 count=4096 of='{out}' 2>/dev/null; echo DONE",
+            out = out.display()
+        );
+        let mut app = App::start(
+            Box::new(Passthrough),
+            "/bin/sh",
+            &["-c", &script],
+            1,
+            600,
+            300,
+        )
+        .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+        assert!(app.set_appearance(Appearance::Dark));
+        let end = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < end && !grid_text(app.session()).contains("DONE") {
+            app.pump();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let [r, g, b] = Palette::dark().canvas;
+        let want = format!("\x1b]11;rgb:{r:02x}{r:02x}/{g:02x}{g:02x}/{b:02x}{b:02x}\x1b\\");
+        assert_eq!(
+            String::from_utf8_lossy(&std::fs::read(&out).unwrap_or_default()),
+            want
+        );
+    }
+
     #[test]
     fn a_program_that_asks_gets_the_themes_colours_back_on_every_layer() {
         for (label, layer) in [

@@ -183,6 +183,12 @@ impl Renderer {
         &self.theme
     }
 
+    /// Draw in `theme` from the next frame on. Glyph shapes are kept: only
+    /// colours change.
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
+    }
+
     fn draw_glyph(&self, frame: &mut Frame, ch: char, x: u32, y: u32, cells: u32, colour: Rgb) {
         let band = (i64::from(x), i64::from(x + cells * self.cell_w));
         self.draw_face(frame, Face::Mono, ch, (x, y), band, colour);
