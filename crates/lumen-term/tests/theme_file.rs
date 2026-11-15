@@ -36,6 +36,73 @@ fn base_picks_the_built_in_and_keys_override_its_roles() {
     );
 }
 
+/// The ```` ```toml ```` blocks in `text`, with `prefix` taken off each line.
+fn toml_blocks(text: &str, prefix: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut open: Option<String> = None;
+    for line in text.lines() {
+        let line = line.strip_prefix(prefix).unwrap_or(line);
+        match (&mut open, line.trim()) {
+            (None, "```toml") => open = Some(String::new()),
+            (Some(_), "```") => blocks.extend(open.take()),
+            (Some(block), _) => {
+                block.push_str(line);
+                block.push('\n');
+            }
+            (None, _) => {}
+        }
+    }
+    blocks
+}
+
+#[test]
+fn the_documented_examples_parse() {
+    let docs = toml_blocks(include_str!("../../../docs/design-system.md"), "");
+    let module = toml_blocks(include_str!("../src/theme_file.rs"), "//! ");
+    assert_eq!((docs.len(), module.len()), (1, 1));
+    let mut want = Palette::dark();
+    want.accent = [0x7e, 0xe2, 0xa8];
+    want.ansi[2] = [0x7e, 0xe2, 0xa8];
+    for example in docs.iter().chain(&module) {
+        assert_eq!(parse(example), Ok(want), "{example}");
+    }
+}
+
+#[test]
+fn a_comment_may_follow_a_value_but_nothing_else_may() {
+    let mut want = Palette::dark();
+    want.accent = [0xab, 0xcd, 0xef];
+    assert_eq!(
+        parse("base = \"dark\"   # the base\naccent = \"#abcdef\"#no space\n"),
+        Ok(want)
+    );
+    let cases = [
+        (
+            "accent = \"#123456\" junk",
+            "`accent` is not a quoted \"#rrggbb\" colour",
+        ),
+        (
+            "accent = \"#123456\" \"#654321\"",
+            "`accent` is not a quoted \"#rrggbb\" colour",
+        ),
+        (
+            "accent = \"#123456 # note\"",
+            "`accent` is not a quoted \"#rrggbb\" colour",
+        ),
+        (
+            "accent = # \"#123456\"",
+            "`accent` is not a quoted \"#rrggbb\" colour",
+        ),
+        (
+            "base = \"dark\" light",
+            "`base` is not \"light\", \"dark\" or \"high-contrast\"",
+        ),
+    ];
+    for (text, why) in cases {
+        assert_eq!(line_of(parse(text)), (1, why.to_owned()), "{text:?}");
+    }
+}
+
 #[test]
 fn every_role_can_be_set() {
     let roles = [

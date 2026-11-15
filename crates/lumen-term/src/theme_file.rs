@@ -1,7 +1,8 @@
 //! Theme files: a palette written as text.
 //!
 //! A theme file is the small part of TOML a palette needs: `key = "#rrggbb"`
-//! on a line, `#` comments and blank lines. `base` names the built-in palette
+//! on a line, blank lines, and `#` comments on their own line or after a
+//! value. `base` names the built-in palette
 //! it starts from (`light`, `dark` or `high-contrast`; `light` when it says
 //! nothing), and every other key is a colour role of [`Palette`] or one of the
 //! ANSI colours, `ansi.0` to `ansi.15`. A role the file does not give keeps the
@@ -9,9 +10,9 @@
 //!
 //! ```toml
 //! # A dark theme with a green accent.
-//! base = "dark"
+//! base = "dark"          # light, dark or high-contrast; light if not given
 //! accent = "#7ee2a8"
-//! ansi.2 = "#7ee2a8"
+//! ansi.2 = "#7ee2a8"     # ansi.0 to ansi.15
 //! ```
 //!
 //! The parse is strict: an unknown key, a key given twice, a value that is not
@@ -55,6 +56,22 @@ impl std::fmt::Display for Refused {
                 write!(f, "text would be too faint to show: {}", misses.join("; "))
             }
         }
+    }
+}
+
+/// The value without a comment after it. Every value is a quoted string, so a
+/// `#` after its closing quote starts a comment; the `#` inside a colour does
+/// not. Anything else after the string is left on, and refuses the line.
+fn uncommented(value: &str) -> &str {
+    let Some(end) = value.strip_prefix('"').and_then(|v| v.find('"')) else {
+        return value;
+    };
+    let (string, rest) = value.split_at(end + 2);
+    let rest = rest.trim_start();
+    if rest.is_empty() || rest.starts_with('#') {
+        string
+    } else {
+        value
     }
 }
 
@@ -119,7 +136,7 @@ pub fn parse(text: &str) -> Result<Palette, Refused> {
         let Some((key, value)) = line.split_once('=') else {
             return Err(refuse(n, "not `key = value`"));
         };
-        let (key, value) = (key.trim(), value.trim());
+        let (key, value) = (key.trim(), uncommented(value.trim()));
         if entries.iter().any(|(_, k, _)| *k == key) {
             return Err(refuse(n, &format!("`{key}` is given twice")));
         }

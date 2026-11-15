@@ -50,7 +50,7 @@ The tests in `crates/lumen-term/tests/design.rs` check these for each built-in p
 
 ## Theme files
 
-A theme file is the small part of TOML a palette needs. It starts from a built-in palette and sets any colour role (the names in the table above) or ANSI colour as a quoted `#rrggbb` value; a role it does not set keeps the base's colour.
+A theme file is the small part of TOML a palette needs. It starts from a built-in palette and sets any colour role (the names in the table above) or ANSI colour as a quoted `#rrggbb` value; a role it does not set keeps the base's colour. A `#` starts a comment, on its own line or after a value.
 
 ```toml
 # A dark theme with a green accent.
