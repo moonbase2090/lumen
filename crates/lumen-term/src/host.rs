@@ -5,6 +5,7 @@
 use crate::actions::{self, Action, Platform};
 use crate::app::{App, Outcome};
 use crate::clipboard::SystemClipboard;
+use crate::design::Appearance;
 use crate::keys::{Key, Mods};
 use crate::layer::Layer;
 use crate::mouse::{Button, Held, Wheel};
@@ -16,7 +17,7 @@ use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key as WinitKey, KeyLocation, ModifiersState, NamedKey};
-use winit::window::{Window, WindowId};
+use winit::window::{Theme as WinitTheme, Window, WindowId};
 
 /// A pointer position in physical pixels as whole pixels: negative and
 /// non-finite positions are the edge, and nothing is larger than the window.
@@ -339,6 +340,8 @@ impl ApplicationHandler for Host {
             Ok(mut app) => {
                 app.use_settings(self.config.notifications);
                 app.use_images(self.config.images);
+                // The system's appearance, if it says; light until it does.
+                app.set_appearance(appearance(window.theme()));
                 window.request_redraw();
                 // A menu that cannot be built leaves the shortcuts working.
                 #[cfg(target_os = "macos")]
@@ -439,6 +442,13 @@ impl ApplicationHandler for Host {
                     }
                 }
             }
+            WindowEvent::ThemeChanged(theme) => {
+                if let Some(run) = &mut self.state
+                    && run.app.set_appearance(appearance(Some(theme)))
+                {
+                    run.window.request_redraw();
+                }
+            }
             WindowEvent::Focused(focused) => {
                 if let Some(run) = &mut self.state {
                     run.app.set_focused(focused);
@@ -473,6 +483,15 @@ impl ApplicationHandler for Host {
         event_loop.set_control_flow(ControlFlow::WaitUntil(
             Instant::now() + Duration::from_millis(16),
         ));
+    }
+}
+
+/// The appearance for the system's window theme; light when it does not say.
+#[must_use]
+pub fn appearance(theme: Option<WinitTheme>) -> Appearance {
+    match theme {
+        Some(WinitTheme::Dark) => Appearance::Dark,
+        Some(WinitTheme::Light) | None => Appearance::Light,
     }
 }
 
