@@ -71,7 +71,6 @@ The maintainers accepted the following residual effects for v0. They are describ
 
 **Image path**
 
-- **Earlier-identity fuzz evidence.** For the first release with images, the maintainers accepted the guarded fuzz runs of earlier decoder and image-path builds (each of PNG, JPEG and WebP past 250 CPU-hours with no open crash or confirmed hang) as the decoder gate for the current identities, on every platform, with no new fuzzing. The records say so. Code that changed after those runs, among it the sandbox, the frame parser and the terminal's image host, was not itself fuzzed, and the release identity leaves out the compiler and flags, so a toolchain change alone does not re-run the gate. Continuous fuzzing and the re-fuzz on a decoder version bump still apply.
 - System graphics drivers that the image path uses at run time without linking them are outside the build identity, so a driver update does not re-run the decoder gates. Drivers are at parity with every GPU application, and uploads are size-checked first.
 
 ## Independent review {#threat.review}

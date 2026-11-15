@@ -24,10 +24,12 @@ pub mod clipboard;
 #[cfg(feature = "links-clipboard")]
 pub mod copy;
 pub mod document;
+pub mod frame;
 pub mod grid;
 pub mod guard;
 #[cfg(feature = "window")]
 pub mod host;
+pub mod image_draw;
 pub mod images;
 pub mod isolate;
 pub mod keys;
