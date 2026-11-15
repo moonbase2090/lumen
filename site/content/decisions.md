@@ -62,9 +62,15 @@ Every decision listed here is **Adopted**: the specification follows it.
 
 ### Images are on, behind the decoder gates
 
-- **Status:** Adopted. Images are on in the build that ships, on Linux and macOS. Windows is unsupported for images in v0 and shows the alt text.
-- **Effect:** Images are enabled on a platform only after the decoder gate and the decoder memory gate pass for the decoder build, and for the terminal's image path. A change to either re-runs the gates. The maintainers accepted the earlier guarded fuzz runs (PNG, JPEG and WebP, each past 250 CPU-hours, no open crash or confirmed hang) for the current identities, with no new fuzzing; see the accepted residual risk below. The setting `images = false` always shows the alt text.
+- **Status:** Adopted. Image testing is complete, and images are on in the build that ships, on Linux and macOS. Windows is unsupported for images in v0 and shows the alt text.
+- **Effect:** A build shows images on a platform only when the committed gate records name its decoder and image-path identities, and a change to either identity needs a new record. The setting `images = false` always shows the alt text.
 - **Where:** [Images and the decoder](@/spec/v0/images.md#images.unlock), [Conformance gates](@/spec/v0/conformance.md#gate.decoder).
+
+### Image testing is complete, and images are on by default
+
+- **Status:** Adopted on 14 November 2026.
+- **Effect:** Image testing is complete for the current decoder and image-path identities, and images are on by default on Linux and macOS. The gate records for the current identities rest on the guarded fuzz runs of earlier builds; the frame parser and image host were not fuzzed. The release criteria no longer have a separate rule for decoder version bumps: a build shows images only when the committed gate records name its identities.
+- **Where:** [Images and the decoder](@/spec/v0/images.md#images.unlock), [Release criteria](https://github.com/moonbase2090/lumen/blob/main/docs/release-criteria.md#decoder-fuzzing).
 
 ### Release builds are scanned for personal identifiers
 
@@ -111,5 +117,4 @@ The specification lists the residual effects the maintainers accepted for v0, ea
 
 **Image path**
 
-- Earlier-identity fuzz evidence accepted for the first release with images: the guarded runs count for the current identities, no new fuzzing, and the compiler and flags are not part of the release identity. A decoder version bump still re-runs the fuzzing.
 - System graphics drivers used at run time without linking are outside the build identity, so a driver update does not re-run the decoder gates.
