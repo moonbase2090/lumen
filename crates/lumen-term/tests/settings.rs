@@ -25,7 +25,7 @@ fn asset(name: &str) -> Vec<u8> {
     .unwrap_or_default()
 }
 
-const HOME: &str = "/home/someone";
+const HOME: &str = "/srv/someone";
 
 fn parsed(text: &str) -> Result<LookSettings, (usize, String)> {
     parse(text, Path::new("/etc/conf"), Some(Path::new(HOME)))
@@ -58,7 +58,7 @@ fn every_setting_is_read() {
         look,
         Ok(LookSettings {
             theme: ThemeSetting::Builtin(Builtin::Dark),
-            mono_font: FontSetting::File(PathBuf::from("/home/someone/fonts/Mono.ttf")),
+            mono_font: FontSetting::File(PathBuf::from("/srv/someone/fonts/Mono.ttf")),
             mono_size: 16,
             prose_font: FontSetting::File(PathBuf::from("/abs/Sans.otf")),
             prose_size: 18,
@@ -152,7 +152,7 @@ fn theme_names_and_paths() {
     );
     assert_eq!(
         theme("~/t.toml"),
-        Ok(ThemeSetting::File("/home/someone/t.toml".into()))
+        Ok(ThemeSetting::File("/srv/someone/t.toml".into()))
     );
     assert_eq!(theme("/t.toml"), Ok(ThemeSetting::File("/t.toml".into())));
     // A bare name that is not a built-in is not a file.
