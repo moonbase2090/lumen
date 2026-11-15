@@ -1,7 +1,7 @@
 macOS menu bar and shortcuts proof
-Revision: b0ee54f0ac5da2ef114661e40d32d94c9e42665c (the pull request head the binary was built from, after main was merged in)
+Revision: a5bdd70d80fd8cda23376a0a9392abeeef9ffd94 (the head the binary was built from)
 Host: fresh virtual machine from a clean macOS image, macOS 26.6.2 arm64, deleted after the run
-Build: cargo build --locked --release -p lumen-term --features window, on the build host; binary SHA-256 38e988588cd392ffc63ea6460e3ae8165593cd4c869caa33ad0aaf11fb18c228 (checked equal in the guest)
+Build: cargo build --locked --release -p lumen-term --features window, on the build host; binary SHA-256 c59d0ee7e8281b02fde3e6e03fdb76282f3e0c412a90ad2f57bb5fe1393188de (checked equal in the guest)
 Program in the window: a generic shell script that reads a line, prints it as got:[line] and runs stty size
 How driven: real key presses and mouse clicks over the virtual machine's screen-sharing (VNC) connection into its logged-in desktop session. The Command key is sent as Alt_L, which that connection maps to Command.
 Clipboard: the text "text from the clipboard", set in the guest with pbcopy before the run

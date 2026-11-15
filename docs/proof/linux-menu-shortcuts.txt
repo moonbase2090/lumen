@@ -1,5 +1,5 @@
 Linux shared shortcuts proof
-Revision: 0d35ed59ae1dd48269f0cb04786f597d6650d80d (clean clone at that commit)
+Revision: a5bdd70d80fd8cda23376a0a9392abeeef9ffd94 (clean clone at that commit, the head the tests ran at)
 Host: throwaway cloud virtual machine, Ubuntu 24.04 arm64, an X server without a window manager (Xvfb), destroyed after the run
 Build: cargo build --locked --release -p lumen-term --features window
 Behaviour tests on the virtual machine: see linux-menu-shortcuts-tests.txt (6 passed; the seventh test, the menu ids, is macOS only).
