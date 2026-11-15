@@ -45,79 +45,11 @@ pub use crate::image_draw::IMAGE_MAX_ROWS;
 /// The most lines of text in a toast; the rest is cut.
 pub const TOAST_MAX_LINES: usize = 3;
 /// The terminal's own text in the header strip of the trust margin.
-pub const MARGIN_LABEL: &str = "lumen";
+pub const MARGIN_LABEL: &str = "Bright";
 
 pub use crate::frame::{Frame, Rgb};
 
-/// The colours of a render. The pinned conditions of 2.3 use the light theme.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Theme {
-    /// Default foreground.
-    pub foreground: Rgb,
-    /// Default background.
-    pub background: Rgb,
-    /// The sixteen ANSI colours.
-    pub ansi: [Rgb; 16],
-    /// Background of a rich block's container.
-    pub container: Rgb,
-    /// Border of a rich block's container.
-    pub border: Rgb,
-    /// The container's label.
-    pub label: Rgb,
-    /// Background of a code block.
-    pub code: Rgb,
-    /// Foreground of a heading.
-    pub heading: Rgb,
-    /// The trust margin: the gutter and the header strip. Only the terminal paints it.
-    pub margin: Rgb,
-    /// The terminal's own text in the margin.
-    pub margin_text: Rgb,
-    /// The input editor.
-    pub editor: Rgb,
-    /// A toast's box.
-    pub toast: Rgb,
-    /// A toast's border.
-    pub toast_border: Rgb,
-}
-
-impl Theme {
-    /// The light theme.
-    #[must_use]
-    pub fn light() -> Self {
-        Self {
-            foreground: [28, 28, 28],
-            background: [255, 255, 255],
-            ansi: [
-                [0, 0, 0],
-                [194, 54, 33],
-                [37, 188, 36],
-                [173, 173, 39],
-                [73, 46, 225],
-                [211, 56, 211],
-                [51, 187, 200],
-                [203, 204, 205],
-                [129, 131, 131],
-                [252, 57, 31],
-                [49, 231, 34],
-                [234, 236, 35],
-                [88, 51, 255],
-                [249, 53, 248],
-                [20, 240, 240],
-                [233, 235, 235],
-            ],
-            container: [244, 244, 244],
-            border: [176, 176, 176],
-            label: [120, 64, 0],
-            code: [232, 234, 240],
-            heading: [20, 60, 120],
-            margin: [226, 230, 238],
-            margin_text: [60, 70, 90],
-            editor: [250, 250, 250],
-            toast: [255, 250, 230],
-            toast_border: [190, 150, 60],
-        }
-    }
-}
+pub use crate::design::Theme;
 
 /// The size of a window and where its editor sits, in cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -719,7 +651,7 @@ impl Renderer {
             eh.saturating_sub(2 * self.scale),
             t.editor,
         );
-        self.text_line(&mut frame, ex + self.cell_w, ey, ">", t.foreground);
+        self.text_line(&mut frame, ex + self.cell_w, ey, ">", t.prompt);
 
         // Strip: below the editor.
         if let (StripPlacement::Placed(r), Some(strip)) = (lay.strip, newest) {
@@ -750,6 +682,24 @@ impl Renderer {
         for m in &lay.margin {
             let (mx, my, mw, mh) = px(m);
             frame.fill(mx, my, mw, mh, t.margin);
+        }
+        // The divider: one line along the inner edges of the margin, inside
+        // it, under the header and right of the gutter below the header.
+        let line = self.scale;
+        let [gutter, header] = &lay.margin;
+        let (gx, _, gw, gh) = px(gutter);
+        let (_, hy, hw, hh) = px(header);
+        if hh >= line {
+            frame.fill(0, hy + hh - line, hw, line, t.divider);
+        }
+        if gw >= line {
+            frame.fill(
+                gx + gw - line,
+                hy + hh,
+                line,
+                gh.saturating_sub(hh),
+                t.divider,
+            );
         }
         self.text_line(
             &mut frame,
