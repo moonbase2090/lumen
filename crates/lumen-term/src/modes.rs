@@ -7,7 +7,9 @@
 //! its own block changed ([`Changes`]); the session folds the blocks in order,
 //! so a mode a program set stays set when a rich block ends one grid block and a
 //! new one starts. A soft reset (`CSI ! p`) and a full reset (`ESC c`) clear
-//! all three modes.
+//! all three modes, and leaving the alternate screen (`CSI ? 47 l`, `1047` or
+//! `1049`) clears bracketed paste. A pinned layer sends no bracketed paste at
+//! all ([`key_modes_for`]).
 
 /// The modes that change which bytes a key or a paste sends.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -169,6 +171,10 @@ impl ModeTracker {
                     match p {
                         b"1" => self.changes.cursor_app = Some(on),
                         b"2004" => self.changes.bracketed_paste = Some(on),
+                        // Leaving the alternate screen resets bracketed paste.
+                        b"47" | b"1047" | b"1049" if !on => {
+                            self.changes.bracketed_paste = Some(false);
+                        }
                         _ => {}
                     }
                 }
@@ -188,4 +194,16 @@ pub fn key_modes_of(blocks: &[crate::document::Block]) -> KeyModes {
             crate::document::Block::Grid(g) => g.key_mode_changes().apply(modes),
             crate::document::Block::Rich(_) => modes,
         })
+}
+
+/// The modes the document is in: [`key_modes_of`] its blocks, except that a
+/// layer pinned to grid mode after too many sealed aborts sends no bracketed
+/// paste, whatever the program asked for.
+#[must_use]
+pub fn key_modes_for(document: &crate::document::Document) -> KeyModes {
+    let mut modes = key_modes_of(document.blocks());
+    if document.notices().contains(&crate::layer::Notice::Pinned) {
+        modes.bracketed_paste = false;
+    }
+    modes
 }

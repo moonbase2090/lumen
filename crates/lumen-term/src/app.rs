@@ -14,12 +14,14 @@ use crate::layer::Layer;
 use crate::layout::{GUTTER_COLUMNS, HEADER_ROWS, STRIP_COLLAPSED_ROWS};
 use crate::mouse::{Button, Held, Reporter, Wheel};
 use crate::notify::{Desk, Notifier, OsSink, Place, Settings, Toast};
+#[cfg(feature = "links-clipboard")]
 use crate::paste::{self, Decision, Hold, Pasted, Rejection};
 use crate::pty::SpawnError;
 use crate::raster::{Frame, Renderer, Window};
 use crate::session::{MAX_COLUMNS, MAX_ROWS, Session};
 
 /// What [`App::paste`] did.
+#[cfg(feature = "links-clipboard")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PasteOutcome {
     /// The paste was sent.
@@ -658,6 +660,7 @@ impl App {
     /// # Errors
     ///
     /// Returns the write error; the user is shown the not-sent notice.
+    #[cfg(feature = "links-clipboard")]
     pub fn paste(&mut self, text: &str) -> std::io::Result<PasteOutcome> {
         let bracketed = self.session.key_modes().bracketed_paste;
         match paste::judge(text, bracketed) {
@@ -674,6 +677,7 @@ impl App {
     /// # Errors
     ///
     /// Returns the write error; the user is shown the not-sent notice.
+    #[cfg(feature = "links-clipboard")]
     pub fn paste_chosen(&mut self, pasted: &Pasted) -> std::io::Result<()> {
         let mut bytes = Vec::with_capacity(pasted.text.len() + 12);
         let bracketed = self.session.key_modes().bracketed_paste;

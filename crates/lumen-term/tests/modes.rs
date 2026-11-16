@@ -179,3 +179,21 @@ fn bracketed_paste_follows_decset_2004_alone_or_in_a_list_and_resets() {
         "look-alikes change nothing"
     );
 }
+
+#[test]
+fn leaving_the_alternate_screen_turns_bracketed_paste_off() {
+    for leave in [&b"\x1b[?1049l"[..], b"\x1b[?1047l", b"\x1b[?47l"] {
+        let m = after(&[b"\x1b[?2004h", leave]);
+        assert!(!m.bracketed_paste, "{leave:?}");
+    }
+    assert!(
+        !after(&[b"\x1b[?1049h"]).bracketed_paste,
+        "entering changes nothing"
+    );
+    assert!(
+        after(&[b"\x1b[?2004h\x1b[?1049h"]).bracketed_paste,
+        "entering keeps it"
+    );
+    // The program may turn it on again after leaving.
+    assert!(after(&[b"\x1b[?2004h\x1b[?1049l\x1b[?2004h"]).bracketed_paste);
+}

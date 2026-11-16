@@ -145,13 +145,18 @@ fn turning_bracketed_paste_off_again_stops_the_markers() {
 }
 
 #[test]
-fn a_paste_with_a_frame_introducer_is_rejected_and_nothing_is_sent() {
-    let mut app = start(&reader("h", 1));
+fn a_paste_with_a_frame_introducer_is_rejected_and_not_one_byte_reaches_the_program() {
+    // The program reads two bytes. The refused paste must leave them unread, so
+    // the two bytes it gets are the ones typed afterwards.
+    let mut app = start(&reader("h", 2));
     ready(&mut app);
     assert!(matches!(
         app.paste("x\x1b_Lumen frame").ok(),
         Some(PasteOutcome::Rejected(_))
     ));
+    app.text("ok")
+        .unwrap_or_else(|e| unreachable!("typed: {e}"));
+    received(&mut app, b"ok");
 }
 
 #[test]
