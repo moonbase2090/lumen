@@ -461,6 +461,7 @@ impl ApplicationHandler for Host {
             WindowEvent::Focused(focused) => {
                 if let Some(run) = &mut self.state {
                     run.app.set_focused(focused);
+                    run.window.request_redraw();
                 }
             }
             WindowEvent::RedrawRequested => self.redraw(),

@@ -14,11 +14,11 @@
 //!
 //! What it does not do: bold or italic faces, glyphs neither face has (they are
 //! skipped), combining marks (the base glyph only), a cursor (off unless
-//! asked), kerning, or any other text shaping.
+//! asked, see [`CursorState`]), kerning, or any other text shaping.
 
 use crate::design::{FontFile, Fonts};
 use crate::document::{Block, Document, RichBlock};
-use crate::grid::GridBlock;
+use crate::grid::{CursorShape, GridBlock};
 use crate::image_draw;
 use crate::layout::{GUTTER_COLUMNS, Rect, StripPlacement, layout, notification_area};
 use crate::notify::Toast;
@@ -55,6 +55,22 @@ pub const MARGIN_LABEL: &str = "Bright";
 pub use crate::frame::{Frame, Rgb};
 
 pub use crate::design::Theme;
+
+/// How the cursor of the live grid is drawn: whether the window has the focus, and, for a
+/// blinking cursor, which half of its cycle this frame shows.
+///
+/// An unfocused window draws the cursor dimmed (a block as an outline, a bar or underline in a
+/// blend of its colour and the cell's) and steady, whatever the program asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CursorState {
+    /// The window has the focus.
+    pub focused: bool,
+    /// The on half of a blink cycle; ignored by a steady cursor and by an unfocused window.
+    pub blink_on: bool,
+}
+
+/// Thickness of a bar or underline cursor, in pixels at scale 1.
+const CURSOR_LINE_PX: u32 = 2;
 
 /// The size of a window and where its editor sits, in cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -371,6 +387,77 @@ impl Renderer {
         }
     }
 
+    /// Paint the cursor of a grid block whose top left is at `x`, `y`: block, bar or underline as
+    /// the program set it, nothing while the program has hidden it or a blinking cursor is in its
+    /// off half. Call after [`paint_grid`](Self::paint_grid).
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "x, y, w, h and t are the usual pixel names"
+    )]
+    pub fn paint_cursor(
+        &self,
+        frame: &mut Frame,
+        x: u32,
+        y: u32,
+        block: &GridBlock,
+        state: CursorState,
+    ) {
+        let view = block.cursor();
+        if !view.visible || (view.blink && state.focused && !state.blink_on) {
+            return;
+        }
+        let (columns, rows) = block.size();
+        let screen = block.screen();
+        let Some(cells) = screen
+            .row(view.row)
+            .filter(|_| view.row < rows && columns > 0)
+        else {
+            return;
+        };
+        let mut col = view.column.min(columns - 1);
+        if cells.get(col).is_some_and(|c| c.wide_cont) {
+            col = col.saturating_sub(1);
+        }
+        let cell = &cells[col];
+        let span = 1 + usize::from(cells.get(col + 1).is_some_and(|n| n.wide_cont));
+        let w = u32::try_from(span).unwrap_or(1);
+        let left = x + u32::try_from(col).unwrap_or(0) * self.cell_w;
+        let top = y + u32::try_from(view.row).unwrap_or(0) * self.cell_h;
+        let width = w * self.cell_w;
+        let t = self.scale.max(1);
+        let ink = self.theme.foreground;
+        let under = self.colours(cell.style).1;
+        let dimmed = [0, 1, 2].map(|i| ink[i] / 2 + under[i] / 2);
+        let colour = if state.focused { ink } else { dimmed };
+        match view.shape {
+            CursorShape::Block if state.focused => {
+                frame.fill(left, top, width, self.cell_h, ink);
+                self.draw_glyph(frame, cell.character, left, top, w, self.theme.background);
+            }
+            CursorShape::Block => {
+                // Unfocused: an outline, the cell's own glyph left as it was.
+                let edge = t.min(width).min(self.cell_h);
+                frame.fill(left, top, width, edge, ink);
+                frame.fill(left, top + self.cell_h - edge, width, edge, ink);
+                frame.fill(left, top, edge, self.cell_h, ink);
+                frame.fill(left + width - edge, top, edge, self.cell_h, ink);
+            }
+            CursorShape::Bar => {
+                frame.fill(
+                    left,
+                    top,
+                    (CURSOR_LINE_PX * t).min(width),
+                    self.cell_h,
+                    colour,
+                );
+            }
+            CursorShape::Underline => {
+                let h = (CURSOR_LINE_PX * t).min(self.cell_h);
+                frame.fill(left, top + self.cell_h - h, width, h, colour);
+            }
+        }
+    }
+
     fn text_line(&self, frame: &mut Frame, x: u32, y: u32, text: &str, colour: Rgb) {
         let mut col = 0u32;
         for ch in text.chars() {
@@ -508,13 +595,22 @@ impl Renderer {
         columns: usize,
         strips: &[crate::strip::Strip<'_>],
         newest_cycle: Option<u32>,
+        cursor: Option<CursorState>,
     ) {
         let mut y = 0;
         let mut placed: Vec<u32> = Vec::new();
-        for b in doc.blocks() {
+        // Only the newest grid is the program's live screen, so only it can show a cursor.
+        let live = doc
+            .blocks()
+            .iter()
+            .rposition(|b| matches!(b, Block::Grid(_)));
+        for (i, b) in doc.blocks().iter().enumerate() {
             match b {
                 Block::Grid(g) => {
                     self.paint_grid(region, 0, y, g);
+                    if let (Some(state), true) = (cursor, Some(i) == live) {
+                        self.paint_cursor(region, 0, y, g, state);
+                    }
                     y += u32::try_from(g.size().1).unwrap_or(0) * self.cell_h;
                 }
                 Block::Rich(r) if !r.background => {
@@ -700,6 +796,20 @@ impl Renderer {
     /// cleaned text.
     #[must_use]
     pub fn render_window_with(&self, doc: &Document, win: &Window, toasts: &[Toast]) -> Frame {
+        self.render_window_cursor(doc, win, toasts, None)
+    }
+
+    /// Paint a window as [`render_window_with`](Self::render_window_with) does, with the cursor of
+    /// the live grid drawn when `cursor` is given. The cursor is clipped to the content area, so
+    /// it never reaches the margin, the editor or a toast.
+    #[must_use]
+    pub fn render_window_cursor(
+        &self,
+        doc: &Document,
+        win: &Window,
+        toasts: &[Toast],
+        cursor: Option<CursorState>,
+    ) -> Frame {
         let t = &self.theme;
         let strips = doc.strips();
         let newest = strips.last();
@@ -728,7 +838,14 @@ impl Renderer {
         if aw > 0 && ah > 0 {
             let mut region = Frame::new(aw, ah, t.background);
             let columns = usize::try_from(area.w).unwrap_or(1);
-            self.paint_content(&mut region, doc, columns, &strips, newest.map(|s| s.cycle));
+            self.paint_content(
+                &mut region,
+                doc,
+                columns,
+                &strips,
+                newest.map(|s| s.cycle),
+                cursor,
+            );
             Self::blit(&mut frame, &region, ax, ay);
         }
 
