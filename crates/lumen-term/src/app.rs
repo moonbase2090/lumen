@@ -709,19 +709,21 @@ impl App {
     }
 
     /// Where the input method's candidate window goes, in pixels: `(x, y, width,
-    /// height)`, the editor's first row after the gutter, as wide as the text
+    /// height)`, the editor's first row after the gutter and its padding, as wide as the text
     /// being composed. The terminal keeps no cursor cell of its own.
     #[must_use]
     pub fn ime_area(&self) -> (u32, u32, u32, u32) {
         let (cell_w, cell_h) = self.renderer.cell();
-        let (columns, rows) = cells_for(self.width, self.height, (cell_w, cell_h));
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         let win = window_for(columns, rows);
         let used = self
             .preedit
             .as_ref()
             .map_or(0, |p| p.text.chars().map(cell_columns).sum::<u32>());
         (
-            GUTTER_COLUMNS.saturating_mul(cell_w),
+            GUTTER_COLUMNS
+                .saturating_mul(cell_w)
+                .saturating_add(self.renderer.gutter_pad()),
             win.editor_row.saturating_mul(cell_h),
             used.max(1).saturating_mul(cell_w),
             cell_h,

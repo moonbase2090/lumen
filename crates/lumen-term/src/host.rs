@@ -215,6 +215,22 @@ pub fn ime_event(app: &mut App, event: &Ime) -> bool {
     }
 }
 
+/// The candidate window's rectangle: `(x, y, width, height)` in pixels.
+pub type ImeRect = (u32, u32, u32, u32);
+
+/// The input method's candidate rectangle when it differs from `last`, which
+/// then holds it. It moves with the window size, the render scale and the text
+/// being composed, so the host asks again after any event, not only an input
+/// method one.
+pub fn ime_area_if_changed(app: &App, last: &mut Option<ImeRect>) -> Option<ImeRect> {
+    let now = app.ime_area();
+    if *last == Some(now) {
+        return None;
+    }
+    *last = Some(now);
+    Some(now)
+}
+
 /// Send `input` to the program. Returns whether the window must draw again
 /// because the user now has something to see: when the input was not sent, the
 /// app has put a notice on screen and the window must show it.
@@ -274,6 +290,8 @@ struct Host {
     error: Option<String>,
     /// The pointer's last position in pixels.
     pointer: (u32, u32),
+    /// The candidate rectangle last given to the system.
+    ime_rect: Option<ImeRect>,
 }
 
 impl Host {
@@ -370,91 +388,32 @@ impl Host {
         }
     }
 
-    /// Apply an input method event and keep its candidate window at the editor.
+    /// Apply an input method event.
     fn on_ime(&mut self, ime: &Ime) {
         let Some(run) = &mut self.state else { return };
         if ime_event(&mut run.app, ime) {
             run.window.request_redraw();
         }
-        let (x, y, w, h) = run.app.ime_area();
-        run.window
-            .set_ime_cursor_area(PhysicalPosition::new(x, y), PhysicalSize::new(w, h));
+    }
+
+    /// Give the system the candidate rectangle again when it has moved.
+    fn sync_ime_area(&mut self) {
+        let Some(run) = &self.state else { return };
+        if let Some((x, y, w, h)) = ime_area_if_changed(&run.app, &mut self.ime_rect) {
+            run.window
+                .set_ime_cursor_area(PhysicalPosition::new(x, y), PhysicalSize::new(w, h));
+        }
     }
 }
 
-impl ApplicationHandler for Host {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.state.is_some() {
-            return;
-        }
-        let attributes = Window::default_attributes()
-            .with_title(crate::APP_NAME)
-            .with_inner_size(winit::dpi::LogicalSize::new(
-                f64::from(self.config.size.0),
-                f64::from(self.config.size.1),
-            ));
-        let window = match event_loop.create_window(attributes) {
-            Ok(w) => Rc::new(w),
-            Err(e) => return self.fail(event_loop, format!("no window: {e}")),
-        };
-        let context = match softbuffer::Context::new(window.clone()) {
-            Ok(c) => c,
-            Err(e) => return self.fail(event_loop, format!("no display context: {e}")),
-        };
-        let surface = match softbuffer::Surface::new(&context, window.clone()) {
-            Ok(s) => s,
-            Err(e) => return self.fail(event_loop, format!("no surface: {e}")),
-        };
-        window.set_ime_allowed(true);
-        let size = window.inner_size();
-        #[allow(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "a scale factor is a small positive number"
-        )]
-        let scale = self
-            .config
-            .scale
-            .unwrap_or_else(|| window.scale_factor().round().max(1.0) as u32);
-        let (program, arguments) = match self.config.command.split_first() {
-            Some((p, a)) => (p.clone(), a.to_vec()),
-            None => (default_shell(), Vec::new()),
-        };
-        match App::start(
-            (self.config.layer)(),
-            &program,
-            &arguments,
-            scale,
-            size.width,
-            size.height,
-        ) {
-            Ok(mut app) => {
-                app.use_settings(self.config.notifications);
-                app.use_images(self.config.images);
-                // The user's look, then the system's appearance, if it says;
-                // light until it does.
-                app.set_theme_choice(self.config.theme);
-                app.set_appearance(appearance(window.theme()));
-                if let Err(e) = app.set_fonts(&self.config.fonts) {
-                    eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
-                }
-                window.request_redraw();
-                // A menu that cannot be built leaves the shortcuts working.
-                #[cfg(target_os = "macos")]
-                let menu = crate::menu::MenuBar::install().ok();
-                self.state = Some(Running {
-                    window,
-                    surface,
-                    app,
-                    #[cfg(target_os = "macos")]
-                    _menu: menu,
-                });
-            }
-            Err(e) => self.fail(event_loop, e.to_string()),
-        }
-    }
-
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+impl Host {
+    /// Handle one window event.
+    fn handle_window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _id: WindowId,
+        event: WindowEvent,
+    ) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
@@ -534,6 +493,84 @@ impl ApplicationHandler for Host {
             _ => {}
         }
     }
+}
+
+impl ApplicationHandler for Host {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_some() {
+            return;
+        }
+        let attributes = Window::default_attributes()
+            .with_title(crate::APP_NAME)
+            .with_inner_size(winit::dpi::LogicalSize::new(
+                f64::from(self.config.size.0),
+                f64::from(self.config.size.1),
+            ));
+        let window = match event_loop.create_window(attributes) {
+            Ok(w) => Rc::new(w),
+            Err(e) => return self.fail(event_loop, format!("no window: {e}")),
+        };
+        let context = match softbuffer::Context::new(window.clone()) {
+            Ok(c) => c,
+            Err(e) => return self.fail(event_loop, format!("no display context: {e}")),
+        };
+        let surface = match softbuffer::Surface::new(&context, window.clone()) {
+            Ok(s) => s,
+            Err(e) => return self.fail(event_loop, format!("no surface: {e}")),
+        };
+        window.set_ime_allowed(true);
+        let size = window.inner_size();
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a scale factor is a small positive number"
+        )]
+        let scale = self
+            .config
+            .scale
+            .unwrap_or_else(|| window.scale_factor().round().max(1.0) as u32);
+        let (program, arguments) = match self.config.command.split_first() {
+            Some((p, a)) => (p.clone(), a.to_vec()),
+            None => (default_shell(), Vec::new()),
+        };
+        match App::start(
+            (self.config.layer)(),
+            &program,
+            &arguments,
+            scale,
+            size.width,
+            size.height,
+        ) {
+            Ok(mut app) => {
+                app.use_settings(self.config.notifications);
+                app.use_images(self.config.images);
+                // The user's look, then the system's appearance, if it says;
+                // light until it does.
+                app.set_theme_choice(self.config.theme);
+                app.set_appearance(appearance(window.theme()));
+                if let Err(e) = app.set_fonts(&self.config.fonts) {
+                    eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
+                }
+                window.request_redraw();
+                // A menu that cannot be built leaves the shortcuts working.
+                #[cfg(target_os = "macos")]
+                let menu = crate::menu::MenuBar::install().ok();
+                self.state = Some(Running {
+                    window,
+                    surface,
+                    app,
+                    #[cfg(target_os = "macos")]
+                    _menu: menu,
+                });
+            }
+            Err(e) => self.fail(event_loop, e.to_string()),
+        }
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        self.handle_window_event(event_loop, id, event);
+        self.sync_ime_area();
+    }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(limit) = self.config.exit_after
@@ -592,6 +629,7 @@ pub fn run(config: Config) -> Result<(), String> {
         started: Instant::now(),
         error: None,
         pointer: (0, 0),
+        ime_rect: None,
     };
     event_loop
         .run_app(&mut host)

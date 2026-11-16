@@ -3,8 +3,10 @@
 
 #![cfg(all(unix, feature = "window"))]
 
-use lumen_term::host::{Input, ime_event, map_key_for, send_input};
-use lumen_term::{App, Block, Key, Mods, Passthrough};
+use lumen_term::app::{cells_for, window_for};
+use lumen_term::host::{Input, ime_area_if_changed, ime_event, map_key_for, send_input};
+use lumen_term::raster::GUTTER_PAD_PX;
+use lumen_term::{App, Block, GUTTER_COLUMNS, Key, Mods, Passthrough};
 use std::time::{Duration, Instant};
 use winit::event::Ime;
 use winit::keyboard::{Key as W, ModifiersState, NamedKey};
@@ -122,15 +124,63 @@ fn a_committed_string_cannot_carry_an_escape_sequence() {
     );
 }
 
+/// Where the candidate window must sit for `app`: the first editor row, at the
+/// text column, which starts a gutter padding right of the gutter's cells.
+fn expected_anchor(app: &App, cell_w: u32) -> (u32, u32) {
+    let cell_h = app.cell_height();
+    let pad = GUTTER_PAD_PX * app.scale();
+    let (columns, rows) = cells_for(640 - pad, 380, (cell_w, cell_h));
+    (
+        GUTTER_COLUMNS * cell_w + pad,
+        window_for(columns, rows).editor_row * cell_h,
+    )
+}
+
 #[test]
-fn the_candidate_window_is_placed_at_the_editor_and_covers_the_preedit() {
+fn the_candidate_window_is_placed_at_the_editor_text_column_and_covers_the_preedit() {
     let mut app = start_hex();
-    let (x0, y0, w0, h) = app.ime_area();
+    let (x0, y0, cell_w, h) = app.ime_area();
+    assert_eq!((x0, y0), expected_anchor(&app, cell_w));
+    assert_eq!(h, app.cell_height());
     app.set_preedit("你好", None);
     let (x1, y1, w1, _) = app.ime_area();
     assert_eq!((x0, y0), (x1, y1));
-    assert_eq!(w1, w0 * 4, "two wide characters are four cells");
-    assert!(h > 0 && y0 > 0);
+    assert_eq!(w1, cell_w * 4, "two wide characters are four cells");
+    // The padding scales with the render scale, so the anchor must follow it.
+    assert!(app.set_scale(2).is_ok());
+    let (x2, y2, w2, _) = app.ime_area();
+    assert_eq!((x2, y2), expected_anchor(&app, w2 / 4));
+    assert!(
+        x2 > x1,
+        "bigger cells and padding move the text column right"
+    );
+}
+
+#[test]
+fn the_candidate_rectangle_is_given_again_when_the_window_or_text_changes() {
+    let mut app = start_hex();
+    let mut last = None;
+    let first = ime_area_if_changed(&app, &mut last);
+    assert_eq!(first, Some(app.ime_area()), "the first rectangle is given");
+    assert_eq!(ime_area_if_changed(&app, &mut last), None, "nothing moved");
+    assert!(app.resize(800, 500).is_ok());
+    let resized = ime_area_if_changed(&app, &mut last);
+    assert!(
+        resized.is_some() && resized != first,
+        "a resize moves the editor row"
+    );
+    assert_eq!(ime_area_if_changed(&app, &mut last), None);
+    assert!(app.set_scale(2).is_ok());
+    assert!(
+        ime_area_if_changed(&app, &mut last).is_some(),
+        "a zoom moves it"
+    );
+    app.set_preedit("あ", None);
+    assert!(
+        ime_area_if_changed(&app, &mut last).is_some(),
+        "the preedit widens it"
+    );
+    assert_eq!(ime_area_if_changed(&app, &mut last), None);
 }
 
 #[test]
