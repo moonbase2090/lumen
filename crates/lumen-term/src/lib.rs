@@ -56,8 +56,8 @@ pub mod seal;
 pub mod session;
 pub mod settings;
 pub mod strip;
-pub mod title;
 pub mod theme_file;
+pub mod title;
 mod writer;
 
 pub use app::App;
