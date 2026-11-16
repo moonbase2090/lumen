@@ -4,7 +4,7 @@
 
 use crate::actions::{self, Action, Platform};
 use crate::app::{App, Outcome};
-use crate::clipboard::SystemClipboard;
+use crate::clipboard::{Clipboard, SystemClipboard};
 use crate::design::Appearance;
 use crate::keys::{Key, Mods};
 use crate::layer::Layer;
@@ -13,8 +13,9 @@ use crate::raster::Frame;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
+use winit::dpi::PhysicalPosition;
 use winit::dpi::PhysicalSize;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key as WinitKey, KeyLocation, ModifiersState, NamedKey};
 use winit::window::{Theme as WinitTheme, Window, WindowId};
@@ -95,7 +96,7 @@ pub fn map_key_at(
     state: ModifiersState,
     location: KeyLocation,
 ) -> Option<(Key, Mods)> {
-    let (mapped, mods) = map_standard(key, text, state)?;
+    let (mapped, mods) = map_key_for(key, text, state, cfg!(target_os = "macos"))?;
     if location != KeyLocation::Numpad {
         return Some((mapped, mods));
     }
@@ -107,13 +108,25 @@ pub fn map_key_at(
     Some((keypad, mods))
 }
 
-fn map_standard(key: &WinitKey, text: Option<&str>, state: ModifiersState) -> Option<(Key, Mods)> {
+/// [`map_key`] with the platform's Option behaviour given. Where `option_composes`
+/// is set (macOS), Alt held with a key that produced non-ASCII text means the
+/// layout made that text (Option+e then e is an accented letter), so the text
+/// is sent as typed and not with an Escape prefix. ASCII text stays Alt.
+#[must_use]
+pub fn map_key_for(
+    key: &WinitKey,
+    text: Option<&str>,
+    state: ModifiersState,
+    option_composes: bool,
+) -> Option<(Key, Mods)> {
     if state.super_key() {
         return None;
     }
+    let produced = text.is_some_and(|t| !t.is_ascii() && t.chars().all(|c| !c.is_control()));
     let mods = Mods {
         ctrl: state.control_key(),
-        alt: state.alt_key(),
+        alt: state.alt_key()
+            && !(option_composes && produced && matches!(key, WinitKey::Character(_))),
         shift: state.shift_key(),
     };
     let mapped = match key {
@@ -176,6 +189,113 @@ pub enum Input<'a> {
     Text(&'a str),
 }
 
+/// Apply an input method event to the app. Returns whether the window must draw
+/// again. Composition in progress is kept, not sent; the committed text is sent
+/// once and ends it; turning the input method off drops what was unfinished.
+pub fn ime_event(app: &mut App, event: &Ime) -> bool {
+    match event {
+        Ime::Enabled => false,
+        Ime::Preedit(text, cursor) => {
+            let before = app.preedit().map(|(t, c)| (t.to_owned(), c));
+            app.set_preedit(text, *cursor);
+            before != app.preedit().map(|(t, c)| (t.to_owned(), c))
+        }
+        Ime::Commit(text) => {
+            let had = app.preedit().is_some();
+            // Commit ends the composition even when it sends nothing, and a
+            // refused write puts the app's own notice on screen.
+            let _ = app.commit(text);
+            had || !text.is_empty()
+        }
+        Ime::Disabled => {
+            let had = app.preedit().is_some();
+            app.clear_preedit();
+            had
+        }
+    }
+}
+
+/// The candidate window's rectangle: `(x, y, width, height)` in pixels.
+pub type ImeRect = (u32, u32, u32, u32);
+
+/// Where the candidate rectangle goes: the window, which hands it to the system.
+pub trait ImeSink {
+    /// The input method's candidate window should now sit at `area`.
+    fn set_area(&mut self, area: ImeRect);
+}
+
+/// Keeps the system's candidate rectangle where the app says it is. The
+/// rectangle moves with the window size, the render scale and the text being
+/// composed, so it is checked after every event that can change them, and given
+/// to the sink only when it differs from what the sink already has.
+#[derive(Debug, Default)]
+pub struct ImeFollower {
+    last: Option<ImeRect>,
+}
+
+impl ImeFollower {
+    /// Give `sink` the app's candidate rectangle if it changed. Returns whether it did.
+    pub fn follow(&mut self, app: &App, sink: &mut dyn ImeSink) -> bool {
+        let now = app.ime_area();
+        if self.last == Some(now) {
+            return false;
+        }
+        self.last = Some(now);
+        sink.set_area(now);
+        true
+    }
+}
+
+/// Apply a window event that changes the app's size, focus or composition, then
+/// keep the candidate rectangle with it. Returns whether the window must draw
+/// again. Other events do nothing here.
+pub fn apply_window_event(
+    app: &mut App,
+    event: &WindowEvent,
+    ime: &mut ImeFollower,
+    sink: &mut dyn ImeSink,
+) -> bool {
+    let redraw = match event {
+        WindowEvent::Resized(PhysicalSize { width, height }) => app.resize(*width, *height).is_ok(),
+        WindowEvent::Ime(event) => ime_event(app, event),
+        WindowEvent::Focused(focused) => {
+            app.set_focused(*focused);
+            if !*focused {
+                app.clear_preedit();
+            }
+            // The cursor is drawn dimmed when the window loses focus.
+            true
+        }
+        _ => false,
+    };
+    ime.follow(app, sink);
+    redraw
+}
+
+/// Do a window action (a zoom changes the cell size), then keep the candidate
+/// rectangle with it.
+pub fn perform_action(
+    app: &mut App,
+    action: Action,
+    clipboard: &dyn Clipboard,
+    ime: &mut ImeFollower,
+    sink: &mut dyn ImeSink,
+) -> Outcome {
+    let outcome = app.perform(action, clipboard);
+    ime.follow(app, sink);
+    outcome
+}
+
+/// The window as an [`ImeSink`].
+struct WindowSink<'a>(&'a Window);
+
+impl ImeSink for WindowSink<'_> {
+    fn set_area(&mut self, (x, y, w, h): ImeRect) {
+        self.0
+            .set_ime_cursor_area(PhysicalPosition::new(x, y), PhysicalSize::new(w, h));
+    }
+}
+
 /// Send `input` to the program. Returns whether the window must draw again
 /// because the user now has something to see: when the input was not sent, the
 /// app has put a notice on screen and the window must show it.
@@ -235,6 +355,8 @@ struct Host {
     error: Option<String>,
     /// The pointer's last position in pixels.
     pointer: (u32, u32),
+    /// Keeps the system's candidate rectangle with the app.
+    ime: ImeFollower,
 }
 
 impl Host {
@@ -288,7 +410,14 @@ impl Host {
     /// Do one of the window's own actions, from a menu item or a shortcut.
     fn act(&mut self, event_loop: &ActiveEventLoop, action: Action) {
         let Some(run) = &mut self.state else { return };
-        match run.app.perform(action, &SystemClipboard) {
+        let outcome = perform_action(
+            &mut run.app,
+            action,
+            &SystemClipboard,
+            &mut self.ime,
+            &mut WindowSink(&run.window),
+        );
+        match outcome {
             Outcome::Exit => event_loop.exit(),
             Outcome::Redraw => run.window.request_redraw(),
             Outcome::Nothing | Outcome::Refused => {}
@@ -296,115 +425,67 @@ impl Host {
     }
 }
 
-impl ApplicationHandler for Host {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.state.is_some() {
+impl Host {
+    /// Handle a key press: the input method owns keys while it composes, then
+    /// shortcuts, then the key is sent to the program.
+    fn on_key(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
+        let Some(run) = &mut self.state else { return };
+        if run.app.preedit().is_some() {
+            // The input method owns the keys while it composes.
             return;
         }
-        let attributes = Window::default_attributes()
-            .with_title(crate::APP_NAME)
-            .with_inner_size(winit::dpi::LogicalSize::new(
-                f64::from(self.config.size.0),
-                f64::from(self.config.size.1),
-            ));
-        let window = match event_loop.create_window(attributes) {
-            Ok(w) => Rc::new(w),
-            Err(e) => return self.fail(event_loop, format!("no window: {e}")),
-        };
-        let context = match softbuffer::Context::new(window.clone()) {
-            Ok(c) => c,
-            Err(e) => return self.fail(event_loop, format!("no display context: {e}")),
-        };
-        let surface = match softbuffer::Surface::new(&context, window.clone()) {
-            Ok(s) => s,
-            Err(e) => return self.fail(event_loop, format!("no surface: {e}")),
-        };
-        let size = window.inner_size();
-        #[allow(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "a scale factor is a small positive number"
-        )]
-        let scale = self
-            .config
-            .scale
-            .unwrap_or_else(|| window.scale_factor().round().max(1.0) as u32);
-        let (program, arguments) = match self.config.command.split_first() {
-            Some((p, a)) => (p.clone(), a.to_vec()),
-            None => (default_shell(), Vec::new()),
-        };
-        match App::start(
-            (self.config.layer)(),
-            &program,
-            &arguments,
-            scale,
-            size.width,
-            size.height,
+        if let WinitKey::Character(c) = &event.logical_key
+            && let Some(ch) = c.chars().next()
+            && let Some(action) =
+                actions::action_for(Platform::current(), ch, chord(self.modifiers))
+        {
+            self.act(event_loop, action);
+            return;
+        }
+        if let Some((key, mods)) = map_key_at(
+            &event.logical_key,
+            event.text.as_deref(),
+            self.modifiers,
+            event.location,
         ) {
-            Ok(mut app) => {
-                app.use_settings(self.config.notifications);
-                app.use_images(self.config.images);
-                // The user's look, then the system's appearance, if it says;
-                // light until it does.
-                app.set_theme_choice(self.config.theme);
-                app.set_appearance(appearance(window.theme()));
-                if let Err(e) = app.set_fonts(&self.config.fonts) {
-                    eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
-                }
-                window.request_redraw();
-                // A menu that cannot be built leaves the shortcuts working.
-                #[cfg(target_os = "macos")]
-                let menu = crate::menu::MenuBar::install().ok();
-                self.state = Some(Running {
-                    window,
-                    surface,
-                    app,
-                    #[cfg(target_os = "macos")]
-                    _menu: menu,
-                });
+            if send_input(&mut run.app, Input::Key(key, mods)) {
+                run.window.request_redraw();
             }
-            Err(e) => self.fail(event_loop, e.to_string()),
+        } else if let Some(text) = event.text.as_deref()
+            && !self.modifiers.super_key()
+            && text.chars().count() > 1
+            && send_input(&mut run.app, Input::Text(text))
+        {
+            run.window.request_redraw();
         }
     }
+}
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+impl Host {
+    /// Handle one window event.
+    fn handle_window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _id: WindowId,
+        event: WindowEvent,
+    ) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
-            WindowEvent::Resized(PhysicalSize { width, height }) => {
-                if let Some(run) = &mut self.state {
-                    let resized = run.app.resize(width, height).is_ok();
-                    if resized {
-                        run.window.request_redraw();
-                    }
-                }
-            }
-            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                let Some(run) = &mut self.state else { return };
-                if let WinitKey::Character(c) = &event.logical_key
-                    && let Some(ch) = c.chars().next()
-                    && let Some(action) =
-                        actions::action_for(Platform::current(), ch, chord(self.modifiers))
-                {
-                    self.act(event_loop, action);
-                    return;
-                }
-                if let Some((key, mods)) = map_key_at(
-                    &event.logical_key,
-                    event.text.as_deref(),
-                    self.modifiers,
-                    event.location,
-                ) {
-                    if send_input(&mut run.app, Input::Key(key, mods)) {
-                        run.window.request_redraw();
-                    }
-                } else if let Some(text) = event.text.as_deref()
-                    && !self.modifiers.super_key()
-                    && text.chars().count() > 1
-                    && send_input(&mut run.app, Input::Text(text))
+            WindowEvent::Resized(_) | WindowEvent::Ime(_) | WindowEvent::Focused(_) => {
+                if let Some(run) = &mut self.state
+                    && apply_window_event(
+                        &mut run.app,
+                        &event,
+                        &mut self.ime,
+                        &mut WindowSink(&run.window),
+                    )
                 {
                     run.window.request_redraw();
                 }
+            }
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                self.on_key(event_loop, &event);
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = pointer_pixels(position.x, position.y);
@@ -458,15 +539,86 @@ impl ApplicationHandler for Host {
                     run.window.request_redraw();
                 }
             }
-            WindowEvent::Focused(focused) => {
-                if let Some(run) = &mut self.state {
-                    run.app.set_focused(focused);
-                    run.window.request_redraw();
-                }
-            }
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {}
         }
+    }
+}
+
+impl ApplicationHandler for Host {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_some() {
+            return;
+        }
+        let attributes = Window::default_attributes()
+            .with_title(crate::APP_NAME)
+            .with_inner_size(winit::dpi::LogicalSize::new(
+                f64::from(self.config.size.0),
+                f64::from(self.config.size.1),
+            ));
+        let window = match event_loop.create_window(attributes) {
+            Ok(w) => Rc::new(w),
+            Err(e) => return self.fail(event_loop, format!("no window: {e}")),
+        };
+        let context = match softbuffer::Context::new(window.clone()) {
+            Ok(c) => c,
+            Err(e) => return self.fail(event_loop, format!("no display context: {e}")),
+        };
+        let surface = match softbuffer::Surface::new(&context, window.clone()) {
+            Ok(s) => s,
+            Err(e) => return self.fail(event_loop, format!("no surface: {e}")),
+        };
+        window.set_ime_allowed(true);
+        let size = window.inner_size();
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a scale factor is a small positive number"
+        )]
+        let scale = self
+            .config
+            .scale
+            .unwrap_or_else(|| window.scale_factor().round().max(1.0) as u32);
+        let (program, arguments) = match self.config.command.split_first() {
+            Some((p, a)) => (p.clone(), a.to_vec()),
+            None => (default_shell(), Vec::new()),
+        };
+        match App::start(
+            (self.config.layer)(),
+            &program,
+            &arguments,
+            scale,
+            size.width,
+            size.height,
+        ) {
+            Ok(mut app) => {
+                app.use_settings(self.config.notifications);
+                app.use_images(self.config.images);
+                // The user's look, then the system's appearance, if it says;
+                // light until it does.
+                app.set_theme_choice(self.config.theme);
+                app.set_appearance(appearance(window.theme()));
+                if let Err(e) = app.set_fonts(&self.config.fonts) {
+                    eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
+                }
+                window.request_redraw();
+                // A menu that cannot be built leaves the shortcuts working.
+                #[cfg(target_os = "macos")]
+                let menu = crate::menu::MenuBar::install().ok();
+                self.state = Some(Running {
+                    window,
+                    surface,
+                    app,
+                    #[cfg(target_os = "macos")]
+                    _menu: menu,
+                });
+            }
+            Err(e) => self.fail(event_loop, e.to_string()),
+        }
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        self.handle_window_event(event_loop, id, event);
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -526,6 +678,7 @@ pub fn run(config: Config) -> Result<(), String> {
         started: Instant::now(),
         error: None,
         pointer: (0, 0),
+        ime: ImeFollower::default(),
     };
     event_loop
         .run_app(&mut host)
