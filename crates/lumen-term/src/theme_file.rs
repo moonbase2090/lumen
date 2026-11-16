@@ -62,7 +62,7 @@ impl std::fmt::Display for Refused {
 /// The value without a comment after it. Every value is a quoted string, so a
 /// `#` after its closing quote starts a comment; the `#` inside a colour does
 /// not. Anything else after the string is left on, and refuses the line.
-fn uncommented(value: &str) -> &str {
+pub(crate) fn uncommented(value: &str) -> &str {
     let Some(end) = value.strip_prefix('"').and_then(|v| v.find('"')) else {
         return value;
     };

@@ -54,6 +54,7 @@ pub mod reply;
 #[cfg(target_os = "linux")]
 pub mod seal;
 pub mod session;
+pub mod settings;
 pub mod strip;
 pub mod theme_file;
 mod writer;
