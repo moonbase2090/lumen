@@ -51,6 +51,7 @@ pub mod policy;
 mod pty;
 pub mod raster;
 pub mod reply;
+pub mod scroll;
 #[cfg(target_os = "linux")]
 pub mod seal;
 pub mod session;
@@ -70,5 +71,6 @@ pub use layout::{
 pub use modes::{Changes, KeyModes, ModeTracker};
 pub use pty::SpawnError;
 pub use raster::{Frame, Renderer, Theme, Window, wrap_text};
+pub use scroll::Scroll;
 pub use session::Session;
 pub use strip::Strip;
