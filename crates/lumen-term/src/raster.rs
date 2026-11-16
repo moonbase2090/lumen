@@ -41,6 +41,9 @@ const SUBPIXELS: usize = 64;
 const SUBPIXELS_F: f32 = 64.0;
 /// Pixel size of the face at scale 1.
 pub const BASE_PX: f32 = 14.0;
+/// Pixels of padding, at scale 1, between the gutter's divider and the text
+/// column. It is scaled with the render scale, so it follows zoom and DPI.
+pub const GUTTER_PAD_PX: u32 = 6;
 /// The label every rich block's container carries.
 pub const CONTAINER_LABEL: &str = "unverified output";
 pub use crate::image_draw::IMAGE_MAX_ROWS;
@@ -220,6 +223,13 @@ impl Renderer {
     #[must_use]
     pub fn fonts(&self) -> &Fonts {
         &self.fonts
+    }
+
+    /// Pixels between the gutter's divider and the text column: the space the
+    /// window is wider than its cells by.
+    #[must_use]
+    pub fn gutter_pad(&self) -> u32 {
+        GUTTER_PAD_PX * self.scale
     }
 
     /// The render scale.
@@ -628,6 +638,26 @@ impl Renderer {
         }
     }
 
+    /// The pixel box `(x, y, w, h)` of a layout rectangle. What lies right of
+    /// the gutter is moved right by the gutter padding, so the text column
+    /// starts clear of the divider; the header runs on to the window's edge.
+    fn rect_px(&self, r: &Rect) -> (u32, u32, u32, u32) {
+        let pad = self.gutter_pad();
+        let edge = |col: u32| col * self.cell_w + if col > GUTTER_COLUMNS { pad } else { 0 };
+        let left = if r.x >= GUTTER_COLUMNS {
+            r.x * self.cell_w + pad
+        } else {
+            r.x * self.cell_w
+        };
+        let right = edge(r.x + r.w);
+        (
+            left,
+            r.y * self.cell_h,
+            right.saturating_sub(left),
+            r.h * self.cell_h,
+        )
+    }
+
     /// Copy `src` into `frame` with its top left at `x`, `y`. `src` is the
     /// whole of one region, so what was painted into it cannot reach outside.
     fn blit(frame: &mut Frame, src: &Frame, x: u32, y: u32) {
@@ -680,16 +710,9 @@ impl Renderer {
             win.editor_rows,
             newest.map(|s| (s.open, s.count())),
         );
-        let px = |r: &Rect| {
-            (
-                r.x * self.cell_w,
-                r.y * self.cell_h,
-                r.w * self.cell_w,
-                r.h * self.cell_h,
-            )
-        };
+        let px = |r: &Rect| self.rect_px(r);
         let mut frame = Frame::new(
-            (win.cols * self.cell_w).max(1),
+            (win.cols * self.cell_w + self.gutter_pad()).max(1),
             (win.rows * self.cell_h).max(1),
             t.background,
         );
@@ -775,7 +798,7 @@ impl Renderer {
         }
         self.text_line(
             &mut frame,
-            self.cell_w * GUTTER_COLUMNS.min(win.cols),
+            self.cell_w * GUTTER_COLUMNS.min(win.cols) + self.gutter_pad(),
             0,
             MARGIN_LABEL,
             t.margin_text,
@@ -815,12 +838,7 @@ impl Renderer {
     pub fn toast_at(&self, win: &Window, toasts: &[Toast], x: u32, y: u32) -> Option<usize> {
         let lay = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
         let note = notification_area(&lay);
-        let (nx, ny, nw, nh) = (
-            note.x * self.cell_w,
-            note.y * self.cell_h,
-            note.w * self.cell_w,
-            note.h * self.cell_h,
-        );
+        let (nx, ny, nw, nh) = self.rect_px(&note);
         if nw == 0 || x < nx || x >= nx + nw {
             return None;
         }

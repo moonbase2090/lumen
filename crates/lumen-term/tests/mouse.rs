@@ -56,7 +56,8 @@ fn start(modes: &str) -> App {
 fn at(app: &App, col: u32, row: u32) -> (u32, u32) {
     let (cw, ch) = (8, app.cell_height());
     (
-        (GUTTER_COLUMNS + col) * cw + 1,
+        // The text column starts the gutter padding (6 px at scale 1) right of the gutter.
+        (GUTTER_COLUMNS + col) * cw + 6 + 1,
         (HEADER_ROWS + row) * ch + 1,
     )
 }
