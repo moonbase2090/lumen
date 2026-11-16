@@ -3,12 +3,18 @@
 
 #![cfg(all(unix, feature = "window"))]
 
+use lumen_term::actions::Action;
 use lumen_term::app::{cells_for, window_for};
-use lumen_term::host::{Input, ime_area_if_changed, ime_event, map_key_for, send_input};
+use lumen_term::clipboard::Clipboard;
+use lumen_term::host::{
+    ImeFollower, ImeRect, ImeSink, Input, apply_window_event, ime_event, map_key_for,
+    perform_action, send_input,
+};
 use lumen_term::raster::GUTTER_PAD_PX;
 use lumen_term::{App, Block, GUTTER_COLUMNS, Key, Mods, Passthrough};
 use std::time::{Duration, Instant};
-use winit::event::Ime;
+use winit::dpi::PhysicalSize;
+use winit::event::{Ime, WindowEvent};
 use winit::keyboard::{Key as W, ModifiersState, NamedKey};
 
 fn text(app: &App) -> String {
@@ -156,31 +162,69 @@ fn the_candidate_window_is_placed_at_the_editor_text_column_and_covers_the_preed
     );
 }
 
+/// What the system's input method has been told: every rectangle the host gave it.
+#[derive(Default)]
+struct Told(Vec<ImeRect>);
+
+impl ImeSink for Told {
+    fn set_area(&mut self, area: ImeRect) {
+        self.0.push(area);
+    }
+}
+
+struct NoClipboard;
+
+impl Clipboard for NoClipboard {
+    fn text(&self) -> Option<String> {
+        None
+    }
+}
+
 #[test]
-fn the_candidate_rectangle_is_given_again_when_the_window_or_text_changes() {
+fn the_system_is_told_the_candidate_rectangle_again_when_events_move_it() {
     let mut app = start_hex();
-    let mut last = None;
-    let first = ime_area_if_changed(&app, &mut last);
-    assert_eq!(first, Some(app.ime_area()), "the first rectangle is given");
-    assert_eq!(ime_area_if_changed(&app, &mut last), None, "nothing moved");
-    assert!(app.resize(800, 500).is_ok());
-    let resized = ime_area_if_changed(&app, &mut last);
-    assert!(
-        resized.is_some() && resized != first,
-        "a resize moves the editor row"
+    let (mut ime, mut told) = (ImeFollower::default(), Told::default());
+    let mut event = |app: &mut App, told: &mut Told, e: WindowEvent| {
+        apply_window_event(app, &e, &mut ime, told)
+    };
+    event(&mut app, &mut told, WindowEvent::Focused(true));
+    assert_eq!(told.0, vec![app.ime_area()], "the first rectangle is given");
+    let first = app.ime_area();
+
+    let size = |w, h| WindowEvent::Resized(PhysicalSize::new(w, h));
+    event(&mut app, &mut told, size(800, 500));
+    assert_eq!(told.0.len(), 2, "a resize moves the editor row");
+    assert_eq!(told.0[1], app.ime_area());
+    assert_ne!(told.0[1], first);
+    event(&mut app, &mut told, size(800, 500));
+    assert_eq!(told.0.len(), 2, "the same size again moves nothing");
+
+    event(
+        &mut app,
+        &mut told,
+        WindowEvent::Ime(Ime::Preedit("あ".into(), None)),
     );
-    assert_eq!(ime_area_if_changed(&app, &mut last), None);
-    assert!(app.set_scale(2).is_ok());
+    assert_eq!(told.0.len(), 3, "the composing text widens the area");
+    assert_eq!(told.0[2], app.ime_area());
+    event(&mut app, &mut told, WindowEvent::Focused(false));
+    assert_eq!(told.0.len(), 4, "losing focus drops the composition");
+    assert_eq!(told.0[3].2, told.0[1].2, "back to one cell wide");
+}
+
+#[test]
+fn a_zoom_tells_the_system_where_the_candidate_window_moved() {
+    let mut app = start_hex();
+    let (mut ime, mut told) = (ImeFollower::default(), Told::default());
+    apply_window_event(&mut app, &WindowEvent::Focused(true), &mut ime, &mut told);
+    let before = app.scale();
+    perform_action(&mut app, Action::ZoomIn, &NoClipboard, &mut ime, &mut told);
+    assert!(app.scale() > before, "the zoom changed the scale");
+    assert_eq!(told.0.len(), 2);
+    assert_eq!(told.0[1], app.ime_area());
     assert!(
-        ime_area_if_changed(&app, &mut last).is_some(),
-        "a zoom moves it"
+        told.0[1].0 > told.0[0].0,
+        "a bigger gutter and padding move the text column right"
     );
-    app.set_preedit("あ", None);
-    assert!(
-        ime_area_if_changed(&app, &mut last).is_some(),
-        "the preedit widens it"
-    );
-    assert_eq!(ime_area_if_changed(&app, &mut last), None);
 }
 
 #[test]

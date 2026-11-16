@@ -4,7 +4,7 @@
 
 use crate::actions::{self, Action, Platform};
 use crate::app::{App, Outcome};
-use crate::clipboard::SystemClipboard;
+use crate::clipboard::{Clipboard, SystemClipboard};
 use crate::design::Appearance;
 use crate::keys::{Key, Mods};
 use crate::layer::Layer;
@@ -218,17 +218,81 @@ pub fn ime_event(app: &mut App, event: &Ime) -> bool {
 /// The candidate window's rectangle: `(x, y, width, height)` in pixels.
 pub type ImeRect = (u32, u32, u32, u32);
 
-/// The input method's candidate rectangle when it differs from `last`, which
-/// then holds it. It moves with the window size, the render scale and the text
-/// being composed, so the host asks again after any event, not only an input
-/// method one.
-pub fn ime_area_if_changed(app: &App, last: &mut Option<ImeRect>) -> Option<ImeRect> {
-    let now = app.ime_area();
-    if *last == Some(now) {
-        return None;
+/// Where the candidate rectangle goes: the window, which hands it to the system.
+pub trait ImeSink {
+    /// The input method's candidate window should now sit at `area`.
+    fn set_area(&mut self, area: ImeRect);
+}
+
+/// Keeps the system's candidate rectangle where the app says it is. The
+/// rectangle moves with the window size, the render scale and the text being
+/// composed, so it is checked after every event that can change them, and given
+/// to the sink only when it differs from what the sink already has.
+#[derive(Debug, Default)]
+pub struct ImeFollower {
+    last: Option<ImeRect>,
+}
+
+impl ImeFollower {
+    /// Give `sink` the app's candidate rectangle if it changed. Returns whether it did.
+    pub fn follow(&mut self, app: &App, sink: &mut dyn ImeSink) -> bool {
+        let now = app.ime_area();
+        if self.last == Some(now) {
+            return false;
+        }
+        self.last = Some(now);
+        sink.set_area(now);
+        true
     }
-    *last = Some(now);
-    Some(now)
+}
+
+/// Apply a window event that changes the app's size, focus or composition, then
+/// keep the candidate rectangle with it. Returns whether the window must draw
+/// again. Other events do nothing here.
+pub fn apply_window_event(
+    app: &mut App,
+    event: &WindowEvent,
+    ime: &mut ImeFollower,
+    sink: &mut dyn ImeSink,
+) -> bool {
+    let redraw = match event {
+        WindowEvent::Resized(PhysicalSize { width, height }) => app.resize(*width, *height).is_ok(),
+        WindowEvent::Ime(event) => ime_event(app, event),
+        WindowEvent::Focused(focused) => {
+            app.set_focused(*focused);
+            if !*focused {
+                app.clear_preedit();
+            }
+            false
+        }
+        _ => false,
+    };
+    ime.follow(app, sink);
+    redraw
+}
+
+/// Do a window action (a zoom changes the cell size), then keep the candidate
+/// rectangle with it.
+pub fn perform_action(
+    app: &mut App,
+    action: Action,
+    clipboard: &dyn Clipboard,
+    ime: &mut ImeFollower,
+    sink: &mut dyn ImeSink,
+) -> Outcome {
+    let outcome = app.perform(action, clipboard);
+    ime.follow(app, sink);
+    outcome
+}
+
+/// The window as an [`ImeSink`].
+struct WindowSink<'a>(&'a Window);
+
+impl ImeSink for WindowSink<'_> {
+    fn set_area(&mut self, (x, y, w, h): ImeRect) {
+        self.0
+            .set_ime_cursor_area(PhysicalPosition::new(x, y), PhysicalSize::new(w, h));
+    }
 }
 
 /// Send `input` to the program. Returns whether the window must draw again
@@ -290,8 +354,8 @@ struct Host {
     error: Option<String>,
     /// The pointer's last position in pixels.
     pointer: (u32, u32),
-    /// The candidate rectangle last given to the system.
-    ime_rect: Option<ImeRect>,
+    /// Keeps the system's candidate rectangle with the app.
+    ime: ImeFollower,
 }
 
 impl Host {
@@ -345,7 +409,14 @@ impl Host {
     /// Do one of the window's own actions, from a menu item or a shortcut.
     fn act(&mut self, event_loop: &ActiveEventLoop, action: Action) {
         let Some(run) = &mut self.state else { return };
-        match run.app.perform(action, &SystemClipboard) {
+        let outcome = perform_action(
+            &mut run.app,
+            action,
+            &SystemClipboard,
+            &mut self.ime,
+            &mut WindowSink(&run.window),
+        );
+        match outcome {
             Outcome::Exit => event_loop.exit(),
             Outcome::Redraw => run.window.request_redraw(),
             Outcome::Nothing | Outcome::Refused => {}
@@ -387,23 +458,6 @@ impl Host {
             run.window.request_redraw();
         }
     }
-
-    /// Apply an input method event.
-    fn on_ime(&mut self, ime: &Ime) {
-        let Some(run) = &mut self.state else { return };
-        if ime_event(&mut run.app, ime) {
-            run.window.request_redraw();
-        }
-    }
-
-    /// Give the system the candidate rectangle again when it has moved.
-    fn sync_ime_area(&mut self) {
-        let Some(run) = &self.state else { return };
-        if let Some((x, y, w, h)) = ime_area_if_changed(&run.app, &mut self.ime_rect) {
-            run.window
-                .set_ime_cursor_area(PhysicalPosition::new(x, y), PhysicalSize::new(w, h));
-        }
-    }
 }
 
 impl Host {
@@ -417,18 +471,21 @@ impl Host {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
-            WindowEvent::Resized(PhysicalSize { width, height }) => {
-                if let Some(run) = &mut self.state {
-                    let resized = run.app.resize(width, height).is_ok();
-                    if resized {
-                        run.window.request_redraw();
-                    }
+            WindowEvent::Resized(_) | WindowEvent::Ime(_) | WindowEvent::Focused(_) => {
+                if let Some(run) = &mut self.state
+                    && apply_window_event(
+                        &mut run.app,
+                        &event,
+                        &mut self.ime,
+                        &mut WindowSink(&run.window),
+                    )
+                {
+                    run.window.request_redraw();
                 }
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 self.on_key(event_loop, &event);
             }
-            WindowEvent::Ime(ime) => self.on_ime(&ime),
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = pointer_pixels(position.x, position.y);
                 let held = self.held();
@@ -479,14 +536,6 @@ impl Host {
                     && run.app.set_appearance(appearance(Some(theme)))
                 {
                     run.window.request_redraw();
-                }
-            }
-            WindowEvent::Focused(focused) => {
-                if let Some(run) = &mut self.state {
-                    run.app.set_focused(focused);
-                    if !focused {
-                        run.app.clear_preedit();
-                    }
                 }
             }
             WindowEvent::RedrawRequested => self.redraw(),
@@ -569,7 +618,6 @@ impl ApplicationHandler for Host {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         self.handle_window_event(event_loop, id, event);
-        self.sync_ime_area();
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -629,7 +677,7 @@ pub fn run(config: Config) -> Result<(), String> {
         started: Instant::now(),
         error: None,
         pointer: (0, 0),
-        ime_rect: None,
+        ime: ImeFollower::default(),
     };
     event_loop
         .run_app(&mut host)
