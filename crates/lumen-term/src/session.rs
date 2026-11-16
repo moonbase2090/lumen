@@ -107,7 +107,7 @@ impl Session {
             pty,
             clock: Instant::now(),
             #[cfg(feature = "colour-replies")]
-            replies: Replies::new(Theme::light()),
+            replies: Replies::new(crate::design::theme()),
             // The program inherits this environment, so these are the layer's.
             tmux_or_screen: std::env::var_os("TMUX").is_some() || std::env::var_os("STY").is_some(),
         }
@@ -262,6 +262,14 @@ impl Session {
     /// The local `images` setting: `false` always shows the alt text.
     pub fn set_images_setting(&mut self, on: bool) {
         self.document.set_images_setting(on);
+    }
+
+    /// The key modes the program has set: application cursor keys and keypad.
+    /// Each grid block records what it changed; they are folded in order, so a
+    /// mode survives a rich block between two grid blocks.
+    #[must_use]
+    pub fn key_modes(&self) -> crate::modes::KeyModes {
+        crate::modes::key_modes_of(self.document.blocks())
     }
 
     /// Milliseconds since the session started: the clock the notifier uses.

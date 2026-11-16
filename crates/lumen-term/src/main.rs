@@ -7,6 +7,7 @@
 use lumen_term::App;
 use lumen_term::cli::{Options, USAGE};
 use lumen_term::policy::Policy;
+use lumen_term::settings::{Look, Settings};
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -30,7 +31,7 @@ fn command(o: &Options) -> (String, Vec<String>) {
     }
 }
 
-fn snapshot(o: &Options, policy: &Policy, path: &str) -> Result<(), String> {
+fn snapshot(o: &Options, policy: &Policy, look: &Look, path: &str) -> Result<(), String> {
     let (program, arguments) = command(o);
     let mut app = App::start(
         layer(),
@@ -43,6 +44,9 @@ fn snapshot(o: &Options, policy: &Policy, path: &str) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     app.use_settings(policy.settings());
     app.use_images(policy.images());
+    // There is no system appearance without a window: the light one stands.
+    app.set_theme_choice(look.theme);
+    app.set_fonts(&look.fonts).map_err(|e| e.to_string())?;
     let end = Instant::now() + o.wait;
     while Instant::now() < end && !app.has_exited() {
         app.pump();
@@ -61,7 +65,7 @@ fn snapshot(o: &Options, policy: &Policy, path: &str) -> Result<(), String> {
 }
 
 #[cfg(feature = "window")]
-fn window(o: &Options, policy: &Policy) -> Result<(), String> {
+fn window(o: &Options, policy: &Policy, look: &Look) -> Result<(), String> {
     lumen_term::host::run(lumen_term::host::Config {
         layer: Box::new(layer),
         command: o.command.clone(),
@@ -70,12 +74,44 @@ fn window(o: &Options, policy: &Policy) -> Result<(), String> {
         exit_after: o.exit_after,
         notifications: policy.settings(),
         images: policy.images(),
+        theme: look.theme,
+        fonts: look.fonts.clone(),
     })
 }
 
 #[cfg(not(feature = "window"))]
-fn window(_: &Options, _: &Policy) -> Result<(), String> {
+fn window(_: &Options, _: &Policy, _: &Look) -> Result<(), String> {
     Err("this build has no window: build with --features window, or use --snapshot".into())
+}
+
+fn describe_settings(settings: &Settings, look: &Look) -> String {
+    let source = match settings {
+        Settings::Defaults => "no file; the defaults apply".to_owned(),
+        Settings::Loaded { path, .. } => path.display().to_string(),
+        Settings::Ignored { .. } => settings.notice().unwrap_or_default(),
+    };
+    let s = settings.look();
+    let face = |f: &lumen_term::settings::FontSetting| match f {
+        lumen_term::settings::FontSetting::Bundled => "bundled".to_owned(),
+        lumen_term::settings::FontSetting::File(p) => p.display().to_string(),
+    };
+    let theme = match &s.theme {
+        lumen_term::settings::ThemeSetting::System => "system".to_owned(),
+        lumen_term::settings::ThemeSetting::Builtin(b) => b.name().to_owned(),
+        lumen_term::settings::ThemeSetting::File(p) => p.display().to_string(),
+    };
+    let mut out = format!(
+        "settings: {source}\ntheme={theme} mono_font={} mono_size={} prose_font={} prose_size={}",
+        face(&s.mono_font),
+        look.fonts.mono_px(),
+        face(&s.prose_font),
+        look.fonts.prose_px()
+    );
+    for notice in &look.notices {
+        out.push('\n');
+        out.push_str(notice);
+    }
+    out
 }
 
 fn describe(policy: &Policy) -> String {
@@ -116,9 +152,18 @@ fn main() -> ExitCode {
     if let Some(notice) = policy.notice() {
         eprintln!("bright: {notice}");
     }
+    let settings = lumen_term::settings::load();
+    let look = settings.look().resolve();
+    if options.show_settings {
+        println!("{}", describe_settings(&settings, &look));
+        return ExitCode::SUCCESS;
+    }
+    for notice in settings.notice().iter().chain(&look.notices) {
+        eprintln!("bright: {notice}");
+    }
     let result = match &options.snapshot {
-        Some(path) => snapshot(&options, &policy, path),
-        None => window(&options, &policy),
+        Some(path) => snapshot(&options, &policy, &look, path),
+        None => window(&options, &policy, &look),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

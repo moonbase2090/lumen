@@ -210,9 +210,20 @@ fn random_streams() -> Vec<(String, Vec<u8>)> {
     out
 }
 
+/// The pixel box of a rectangle of cells, worked out here and not by the
+/// renderer: everything right of the gutter is moved right by the padding, and
+/// the header runs on to the window's edge.
 fn px(r: &Renderer, rect: &Rect) -> (u32, u32, u32, u32) {
     let (cw, ch) = r.cell();
-    (rect.x * cw, rect.y * ch, rect.w * cw, rect.h * ch)
+    let pad = r.gutter_pad();
+    let gutter = lumen_term::GUTTER_COLUMNS;
+    let at = |col: u32| col * cw + if col > gutter { pad } else { 0 };
+    let left = if rect.x >= gutter {
+        rect.x * cw + pad
+    } else {
+        rect.x * cw
+    };
+    (left, rect.y * ch, at(rect.x + rect.w) - left, rect.h * ch)
 }
 
 /// Pixels that differ between two frames inside `rect` (in cells).
@@ -330,7 +341,10 @@ fn the_frame_size_and_the_baseline_do_not_depend_on_the_input() {
             let base = r.render_window(&doc_for(win), win);
             assert_eq!(
                 (base.width, base.height),
-                ((win.cols * cw).max(1), (win.rows * ch).max(1))
+                (
+                    (win.cols * cw + r.gutter_pad()).max(1),
+                    (win.rows * ch).max(1)
+                )
             );
             for (name, bytes) in adversarial() {
                 let f = render(&r, win, &bytes, true, false);
@@ -402,14 +416,32 @@ fn toasts_with_hostile_text_stay_out_of_the_margin_and_the_editor() {
 
 #[test]
 fn the_oracle_fails_when_content_reaches_the_margin() {
-    // Content painted straight into the gutter, which is what the gate forbids.
+    // Content painted straight into each part, which is what the gate forbids.
     let r = renderer(1);
     let win = &WINDOWS[0];
     let base = r.render_window(&doc_for(win), win);
-    let mut tampered = base.clone();
     let lay = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
-    let (x, y, _, _) = px(&r, &lay.margin[0]);
-    tampered.fill(x, y + 40, 3, 3, [255, 0, 0]);
-    assert_eq!(changed(&r, &base, &tampered, &lay.margin[0]), 9);
-    assert_eq!(changed(&r, &base, &tampered, &lay.margin[1]), 0);
+    let damage = |rect: &Rect, dx: u32, dy: u32| {
+        let (x, y, w, h) = px(&r, rect);
+        let mut tampered = base.clone();
+        // `dx`, `dy` count from the top left, or from the bottom right when
+        // `u32::MAX`, so the last pixels of a part are tried as well.
+        let x = if dx == u32::MAX { x + w - 3 } else { x + dx };
+        let y = if dy == u32::MAX { y + h - 3 } else { y + dy };
+        tampered.fill(x, y, 3, 3, [255, 0, 0]);
+        tampered
+    };
+    let gutter = damage(&lay.margin[0], 0, 40);
+    assert_eq!(changed(&r, &base, &gutter, &lay.margin[0]), 9);
+    assert_eq!(changed(&r, &base, &gutter, &lay.margin[1]), 0);
+    // The last pixels of the header strip, in the padded part past the cells.
+    let header = damage(&lay.margin[1], u32::MAX, 0);
+    assert_eq!(changed(&r, &base, &header, &lay.margin[1]), 9);
+    assert_eq!(changed(&r, &base, &header, &lay.editor), 0);
+    // The first and the last pixels of the editor, either side of the padding.
+    let first = damage(&lay.editor, 0, 0);
+    assert_eq!(changed(&r, &base, &first, &lay.editor), 9);
+    assert_eq!(changed(&r, &base, &first, &lay.margin[0]), 0);
+    let last = damage(&lay.editor, u32::MAX, u32::MAX);
+    assert_eq!(changed(&r, &base, &last, &lay.editor), 9);
 }

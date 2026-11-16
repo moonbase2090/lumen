@@ -58,10 +58,14 @@ const IMAGE_PATH_SOURCES: &[&str] = &[
 ];
 
 /// The terminal's image path outside the decoder crate, relative to the
-/// workspace root: the frame parser, the layer that lets the frames through, and
-/// the terminal's use of the image manager (the host, the document that places
-/// the image, and the drawing of its pixels). A change to any of them changes
-/// the image-path identity, so the gate has not passed for the new build.
+/// workspace root: the frame parser, the layer that lets the frames through, the
+/// terminal's use of the image manager (the host and the document that places
+/// the image), and the two modules that read decoded pixels for drawing: the
+/// image drawing itself (`image_draw.rs`: the size an image is drawn at and the
+/// blit) and the pixel buffer it writes into (`frame.rs`). A change to any of
+/// them changes the image-path identity, so the gate has not passed for the new
+/// build. Text layout, fonts and the theme (`raster.rs`) never see decoded
+/// pixels and are not in it.
 const IMAGE_PATH_OTHER: &[&str] = &[
     "crates/lumen-track0/src/lib.rs",
     "crates/lumen-track0/Cargo.toml",
@@ -69,7 +73,8 @@ const IMAGE_PATH_OTHER: &[&str] = &[
     "crates/lumen-term/src/images.rs",
     "crates/lumen-term/src/document.rs",
     "crates/lumen-term/src/layer.rs",
-    "crates/lumen-term/src/raster.rs",
+    "crates/lumen-term/src/frame.rs",
+    "crates/lumen-term/src/image_draw.rs",
     "crates/lumen-term/Cargo.toml",
     "crates/lumen-term/build.rs",
     "crates/lumen-term/build_support/gate.rs",

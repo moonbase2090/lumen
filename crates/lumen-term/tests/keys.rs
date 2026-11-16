@@ -1,7 +1,7 @@
 //! Keys to bytes.
 
-use lumen_term::keys::bytes;
-use lumen_term::{Key, Mods};
+use lumen_term::keys::{bytes, bytes_in};
+use lumen_term::{Key, KeyModes, Mods};
 
 const NONE: Mods = Mods {
     ctrl: false,
@@ -106,4 +106,72 @@ fn function_keys() {
     assert_eq!(bytes(Key::F(5), CTRL), b"\x1b[15;5~");
     assert_eq!(bytes(Key::F(0), NONE), Vec::<u8>::new());
     assert_eq!(bytes(Key::F(13), NONE), Vec::<u8>::new());
+}
+
+const CURSOR_APP: KeyModes = KeyModes {
+    cursor_app: true,
+    keypad_app: false,
+};
+const KEYPAD_APP: KeyModes = KeyModes {
+    cursor_app: false,
+    keypad_app: true,
+};
+
+#[test]
+fn application_cursor_keys_use_ss3_until_a_modifier() {
+    for (key, plain, app) in [
+        (Key::Up, &b"\x1b[A"[..], &b"\x1bOA"[..]),
+        (Key::Down, b"\x1b[B", b"\x1bOB"),
+        (Key::Right, b"\x1b[C", b"\x1bOC"),
+        (Key::Left, b"\x1b[D", b"\x1bOD"),
+        (Key::Home, b"\x1b[H", b"\x1bOH"),
+        (Key::End, b"\x1b[F", b"\x1bOF"),
+    ] {
+        assert_eq!(
+            bytes_in(key, NONE, KeyModes::default()),
+            plain,
+            "{key:?} off"
+        );
+        assert_eq!(bytes_in(key, NONE, CURSOR_APP), app, "{key:?} on");
+    }
+    // A modifier keeps the CSI form in both modes.
+    assert_eq!(bytes_in(Key::Left, CTRL, CURSOR_APP), b"\x1b[1;5D");
+    assert_eq!(bytes_in(Key::Up, SHIFT, CURSOR_APP), b"\x1b[1;2A");
+    // The editing keys and the keypad mode do not move with DECCKM.
+    assert_eq!(bytes_in(Key::Delete, NONE, CURSOR_APP), b"\x1b[3~");
+    assert_eq!(bytes_in(Key::PageUp, NONE, CURSOR_APP), b"\x1b[5~");
+    assert_eq!(bytes_in(Key::Up, NONE, KEYPAD_APP), b"\x1b[A");
+}
+
+#[test]
+fn keypad_keys_in_both_modes() {
+    for (c, app) in [
+        ('0', b'p'),
+        ('5', b'u'),
+        ('9', b'y'),
+        ('*', b'j'),
+        ('+', b'k'),
+        (',', b'l'),
+        ('-', b'm'),
+        ('.', b'n'),
+        ('/', b'o'),
+        ('=', b'X'),
+    ] {
+        let mut want = c.to_string().into_bytes();
+        assert_eq!(bytes_in(Key::Keypad(c), NONE, KeyModes::default()), want);
+        want = vec![0x1b, b'O', app];
+        assert_eq!(bytes_in(Key::Keypad(c), NONE, KEYPAD_APP), want, "{c}");
+        // Application cursor keys do not change the keypad.
+        assert_eq!(
+            bytes_in(Key::Keypad(c), NONE, CURSOR_APP),
+            c.to_string().into_bytes()
+        );
+    }
+    assert_eq!(bytes_in(Key::KeypadEnter, NONE, KeyModes::default()), b"\r");
+    assert_eq!(bytes_in(Key::KeypadEnter, NONE, KEYPAD_APP), b"\x1bOM");
+    assert_eq!(
+        bytes_in(Key::KeypadEnter, ALT, KeyModes::default()),
+        b"\x1b\r"
+    );
+    assert_eq!(bytes_in(Key::Keypad('5'), CTRL, KEYPAD_APP), b"\x1bO5u");
 }
