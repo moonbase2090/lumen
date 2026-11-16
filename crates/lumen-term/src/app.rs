@@ -62,6 +62,20 @@ pub struct App {
     mouse: Reporter,
     theme_choice: ThemeChoice,
     appearance: Appearance,
+    preedit: Option<Preedit>,
+}
+
+/// The longest preedit, in characters, the app keeps. An input method sends a
+/// few words at most; the cap keeps a misbehaving one from growing it.
+pub const PREEDIT_MAX_CHARS: usize = 256;
+
+/// Text an input method is composing and has not committed yet: it is shown to
+/// the user and sent to the program only when composition finishes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Preedit {
+    text: String,
+    /// The caret or selection inside `text`, as byte offsets.
+    cursor: Option<(usize, usize)>,
 }
 
 /// How long the notice that input was not sent stays after the last refusal.
@@ -143,6 +157,17 @@ pub fn cells_for(width: u32, height: u32, cell: (u32, u32)) -> (usize, usize) {
     (columns as usize, rows as usize)
 }
 
+/// Columns a character takes in the editor: 2 for the East Asian wide and
+/// fullwidth blocks and emoji, else 1. It only sizes the candidate window's
+/// anchor, so the blocks are the common ones, not the full width table.
+fn cell_columns(c: char) -> u32 {
+    let wide = matches!(c as u32,
+        0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF
+        | 0xFE30..=0xFE6F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6
+        | 0x1F300..=0x1F64F | 0x1F900..=0x1F9FF | 0x20000..=0x3FFFD);
+    if wide { 2 } else { 1 }
+}
+
 /// Rows of the input editor.
 pub const EDITOR_ROWS: u32 = 2;
 
@@ -216,6 +241,7 @@ impl App {
             mouse: Reporter::default(),
             theme_choice: ThemeChoice::System,
             appearance: Appearance::Light,
+            preedit: None,
         };
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
         Ok(app)
@@ -648,6 +674,75 @@ impl App {
         let sent = self.send(text.as_bytes());
         self.note_input(&sent);
         sent
+    }
+
+    /// The input method is composing `text`, with the caret or selection at
+    /// `cursor` (byte offsets into `text`). Empty text ends the composition. The
+    /// text is kept for drawing and is not sent to the program.
+    pub fn set_preedit(&mut self, text: &str, cursor: Option<(usize, usize)>) {
+        let kept: String = text
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(PREEDIT_MAX_CHARS)
+            .collect();
+        if kept.is_empty() {
+            self.preedit = None;
+            return;
+        }
+        let cursor =
+            cursor.filter(|&(a, b)| a <= b && kept.is_char_boundary(a) && kept.is_char_boundary(b));
+        self.preedit = Some(Preedit { text: kept, cursor });
+    }
+
+    /// The text being composed and its caret or selection, if a composition is
+    /// in progress.
+    #[must_use]
+    pub fn preedit(&self) -> Option<(&str, Option<(usize, usize)>)> {
+        self.preedit.as_ref().map(|p| (p.text.as_str(), p.cursor))
+    }
+
+    /// Drop any composition without sending it (focus lost, the input method
+    /// turned off, or the user cancelled).
+    pub fn clear_preedit(&mut self) {
+        self.preedit = None;
+    }
+
+    /// Composition finished with `text`: the preedit ends and the text goes to
+    /// the program once. Control characters are dropped, so a committed string
+    /// can never carry an escape sequence to the program.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error.
+    pub fn commit(&mut self, text: &str) -> std::io::Result<()> {
+        self.preedit = None;
+        let clean: String = text.chars().filter(|c| !c.is_control()).collect();
+        if clean.is_empty() {
+            return Ok(());
+        }
+        self.text(&clean)
+    }
+
+    /// Where the input method's candidate window goes, in pixels: `(x, y, width,
+    /// height)`, the editor's first row after the gutter and its padding, as wide as the text
+    /// being composed. The terminal keeps no cursor cell of its own.
+    #[must_use]
+    pub fn ime_area(&self) -> (u32, u32, u32, u32) {
+        let (cell_w, cell_h) = self.renderer.cell();
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let win = window_for(columns, rows);
+        let used = self
+            .preedit
+            .as_ref()
+            .map_or(0, |p| p.text.chars().map(cell_columns).sum::<u32>());
+        (
+            GUTTER_COLUMNS
+                .saturating_mul(cell_w)
+                .saturating_add(self.renderer.gutter_pad()),
+            win.editor_row.saturating_mul(cell_h),
+            used.max(1).saturating_mul(cell_w),
+            cell_h,
+        )
     }
 
     /// The user pasted `text`. The text is sanitised first (see [`paste::judge`]).
