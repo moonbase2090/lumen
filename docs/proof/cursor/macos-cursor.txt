@@ -1,7 +1,7 @@
 macOS cursor rendering proof
-Revision: e78176893459a6fa766ba6d9abe130338f3078a5 (the code head the binary was built from; later commits only add proof files)
+Revision: 057c5a5aab14e27abb1b4ff53e90eaa3c72cdae8 (the code head the binary was built from; later commits only add proof files)
 Host: fresh virtual machine cloned from a clean macOS image, macOS 26.6.2 arm64, logged-in desktop session, deleted after the run
-Build: cargo build --locked --release -p lumen-term --features window, inside the guest, from a git archive of that revision, with a stock rustup toolchain; binary SHA-256 42011b7e9974e72fdfe95aa87b1d12324e76a36c1d665d5bce4fab377cdb6a8a
+Build: cargo build --locked --release -p lumen-term --features window, inside the guest, from a git archive of that revision, with a stock rustup toolchain; binary SHA-256 49a583ef08fcb7e04a1845048e8b647581ed3698afa7d7dcada6f000667de949
 Program in the window: a generic shell script that writes a label and a DECSCUSR / DECTCEM sequence for each step and waits on a named pipe for the next one. The window was 900x330 at scale 2.
 How captured: screencapture inside the guest, then cropped to the window. The window was focused except where a capture says otherwise; focus was taken away by activating the Finder. The guest's one screen-recording prompt (for the capture tool run over its login session) was allowed in the guest.
 
@@ -12,6 +12,7 @@ What the captures show:
 - macos-blink-on.png and macos-blink-off.png: DECSCUSR 1 (blinking block), two captures of the same screen, with the cursor drawn and not drawn.
 - macos-hidden.png: DECTCEM off, no cursor; the text is unchanged.
 - macos-bar-unfocused.png: a bar with the window unfocused (grey title bar), drawn dimmer than the focused one.
+- macos-bar-refocused.png: the window given the focus back; the capture is identical to the focused bar (the redraw on focus gain).
 - macos-block-unfocused.png: a block with the window unfocused, drawn as an outline over an unchanged cell.
 
 Not shown here: a physical display, other macOS versions, release-signed builds, the Linux window (separate run).

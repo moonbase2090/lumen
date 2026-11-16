@@ -1,5 +1,5 @@
 Linux cursor rendering proof
-Revision: e78176893459a6fa766ba6d9abe130338f3078a5 (the code head; later commits only add proof files)
+Revision: e78176893459a6fa766ba6d9abe130338f3078a5 (an earlier code head; a Linux run at the merged code head is requested)
 Host: a throwaway Ubuntu 24.04 x86_64 virtual machine, terminated afterwards; Rust installed fresh as a throwaway user; the window shown by an X virtual framebuffer (1280x800) with a lightweight window manager, so a real window gets and loses focus.
 Build: cargo build --release -p lumen-term --features window, inside the machine; binary SHA-256 b2681249867f9c7753de0b2477affb91bf8458aef5ab2aa00b0cb1e09ead9eff
 Program in the window: sh -c "printf 'cursor test\r\n'; printf '<sequence>'; sleep 120", window 640x360, captured with import -window. Unfocused: a second window (xterm) was given the focus.
