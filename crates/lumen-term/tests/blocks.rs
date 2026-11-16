@@ -246,3 +246,16 @@ fn a_new_prompt_cycle_resets_the_producers_budget() {
         "the new cycle has budget again"
     );
 }
+
+#[test]
+fn a_pinned_layer_sends_no_bracketed_paste_even_when_the_program_asked() {
+    let mut doc = Document::new(10, 2);
+    doc.receive(&mut Passthrough, b"\x1b[?2004h", at(0));
+    assert!(lumen_term::modes::key_modes_for(&doc).bracketed_paste);
+    doc.apply(vec![Piece::Notice(Notice::Pinned)]);
+    assert!(!lumen_term::modes::key_modes_for(&doc).bracketed_paste);
+    assert!(
+        lumen_term::modes::key_modes_of(doc.blocks()).bracketed_paste,
+        "the program's own setting is kept; only the pinned layer's answer changes"
+    );
+}

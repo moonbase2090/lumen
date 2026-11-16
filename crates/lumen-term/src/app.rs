@@ -15,10 +15,23 @@ use crate::layout::{GUTTER_COLUMNS, HEADER_ROWS, STRIP_COLLAPSED_ROWS};
 use crate::mouse::{Button, Held, Reporter, Wheel};
 use crate::notify::{Desk, Notifier, OsSink, Place, Settings, Toast};
 #[cfg(feature = "links-clipboard")]
-use crate::paste::{self, Decision};
+use crate::paste::{self, Decision, Hold, Pasted, Rejection};
 use crate::pty::SpawnError;
 use crate::raster::{Frame, Renderer, Window};
 use crate::session::{MAX_COLUMNS, MAX_ROWS, Session};
+
+/// What [`App::paste`] did.
+#[cfg(feature = "links-clipboard")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PasteOutcome {
+    /// The paste was sent.
+    Sent,
+    /// The program has not enabled bracketed paste and the text has a line break
+    /// or another control: nothing was sent until the user chooses.
+    Held(Hold),
+    /// The paste was refused (it carries a frame introducer).
+    Rejected(Rejection),
+}
 
 /// What the window does after an action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -603,7 +616,8 @@ impl App {
     }
 
     /// Do `action` for the user. A paste reads `clipboard` and goes through the
-    /// paste rules: text with a line break or a control, which the terminal cannot
+    /// paste rules: it is sent bracketed if the program asked for that, and text with
+    /// a line break or a control that is not bracketed, which the terminal cannot
     /// yet ask the user about, is pasted as a single line, and text that carries
     /// a frame introducer is not pasted at all.
     #[cfg(feature = "links-clipboard")]
@@ -614,16 +628,17 @@ impl App {
                 let Some(text) = clipboard.text() else {
                     return Outcome::Nothing;
                 };
-                let to_send = match paste::judge(&text, false) {
-                    Decision::Send(p) => p.text,
-                    Decision::Hold(h) => h.single_line.text,
+                let bracketed = self.session.key_modes().bracketed_paste;
+                let pasted = match paste::judge(&text, bracketed) {
+                    Decision::Send(p) => p,
+                    Decision::Hold(h) => h.single_line,
                     Decision::Reject(_) => return Outcome::Refused,
                 };
-                if to_send.is_empty() {
+                if pasted.text.is_empty() {
                     return Outcome::Nothing;
                 }
                 // A refused write is noted for the user by `text`.
-                let _ = self.text(&to_send);
+                let _ = self.paste_chosen(&pasted);
                 Outcome::Redraw
             }
             Action::ZoomIn | Action::ZoomOut | Action::ZoomReset => {
@@ -728,6 +743,49 @@ impl App {
             used.max(1).saturating_mul(cell_w),
             cell_h,
         )
+    }
+
+    /// The user pasted `text`. The text is sanitised first (see [`paste::judge`]).
+    /// If the program has turned bracketed paste on (DECSET 2004) the text is sent
+    /// between `ESC [ 200 ~` and `ESC [ 201 ~`, as one unit, whatever its length
+    /// and line breaks. If not, a paste with a line break or another control is
+    /// not sent but returned as [`PasteOutcome::Held`], for the window to show
+    /// and for [`paste_chosen`](Self::paste_chosen) to send once the user picks.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error; the user is shown the not-sent notice.
+    #[cfg(feature = "links-clipboard")]
+    pub fn paste(&mut self, text: &str) -> std::io::Result<PasteOutcome> {
+        let bracketed = self.session.key_modes().bracketed_paste;
+        match paste::judge(text, bracketed) {
+            Decision::Reject(why) => Ok(PasteOutcome::Rejected(why)),
+            Decision::Hold(hold) => Ok(PasteOutcome::Held(hold)),
+            Decision::Send(pasted) => self.paste_chosen(&pasted).map(|()| PasteOutcome::Sent),
+        }
+    }
+
+    /// Send a paste that is already judged: the text of a [`Pasted`] the user
+    /// chose from a held paste, or one [`paste`](Self::paste) found safe. It is
+    /// bracketed if the program has asked for that.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error; the user is shown the not-sent notice.
+    #[cfg(feature = "links-clipboard")]
+    pub fn paste_chosen(&mut self, pasted: &Pasted) -> std::io::Result<()> {
+        let mut bytes = Vec::with_capacity(pasted.text.len() + 12);
+        let bracketed = self.session.key_modes().bracketed_paste;
+        if bracketed {
+            bytes.extend_from_slice(b"\x1b[200~");
+        }
+        bytes.extend_from_slice(pasted.text.as_bytes());
+        if bracketed {
+            bytes.extend_from_slice(b"\x1b[201~");
+        }
+        let sent = self.send(&bytes);
+        self.note_input(&sent);
+        sent
     }
 
     /// Write to the program, unless it has ended. Whether a write to a PTY whose
