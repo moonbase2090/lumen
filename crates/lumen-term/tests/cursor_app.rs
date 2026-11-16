@@ -107,3 +107,20 @@ fn the_cursor_goes_when_the_program_ends() {
         "the cursor of a finished program is not drawn"
     );
 }
+
+#[test]
+fn composed_or_pasted_text_brings_a_blinking_cursor_back_on() {
+    let mut app = start("stty -echo; printf 'hi\\033[1 q'; sleep 8");
+    assert!(pump_until(&mut app, blinking));
+    let on = app.view();
+    let end = Instant::now() + Duration::from_secs(3);
+    let mut off = false;
+    while Instant::now() < end && !off {
+        off = app.tick() && app.view() != on;
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(off, "the cursor went out");
+    app.text("x")
+        .unwrap_or_else(|e| unreachable!("sh reads: {e}"));
+    assert_eq!(app.view(), on, "text restarts the cycle at its on half");
+}

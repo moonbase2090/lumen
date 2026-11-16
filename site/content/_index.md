@@ -63,6 +63,8 @@ Paragraph and heading text keeps zero-width characters (ZWJ, ZWNJ and variation 
 
 The terminal's colours come from a design system with light, dark and high-contrast palettes, each checked against its own contrast floors. The window follows the system's light or dark appearance by default and switches live, with no restart. A settings file read at start chooses a fixed palette or a theme file (a built-in palette with colours changed, refused whole if any text would fall under the 3:1 visibility floor), and the face and size of monospace text and of prose. A file that cannot be used is left out with a notice and its default applies. There is no in-app picker yet.
 
+The window draws the cursor of the program's live screen as the program set it: block, underline or bar, blinking or steady, shown or hidden. A blinking cursor restarts its cycle on a key, pasted or composed text, or output, and an unfocused window draws it dimmed and steady, with a block as an outline.
+
 A budget model, `lumen-budget`, holds the numbers of the resource-limits table (the pooled document budgets with the local reserve and the producer and unsigned shares, the per-second rates and the limits on a single item, including the largest legal image of 16 megapixels) with language-neutral test vectors run against it; nothing in the terminal calls it yet, so these limits are not newly enforced. Nothing here is released. The progress is listed in the [README](https://github.com/moonbase2090/lumen#status).
 
 </section>

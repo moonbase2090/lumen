@@ -672,6 +672,9 @@ impl App {
     ///
     /// Returns the write error.
     pub fn text(&mut self, text: &str) -> std::io::Result<()> {
+        if !text.is_empty() {
+            self.cursor_epoch_ms = self.session.now_ms();
+        }
         let sent = self.send(text.as_bytes());
         self.note_input(&sent);
         sent
