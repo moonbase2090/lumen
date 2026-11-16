@@ -33,7 +33,7 @@ Each command and its output is a block, not grid scrollback. Boundaries come onl
 - OSC is limited to a small allowlist (title and colours). OSC 8, OSC 52 and OSC 133 have no protocol effect in grids.
 - The only string terminator is ESC `\` (and BEL for allowlisted OSC). Every string, including a dropped DCS/APC/PM/SOS that is being skipped, has a hard cap of 4 KiB. At the cap, the parser enters a skip state that discards bytes until ESC `\` or a grid reset and shows a "string truncated" notice. Parsing never resumes on the tail of a payload.
 - The frame introducer is never recognised by grid-mode code. Only the frame layer, outside any grid, looks for it.
-- Allowlisted OSC title text is shown only in a labelled app-title field or not at all, and never as the producer name.
+- Allowlisted OSC title text is shown only in a labelled app-title field or not at all, and never as the producer name. The window's own title bar, outside the page, counts as the app-title field when the terminal always ends it with the terminal's own name (so the text reads as the program's title and cannot stand in for the name), refuses a title that holds control characters, strips bidirectional controls, and bounds its length. The title never appears in the page, the trust margin or any trust UI.
 
 ## Grid sandbox {#grid.sandbox}
 
