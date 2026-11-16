@@ -1,0 +1,779 @@
+//! The design system: the named tokens the terminal's look is built from.
+//!
+//! Colours are named by role, not by where they are painted, so a theme is a
+//! choice of values for the same roles. There are three built-in palettes
+//! ([`Builtin`]): light, dark and high contrast. [`Palette::theme`] maps a
+//! palette onto the renderer's [`Theme`]. [`Theme::light`] stays as it was,
+//! because the pinned conditions of the pixel evidence use it.
+//!
+//! Each built-in palette keeps the [`Floors`] of its kind (the tests check
+//! them, and [`Palette::check`] reports what a palette misses):
+//!
+//! - Every text role is at least 4.5:1 against every surface it is drawn on
+//!   (WCAG AA for body text), 7:1 in high contrast. The spec's floor for a
+//!   visible run is 3:1, so no text the terminal draws in its own colours can
+//!   fall under it.
+//! - The run colour tokens of the spec (`fg`, `muted`, `accent`, `error`) map
+//!   to text roles, so they keep the same floor.
+//! - The ANSI colours a program uses for text are at least 3:1 against the
+//!   canvas and the surface (4.5:1 in high contrast). The black and white
+//!   slots that sit next to the background by convention (7 and 15 on a light
+//!   palette, 0 on a dark one) are exempt.
+//! - The control border (the editor's edge, and the edge of the container
+//!   of unverified output) is at least 3:1 against the surfaces on both of
+//!   its sides, the WCAG floor for the boundary of a control.
+//!
+//! A palette from a theme file only has to keep the spec's floor for text,
+//! 3:1 ([`Floors::USER`]), since a run under it would be hidden.
+
+use crate::frame::Rgb;
+
+/// The colour roles of the terminal's look.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Palette {
+    /// The page behind every block.
+    pub canvas: Rgb,
+    /// A raised surface: the container of a rich block and the strip.
+    pub surface: Rgb,
+    /// A sunken surface: the background of code.
+    pub sunken: Rgb,
+    /// The input editor's field.
+    pub field: Rgb,
+    /// The trust margin: the gutter and the header strip. The built-in
+    /// palettes set it to the canvas, so the margin reads as part of the page.
+    pub chrome: Rgb,
+    /// The one-pixel line on the inner edges of the trust margin, which
+    /// separates it from the content.
+    pub divider: Rgb,
+    /// Body text.
+    pub text: Rgb,
+    /// Headings.
+    pub text_strong: Rgb,
+    /// Secondary text: labels, counts, hints.
+    pub text_muted: Rgb,
+    /// The terminal's own text in the trust margin.
+    pub chrome_text: Rgb,
+    /// Links, focus and the one accent of the look.
+    pub accent: Rgb,
+    /// Errors and failed exits.
+    pub error: Rgb,
+    /// The label of unverified output: a caution, not an error.
+    pub caution: Rgb,
+    /// Edges: the input editor and the container of unverified output.
+    pub control_border: Rgb,
+    /// A toast's box.
+    pub notice: Rgb,
+    /// A toast's border.
+    pub notice_border: Rgb,
+    /// The sixteen ANSI colours of grid blocks.
+    pub ansi: [Rgb; 16],
+}
+
+impl Palette {
+    /// The built-in light look.
+    #[must_use]
+    pub const fn light() -> Self {
+        Self {
+            canvas: [255, 255, 255],
+            surface: [247, 248, 250],
+            sunken: [239, 241, 245],
+            field: [255, 255, 255],
+            chrome: [255, 255, 255],
+            divider: [222, 225, 231],
+            text: [24, 26, 32],
+            text_strong: [17, 24, 39],
+            text_muted: [88, 95, 110],
+            chrome_text: [75, 83, 99],
+            accent: [37, 84, 214],
+            error: [190, 36, 36],
+            caution: [140, 80, 0],
+            control_border: [133, 140, 154],
+            notice: [255, 249, 235],
+            notice_border: [205, 150, 40],
+            ansi: [
+                [24, 26, 32],
+                [190, 36, 36],
+                [24, 128, 56],
+                [150, 100, 0],
+                [37, 84, 214],
+                [150, 52, 178],
+                [10, 118, 136],
+                [204, 208, 216],
+                [88, 95, 110],
+                [214, 52, 52],
+                [30, 140, 62],
+                [166, 114, 0],
+                [64, 112, 232],
+                [172, 72, 196],
+                [14, 132, 150],
+                [238, 240, 244],
+            ],
+        }
+    }
+
+    /// The built-in dark look.
+    #[must_use]
+    pub const fn dark() -> Self {
+        Self {
+            canvas: [22, 24, 29],
+            surface: [30, 33, 40],
+            sunken: [36, 40, 48],
+            field: [26, 28, 34],
+            chrome: [22, 24, 29],
+            divider: [52, 57, 68],
+            text: [226, 229, 235],
+            text_strong: [243, 245, 248],
+            text_muted: [160, 167, 180],
+            chrome_text: [170, 177, 190],
+            accent: [122, 162, 255],
+            error: [255, 117, 117],
+            caution: [230, 176, 80],
+            control_border: [110, 118, 134],
+            notice: [44, 38, 24],
+            notice_border: [190, 140, 50],
+            ansi: [
+                [36, 40, 48],
+                [255, 110, 110],
+                [110, 210, 130],
+                [230, 190, 90],
+                [122, 162, 255],
+                [210, 140, 240],
+                [90, 205, 215],
+                [200, 205, 214],
+                [125, 133, 148],
+                [255, 140, 140],
+                [140, 230, 155],
+                [245, 210, 120],
+                [150, 185, 255],
+                [225, 165, 250],
+                [125, 225, 235],
+                [243, 245, 248],
+            ],
+        }
+    }
+
+    /// The built-in high-contrast look: black on white, text at 7:1 or more.
+    #[must_use]
+    pub const fn high_contrast() -> Self {
+        Self {
+            canvas: [255, 255, 255],
+            surface: [250, 250, 250],
+            sunken: [240, 240, 240],
+            field: [255, 255, 255],
+            chrome: [255, 255, 255],
+            divider: [140, 140, 140],
+            text: [0, 0, 0],
+            text_strong: [0, 0, 0],
+            text_muted: [55, 55, 55],
+            chrome_text: [30, 30, 30],
+            accent: [0, 51, 170],
+            error: [160, 0, 0],
+            caution: [100, 55, 0],
+            control_border: [0, 0, 0],
+            notice: [255, 255, 255],
+            notice_border: [0, 0, 0],
+            ansi: [
+                [0, 0, 0],
+                [160, 0, 0],
+                [0, 100, 0],
+                [110, 70, 0],
+                [0, 51, 170],
+                [120, 0, 140],
+                [0, 90, 110],
+                [200, 200, 200],
+                [60, 60, 60],
+                [190, 0, 0],
+                [0, 120, 0],
+                [130, 85, 0],
+                [0, 70, 200],
+                [140, 0, 160],
+                [0, 105, 125],
+                [245, 245, 245],
+            ],
+        }
+    }
+
+    /// Whether the canvas is dark: its luminance is under that of mid grey.
+    #[must_use]
+    pub fn is_dark(&self) -> bool {
+        luminance(self.canvas) < luminance([128, 128, 128])
+    }
+
+    /// The surfaces text is drawn on, by role name.
+    #[must_use]
+    pub const fn surfaces(&self) -> [(&'static str, Rgb); 6] {
+        [
+            ("canvas", self.canvas),
+            ("surface", self.surface),
+            ("sunken", self.sunken),
+            ("field", self.field),
+            ("chrome", self.chrome),
+            ("notice", self.notice),
+        ]
+    }
+
+    /// The text roles, by role name.
+    #[must_use]
+    pub const fn text_roles(&self) -> [(&'static str, Rgb); 7] {
+        [
+            ("text", self.text),
+            ("text_strong", self.text_strong),
+            ("text_muted", self.text_muted),
+            ("chrome_text", self.chrome_text),
+            ("accent", self.accent),
+            ("error", self.error),
+            ("caution", self.caution),
+        ]
+    }
+
+    /// What this palette misses of `floors`, one line each; empty if none.
+    #[must_use]
+    pub fn check(&self, floors: &Floors) -> Vec<String> {
+        let mut misses = Vec::new();
+        for (name, fg) in self.text_roles() {
+            for (surface, bg) in self.surfaces() {
+                let ratio = contrast(fg, bg);
+                if ratio < floors.text {
+                    misses.push(format!(
+                        "{name} on {surface} is {ratio:.2}:1, under {}:1",
+                        floors.text
+                    ));
+                }
+            }
+        }
+        if let Some(floor) = floors.ansi {
+            let exempt: &[usize] = if self.is_dark() { &[0] } else { &[7, 15] };
+            for (i, colour) in self.ansi.iter().enumerate() {
+                if exempt.contains(&i) {
+                    continue;
+                }
+                for (surface, bg) in [("canvas", self.canvas), ("surface", self.surface)] {
+                    let ratio = contrast(*colour, bg);
+                    if ratio < floor {
+                        misses.push(format!(
+                            "ANSI {i} on {surface} is {ratio:.2}:1, under {floor}:1"
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some(floor) = floors.border {
+            for (surface, bg) in [
+                ("canvas", self.canvas),
+                ("field", self.field),
+                ("surface", self.surface),
+            ] {
+                let ratio = contrast(self.control_border, bg);
+                if ratio < floor {
+                    misses.push(format!(
+                        "control_border on {surface} is {ratio:.2}:1, under {floor}:1"
+                    ));
+                }
+            }
+        }
+        if let Some(floor) = floors.divider {
+            for (surface, bg) in [("canvas", self.canvas), ("chrome", self.chrome)] {
+                let ratio = contrast(self.divider, bg);
+                if ratio < floor {
+                    misses.push(format!(
+                        "divider on {surface} is {ratio:.2}:1, under {floor}:1"
+                    ));
+                }
+            }
+        }
+        misses
+    }
+
+    /// The colour of one of the spec's run colour tokens.
+    #[must_use]
+    pub const fn run(&self, token: RunColour) -> Rgb {
+        match token {
+            RunColour::Fg => self.text,
+            RunColour::Muted => self.text_muted,
+            RunColour::Accent => self.accent,
+            RunColour::Error => self.error,
+        }
+    }
+
+    /// The renderer's theme for this palette.
+    #[must_use]
+    pub const fn theme(&self) -> Theme {
+        Theme {
+            foreground: self.text,
+            background: self.canvas,
+            ansi: self.ansi,
+            container: self.surface,
+            border: self.control_border,
+            label: self.caution,
+            code: self.sunken,
+            heading: self.text_strong,
+            margin: self.chrome,
+            divider: self.divider,
+            margin_text: self.chrome_text,
+            editor: self.field,
+            prompt: self.accent,
+            toast: self.notice,
+            toast_border: self.notice_border,
+        }
+    }
+}
+
+/// The colours of a render, by where they are painted.
+///
+/// [`Theme::light`] is the fixed theme the pinned conditions of the pixel
+/// evidence (criterion 2.3) use, kept as it was so baselines stay comparable.
+/// The terminal draws with [`theme`], the light [`Palette`] mapped by role.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Theme {
+    /// Default foreground.
+    pub foreground: Rgb,
+    /// Default background.
+    pub background: Rgb,
+    /// The sixteen ANSI colours.
+    pub ansi: [Rgb; 16],
+    /// Background of a rich block's container.
+    pub container: Rgb,
+    /// Border of a rich block's container.
+    pub border: Rgb,
+    /// The container's label.
+    pub label: Rgb,
+    /// Background of a code block.
+    pub code: Rgb,
+    /// Foreground of a heading.
+    pub heading: Rgb,
+    /// The trust margin: the gutter and the header strip. Only the terminal paints it.
+    pub margin: Rgb,
+    /// The line on the inner edges of the margin.
+    pub divider: Rgb,
+    /// The terminal's own text in the margin.
+    pub margin_text: Rgb,
+    /// The input editor.
+    pub editor: Rgb,
+    /// The editor's prompt mark.
+    pub prompt: Rgb,
+    /// A toast's box.
+    pub toast: Rgb,
+    /// A toast's border.
+    pub toast_border: Rgb,
+}
+
+impl Theme {
+    /// The light theme.
+    #[must_use]
+    pub fn light() -> Self {
+        Self {
+            foreground: [28, 28, 28],
+            background: [255, 255, 255],
+            ansi: [
+                [0, 0, 0],
+                [194, 54, 33],
+                [37, 188, 36],
+                [173, 173, 39],
+                [73, 46, 225],
+                [211, 56, 211],
+                [51, 187, 200],
+                [203, 204, 205],
+                [129, 131, 131],
+                [252, 57, 31],
+                [49, 231, 34],
+                [234, 236, 35],
+                [88, 51, 255],
+                [249, 53, 248],
+                [20, 240, 240],
+                [233, 235, 235],
+            ],
+            container: [244, 244, 244],
+            border: [176, 176, 176],
+            label: [120, 64, 0],
+            code: [232, 234, 240],
+            heading: [20, 60, 120],
+            margin: [226, 230, 238],
+            // The margin's own colour: no line, so the evidence frames stay as they were.
+            divider: [226, 230, 238],
+            margin_text: [60, 70, 90],
+            editor: [250, 250, 250],
+            prompt: [28, 28, 28],
+            toast: [255, 250, 230],
+            toast_border: [190, 150, 60],
+        }
+    }
+}
+
+/// The contrast floors a palette is held to.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Floors {
+    /// Every text role against every surface.
+    pub text: f64,
+    /// The ANSI colours used for text against the canvas and the surface;
+    /// `None` checks nothing.
+    pub ansi: Option<f64>,
+    /// The control border against the surfaces beside it; `None` checks
+    /// nothing.
+    pub border: Option<f64>,
+    /// The margin's divider against the canvas and the margin; `None` checks
+    /// nothing, since a divider may be subtle.
+    pub divider: Option<f64>,
+}
+
+impl Floors {
+    /// The built-in light and dark palettes.
+    pub const STANDARD: Self = Self {
+        text: 4.5,
+        ansi: Some(3.0),
+        border: Some(3.0),
+        divider: None,
+    };
+    /// The built-in high-contrast palette.
+    pub const HIGH_CONTRAST: Self = Self {
+        text: 7.0,
+        ansi: Some(4.5),
+        border: Some(3.0),
+        divider: Some(3.0),
+    };
+    /// A palette from a theme file: the spec's visibility floor for text.
+    pub const USER: Self = Self {
+        text: 3.0,
+        ansi: None,
+        border: None,
+        divider: None,
+    };
+}
+
+/// The built-in palettes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Builtin {
+    /// [`Palette::light`].
+    Light,
+    /// [`Palette::dark`].
+    Dark,
+    /// [`Palette::high_contrast`].
+    HighContrast,
+}
+
+impl Builtin {
+    /// Every built-in palette.
+    pub const ALL: [Self; 3] = [Self::Light, Self::Dark, Self::HighContrast];
+
+    /// The palette.
+    #[must_use]
+    pub const fn palette(self) -> Palette {
+        match self {
+            Self::Light => Palette::light(),
+            Self::Dark => Palette::dark(),
+            Self::HighContrast => Palette::high_contrast(),
+        }
+    }
+
+    /// The floors it keeps.
+    #[must_use]
+    pub const fn floors(self) -> Floors {
+        match self {
+            Self::Light | Self::Dark => Floors::STANDARD,
+            Self::HighContrast => Floors::HIGH_CONTRAST,
+        }
+    }
+
+    /// Its name in settings and theme files.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Light => "light",
+            Self::Dark => "dark",
+            Self::HighContrast => "high-contrast",
+        }
+    }
+
+    /// The built-in palette called `name`.
+    #[must_use]
+    pub fn named(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|b| b.name() == name)
+    }
+}
+
+/// Whether the system shows light or dark windows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Appearance {
+    /// Light windows; also what the terminal assumes when the system does
+    /// not say.
+    #[default]
+    Light,
+    /// Dark windows.
+    Dark,
+}
+
+/// The user's choice of look.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ThemeChoice {
+    /// Follow the system: the light palette in a light appearance, the dark
+    /// one in a dark appearance.
+    #[default]
+    System,
+    /// One palette, whatever the system shows.
+    Fixed(Palette),
+}
+
+impl ThemeChoice {
+    /// The palette to draw with when the system shows `appearance`.
+    #[must_use]
+    pub const fn palette(&self, appearance: Appearance) -> Palette {
+        match (self, appearance) {
+            (Self::Fixed(p), _) => *p,
+            (Self::System, Appearance::Light) => Palette::light(),
+            (Self::System, Appearance::Dark) => Palette::dark(),
+        }
+    }
+}
+
+/// The smallest font size a user may choose, in pixels at scale 1.
+pub const MIN_FONT_PX: u32 = 8;
+/// The largest font size a user may choose, in pixels at scale 1.
+pub const MAX_FONT_PX: u32 = 72;
+// Every size a user may choose is over the spec's 6 px floor for a visible run.
+const _: () = assert!(MIN_FONT_PX >= 6);
+/// The most bytes a font file may hold.
+pub const MAX_FONT_BYTES: u64 = 32 << 20;
+
+/// Where a face's glyphs come from.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum FontFile {
+    /// The face bundled with the terminal.
+    #[default]
+    Bundled,
+    /// A font file the user chose, checked by [`FontFile::from_bytes`] or
+    /// [`FontFile::load`].
+    Data(FontData),
+}
+
+/// A font's bytes that passed [`FontFile::from_bytes`]: at most
+/// [`MAX_FONT_BYTES`], and a font with glyphs for basic Latin text. Only
+/// those checks make one, so its bytes cannot be set directly:
+///
+/// ```compile_fail
+/// let _ = lumen_term::design::FontData(std::sync::Arc::from(&b"junk"[..]));
+/// ```
+#[derive(Clone, PartialEq, Eq)]
+pub struct FontData(std::sync::Arc<[u8]>);
+
+impl FontData {
+    /// The font's bytes.
+    pub(crate) fn bytes(&self) -> std::sync::Arc<[u8]> {
+        self.0.clone()
+    }
+}
+
+impl std::fmt::Debug for FontData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FontData({} bytes)", self.0.len())
+    }
+}
+
+/// Why a font file was refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FontRefused {
+    /// It could not be read, or is not a regular file.
+    Unreadable,
+    /// It is larger than [`MAX_FONT_BYTES`].
+    TooLarge,
+    /// It is not a font, or has no glyphs for basic Latin text.
+    NotAFont,
+}
+
+impl std::fmt::Display for FontRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Unreadable => "the font file could not be read",
+            Self::TooLarge => "the font file is too large",
+            Self::NotAFont => "the file is not a font with Latin letters",
+        })
+    }
+}
+
+impl FontFile {
+    /// The font in `bytes`.
+    ///
+    /// # Errors
+    ///
+    /// [`FontRefused::TooLarge`] if `bytes` is over [`MAX_FONT_BYTES`], and
+    /// [`FontRefused::NotAFont`] unless it is a font (the first in a
+    /// collection) with glyphs for `M`, `a` and `0`.
+    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, FontRefused> {
+        if bytes.len() as u64 > MAX_FONT_BYTES {
+            return Err(FontRefused::TooLarge);
+        }
+        let face = swash::FontRef::from_index(&bytes, 0).ok_or(FontRefused::NotAFont)?;
+        let map = face.charmap();
+        if ['M', 'a', '0'].iter().any(|c| map.map(*c) == 0) {
+            return Err(FontRefused::NotAFont);
+        }
+        Ok(Self::Data(FontData(bytes.into())))
+    }
+
+    /// The font file at `path`.
+    ///
+    /// # Errors
+    ///
+    /// As [`from_bytes`](Self::from_bytes), and [`FontRefused::Unreadable`] or
+    /// [`FontRefused::TooLarge`] for a file that cannot be read or is over
+    /// [`MAX_FONT_BYTES`].
+    pub fn load(path: &std::path::Path) -> Result<Self, FontRefused> {
+        let meta = std::fs::metadata(path).map_err(|_| FontRefused::Unreadable)?;
+        if !meta.is_file() {
+            return Err(FontRefused::Unreadable);
+        }
+        if meta.len() > MAX_FONT_BYTES {
+            return Err(FontRefused::TooLarge);
+        }
+        // The file can grow between the two reads; from_bytes checks again.
+        let bytes = std::fs::read(path).map_err(|_| FontRefused::Unreadable)?;
+        Self::from_bytes(bytes)
+    }
+}
+
+/// The user's fonts: a face and a size for monospace text (grids, code and
+/// the editor) and for prose (paragraphs and headings in rich blocks).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fonts {
+    /// The monospace face.
+    pub mono: FontFile,
+    /// The proportional face.
+    pub prose: FontFile,
+    /// Monospace size in pixels at scale 1.
+    mono_px: u32,
+    /// Prose size in pixels at scale 1.
+    prose_px: u32,
+}
+
+impl Default for Fonts {
+    fn default() -> Self {
+        Self {
+            mono: FontFile::Bundled,
+            prose: FontFile::Bundled,
+            mono_px: TYPE_SCALE[BODY_STEP],
+            prose_px: TYPE_SCALE[BODY_STEP],
+        }
+    }
+}
+
+impl Fonts {
+    /// These fonts with the monospace face `file`.
+    #[must_use]
+    pub fn with_mono(mut self, file: FontFile) -> Self {
+        self.mono = file;
+        self
+    }
+
+    /// These fonts with the proportional face `file`.
+    #[must_use]
+    pub fn with_prose(mut self, file: FontFile) -> Self {
+        self.prose = file;
+        self
+    }
+
+    /// These fonts with the monospace size `px`, clamped to
+    /// [`MIN_FONT_PX`]..=[`MAX_FONT_PX`].
+    #[must_use]
+    pub fn with_mono_px(mut self, px: u32) -> Self {
+        self.mono_px = px.clamp(MIN_FONT_PX, MAX_FONT_PX);
+        self
+    }
+
+    /// These fonts with the prose size `px`, clamped the same way.
+    #[must_use]
+    pub fn with_prose_px(mut self, px: u32) -> Self {
+        self.prose_px = px.clamp(MIN_FONT_PX, MAX_FONT_PX);
+        self
+    }
+
+    /// Monospace size in pixels at scale 1.
+    #[must_use]
+    pub const fn mono_px(&self) -> u32 {
+        self.mono_px
+    }
+
+    /// Prose size in pixels at scale 1.
+    #[must_use]
+    pub const fn prose_px(&self) -> u32 {
+        self.prose_px
+    }
+}
+
+/// The spec's semantic colour tokens for a text run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunColour {
+    /// `fg`: body text.
+    Fg,
+    /// `muted`: secondary text.
+    Muted,
+    /// `accent`: emphasis and links.
+    Accent,
+    /// `error`: errors.
+    Error,
+}
+
+/// The family role of a text run, as the spec names them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Family {
+    /// Proportional body text.
+    Body,
+    /// Proportional heading text.
+    Heading,
+    /// Monospace: code, grids and the editor.
+    Mono,
+}
+
+/// The type scale: pixel sizes at scale 1, by size step. Step 0 is the body
+/// size; each step up is a ratio of about 1.2, rounded to a whole pixel.
+pub const TYPE_SCALE: [u32; 5] = [12, 14, 17, 20, 24];
+
+/// The index of step 0 in [`TYPE_SCALE`].
+pub const BODY_STEP: usize = 1;
+
+/// The pixel size of a size `step` (negative is smaller), at scale 1, clamped
+/// to the scale.
+#[must_use]
+pub fn size_px(step: i8) -> u32 {
+    let at = i64::try_from(BODY_STEP).unwrap_or(0) + i64::from(step);
+    let last = i64::try_from(TYPE_SCALE.len() - 1).unwrap_or(0);
+    TYPE_SCALE[usize::try_from(at.clamp(0, last)).unwrap_or(BODY_STEP)]
+}
+
+/// The default size step of a family's text.
+#[must_use]
+pub const fn default_step(family: Family) -> i8 {
+    match family {
+        Family::Body | Family::Mono => 0,
+        Family::Heading => 2,
+    }
+}
+
+/// The theme the terminal starts with, before the system's appearance is
+/// known: the built-in light look.
+#[must_use]
+pub const fn theme() -> Theme {
+    Palette::light().theme()
+}
+
+/// WCAG relative luminance of a colour, from 0 to 1.
+#[must_use]
+pub fn luminance(colour: Rgb) -> f64 {
+    let linear = |c: u8| {
+        let s = f64::from(c) / 255.0;
+        if s <= 0.040_45 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.0722_f64.mul_add(
+        linear(colour[2]),
+        0.2126_f64.mul_add(linear(colour[0]), 0.7152 * linear(colour[1])),
+    )
+}
+
+/// WCAG contrast ratio of two colours, from 1 to 21.
+#[must_use]
+pub fn contrast(a: Rgb, b: Rgb) -> f64 {
+    let (la, lb) = (luminance(a), luminance(b));
+    let (hi, lo) = if la >= lb { (la, lb) } else { (lb, la) };
+    (hi + 0.05) / (lo + 0.05)
+}

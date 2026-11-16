@@ -4,6 +4,10 @@
 //! the frame [`App::view`] returns, so everything it does is tested here
 //! without a window.
 
+use crate::actions::{self, Action};
+#[cfg(feature = "links-clipboard")]
+use crate::clipboard::Clipboard;
+use crate::design::{Appearance, Fonts, ThemeChoice};
 use crate::document::{Block, Event};
 use crate::keys::{self, Key, Mods};
 use crate::layer::Layer;
@@ -27,6 +31,19 @@ pub enum PasteOutcome {
     Rejected(Rejection),
 }
 
+/// What the window does after an action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// Nothing changed.
+    Nothing,
+    /// The view changed: draw again.
+    Redraw,
+    /// The paste was refused, and nothing was sent.
+    Refused,
+    /// The application should end.
+    Exit,
+}
+
 /// A terminal in a window of `width` by `height` pixels.
 pub struct App {
     session: Session,
@@ -37,7 +54,12 @@ pub struct App {
     sink: Box<dyn OsSink + Send>,
     desk: Desk,
     input_notice: Option<InputNotice>,
+    /// The render scale the display asked for, and the one in use now.
+    base_scale: u32,
+    scale: u32,
     mouse: Reporter,
+    theme_choice: ThemeChoice,
+    appearance: Appearance,
 }
 
 /// How long the notice that input was not sent stays after the last refusal.
@@ -147,6 +169,16 @@ pub fn block_cells(columns: usize, rows: usize) -> (usize, usize) {
     (usable_columns as usize, usable_rows as usize)
 }
 
+/// The columns and rows of a window of `width` by `height` pixels drawn by
+/// `renderer`, whose text column starts a gutter padding right of the gutter.
+fn window_cells(width: u32, height: u32, renderer: &Renderer) -> (usize, usize) {
+    cells_for(
+        width.saturating_sub(renderer.gutter_pad()),
+        height,
+        renderer.cell(),
+    )
+}
+
 impl App {
     /// Run `program` behind `layer` in a window of `width` by `height` pixels,
     /// drawn at `scale`.
@@ -162,8 +194,8 @@ impl App {
         width: u32,
         height: u32,
     ) -> Result<Self, SpawnError> {
-        let renderer = Renderer::light(scale).map_err(SpawnError)?;
-        let (columns, rows) = cells_for(width, height, renderer.cell());
+        let renderer = Renderer::new(scale, crate::design::theme()).map_err(SpawnError)?;
+        let (columns, rows) = window_cells(width, height, &renderer);
         let (block_columns, block_rows) = block_cells(columns, rows);
         let session = Session::start(layer, block_columns, block_rows, program, arguments)?;
         let mut app = Self {
@@ -177,10 +209,67 @@ impl App {
             // would be an OS one needs the window to be shown unfocused.
             desk: Desk::default(),
             input_notice: None,
+            base_scale: scale,
+            scale,
             mouse: Reporter::default(),
+            theme_choice: ThemeChoice::System,
+            appearance: Appearance::Light,
         };
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
         Ok(app)
+    }
+
+    /// The system now shows `appearance`. With [`ThemeChoice::System`] the look
+    /// follows it at once, with no restart. Returns whether the look changed,
+    /// so the window knows to draw again.
+    pub fn set_appearance(&mut self, appearance: Appearance) -> bool {
+        self.appearance = appearance;
+        self.apply_theme()
+    }
+
+    /// Use `choice` from now on. Returns whether the look changed.
+    pub fn set_theme_choice(&mut self, choice: ThemeChoice) -> bool {
+        self.theme_choice = choice;
+        self.apply_theme()
+    }
+
+    /// The user's choice of look.
+    #[must_use]
+    pub fn theme_choice(&self) -> ThemeChoice {
+        self.theme_choice
+    }
+
+    /// Use `fonts` from the next frame on, with no restart: the cells are
+    /// measured again and the program's grid is resized to fit the window.
+    /// Returns whether anything changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns why a face could not be read or the program could not be
+    /// resized. The fonts in use are kept when a face cannot be read.
+    pub fn set_fonts(&mut self, fonts: &Fonts) -> Result<bool, SpawnError> {
+        if self.renderer.fonts() == fonts {
+            return Ok(false);
+        }
+        let renderer =
+            Renderer::with_fonts(self.renderer.scale(), self.renderer.theme().clone(), fonts)
+                .map_err(SpawnError)?;
+        self.renderer = renderer;
+        self.resize(self.width, self.height)?;
+        Ok(true)
+    }
+
+    /// Draw, and answer colour queries, in the palette the choice and the
+    /// appearance give.
+    fn apply_theme(&mut self) -> bool {
+        let theme = self.theme_choice.palette(self.appearance).theme();
+        if *self.renderer.theme() == theme {
+            return false;
+        }
+        #[cfg(feature = "colour-replies")]
+        self.session.set_theme(theme.clone());
+        self.renderer.set_theme(theme);
+        true
     }
 
     /// Set what the layer's notifications may do. `settings` is the user's, off
@@ -285,13 +374,13 @@ impl App {
     pub fn live_cell(&self, x: u32, y: u32) -> Option<(u32, u32)> {
         let (cw, ch) = self.renderer.cell();
         let (cw, ch) = (cw.max(1), ch.max(1));
-        let (columns, rows) = cells_for(self.width, self.height, (cw, ch));
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         let win = window_for(columns, rows);
         let doc = self.session.document();
         let Some(Block::Grid(live)) = doc.blocks().last() else {
             return None;
         };
-        let content_x = GUTTER_COLUMNS.saturating_mul(cw);
+        let content_x = GUTTER_COLUMNS.saturating_mul(cw) + self.renderer.gutter_pad();
         let content_y = HEADER_ROWS.saturating_mul(ch);
         let area_bottom = win.editor_row.saturating_mul(ch);
         let (px, py) = (x.checked_sub(content_x)?, y.checked_sub(content_y)?);
@@ -430,7 +519,7 @@ impl App {
     /// was not sent, that is its index in the notifier's.
     #[must_use]
     pub fn click_would_hit(&self, x: u32, y: u32) -> Option<usize> {
-        let (columns, rows) = cells_for(self.width, self.height, self.renderer.cell());
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         let win = window_for(columns, rows);
         self.renderer.toast_at(&win, &self.toasts(), x, y)
     }
@@ -470,12 +559,67 @@ impl App {
     ///
     /// Returns why the program could not be told.
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), SpawnError> {
-        let (columns, rows) = cells_for(width, height, self.renderer.cell());
+        let (columns, rows) = window_cells(width, height, &self.renderer);
         let (block_columns, block_rows) = block_cells(columns, rows);
         self.session.resize(block_columns, block_rows)?;
         self.width = width;
         self.height = height;
         Ok(())
+    }
+
+    /// The render scale in use now.
+    #[must_use]
+    pub fn scale(&self) -> u32 {
+        self.scale
+    }
+
+    /// Draw at `scale` from now on, in the same look and fonts: the cells change
+    /// size, so the program is told its new window size.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the renderer could not be made or the program could not be told.
+    pub fn set_scale(&mut self, scale: u32) -> Result<(), SpawnError> {
+        self.renderer =
+            Renderer::with_fonts(scale, self.renderer.theme().clone(), self.renderer.fonts())
+                .map_err(SpawnError)?;
+        self.scale = scale;
+        self.resize(self.width, self.height)
+    }
+
+    /// Do `action` for the user. A paste reads `clipboard` and goes through the
+    /// paste rules: it is sent bracketed if the program asked for that, and text with
+    /// a line break or a control that is not bracketed, which the terminal cannot
+    /// yet ask the user about, is pasted as a single line, and text that carries
+    /// a frame introducer is not pasted at all.
+    #[cfg(feature = "links-clipboard")]
+    pub fn perform(&mut self, action: Action, clipboard: &dyn Clipboard) -> Outcome {
+        match action {
+            Action::Quit | Action::Close => Outcome::Exit,
+            Action::Paste => {
+                let Some(text) = clipboard.text() else {
+                    return Outcome::Nothing;
+                };
+                let bracketed = self.session.key_modes().bracketed_paste;
+                let pasted = match paste::judge(&text, bracketed) {
+                    Decision::Send(p) => p,
+                    Decision::Hold(h) => h.single_line,
+                    Decision::Reject(_) => return Outcome::Refused,
+                };
+                if pasted.text.is_empty() {
+                    return Outcome::Nothing;
+                }
+                // A refused write is noted for the user by `text`.
+                let _ = self.paste_chosen(&pasted);
+                Outcome::Redraw
+            }
+            Action::ZoomIn | Action::ZoomOut | Action::ZoomReset => {
+                match actions::zoomed(action, self.scale, self.base_scale) {
+                    Some(scale) if self.set_scale(scale).is_ok() => Outcome::Redraw,
+                    _ => Outcome::Nothing,
+                }
+            }
+        }
     }
 
     /// A key was pressed.
@@ -603,7 +747,7 @@ impl App {
     /// The window's contents: exactly `width` by `height` pixels.
     #[must_use]
     pub fn view(&self) -> Frame {
-        let (columns, rows) = cells_for(self.width, self.height, self.renderer.cell());
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         self.renderer
             .render_window_with(
                 self.session.document(),

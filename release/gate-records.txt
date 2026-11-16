@@ -3,16 +3,16 @@
 # starts with # is a comment. A build whose identities have no line here shows
 # the alt text.
 #
-# Basis: the maintainer-accepted carry-forward in docs/release-criteria.md. The
-# decoder gate rests on the guarded fuzz runs in release/decoder-ledger.json
-# (PNG, JPEG and WebP each over 250 CPU-hours, no open crash or confirmed
-# hang). The memory gate rests on the decoder's memory tests (declared sizes
-# checked before any reservation, the 512 MiB worker limit, the reply
+# Basis: the guarded fuzz runs in release/decoder-ledger.json (PNG, JPEG and
+# WebP each over 250 CPU-hours, no open crash or confirmed hang) for the decoder
+# gate. Those runs were on earlier builds, and the frame parser and image host
+# were not fuzzed. The memory gate rests on the decoder's memory tests (declared
+# sizes checked before any reservation, the 512 MiB worker limit, the reply
 # reservation) that run in CI. One line serves all three formats: the formats
 # are in the ledger.
 #
 # There is no windows line on purpose: images are not supported on Windows in
 # v0, because the Windows console cannot carry the binary image frames, so a
 # Windows build stays locked and shows the alt text (see spec/v0/platforms.md).
-linux af18ba62b6daad464a3e94314354b3121d4698f6bae815d7e5055ca7b965401b 46cfee6fdcfbd176d9c1fc07767ab05e8b102c056b13d8b1da429942fbeb8137 pass pass
-macos af18ba62b6daad464a3e94314354b3121d4698f6bae815d7e5055ca7b965401b 46cfee6fdcfbd176d9c1fc07767ab05e8b102c056b13d8b1da429942fbeb8137 pass pass
+linux 2ad5b8978ddc6bd727ad26393bd42c238211be7da3250ee91195c88213b671ba 21a5eb47f2506fe1626b6cd3adaeb6f17e1d8328c9080e1d9f98ccc3534b29e5 pass pass
+macos 2ad5b8978ddc6bd727ad26393bd42c238211be7da3250ee91195c88213b671ba 21a5eb47f2506fe1626b6cd3adaeb6f17e1d8328c9080e1d9f98ccc3534b29e5 pass pass

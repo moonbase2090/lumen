@@ -2,7 +2,10 @@
 //! frame on it. Everything it does is a call on [`App`], which is tested
 //! without a window; this file holds only what turns an OS event into one.
 
-use crate::app::App;
+use crate::actions::{self, Action, Platform};
+use crate::app::{App, Outcome};
+use crate::clipboard::SystemClipboard;
+use crate::design::Appearance;
 use crate::keys::{Key, Mods};
 use crate::layer::Layer;
 use crate::mouse::{Button, Held, Wheel};
@@ -14,7 +17,7 @@ use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key as WinitKey, KeyLocation, ModifiersState, NamedKey};
-use winit::window::{Window, WindowId};
+use winit::window::{Theme as WinitTheme, Window, WindowId};
 
 /// A pointer position in physical pixels as whole pixels: negative and
 /// non-finite positions are the edge, and nothing is larger than the window.
@@ -210,12 +213,18 @@ pub struct Config {
     pub notifications: crate::notify::Settings,
     /// The user's `images` setting; `false` always shows the alt text.
     pub images: bool,
+    /// The user's choice of look.
+    pub theme: crate::design::ThemeChoice,
+    /// The user's fonts.
+    pub fonts: crate::design::Fonts,
 }
 
 struct Running {
     window: Rc<Window>,
     surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
     app: App,
+    #[cfg(target_os = "macos")]
+    _menu: Option<crate::menu::MenuBar>,
 }
 
 struct Host {
@@ -263,6 +272,27 @@ impl Host {
         let n = buffer.len().min(words.len());
         buffer[..n].copy_from_slice(&words[..n]);
         let _ = buffer.present();
+    }
+}
+
+fn chord(state: ModifiersState) -> actions::Held {
+    actions::Held {
+        command: state.super_key(),
+        control: state.control_key(),
+        alt: state.alt_key(),
+        shift: state.shift_key(),
+    }
+}
+
+impl Host {
+    /// Do one of the window's own actions, from a menu item or a shortcut.
+    fn act(&mut self, event_loop: &ActiveEventLoop, action: Action) {
+        let Some(run) = &mut self.state else { return };
+        match run.app.perform(action, &SystemClipboard) {
+            Outcome::Exit => event_loop.exit(),
+            Outcome::Redraw => run.window.request_redraw(),
+            Outcome::Nothing | Outcome::Refused => {}
+        }
     }
 }
 
@@ -314,11 +344,23 @@ impl ApplicationHandler for Host {
             Ok(mut app) => {
                 app.use_settings(self.config.notifications);
                 app.use_images(self.config.images);
+                // The user's look, then the system's appearance, if it says;
+                // light until it does.
+                app.set_theme_choice(self.config.theme);
+                app.set_appearance(appearance(window.theme()));
+                if let Err(e) = app.set_fonts(&self.config.fonts) {
+                    eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
+                }
                 window.request_redraw();
+                // A menu that cannot be built leaves the shortcuts working.
+                #[cfg(target_os = "macos")]
+                let menu = crate::menu::MenuBar::install().ok();
                 self.state = Some(Running {
                     window,
                     surface,
                     app,
+                    #[cfg(target_os = "macos")]
+                    _menu: menu,
                 });
             }
             Err(e) => self.fail(event_loop, e.to_string()),
@@ -339,6 +381,14 @@ impl ApplicationHandler for Host {
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 let Some(run) = &mut self.state else { return };
+                if let WinitKey::Character(c) = &event.logical_key
+                    && let Some(ch) = c.chars().next()
+                    && let Some(action) =
+                        actions::action_for(Platform::current(), ch, chord(self.modifiers))
+                {
+                    self.act(event_loop, action);
+                    return;
+                }
                 if let Some((key, mods)) = map_key_at(
                     &event.logical_key,
                     event.text.as_deref(),
@@ -401,6 +451,13 @@ impl ApplicationHandler for Host {
                     }
                 }
             }
+            WindowEvent::ThemeChanged(theme) => {
+                if let Some(run) = &mut self.state
+                    && run.app.set_appearance(appearance(Some(theme)))
+                {
+                    run.window.request_redraw();
+                }
+            }
             WindowEvent::Focused(focused) => {
                 if let Some(run) = &mut self.state {
                     run.app.set_focused(focused);
@@ -418,6 +475,10 @@ impl ApplicationHandler for Host {
             event_loop.exit();
             return;
         }
+        #[cfg(target_os = "macos")]
+        for action in crate::menu::MenuBar::chosen() {
+            self.act(event_loop, action);
+        }
         if let Some(run) = &mut self.state {
             let expired = run.app.tick();
             if run.app.pump() > 0 || expired {
@@ -431,6 +492,15 @@ impl ApplicationHandler for Host {
         event_loop.set_control_flow(ControlFlow::WaitUntil(
             Instant::now() + Duration::from_millis(16),
         ));
+    }
+}
+
+/// The appearance for the system's window theme; light when it does not say.
+#[must_use]
+pub fn appearance(theme: Option<WinitTheme>) -> Appearance {
+    match theme {
+        Some(WinitTheme::Dark) => Appearance::Dark,
+        Some(WinitTheme::Light) | None => Appearance::Light,
     }
 }
 

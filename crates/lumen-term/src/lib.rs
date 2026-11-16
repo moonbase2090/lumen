@@ -5,7 +5,8 @@
 //! Track 0 block the arm layer let through. The [`Document`] turns the pieces
 //! a [`Layer`] yields for the bytes of a stream into a list of blocks.
 //!
-//! [`raster`] paints blocks to an RGBA frame with one bundled face. Nothing
+//! [`raster`] paints blocks to an RGBA frame with one bundled face, in the
+//! colours of the [`design`] tokens. Nothing
 //! here opens a window. The terminal is built on Arm B (Track 0 rich on every
 //! layer, with the sealed upgrade): [`Layer`] is implemented for its layer, and
 //! the plain [`Passthrough`] layer is for a stream with no arm in front of it.
@@ -13,18 +14,24 @@
 
 #![forbid(unsafe_code)]
 
+pub mod actions;
 /// The terminal's user-facing name.
 pub const APP_NAME: &str = "Bright";
 
 pub mod app;
 pub mod cli;
 #[cfg(feature = "links-clipboard")]
+pub mod clipboard;
+#[cfg(feature = "links-clipboard")]
 pub mod copy;
+pub mod design;
 pub mod document;
+pub mod frame;
 pub mod grid;
 pub mod guard;
 #[cfg(feature = "window")]
 pub mod host;
+pub mod image_draw;
 pub mod images;
 pub mod isolate;
 pub mod keys;
@@ -32,6 +39,8 @@ pub mod layer;
 pub mod layout;
 #[cfg(feature = "links-clipboard")]
 pub mod link;
+#[cfg(all(feature = "window", target_os = "macos"))]
+pub mod menu;
 pub mod modes;
 pub mod mouse;
 pub mod notify;
@@ -45,7 +54,9 @@ pub mod reply;
 #[cfg(target_os = "linux")]
 pub mod seal;
 pub mod session;
+pub mod settings;
 pub mod strip;
+pub mod theme_file;
 mod writer;
 
 pub use app::App;
