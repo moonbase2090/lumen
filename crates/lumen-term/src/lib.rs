@@ -32,6 +32,7 @@ pub mod guard;
 pub mod host;
 pub mod image_draw;
 pub mod images;
+pub mod input_line;
 pub mod isolate;
 pub mod keys;
 pub mod layer;
