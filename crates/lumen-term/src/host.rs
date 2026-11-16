@@ -414,6 +414,7 @@ impl ApplicationHandler for Host {
                         .app
                         .mouse_move(self.pointer.0, self.pointer.1, held)
                         .unwrap_or(false)
+                        | run.app.take_selection_redraw()
                 {
                     run.window.request_redraw();
                 }
@@ -433,6 +434,7 @@ impl ApplicationHandler for Host {
                     }
                     .unwrap_or(false);
                 }
+                redraw |= run.app.take_selection_redraw();
                 if redraw {
                     run.window.request_redraw();
                 }

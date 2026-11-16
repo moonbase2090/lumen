@@ -16,12 +16,14 @@
 //! skipped), combining marks (the base glyph only), a cursor (off unless
 //! asked), kerning, or any other text shaping.
 
+use crate::copy::Kind as CopyKind;
 use crate::design::{FontFile, Fonts};
 use crate::document::{Block, Document, RichBlock};
 use crate::grid::GridBlock;
 use crate::image_draw;
 use crate::layout::{GUTTER_COLUMNS, Rect, StripPlacement, layout, notification_area};
 use crate::notify::Toast;
+use crate::select::{FlowLine, Join, Selection};
 use lumen_track0::Block as Track0Block;
 use prismattyc_core::{Color, Style, grapheme_display_width};
 use std::cell::RefCell;
@@ -534,6 +536,170 @@ impl Renderer {
         }
     }
 
+    /// The selectable lines of the content flow, `columns` cells wide, in the
+    /// places [`paint_content`](Self::paint_content) puts them: each grid row,
+    /// and each wrapped line of a rich block's text. Strips and images have no
+    /// line, and the container's label and the note on removed bidi controls are
+    /// the terminal's own and are not text to copy.
+    #[must_use]
+    pub fn flow(&self, doc: &Document, columns: usize) -> Vec<FlowLine> {
+        let mut out = Vec::new();
+        let mut y = 0u32;
+        let inner = columns.saturating_sub(2).max(1);
+        for (index, b) in doc.blocks().iter().enumerate() {
+            match b {
+                Block::Grid(g) => {
+                    for (r, text) in g.text_rows().into_iter().enumerate() {
+                        out.push(FlowLine {
+                            block: index,
+                            top: y + u32::try_from(r).unwrap_or(0) * self.cell_h,
+                            height: self.cell_h,
+                            left: 0,
+                            text,
+                            grid: true,
+                            kind: CopyKind::Command,
+                            join: Join::Break,
+                        });
+                    }
+                    y += u32::try_from(g.size().1).unwrap_or(0) * self.cell_h;
+                }
+                Block::Rich(r) if !r.background => {
+                    let first = y + self.scale + self.cell_h;
+                    if r.image.is_none() {
+                        self.flow_rich(&mut out, index, &r.content, inner, first);
+                    }
+                    y += self.rich_height(r, columns);
+                }
+                Block::Rich(r) => {
+                    // A strip of an older cycle takes its rows and has no text
+                    // of its own to select.
+                    let _ = r;
+                }
+            }
+        }
+        out
+    }
+
+    fn flow_rich(
+        &self,
+        out: &mut Vec<FlowLine>,
+        block: usize,
+        content: &Track0Block,
+        inner: usize,
+        first: u32,
+    ) {
+        let limit = inner * self.cell_w as usize * SUBPIXELS;
+        let mut rows: Vec<(String, bool, CopyKind, Join)> = Vec::new();
+        let mut flowed = |text: &str| {
+            for paragraph in text.split('\n') {
+                let lines = wrap_by(paragraph, limit, &|c| self.advance(c));
+                let last = lines.len().saturating_sub(1);
+                let mut seen = 0usize;
+                for (i, line) in lines.into_iter().enumerate() {
+                    seen += line.chars().filter(|c| !c.is_whitespace()).count();
+                    let join = if i == last {
+                        Join::Break
+                    } else if next_after_nonspace(paragraph, seen).is_some_and(char::is_whitespace)
+                    {
+                        Join::Space
+                    } else {
+                        Join::Cut
+                    };
+                    rows.push((line, false, CopyKind::Text, join));
+                }
+            }
+        };
+        match content {
+            Track0Block::Paragraph(t) => flowed(t),
+            Track0Block::Heading { text, .. } => flowed(text),
+            Track0Block::ImageStart { alt, .. } => flowed(alt),
+            Track0Block::Code { text, .. } => {
+                for l in text.lines() {
+                    rows.push((clip(l, inner), true, CopyKind::Code, Join::Break));
+                }
+            }
+            Track0Block::ImageData { .. } => {}
+        }
+        for (i, (text, grid, kind, join)) in rows.into_iter().enumerate() {
+            out.push(FlowLine {
+                block,
+                top: first + u32::try_from(i).unwrap_or(0) * self.cell_h,
+                height: self.cell_h,
+                left: self.cell_w,
+                text,
+                grid,
+                kind,
+                join,
+            });
+        }
+    }
+
+    /// Where, in pixels from the line's left edge, the character boundary
+    /// `index` of `line` is.
+    #[must_use]
+    pub fn char_left(&self, line: &FlowLine, index: usize) -> u32 {
+        let mut pos = 0usize;
+        for c in line.text.chars().take(index) {
+            pos += if line.grid {
+                cells(c) * self.cell_w as usize * SUBPIXELS
+            } else {
+                self.advance(c)
+            };
+        }
+        u32::try_from((pos + SUBPIXELS / 2) / SUBPIXELS).unwrap_or(u32::MAX)
+    }
+
+    /// The character boundary of `line` nearest `x` pixels from its left edge.
+    #[must_use]
+    pub fn char_at(&self, line: &FlowLine, x: u32) -> usize {
+        let target = x as usize * SUBPIXELS;
+        let mut pos = 0usize;
+        for (i, c) in line.text.chars().enumerate() {
+            let a = if line.grid {
+                cells(c) * self.cell_w as usize * SUBPIXELS
+            } else {
+                self.advance(c)
+            };
+            if target < pos + a / 2 + a % 2 {
+                return i;
+            }
+            pos += a;
+        }
+        line.text.chars().count()
+    }
+
+    /// Tint the characters `sel` covers: each pixel moves a third of the way
+    /// towards the foreground colour, so text drawn in the foreground colour is
+    /// unchanged and what is behind it is lifted. The selection is the
+    /// terminal's, not the program's, so it does not come from the program's
+    /// colours.
+    fn paint_selection(&self, region: &mut Frame, lines: &[FlowLine], sel: &Selection) {
+        let fg = self.theme.foreground;
+        let last = sel.ordered().1.line;
+        for (i, line) in lines.iter().enumerate() {
+            let Some((from, to)) = sel.span_in(lines, i) else {
+                continue;
+            };
+            let start = line.left + self.char_left(line, from);
+            let mut end = line.left + self.char_left(line, to);
+            if i < last && to >= line.text.chars().count() {
+                // A line the selection runs past is tinted a little beyond its end.
+                end += self.cell_w / 2;
+            }
+            for y in line.top..line.top + line.height {
+                for x in start..end {
+                    if let Some(p) = region.pixel(x, y) {
+                        let mixed: Rgb = std::array::from_fn(|k| {
+                            u8::try_from((2 * u16::from(p[k]) + u16::from(fg[k])) / 3)
+                                .unwrap_or(p[k])
+                        });
+                        region.put(x, y, mixed);
+                    }
+                }
+            }
+        }
+    }
+
     /// Paint the strip of an older prompt cycle at row `y` of the content
     /// region, `columns` cells wide, and return its height in pixels: one row
     /// when collapsed, a header and a row per block when the user opened it.
@@ -700,6 +866,19 @@ impl Renderer {
     /// cleaned text.
     #[must_use]
     pub fn render_window_with(&self, doc: &Document, win: &Window, toasts: &[Toast]) -> Frame {
+        self.render_window_selected(doc, win, toasts, None)
+    }
+
+    /// Paint a window with its toasts and a text selection tinted in the
+    /// content (see [`flow`](Self::flow) for the lines it is made of).
+    #[must_use]
+    pub fn render_window_selected(
+        &self,
+        doc: &Document,
+        win: &Window,
+        toasts: &[Toast],
+        selection: Option<&Selection>,
+    ) -> Frame {
         let t = &self.theme;
         let strips = doc.strips();
         let newest = strips.last();
@@ -729,6 +908,9 @@ impl Renderer {
             let mut region = Frame::new(aw, ah, t.background);
             let columns = usize::try_from(area.w).unwrap_or(1);
             self.paint_content(&mut region, doc, columns, &strips, newest.map(|s| s.cycle));
+            if let Some(sel) = selection {
+                self.paint_selection(&mut region, &self.flow(doc, columns), sel);
+            }
             Self::blit(&mut frame, &region, ax, ay);
         }
 
@@ -946,6 +1128,21 @@ type Measure<'a> = &'a dyn Fn(char) -> usize;
 
 fn cells(c: char) -> usize {
     grapheme_display_width(c, &[])
+}
+
+/// The character right after the `n`th character of `s` that is not whitespace.
+fn next_after_nonspace(s: &str, n: usize) -> Option<char> {
+    let mut seen = 0;
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if !c.is_whitespace() {
+            seen += 1;
+            if seen == n {
+                return chars.next();
+            }
+        }
+    }
+    None
 }
 
 fn width_by(s: &str, m: Measure<'_>) -> usize {
