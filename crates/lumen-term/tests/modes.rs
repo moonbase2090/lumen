@@ -14,10 +14,12 @@ fn after(chunks: &[&[u8]]) -> KeyModes {
 const CURSOR: KeyModes = KeyModes {
     cursor_app: true,
     keypad_app: false,
+    bracketed_paste: false,
 };
 const KEYPAD: KeyModes = KeyModes {
     cursor_app: false,
     keypad_app: true,
+    bracketed_paste: false,
 };
 
 #[test]
@@ -59,7 +61,8 @@ fn other_modes_and_look_alikes_change_nothing() {
         after(&[b"\x1b[?1h\x1b=\x1b[?1049h\x1b[?1049l"]),
         KeyModes {
             cursor_app: true,
-            keypad_app: true
+            keypad_app: true,
+            bracketed_paste: false,
         }
     );
 }
@@ -79,7 +82,8 @@ fn modes_survive_a_rich_block_between_grid_blocks() {
         key_modes_of(d.blocks()),
         KeyModes {
             cursor_app: true,
-            keypad_app: true
+            keypad_app: true,
+            bracketed_paste: false,
         }
     );
     // A reset in the later block clears what an earlier block set.
@@ -160,4 +164,36 @@ printf 'NORMAL %s\r\n' "$(dd bs=1 count=5 2>/dev/null | od -An -tx1 | tr -d ' \n
         }
         wait_for(&mut app, "NORMAL 1b5b41350d");
     }
+}
+
+#[test]
+fn bracketed_paste_follows_decset_2004_alone_or_in_a_list_and_resets() {
+    let on = |m: KeyModes| m.bracketed_paste;
+    assert!(on(after(&[b"\x1b[?2004h"])));
+    assert!(on(after(&[b"\x1b[?25;2004h"])));
+    assert!(!on(after(&[b"\x1b[?2004h\x1b[?2004l"])));
+    assert!(!on(after(&[b"\x1b[?2004h\x1b[!p"])));
+    assert!(!on(after(&[b"\x1b[?2004h\x1bc"])));
+    assert!(
+        !on(after(&[b"\x1b[?20041h", b"\x1b[2004h"])),
+        "look-alikes change nothing"
+    );
+}
+
+#[test]
+fn leaving_the_alternate_screen_turns_bracketed_paste_off() {
+    for leave in [&b"\x1b[?1049l"[..], b"\x1b[?1047l", b"\x1b[?47l"] {
+        let m = after(&[b"\x1b[?2004h", leave]);
+        assert!(!m.bracketed_paste, "{leave:?}");
+    }
+    assert!(
+        !after(&[b"\x1b[?1049h"]).bracketed_paste,
+        "entering changes nothing"
+    );
+    assert!(
+        after(&[b"\x1b[?2004h\x1b[?1049h"]).bracketed_paste,
+        "entering keeps it"
+    );
+    // The program may turn it on again after leaving.
+    assert!(after(&[b"\x1b[?2004h\x1b[?1049l\x1b[?2004h"]).bracketed_paste);
 }

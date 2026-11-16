@@ -1,21 +1,26 @@
 //! The input modes a program has switched on: application cursor keys
-//! (DECCKM, `CSI ? 1 h`) and the application keypad (DECKPAM `ESC =`,
-//! DECKPNM `ESC >`).
+//! (DECCKM, `CSI ? 1 h`), the application keypad (DECKPAM `ESC =`, DECKPNM
+//! `ESC >`) and bracketed paste (DECSET 2004).
 //!
 //! Each grid block has a tracker that reads the bytes the block is given, after
 //! isolation, so it sees what the emulator sees. A tracker records only what
 //! its own block changed ([`Changes`]); the session folds the blocks in order,
 //! so a mode a program set stays set when a rich block ends one grid block and a
 //! new one starts. A soft reset (`CSI ! p`) and a full reset (`ESC c`) clear
-//! both modes.
+//! all three modes, and leaving the alternate screen (`CSI ? 47 l`, `1047` or
+//! `1049`) clears bracketed paste. A pinned layer sends no bracketed paste at
+//! all ([`key_modes_for`]).
 
-/// The modes that change which bytes a key sends.
+/// The modes that change which bytes a key or a paste sends.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct KeyModes {
     /// DECCKM: unmodified cursor keys send `ESC O x` instead of `ESC [ x`.
     pub cursor_app: bool,
     /// DECKPAM: keypad keys send `ESC O x` instead of the plain character.
     pub keypad_app: bool,
+    /// DECSET 2004: a paste is sent between `ESC [ 200 ~` and `ESC [ 201 ~`.
+    /// It changes what a paste sends, not a key.
+    pub bracketed_paste: bool,
 }
 
 /// What one stretch of output did to the modes: `None` is left as it was.
@@ -23,6 +28,7 @@ pub struct KeyModes {
 pub struct Changes {
     cursor_app: Option<bool>,
     keypad_app: Option<bool>,
+    bracketed_paste: Option<bool>,
 }
 
 impl Changes {
@@ -32,6 +38,7 @@ impl Changes {
         KeyModes {
             cursor_app: self.cursor_app.unwrap_or(base.cursor_app),
             keypad_app: self.keypad_app.unwrap_or(base.keypad_app),
+            bracketed_paste: self.bracketed_paste.unwrap_or(base.bracketed_paste),
         }
     }
 
@@ -39,6 +46,7 @@ impl Changes {
         Self {
             cursor_app: Some(false),
             keypad_app: Some(false),
+            bracketed_paste: Some(false),
         }
     }
 }
@@ -72,7 +80,7 @@ impl Default for ModeTracker {
 }
 
 impl ModeTracker {
-    /// A tracker with both modes off.
+    /// A tracker with every mode off.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -89,7 +97,7 @@ impl ModeTracker {
         self.changes
     }
 
-    /// The modes after the output read so far, starting from both off.
+    /// The modes after the output read so far, starting from every mode off.
     #[must_use]
     pub fn modes(&self) -> KeyModes {
         self.changes.apply(KeyModes::default())
@@ -156,10 +164,20 @@ impl ModeTracker {
         match (self.params.as_slice(), final_byte) {
             ([b'!'], b'p') => self.changes = Changes::reset(),
             ([b'?', rest @ ..], b'h' | b'l')
-                if rest.iter().all(|c| c.is_ascii_digit() || *c == b';')
-                    && rest.split(|c| *c == b';').any(|p| p == b"1") =>
+                if rest.iter().all(|c| c.is_ascii_digit() || *c == b';') =>
             {
-                self.changes.cursor_app = Some(final_byte == b'h');
+                let on = final_byte == b'h';
+                for p in rest.split(|c| *c == b';') {
+                    match p {
+                        b"1" => self.changes.cursor_app = Some(on),
+                        b"2004" => self.changes.bracketed_paste = Some(on),
+                        // Leaving the alternate screen resets bracketed paste.
+                        b"47" | b"1047" | b"1049" if !on => {
+                            self.changes.bracketed_paste = Some(false);
+                        }
+                        _ => {}
+                    }
+                }
             }
             _ => {}
         }
@@ -176,4 +194,16 @@ pub fn key_modes_of(blocks: &[crate::document::Block]) -> KeyModes {
             crate::document::Block::Grid(g) => g.key_mode_changes().apply(modes),
             crate::document::Block::Rich(_) => modes,
         })
+}
+
+/// The modes the document is in: [`key_modes_of`] its blocks, except that a
+/// layer pinned to grid mode after too many sealed aborts sends no bracketed
+/// paste, whatever the program asked for.
+#[must_use]
+pub fn key_modes_for(document: &crate::document::Document) -> KeyModes {
+    let mut modes = key_modes_of(document.blocks());
+    if document.notices().contains(&crate::layer::Notice::Pinned) {
+        modes.bracketed_paste = false;
+    }
+    modes
 }
