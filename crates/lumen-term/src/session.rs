@@ -269,7 +269,7 @@ impl Session {
     /// mode survives a rich block between two grid blocks.
     #[must_use]
     pub fn key_modes(&self) -> crate::modes::KeyModes {
-        crate::modes::key_modes_of(self.document.blocks())
+        crate::modes::key_modes_for(&self.document)
     }
 
     /// Milliseconds since the session started: the clock the notifier uses.

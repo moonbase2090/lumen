@@ -77,6 +77,27 @@ fn a_multi_line_paste_reaches_the_program_as_one_line_and_runs_nothing() {
 }
 
 #[test]
+fn a_paste_action_is_bracketed_and_keeps_its_lines_when_the_program_asked_for_that() {
+    let mut app = start(
+        "stty raw -echo; printf '\\033[?2004h'; echo ready; \
+         dd bs=1 count=16 2>/dev/null | od -An -v -tx1 | tr -d ' \\n'; echo; echo done",
+        1,
+    );
+    assert!(pump_until(&mut app, |a| text(a).contains("ready")));
+    // ESC [ 200 ~, "a\nb\n", ESC [ 201 ~ : 6 + 4 + 6 bytes.
+    let outcome = app.perform(Action::Paste, &Fixed(Some("a\nb\n")));
+    assert_eq!(outcome, Outcome::Redraw);
+    let want = "1b5b3230307e".to_owned() + "610a620a" + "1b5b3230317e";
+    assert!(
+        pump_until(&mut app, |a| text(a)
+            .replace(['\n', ' '], "")
+            .contains(&want)),
+        "screen: {}",
+        text(&app)
+    );
+}
+
+#[test]
 fn a_paste_carrying_a_frame_introducer_is_refused_and_nothing_is_sent() {
     let mut app = start("read line; echo got:[$line]", 1);
     let outcome = app.perform(Action::Paste, &Fixed(Some("before\x1b_after")));

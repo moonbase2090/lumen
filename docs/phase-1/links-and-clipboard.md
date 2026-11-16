@@ -24,4 +24,4 @@ What `lumen-term` has for the rules in the specification's [links, clipboard, co
 
 ## Not done
 
-No tables copy (TSV and the spreadsheet action), no link frame or link drawing, no confirmation drawing, no selection, no wiring into the window or a grid's paste, and no check of whether bracketed paste is on (the caller says). The visibility test that decides a run's `visible` flag is the caller's.
+No tables copy (TSV and the spreadsheet action), no link frame or link drawing, no confirmation drawing, no selection, and no confirmation window for a held paste. The app's paste action reads the program's bracketed-paste mode (DECSET 2004, reset by RIS and by leaving the alternate screen, and off whenever the layer is pinned) and sends the text between the markers when it is on; without it a multi-line paste goes in as one line. The foreground-group check the specification asks for before a paste report is not made: the pinned PTY crate does not expose the terminal's foreground group, as with mouse reports. The visibility test that decides a run's `visible` flag is the caller's.
