@@ -1,0 +1,47 @@
+Default shell selection proof (macOS; the selection order for Windows is exercised by the same function under test)
+Revision: cde09367aae35b946148c772bf7a14a9a6f7dc23 (git archive of that commit, built in the guest)
+Host: fresh virtual machine cloned from a clean macOS image, macOS 26.6.2 arm64, rustc 1.100.0 installed fresh, deleted after the run
+Commands: cargo test --locked -p lumen-term --all-features --test shell --test settings; then target/debug/lumen-term --show-settings with a throwaway HOME; then the window started with no program named, with `ps` showing what it ran.
+Not shown: a Windows run. No Windows machine was used; on Windows the same `choose` function is given the real PATH and COMSPEC, and its order is covered by the first test below.
+
+== tests
+     Running tests/settings.rs (target/debug/build/lumen-term/70f78d4efb5943a3/out/settings-70f78d4efb5943a3)
+test an_empty_file_is_the_defaults ... ok
+test a_comment_may_follow_a_value_but_nothing_else_may ... ok
+test a_bad_line_ignores_the_whole_file_and_names_the_line ... ok
+test every_setting_is_read ... ok
+test the_documented_examples_parse ... ok
+test theme_names_and_paths ... ok
+test files_the_settings_name_are_read_or_left_out_with_a_notice ... ok
+test a_file_that_cannot_be_used_is_ignored_with_a_notice ... ok
+test the_binary_draws_with_the_settings_file ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+     Running tests/shell.rs (target/debug/build/lumen-term/030c827bb723ae10/out/shell-030c827bb723ae10)
+test other_systems_keep_shell_then_bin_sh_and_never_ask_for_powershell ... ok
+test an_empty_or_blank_setting_or_shell_counts_as_not_set ... ok
+test a_bad_shell_setting_ignores_the_file_with_a_notice ... ok
+test the_shell_setting_is_read_from_the_settings_file ... ok
+test the_users_setting_wins_everywhere_and_then_shell ... ok
+test windows_prefers_pwsh_then_powershell_then_comspec_then_cmd ... ok
+test a_loaded_file_hands_the_setting_on ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+== build
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.38s
+bin-ok
+== no settings file
+settings: no file; the defaults apply
+theme=system mono_font=bundled mono_size=14 prose_font=bundled prose_size=14 shell=default
+== settings file with shell
+shell = "pwsh"
+settings: /tmp/h2/.config/lumen/settings.toml
+theme=system mono_font=bundled mono_size=14 prose_font=bundled prose_size=14 shell=pwsh
+== empty shell value
+settings: settings file /tmp/h2/.config/lumen/settings.toml ignored (line 1: `shell` must be a program name or path with no control characters); the defaults apply
+theme=system mono_font=bundled mono_size=14 prose_font=bundled prose_size=14 shell=default
+SHELL in this session: /bin/zsh
+== SHELL unset
+ 1208 /bin/sh
+== SHELL=/bin/bash
+ 1219 /bin/bash
+== settings shell wins over SHELL
+ 1226 /bin/zsh
