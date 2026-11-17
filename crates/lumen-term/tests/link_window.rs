@@ -256,6 +256,14 @@ fn the_prompt_is_drawn_over_the_page_and_changes_only_its_box() {
     let (x, y) = pixel_of(&app, URL, 0);
     assert!(app.link_press(x, y));
     let after = app.view();
+    // With a directory named, the two frames are kept as PNG for a proof.
+    if let Some(dir) = std::env::var_os("LUMEN_PROOF_DIR") {
+        for (name, frame) in [("link-before.png", &before), ("link-prompt.png", &after)] {
+            let png = frame.to_png().unwrap_or_else(|e| unreachable!("png: {e}"));
+            std::fs::write(std::path::Path::new(&dir).join(name), png)
+                .unwrap_or_else(|e| unreachable!("write: {e}"));
+        }
+    }
     let b = app
         .link_prompt_box()
         .unwrap_or_else(|| unreachable!("a prompt"));
