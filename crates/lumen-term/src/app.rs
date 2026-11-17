@@ -70,6 +70,9 @@ pub struct App {
     view_moves: u32,
     /// The find bar and its matches, while it is open.
     find: Option<crate::search::Find>,
+    /// What was typed in the find bar when it was last closed, so reopening it,
+    /// or going to the next or previous match, searches for it again.
+    find_kept: String,
     /// When the cursor last moved the blink back to its on half: output or a key.
     cursor_epoch_ms: u64,
     /// The blink half the last frame was drawn with, so a change asks for a new frame.
@@ -285,6 +288,7 @@ impl App {
             scroll: Scroll::Follow,
             view_moves: 0,
             find: None,
+            find_kept: String::new(),
             cursor_epoch_ms: 0,
             cursor_phase: true,
             exited: false,

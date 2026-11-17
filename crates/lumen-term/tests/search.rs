@@ -299,3 +299,45 @@ fn text_in_rich_blocks_is_found_and_drawn() {
         "an open bar is drawn even before a query"
     );
 }
+
+#[test]
+fn next_and_previous_after_closing_search_for_the_closed_query() {
+    let mut app = run("sleep 30");
+    app.find_open();
+    type_in(&mut app, "line5");
+    assert_eq!(app.find_count(), 11);
+    app.key(Key::Escape, Mods::default()).unwrap_or(());
+    assert!(!app.finding());
+    // Find Next with the bar closed opens it on the same query and moves on to a match.
+    assert!(app.find_next());
+    assert!(app.finding());
+    assert_eq!(app.find_query(), "line5");
+    assert_eq!(app.find_count(), 11);
+    let line = app.find_current_line().unwrap_or_default();
+    assert!(line.starts_with("line5"), "on a match, not nothing: {line}");
+    assert!(in_view(&app, &line));
+    // And Find Previous after another close does the same, the other way.
+    app.find_close();
+    assert!(app.find_previous());
+    assert_eq!(app.find_query(), "line5");
+    assert_eq!(app.find_count(), 11);
+    assert!(app.find_position().is_some());
+}
+
+#[test]
+fn reopening_the_bar_shows_the_last_query_with_its_matches() {
+    let mut app = run("sleep 30");
+    app.find_open();
+    type_in(&mut app, "line7");
+    app.find_close();
+    app.find_open();
+    assert_eq!(app.find_query(), "line7");
+    assert_eq!(app.find_count(), 11);
+    // A bar closed with nothing typed reopens empty.
+    let mut empty = run("sleep 30");
+    empty.find_open();
+    empty.find_close();
+    empty.find_open();
+    assert_eq!(empty.find_query(), "");
+    assert_eq!(empty.find_count(), 0);
+}

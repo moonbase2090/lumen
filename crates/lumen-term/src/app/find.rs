@@ -7,18 +7,24 @@ use crate::scroll::Scroll;
 use crate::search::{Find, Overlay};
 
 impl App {
-    /// Open the find bar with nothing typed. Typing goes to the bar, not the
-    /// program, until it is closed. Opening it again keeps what is typed.
+    /// Open the find bar. Typing goes to the bar, not the program, until it is
+    /// closed. It opens with what was typed when it was last closed, searched
+    /// for again; while it is open, opening it again changes nothing.
     pub fn find_open(&mut self) {
         if self.find.is_none() {
-            self.find = Some(Find::new());
-            self.view_moves += 1;
+            let mut f = Find::new();
+            f.push(&self.find_kept);
+            self.find = Some(f);
+            self.refresh_find();
         }
     }
 
     /// Close the find bar: the highlights go and typing goes to the program.
+    /// The query is kept for the next time the bar opens.
     pub fn find_close(&mut self) {
-        if self.find.take().is_some() {
+        if let Some(f) = self.find.take() {
+            self.find_kept.clear();
+            self.find_kept.push_str(f.query());
             self.view_moves += 1;
         }
     }
