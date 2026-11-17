@@ -257,13 +257,17 @@ pub fn apply_window_event(
 ) -> bool {
     let redraw = match event {
         WindowEvent::Resized(PhysicalSize { width, height }) => app.resize(*width, *height).is_ok(),
+        WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+            app.set_display_scale(*scale_factor).unwrap_or(false)
+        }
         WindowEvent::Ime(event) => ime_event(app, event),
         WindowEvent::Focused(focused) => {
             app.set_focused(*focused);
             if !*focused {
                 app.clear_preedit();
             }
-            false
+            // The cursor is drawn dimmed when the window loses focus.
+            true
         }
         _ => false,
     };
@@ -471,7 +475,10 @@ impl Host {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
-            WindowEvent::Resized(_) | WindowEvent::Ime(_) | WindowEvent::Focused(_) => {
+            WindowEvent::Resized(_)
+            | WindowEvent::ScaleFactorChanged { .. }
+            | WindowEvent::Ime(_)
+            | WindowEvent::Focused(_) => {
                 if let Some(run) = &mut self.state
                     && apply_window_event(
                         &mut run.app,
@@ -591,6 +598,9 @@ impl ApplicationHandler for Host {
             size.height,
         ) {
             Ok(mut app) => {
+                if self.config.scale.is_some() {
+                    app.pin_scale();
+                }
                 app.use_settings(self.config.notifications);
                 app.use_images(self.config.images);
                 // The user's look, then the system's appearance, if it says;
