@@ -223,11 +223,11 @@ fn a_link_a_program_sets_with_osc_8_has_no_effect_in_a_grid() {
 #[test]
 fn only_web_addresses_in_text_are_links() {
     let (mut app, _) = start(
-        "echo 'mail:a@example.com file:///etc/hosts ftp://example.com javascript:alert(1)'; sleep 30",
+        "echo 'mail:a@lumenprotocol.org file:///etc/hosts ftp://example.com javascript:alert(1)'; sleep 30",
     );
     assert!(pump_until(&mut app, |a| shows(a, "javascript")));
     for word in [
-        "a@example.com",
+        "a@lumenprotocol.org",
         "file:///etc/hosts",
         "ftp://example.com",
         "alert",
@@ -239,9 +239,9 @@ fn only_web_addresses_in_text_are_links() {
 
 #[test]
 fn an_address_with_a_user_name_in_it_is_shown_and_refused() {
-    let (mut app, opened) = start("echo 'see https://user:pw@example.com/ here'; sleep 30");
+    let (mut app, opened) = start("echo 'see https://user:pw@lumenprotocol.org/ here'; sleep 30");
     assert!(pump_until(&mut app, |a| shows(a, "here")));
-    let (x, y) = pixel_of(&app, "https://user:pw@example.com/", 8);
+    let (x, y) = pixel_of(&app, "https://user:pw@lumenprotocol.org/", 8);
     assert!(app.link_press(x, y));
     assert!(lines(&app).contains("This link is not opened."));
     enter(&mut app);
