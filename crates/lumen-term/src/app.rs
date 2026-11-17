@@ -64,6 +64,12 @@ pub struct App {
     mouse: Reporter,
     theme_choice: ThemeChoice,
     appearance: Appearance,
+    /// When the cursor last moved the blink back to its on half: output or a key.
+    cursor_epoch_ms: u64,
+    /// The blink half the last frame was drawn with, so a change asks for a new frame.
+    cursor_phase: bool,
+    /// The program has ended: its screen has no cursor any more.
+    exited: bool,
     preedit: Option<Preedit>,
 }
 
@@ -99,6 +105,10 @@ struct Preedit {
 
 /// How long the notice that input was not sent stays after the last refusal.
 pub const INPUT_NOTICE_MS: u64 = 4000;
+
+/// How long a blinking cursor stays on, and then off, in milliseconds. A key or output from the
+/// program starts a new cycle with the cursor on.
+pub const CURSOR_BLINK_MS: u64 = 530;
 
 /// Why input could not be sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -261,6 +271,9 @@ impl App {
             mouse: Reporter::default(),
             theme_choice: ThemeChoice::System,
             appearance: Appearance::Light,
+            cursor_epoch_ms: 0,
+            cursor_phase: true,
+            exited: false,
             preedit: None,
         };
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
@@ -360,6 +373,7 @@ impl App {
     /// The window gained or lost the focus.
     pub fn set_focused(&mut self, focused: bool) {
         self.desk.focused = focused;
+        self.cursor_epoch_ms = self.session.now_ms();
         self.notifier.set_desk(self.desk);
     }
 
@@ -586,7 +600,34 @@ impl App {
             self.input_notice = None;
             changed = true;
         }
+        let phase = self.blink_on(now);
+        if phase != self.cursor_phase {
+            self.cursor_phase = phase;
+            changed |= self.cursor_blinks();
+        }
         changed
+    }
+
+    /// Whether the live grid has a cursor that blinks in a focused window.
+    fn cursor_blinks(&self) -> bool {
+        self.desk.focused
+            && !self.exited
+            && self
+                .session
+                .document()
+                .blocks()
+                .iter()
+                .rev()
+                .find_map(|b| match b {
+                    crate::document::Block::Grid(g) => Some(g.cursor()),
+                    crate::document::Block::Rich(_) => None,
+                })
+                .is_some_and(|c| c.visible && c.blink)
+    }
+
+    /// The on half of the blink cycle at `now`.
+    fn blink_on(&self, now: u64) -> bool {
+        (now.saturating_sub(self.cursor_epoch_ms) / CURSOR_BLINK_MS).is_multiple_of(2)
     }
 
     /// The notifier, for reading what is shown and counted.
@@ -711,6 +752,7 @@ impl App {
         if bytes.is_empty() {
             return Ok(());
         }
+        self.cursor_epoch_ms = self.session.now_ms();
         let sent = self.send(&bytes);
         self.note_input(&sent);
         sent
@@ -722,6 +764,9 @@ impl App {
     ///
     /// Returns the write error.
     pub fn text(&mut self, text: &str) -> std::io::Result<()> {
+        if !text.is_empty() {
+            self.cursor_epoch_ms = self.session.now_ms();
+        }
         let sent = self.send(text.as_bytes());
         self.note_input(&sent);
         sent
@@ -881,6 +926,9 @@ impl App {
     /// Take what the program has written. Returns the bytes handled.
     pub fn pump(&mut self) -> usize {
         let bytes = self.session.pump();
+        if bytes > 0 {
+            self.cursor_epoch_ms = self.session.now_ms();
+        }
         let events = self.session.take_events();
         if !events.is_empty() {
             self.route(&events);
@@ -891,18 +939,24 @@ impl App {
 
     /// Whether the program has exited.
     pub fn has_exited(&mut self) -> bool {
-        self.session.has_exited()
+        self.exited = self.session.has_exited();
+        self.exited
     }
 
     /// The window's contents: exactly `width` by `height` pixels.
     #[must_use]
     pub fn view(&self) -> Frame {
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let cursor = (!self.exited).then(|| crate::raster::CursorState {
+            focused: self.desk.focused,
+            blink_on: self.blink_on(self.session.now_ms()),
+        });
         self.renderer
-            .render_window_with(
+            .render_window_cursor(
                 self.session.document(),
                 &window_for(columns, rows),
                 &self.toasts(),
+                cursor,
             )
             .viewport(self.width, self.height, self.renderer.theme().background)
     }

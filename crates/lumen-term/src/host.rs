@@ -266,7 +266,8 @@ pub fn apply_window_event(
             if !*focused {
                 app.clear_preedit();
             }
-            false
+            // The cursor is drawn dimmed when the window loses focus.
+            true
         }
         _ => false,
     };

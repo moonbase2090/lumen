@@ -1,0 +1,49 @@
+Xvfb:   dimensions:    1280x800 pixels (325x203 millimeters)
+binary sha256: 6c530d8de2d48845
+focused window is: sleep
+--- window size: 640x360
+block: differing pixels vs hidden = 152, changed area WxH+X+Y = 8x19+38+38
+underline: differing pixels vs hidden = 16, changed area WxH+X+Y = 8x2+38+55
+bar: differing pixels vs hidden = 38, changed area WxH+X+Y = 2x19+38+38
+unfocused: differing pixels vs hidden = 50, changed area WxH+X+Y = 8x19+38+38
+blink1: differing pixels vs hidden = 0
+blink2: differing pixels vs hidden = 0
+blink3: differing pixels vs hidden = 152
+blink4: differing pixels vs hidden = 152
+blink5: differing pixels vs hidden = 152
+blink6: differing pixels vs hidden = 0
+blink7: differing pixels vs hidden = 0
+blink8: differing pixels vs hidden = 0
+block cell centre (42,47): hidden=srgb(255,255,255) block=srgb(24,26,32) unfocused=srgb(255,255,255)
+4190 bar.png
+4171 blink1.png
+4171 blink2.png
+4194 blink3.png
+4194 blink4.png
+4194 blink5.png
+4171 blink6.png
+4171 blink7.png
+4171 blink8.png
+4194 block.png
+4171 hidden.png
+4188 underline.png
+4207 unfocused.png
+961856f83857f238  bar.png
+407cb83f6395e7b8  blink1.png
+407cb83f6395e7b8  blink2.png
+072ee73b6d824d0b  blink3.png
+072ee73b6d824d0b  blink4.png
+072ee73b6d824d0b  blink5.png
+407cb83f6395e7b8  blink6.png
+407cb83f6395e7b8  blink7.png
+407cb83f6395e7b8  blink8.png
+072ee73b6d824d0b  block.png
+407cb83f6395e7b8  hidden.png
+839caabaf6a6bc81  underline.png
+7c044ab97d7ff80b  unfocused.png
+1 focused: Bright
+2 other client has focus: sleep
+3 window refocused: Bright
+focused vs unfocused differing pixels: 102
+focused vs refocused differing pixels: 0
+block cell centre: focused=srgb(24,26,32) unfocused=srgb(255,255,255) refocused=srgb(24,26,32)
