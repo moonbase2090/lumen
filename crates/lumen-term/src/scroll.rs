@@ -53,6 +53,18 @@ impl Scroll {
         }
     }
 
+    /// The view with its top at `top` pixels of the flow, held; the bottom is
+    /// [`Scroll::Follow`].
+    #[must_use]
+    pub fn to(total: u32, area: u32, top: u32) -> Scroll {
+        let last = total.saturating_sub(area);
+        if top >= last {
+            Scroll::Follow
+        } else {
+            Scroll::Pinned(top)
+        }
+    }
+
     /// The view at the top of the flow.
     #[must_use]
     pub fn to_top(total: u32, area: u32) -> Scroll {
@@ -115,6 +127,13 @@ mod tests {
         assert_eq!(held.up(1000, 400, -100), Scroll::Pinned(500));
         assert_eq!(held.up(1000, 400, -200), Scroll::Follow);
         assert_eq!(held.up(1000, 400, -10_000), Scroll::Follow);
+    }
+
+    #[test]
+    fn a_view_set_to_a_place_holds_there_and_the_bottom_follows() {
+        assert_eq!(Scroll::to(1000, 400, 250), Scroll::Pinned(250));
+        assert_eq!(Scroll::to(1000, 400, 600), Scroll::Follow);
+        assert_eq!(Scroll::to(1000, 400, 9000), Scroll::Follow);
     }
 
     #[test]
