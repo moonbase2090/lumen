@@ -1,0 +1,565 @@
+HEAD 057c5a5aab14e27abb1b4ff53e90eaa3c72cdae8
+rustc 1.100.0 (0ef1bc386 2026-11-09)
+user p228
+Linux x86_64
+Ubuntu 24.04.5 LTS
+     Running unittests src/lib.rs (target/debug/build/lumen-term/ca9fe6036eb8d08e/out/lumen_term-ca9fe6036eb8d08e)
+running 11 tests
+test actions::tests::other_platforms_never_take_a_chord_a_program_uses ... ok
+test actions::tests::mac_chords_are_command_and_no_other_modifier ... ok
+test actions::tests::zoom_steps_stay_in_range_and_reset_goes_to_the_display_scale ... ok
+test pty::startup_query_tests::output_without_the_query_at_its_front_is_left_alone ... ok
+test pty::startup_query_tests::the_answer_is_a_cursor_position_report ... ok
+test pty::startup_query_tests::the_first_start_up_query_is_taken_and_only_the_first ... ok
+test writer::tests::a_full_run_of_replies_leaves_the_room_typed_input_is_promised ... ok
+test writer::tests::replies_are_dropped_when_sixteen_wait_and_never_block ... ok
+test writer::tests::typed_input_never_blocks_when_the_program_is_not_reading ... ok
+test writer::tests::a_stopped_writer_refuses_with_broken_pipe ... ok
+test writer::tests::what_was_queued_is_written_in_order_once_the_program_reads ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running unittests src/main.rs (target/debug/build/lumen-term/42b320eaaefa2f5e/out/lumen_term-42b320eaaefa2f5e)
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/actions.rs (target/debug/build/lumen-term/cb817c652d188866/out/actions-cb817c652d188866)
+running 7 tests
+test the_shortcut_for_each_action_is_the_one_the_platform_uses ... ok
+test paste_sends_the_clipboard_text_to_the_program ... ok
+test a_paste_carrying_a_frame_introducer_is_refused_and_nothing_is_sent ... ok
+test a_paste_action_is_bracketed_and_keeps_its_lines_when_the_program_asked_for_that ... ok
+test quit_and_close_end_the_application ... ok
+test a_multi_line_paste_reaches_the_program_as_one_line_and_runs_nothing ... ok
+test zoom_changes_the_size_the_running_program_is_told ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+     Running tests/app.rs (target/debug/build/lumen-term/a718491d1a2b80cd/out/app-a718491d1a2b80cd)
+running 13 tests
+test a_viewport_shows_the_top_of_a_short_frame_and_the_bottom_of_a_tall_one ... ok
+test pixels_make_cells_within_the_limits ... ok
+test the_block_area_is_what_the_window_leaves_after_the_margin_the_editor_and_the_strip_row ... ok
+test a_window_too_small_for_the_margin_still_has_a_one_by_one_block_area ... ok
+test control_c_reaches_the_program_as_a_signal ... ok
+test keys_reach_the_program ... ok
+test pasted_text_is_sent_as_it_is ... ok
+test the_program_exiting_is_seen ... ok
+test the_window_size_sets_the_ptys_size ... ok
+test the_view_is_exactly_the_window_size_and_shows_the_programs_text ... ok
+test resizing_the_window_resizes_the_program ... ok
+test the_view_draws_the_trust_margin_the_producer_cannot_reach ... ok
+test text_starts_clear_of_the_gutter_divider ... ok
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+     Running tests/app_notify.rs (target/debug/build/lumen-term/a85471effcc61e04/out/app_notify-a85471effcc61e04)
+running 10 tests
+test the_place_is_never_local_whatever_the_environment_holds ... ok
+test a_session_started_with_the_settings_on_is_not_local_so_it_shows_no_unsigned_toast ... ok
+test by_default_a_program_that_asks_for_a_notification_shows_nothing ... ok
+test the_sink_is_called_only_when_the_setting_is_on_and_the_window_is_unfocused ... ok
+test a_click_on_a_toast_dismisses_that_toast_and_a_click_elsewhere_does_nothing ... ok
+test with_the_setting_and_a_local_layer_an_unsigned_toast_is_drawn_in_the_area_only ... ok
+test an_unknown_remote_or_multiplexed_place_draws_no_unsigned_toast ... ok
+test a_click_dismisses_the_toast_it_hit_not_another ... ok
+test a_program_cannot_dismiss_a_toast_by_output ... ok
+test a_toast_goes_away_when_its_time_is_up ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.13s
+     Running tests/blocks.rs (target/debug/build/lumen-term/6922429b0776bac1/out/blocks-6922429b0776bac1)
+running 14 tests
+test a_new_prompt_cycle_resets_the_producers_budget ... ok
+test a_notice_from_the_layer_is_kept_and_not_drawn ... ok
+test an_unsealed_program_cannot_turn_a_sealed_power_frame_into_document_state ... ok
+test a_spent_budget_raises_the_degraded_notice ... ok
+test a_pinned_layer_sends_no_bracketed_paste_even_when_the_program_asked ... ok
+test arm_b_makes_a_rich_block_from_the_same_bytes_on_any_layer ... ok
+test pane_grid_osc_clipboard_title_and_notification_sequences_are_not_text ... ok
+test escaped_text_takes_its_own_row_and_the_output_after_it_starts_a_new_one ... ok
+test passthrough_output_lands_in_one_grid_block ... ok
+test track_0_with_no_container_goes_to_the_background_strip ... ok
+test blocks_carry_the_prompt_cycle_they_arrived_in ... ok
+test the_alternate_screen_and_tmux_reach_the_layer ... ok
+test output_after_a_rich_block_starts_a_new_grid_block ... ok
+test too_many_sealed_aborts_pin_the_layer_and_the_notice_is_kept_once ... ok
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/build_gate.rs (target/debug/build/lumen-term/29f61ddabc813e7f/out/build_gate-29f61ddabc813e7f)
+running 4 tests
+test a_missing_records_file_sets_all_three_values_to_locked ... ok
+test each_supported_target_gets_its_own_record_and_the_records ... ok
+test an_unsupported_target_is_locked_even_with_records ... ok
+test a_supported_target_without_a_record_is_locked ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cli.rs (target/debug/build/lumen-term/8999383309af6961/out/cli-8999383309af6961)
+running 7 tests
+test bad_arguments_are_refused ... ok
+test no_flag_sets_a_notification_setting_because_policy_comes_only_from_the_file ... ok
+test no_arguments_is_the_default_shell_in_a_default_window ... ok
+test flags_and_a_command ... ok
+test the_binary_refuses_bad_arguments_with_the_usage ... ok
+test the_first_word_that_is_not_a_flag_starts_the_command ... ok
+test the_binary_writes_a_snapshot_of_a_programs_output ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+     Running tests/copy.rs (target/debug/build/lumen-term/4833d6ef4f1fc2d9/out/copy-4833d6ef4f1fc2d9)
+running 8 tests
+test code_text_loses_bidi_controls_but_keeps_zero_width_characters ... ok
+test command_text_loses_bidi_controls_and_invisible_characters_and_the_count_is_returned ... ok
+test copy_is_code_points_in_logical_order_not_glyphs ... ok
+test paragraph_text_keeps_every_original_code_point ... ok
+test a_hidden_run_between_two_runs_of_one_producer_does_not_split_them ... ok
+test only_visible_runs_are_copied_and_hidden_ones_are_counted ... ok
+test a_copy_that_spans_producers_keeps_the_split ... ok
+test the_stripped_ranges_are_exactly_the_specified_ones ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cursor.rs (target/debug/build/lumen-term/493d45f8363e3cb3/out/cursor-493d45f8363e3cb3)
+running 13 tests
+test a_bar_is_a_thin_vertical_line_at_the_left_of_the_cell ... ok
+test an_underline_is_a_thin_line_along_the_bottom_of_the_cell ... ok
+test a_wide_character_under_the_cursor_gets_a_two_cell_block ... ok
+test an_unfocused_bar_is_dimmer_than_a_focused_one ... ok
+test a_block_over_a_letter_shows_the_letter_in_the_background_colour ... ok
+test a_steady_cursor_ignores_the_blink_half ... ok
+test the_cursor_follows_the_scale ... ok
+test a_blinking_cursor_is_drawn_in_its_on_half_only ... ok
+test a_hidden_cursor_draws_nothing_and_it_comes_back ... ok
+test an_unfocused_block_is_an_outline_and_does_not_blink ... ok
+test the_cursor_sits_on_the_last_cell_after_a_write_to_the_last_column ... ok
+test the_default_cursor_is_a_filled_block_on_the_cell_after_the_text ... ok
+test only_the_live_grid_of_a_window_has_a_cursor_and_chrome_is_untouched ... ok
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/cursor_app.rs (target/debug/build/lumen-term/844a6c31f4b937f7/out/cursor_app-844a6c31f4b937f7)
+running 4 tests
+test the_cursor_goes_when_the_program_ends ... ok
+test composed_or_pasted_text_brings_a_blinking_cursor_back_on ... ok
+test a_blinking_cursor_turns_off_and_on_and_asks_for_a_new_frame_each_time ... ok
+test an_unfocused_window_stops_the_blink_and_dims_the_cursor ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.61s
+     Running tests/design.rs (target/debug/build/lumen-term/4544496f78af5681/out/design-4544496f78af5681)
+running 18 tests
+test ansi_text_colours_are_readable_on_the_canvas_and_the_surface ... ok
+test dark_is_dark_and_the_others_are_light ... ok
+test every_builtin_passes_its_own_check ... ok
+test contrast_matches_the_wcag_reference_values ... ok
+test builtins_are_found_by_their_names ... ok
+test every_text_role_clears_its_palettes_floor_on_every_surface ... ok
+test the_builtin_margin_is_the_canvas_with_a_divider ... ok
+test the_editor_and_container_edges_are_visible_as_control_boundaries ... ok
+test the_check_names_each_miss ... ok
+test the_theme_is_the_palette_by_role ... ok
+test the_run_colour_tokens_clear_the_specs_visibility_floor_with_room ... ok
+test the_type_scale_rises_and_steps_are_clamped ... ok
+test the_app_draws_in_the_design_theme ... ok
+test the_editor_prompt_is_drawn_in_the_accent ... ok
+test a_fixed_choice_ignores_the_appearance ... ok
+test the_look_follows_the_system_appearance_live ... ok
+test the_margin_is_drawn_in_the_grid_background_with_a_divider ... ok
+test a_zoom_keeps_the_look_and_the_fonts ... ok
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+     Running tests/fonts.rs (target/debug/build/lumen-term/9dcf36b53c525f3b/out/fonts-9dcf36b53c525f3b)
+running 9 tests
+test sizes_are_clamped_to_a_readable_range ... ok
+test a_larger_mono_size_makes_larger_cells ... ok
+test the_defaults_are_the_bundled_faces_at_the_body_size ... ok
+test the_prose_size_sets_proportional_widths_and_rows_fit_it ... ok
+test what_is_not_a_font_is_refused ... ok
+test a_font_file_is_read_whole_or_refused ... ok
+test a_users_face_is_the_one_drawn ... ok
+test a_font_change_resizes_the_grid_live ... ok
+test a_font_over_the_size_limit_is_refused_from_bytes ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+     Running tests/gate_no_authority.rs (target/debug/build/lumen-term/21fba47a2c7bc820/out/gate_no_authority-21fba47a2c7bc820)
+running 7 tests
+test allow_unsigned_is_the_only_exception_a_local_toast_never_an_os_notification ... ok
+test at_most_one_unsigned_toast_per_layer_per_second_over_a_minute ... ok
+test the_control_run_shows_authority_is_observable_when_the_input_is_sealed ... ok
+test unsealed_input_makes_only_grid_and_track_0_blocks_and_no_command_structure ... ok
+test unsealed_output_is_denied_by_default_and_every_attempt_is_counted ... ok
+test no_unsealed_input_opens_a_sealed_frame_or_changes_a_grant ... ok
+test allow_unsigned_never_applies_to_a_layer_that_is_not_shown_local ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+     Running tests/gate_parity.rs (target/debug/build/lumen-term/612140558fed2bdb/out/gate_parity-612140558fed2bdb)
+running 5 tests
+test a_real_sealed_frame_opens_once_and_the_control_shows_the_oracle_works ... ok
+test a_program_without_the_key_gets_nothing_from_the_sealed_channel ... ok
+test bytes_that_cannot_start_a_frame_reach_the_parser_exactly_as_written ... ok
+test an_unsealed_frame_ends_as_a_block_or_visible_text_and_never_reaches_the_parser ... ok
+test the_terminal_writes_nothing_back_for_any_lumen_sequence ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.10s
+     Running tests/gate_trust_margin.rs (target/debug/build/lumen-term/77e7e62f7e9e69c6/out/gate_trust_margin-77e7e62f7e9e69c6)
+running 6 tests
+test the_oracle_fails_when_content_reaches_the_margin ... ok
+test background_output_and_an_open_strip_leave_the_margin_and_editor_alone ... ok
+test toasts_with_hostile_text_stay_out_of_the_margin_and_the_editor ... ok
+test the_frame_size_and_the_baseline_do_not_depend_on_the_input ... ok
+test no_frame_type_byte_changes_a_margin_or_editor_pixel ... ok
+test no_named_or_random_input_changes_a_margin_or_editor_pixel_in_any_window ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 42.59s
+     Running tests/host.rs (target/debug/build/lumen-term/4be174a6ba93719e/out/host-4be174a6ba93719e)
+running 12 tests
+test a_frame_becomes_xrgb_words ... ok
+test a_character_uses_the_text_the_key_produced ... ok
+test a_scroll_is_whole_steps_in_the_direction_it_moved ... ok
+test control_uses_the_logical_key_not_the_control_code_in_the_text ... ok
+test alt_and_shift_tab_carry_their_modifiers ... ok
+test a_composed_string_is_not_a_key ... ok
+test numeric_keypad_keys_are_keypad_keys ... ok
+test super_belongs_to_the_operating_system ... ok
+test named_keys_map_to_their_keys ... ok
+test the_pointer_position_is_whole_pixels_and_never_negative_or_huge ... ok
+test the_systems_window_theme_is_the_appearance_and_light_when_unsaid ... ok
+test the_window_uses_the_product_name ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/images.rs (target/debug/build/lumen-term/7563a253941bb4f4/out/images-7563a253941bb4f4)
+running 9 tests
+test a_comment_line_in_the_records_is_not_a_record ... ok
+test a_command_that_ends_mid_image_drops_what_was_received ... ok
+test gate_records_parse_and_a_malformed_line_leaves_images_locked ... ok
+test the_shipped_records_unlock_images_on_this_platform ... ok
+test frames_out_of_order_change_nothing_and_show_one_line_of_text ... ok
+test a_large_image_is_reduced_to_the_width_and_never_enlarged ... ok
+test the_setting_off_shows_the_alt_text_even_with_a_gate_record ... ok
+test unlocked_an_image_is_decoded_and_its_pixels_are_drawn ... ok
+test only_image_draw_reads_decoded_pixels ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/ime.rs (target/debug/build/lumen-term/39a62e3b868865e0/out/ime-39a62e3b868865e0)
+running 11 tests
+test option_composes_on_a_mac_and_is_an_escape_prefix_elsewhere ... ok
+test a_committed_string_cannot_carry_an_escape_sequence ... ok
+test the_committed_text_is_sent_once_and_ends_the_composition ... ok
+test a_compose_sequence_arrives_as_text_and_is_sent_whole ... ok
+test composition_is_shown_but_not_sent_until_it_is_committed ... ok
+test a_dead_key_sends_nothing_and_the_composed_letter_arrives_as_the_letter ... ok
+test turning_the_input_method_off_drops_the_unfinished_text ... ok
+test a_preedit_is_capped_and_its_caret_must_sit_on_a_character ... ok
+test the_candidate_window_is_placed_at_the_editor_text_column_and_covers_the_preedit ... ok
+test a_zoom_tells_the_system_where_the_candidate_window_moved ... ok
+test the_system_is_told_the_candidate_rectangle_again_when_events_move_it ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+     Running tests/input_notice.rs (target/debug/build/lumen-term/cf13b9b1333c8867/out/input_notice-cf13b9b1333c8867)
+running 7 tests
+test input_after_the_program_has_gone_is_not_silent_either ... ok
+test input_that_is_sent_asks_for_no_redraw_and_leaves_no_notice ... ok
+test each_refusal_is_counted_and_the_text_is_the_terminals_alone ... ok
+test a_program_that_floods_notifications_cannot_push_the_notice_out ... ok
+test a_click_dismisses_the_notice_and_the_window_is_as_before ... ok
+test input_the_program_is_not_reading_is_refused_with_a_visible_notice ... ok
+test the_notice_goes_away_by_itself_and_the_window_is_told ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.08s
+     Running tests/isolate.rs (target/debug/build/lumen-term/2e11eb5776acd267/out/isolate-2e11eb5776acd267)
+running 20 tests
+test a_byte_in_the_c1_range_that_continues_a_utf8_sequence_is_text ... ok
+test an_allowlisted_osc_with_a_control_or_an_escape_in_its_body_is_dropped_whole ... ok
+test esc_then_a_c1_control_removes_both ... ok
+test a_string_of_exactly_the_cap_is_kept_to_its_end_and_one_more_byte_is_truncated ... ok
+test an_osc_number_with_leading_zeros_or_extra_digits_is_not_an_allowlisted_one ... ok
+test esc_then_a_lone_c2_keeps_what_follows_and_still_drops_an_escape_that_follows ... ok
+test an_unterminated_string_discards_everything_after_it ... ok
+test a_sequence_split_at_every_position_is_treated_as_if_it_came_whole ... ok
+test every_c1_control_is_dropped_by_code_point ... ok
+test every_c1_control_is_dropped_by_byte ... ok
+test invalid_utf8_is_dropped ... ok
+test a_string_over_4_kib_is_discarded_to_the_terminator_with_one_notice ... ok
+test an_oversized_osc_is_dropped_whole_and_reported ... ok
+test osc_outside_the_allowlist_is_dropped_and_the_allowlist_passes ... ok
+test plain_text_and_ordinary_escapes_pass_unchanged ... ok
+test string_escapes_are_dropped_in_every_7_bit_form ... ok
+test the_only_terminator_is_esc_backslash_and_bel_for_an_allowlisted_osc ... ok
+test what_is_held_back_at_the_end_of_the_stream_is_dropped ... ok
+test an_allowlisted_osc_at_the_cap_passes_and_one_byte_more_is_dropped_with_a_notice ... ok
+test over_every_short_string_of_the_awkward_bytes_the_output_is_inert_idempotent_and_split_safe ... ok
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+     Running tests/isolation_fuzz.rs (target/debug/build/lumen-term/1815ed38595aba22/out/isolation_fuzz-1815ed38595aba22)
+running 3 tests
+test a_forged_sealed_frame_is_refused_even_though_the_layer_holds_a_key ... ok
+test a_dcs_of_8_kib_has_no_effects_on_the_grid_and_the_text_after_it_survives ... ok
+test no_forged_frame_is_accepted_and_nothing_inert_is_not_inert_at_every_split_position ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.61s
+     Running tests/keys.rs (target/debug/build/lumen-term/14b005fc9c26ba0e/out/keys-14b005fc9c26ba0e)
+running 9 tests
+test alt_is_an_escape_prefix ... ok
+test cursor_keys_and_their_modifiers ... ok
+test characters_are_their_utf8 ... ok
+test control_letters_are_the_control_codes ... ok
+test editing_keys ... ok
+test application_cursor_keys_use_ss3_until_a_modifier ... ok
+test function_keys ... ok
+test keypad_keys_in_both_modes ... ok
+test the_plain_keys ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/links.rs (target/debug/build/lumen-term/e366a81b85d9b985/out/links-e366a81b85d9b985)
+running 16 tests
+test a_file_target_is_inert_text_with_a_path_to_copy ... ok
+test a_mail_link_that_names_its_own_address_is_not_flagged_even_with_a_dotted_name_before_the_at ... ok
+test a_plain_copy_of_a_link_gives_its_visible_text_and_the_target_needs_the_confirmation ... ok
+test a_user_name_in_a_web_target_is_refused ... ok
+test a_non_ascii_host_is_shown_in_punycode_and_flagged ... ok
+test a_target_that_does_not_decode_cleanly_is_refused ... ok
+test control_space_and_invisible_characters_anywhere_are_refused ... ok
+test a_visible_text_that_looks_like_a_different_url_raises_the_mismatch_flag ... ok
+test mailto_refuses_control_characters_in_what_it_keeps ... ok
+test only_https_http_and_mailto_are_acted_on_and_every_other_scheme_is_refused ... ok
+test the_scheme_and_host_are_lower_case_in_what_is_shown ... ok
+test mailto_is_split_on_the_literal_separators_before_decoding ... ok
+test the_host_is_never_cut_and_an_over_long_target_is_refused_not_cut ... ok
+test mailto_keeps_only_the_address_cc_and_subject_and_shows_what_it_re_encodes ... ok
+test ports_and_hosts_are_checked ... ok
+test user_info_syntax_in_the_visible_text_cannot_hide_the_real_host ... ok
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/modes.rs (target/debug/build/lumen-term/75cb7f2308985737/out/modes-75cb7f2308985737)
+running 8 tests
+test bracketed_paste_follows_decset_2004_alone_or_in_a_list_and_resets ... ok
+test leaving_the_alternate_screen_turns_bracketed_paste_off ... ok
+test other_modes_and_look_alikes_change_nothing ... ok
+test sequences_split_across_reads ... ok
+test set_and_clear_each_mode ... ok
+test soft_and_full_reset_return_to_normal ... ok
+test modes_survive_a_rich_block_between_grid_blocks ... ok
+test on_a_pty::keys_follow_the_modes_the_program_sets ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+     Running tests/mouse.rs (target/debug/build/lumen-term/08ba2250fe58414d/out/mouse-08ba2250fe58414d)
+running 6 tests
+test other_buttons_and_modifiers_are_in_the_code ... ok
+test press_release_drag_and_wheel_are_reported_in_grid_cells ... ok
+test a_release_is_not_sent_for_a_press_that_was_not ... ok
+test level_1000_reports_no_drag_and_level_1003_reports_bare_motion ... ok
+test nothing_is_sent_off_the_block_or_without_the_encoding ... ok
+test nothing_is_sent_when_the_mode_is_off ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+     Running tests/notify.rs (target/debug/build/lumen-term/6fbaf0a67f0baa78/out/notify-6fbaf0a67f0baa78)
+running 23 tests
+test a_host_that_never_reports_focus_gets_toasts_not_os_notifications ... ok
+test a_sealed_notification_is_an_os_notification_only_when_every_condition_holds ... ok
+test allow_unsigned_draws_a_toast_on_a_local_layer_and_never_an_os_notification ... ok
+test allow_unsigned_never_applies_to_a_layer_that_is_not_shown_local ... ok
+test a_layer_at_the_screen_cap_replaces_only_its_own_oldest_toast ... ok
+test clean_keeps_one_combining_mark_per_base_and_drops_a_mark_with_no_base ... ok
+test a_full_screen_replaces_the_layers_own_oldest_toast_and_never_another_layers ... ok
+test layer_ids_are_never_reused ... ok
+test everything_is_off_by_default_and_unsigned_output_is_denied_and_counted ... ok
+test clean_removes_what_is_not_text_and_shows_what_draws_nothing_as_an_escape ... ok
+test compose_has_the_fixed_prefix_and_the_label_the_program_cannot_remove ... ok
+test muting_silences_toasts_and_unmuting_is_the_user_acting ... ok
+test route_ignores_other_capabilities_malformed_frames_and_other_types ... ok
+test route_needs_the_grant_then_sends_os_notifications_to_the_sink ... ok
+test program_text_reaches_the_os_only_with_os_text_and_is_cleaned_capped_and_escaped ... ok
+test route_turns_an_unsigned_sequence_into_a_toast_only_with_the_opt_in ... ok
+test routing_without_a_desk_report_never_reaches_the_os_sink ... ok
+test ten_quiet_minutes_also_end_a_spent_budget ... ok
+test the_per_layer_os_budget_is_three_a_minute_then_toasts_until_the_user_acts ... ok
+test the_global_os_budget_is_eight_a_minute_and_a_noisy_layer_cannot_take_anothers_toasts ... ok
+test tokens_are_single_use_per_notification_and_bound_to_a_layer ... ok
+test toast_rate_limits ... ok
+test clean_caps_bytes_and_cells_and_ends_a_cut_text_with_the_marker ... ok
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/notify_path.rs (target/debug/build/lumen-term/448e3ab45023b5f5/out/notify_path-448e3ab45023b5f5)
+running 6 tests
+test bytes_the_guard_held_back_reach_the_grid_when_the_stream_ends ... ok
+test a_notification_sequence_never_reaches_the_grid_and_is_an_event ... ok
+test other_escape_sequences_are_left_alone ... ok
+test a_sequence_split_across_reads_is_still_removed ... ok
+test a_forged_sealed_notification_never_becomes_an_event ... ok
+test sealed_frames_from_the_real_layer_become_an_os_notification_only_under_every_condition ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/os_backend.rs (target/debug/build/lumen-term/c9313ed1b99b1007/out/os_backend-c9313ed1b99b1007)
+running 10 tests
+test a_sink_counts_what_it_showed_and_what_it_could_not ... ok
+test the_programs_are_fixed_absolute_paths_started_without_a_shell ... ok
+test the_click_token_and_the_layer_never_reach_the_operating_system ... ok
+test the_text_is_one_argument_or_one_variable_and_never_part_of_a_script ... ok
+test the_scripts_and_the_program_are_the_same_whatever_the_text ... ok
+test with_the_setting_on_one_notification_starts_one_program_with_the_composed_text ... ok
+test with_the_setting_off_nothing_is_ever_started ... ok
+test unescape_undoes_the_escape_exactly_for_any_text ... ok
+test process::hostile_text_reaches_a_real_process_as_data_and_runs_nothing ... ok
+test process::a_missing_program_is_an_error_and_the_number_in_flight_is_bounded ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.60s
+     Running tests/paste.rs (target/debug/build/lumen-term/a1a94d456200041f/out/paste-a1a94d456200041f)
+running 13 tests
+test a_bracketed_multi_line_paste_is_sent_with_its_newlines ... ok
+test a_plain_single_line_paste_is_sent_as_it_is ... ok
+test paste_as_written_keeps_the_line_breaks_and_other_controls_but_never_escape_or_c1 ... ok
+test escape_c0_del_and_c1_controls_and_the_end_marker_are_removed ... ok
+test pasted_command_text_loses_bidi_controls_and_invisible_characters_and_they_are_counted ... ok
+test a_paste_with_a_frame_introducer_is_rejected_and_never_parsed ... ok
+test the_confirmation_cannot_reorder_or_hide_text_with_bidi_or_invisible_characters ... ok
+test the_confirmation_shows_every_control_character_visibly ... ok
+test the_end_marker_cannot_close_the_bracket_early ... ok
+test the_held_choices_are_stripped_of_bidi_and_invisible_characters_too ... ok
+test the_user_may_paste_it_as_a_single_line_instead ... ok
+test without_bracketed_paste_a_line_break_holds_the_paste ... ok
+test without_bracketed_paste_another_control_alone_also_holds_the_paste ... ok
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/paste_app.rs (target/debug/build/lumen-term/ff4226b2718dcc81/out/paste_app-ff4226b2718dcc81)
+running 7 tests
+test without_bracketed_paste_a_single_line_is_sent_as_typed ... ok
+test a_paste_with_a_frame_introducer_is_rejected_and_not_one_byte_reaches_the_program ... ok
+test a_bracketed_paste_with_line_breaks_arrives_between_the_markers ... ok
+test a_pasted_end_marker_cannot_close_the_bracket_early ... ok
+test turning_bracketed_paste_off_again_stops_the_markers ... ok
+test a_large_bracketed_paste_arrives_whole ... ok
+test without_bracketed_paste_a_multi_line_paste_is_held_and_sends_nothing_until_chosen ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+     Running tests/policy.rs (target/debug/build/lumen-term/3af2d1d92ea4dbb2/out/policy-3af2d1d92ea4dbb2)
+running 14 tests
+test anything_the_parser_does_not_understand_rejects_the_whole_file ... ok
+test files::a_directory_that_others_can_write_to_lets_them_swap_the_file_so_it_is_ignored ... ok
+test files::a_file_owned_by_someone_else_is_ignored ... ok
+test files::a_symbolic_link_is_ignored_even_to_a_good_file ... ok
+test files::a_directory_in_place_of_the_file_is_ignored ... ok
+test files::no_file_means_the_defaults_and_no_notice ... ok
+test the_images_setting_is_on_unless_the_file_turns_it_off ... ok
+test the_defaults_are_all_off_and_a_file_may_turn_settings_on ... ok
+test files::a_large_file_and_a_bad_line_are_ignored_and_name_the_line ... ok
+test files::a_user_owned_private_file_is_read ... ok
+test files::the_environment_and_the_working_directory_do_not_supply_policy ... ok
+test files::a_file_writable_by_group_or_others_is_ignored_with_a_notice ... ok
+test files::the_binary_reports_the_file_it_read_the_defaults_or_why_it_ignored_the_file ... ok
+test files::an_ignored_file_is_noticed_on_a_normal_run_and_a_good_one_is_silent ... ok
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+     Running tests/raster.rs (target/debug/build/lumen-term/96301aaa0b622229/out/raster-96301aaa0b622229)
+running 18 tests
+test a_glyph_the_face_lacks_is_skipped_and_its_cells_keep_their_background ... ok
+test a_long_paragraph_wraps_by_glyph_width_and_a_long_word_is_broken ... ok
+test a_wide_character_fills_both_of_its_cells ... ok
+test an_indexed_colour_uses_the_cube_and_the_grey_ramp ... ok
+test a_frame_round_trips_through_png ... ok
+test colours_come_from_the_theme_and_from_truecolor ... ok
+test a_glyph_stays_in_its_cell_and_the_blank_is_the_background ... ok
+test inverse_swaps_foreground_and_background ... ok
+test the_cell_size_is_fixed_by_the_face_and_the_scale ... ok
+test a_document_stacks_its_blocks_top_to_bottom ... ok
+test another_renderer_of_the_same_scale_gives_the_same_pixels ... ok
+test underline_paints_the_bottom_rows_of_the_cell ... ok
+test different_text_gives_different_pixels ... ok
+test a_rich_block_is_drawn_in_a_labelled_container ... ok
+test the_same_document_renders_to_the_same_pixels_every_time ... ok
+test code_blocks_stay_on_the_cell_grid ... ok
+test rich_paragraph_text_is_drawn_with_proportional_advances ... ok
+test headings_code_and_the_stripped_count_are_drawn ... ok
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests/reply.rs (target/debug/build/lumen-term/f6a0231bc8043c5e/out/reply-f6a0231bc8043c5e)
+running 17 tests
+test a_reply_is_the_fixed_form_with_the_themes_colour_in_sixteen_bits ... ok
+test at_most_forty_replies_in_a_sliding_second ... ok
+test at_most_eight_colour_replies_for_one_read ... ok
+test only_the_single_question_mark_form_is_a_query ... ok
+test a_query_in_track_0_text_or_a_notification_is_not_a_query ... ok
+test grid_output_makes_queries_with_either_terminator_and_split_across_reads ... ok
+test sequences_that_are_not_a_single_query_make_none ... ok
+test the_reply_follows_the_theme_the_terminal_is_set_to ... ok
+test the_theme_has_no_cursor_or_highlight_so_those_use_the_foreground_and_background ... ok
+test every_possible_reply_has_the_fixed_shape_and_only_theme_digits ... ok
+test the_window_slides_it_does_not_reset_all_at_once ... ok
+test the_document_keeps_a_bounded_number_of_unanswered_queries ... ok
+test pty::a_program_that_sets_or_batches_colours_gets_no_reply ... ok
+test pty::a_flood_of_queries_is_answered_within_the_limit_and_the_terminal_keeps_running ... ok
+test pty::replies_follow_a_live_switch_of_the_look ... ok
+test pty::a_program_that_asks_gets_the_themes_colours_back_on_every_layer ... ok
+test pty::a_program_that_asks_continuously_and_never_reads_does_not_stall_typed_input ... ok
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.29s
+     Running tests/sealed_shell.rs (target/debug/build/lumen-term/2a070e10b6b83d01/out/sealed_shell-2a070e10b6b83d01)
+running 7 tests
+test a_failed_condition_starts_no_holder_and_the_shell_still_runs ... ok
+test a_program_the_shell_starts_cannot_get_a_frame_sealed_and_the_users_own_files_ran ... ok
+test killing_the_shell_ends_the_holder ... ok
+test the_users_startup_file_runs_when_its_directory_has_spaces_and_glob_characters ... ok
+test one_command_in_a_real_zsh_produces_sealed_frames_from_a_real_holder ... ok
+test a_link_to_a_listed_shell_resolves_to_the_path_that_runs_and_other_paths_do_not ... ok
+test a_program_that_is_not_a_listed_shell_has_no_sealed_layer ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.74s
+     Running tests/session.rs (target/debug/build/lumen-term/1f398620710cf9d0/out/session-1f398620710cf9d0)
+running 10 tests
+test a_session_cannot_start_with_a_size_outside_the_limits ... ok
+test the_size_limits_are_the_documented_ones ... ok
+test a_sessions_pty_is_the_blocks_size ... ok
+test a_programs_output_reaches_the_grid_through_the_layer ... ok
+test typing_reaches_the_program ... ok
+test the_bytes_of_a_real_program_make_a_rich_block_between_two_grid_blocks ... ok
+test resizing_the_session_resizes_every_block_and_the_programs_pty ... ok
+test two_sessions_have_two_ptys_of_their_own_sizes ... ok
+test a_size_outside_the_limits_is_refused_and_changes_neither_the_document_nor_the_pty ... ok
+test the_alternate_screen_of_the_real_program_reaches_the_layer ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+     Running tests/settings.rs (target/debug/build/lumen-term/c332599a41e9df96/out/settings-c332599a41e9df96)
+running 9 tests
+test a_bad_line_ignores_the_whole_file_and_names_the_line ... ok
+test a_comment_may_follow_a_value_but_nothing_else_may ... ok
+test an_empty_file_is_the_defaults ... ok
+test every_setting_is_read ... ok
+test a_file_that_cannot_be_used_is_ignored_with_a_notice ... ok
+test theme_names_and_paths ... ok
+test the_documented_examples_parse ... ok
+test files_the_settings_name_are_read_or_left_out_with_a_notice ... ok
+test the_binary_draws_with_the_settings_file ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+     Running tests/strip.rs (target/debug/build/lumen-term/df07564d7b1b1b20/out/strip-df07564d7b1b1b20)
+running 12 tests
+test an_open_strip_is_clipped_to_the_window_and_never_moves_the_editor ... ok
+test background_output_is_one_collapsed_strip_per_cycle_with_a_count_label ... ok
+test a_spent_budget_stops_the_strip_growing_and_raises_the_notice ... ok
+test the_label_holds_only_a_count ... ok
+test only_a_user_action_opens_a_strip ... ok
+test background_track0_text_sends_orphan_output_to_the_grid_as_escaped_text ... ok
+test the_alternate_screen_and_multiplexer_rules_leave_no_strip ... ok
+test the_margin_is_the_gutter_and_the_header_strip ... ok
+test with_no_row_below_the_editor_the_strip_has_no_room_and_nothing_moves ... ok
+test the_strip_sits_below_the_editor_inside_the_content_and_off_the_margin ... ok
+test track_0_in_an_open_container_is_not_background ... ok
+test no_sequence_of_output_and_user_actions_moves_the_prompt_or_the_margin ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/strip_flow.rs (target/debug/build/lumen-term/2fb666f18bebc602/out/strip_flow-2fb666f18bebc602)
+running 5 tests
+test the_newest_cycles_strip_is_not_drawn_in_the_flow_but_below_the_editor ... ok
+test an_older_strip_never_changes_the_margin_the_editor_or_the_newest_strip ... ok
+test a_strip_that_would_pass_the_editor_is_clipped_and_the_editor_stays ... ok
+test opening_an_older_strip_shows_a_row_per_block_and_only_the_user_opens_it ... ok
+test an_older_cycles_strip_is_one_collapsed_row_in_the_flow_with_only_a_count ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+     Running tests/theme_file.rs (target/debug/build/lumen-term/6587fd2ba0938a6b/out/theme_file-6587fd2ba0938a6b)
+running 8 tests
+test a_comment_may_follow_a_value_but_nothing_else_may ... ok
+test a_theme_whose_text_would_be_hidden_is_refused ... ok
+test an_empty_file_is_the_light_palette ... ok
+test a_bad_line_refuses_the_whole_file_and_names_the_line ... ok
+test a_file_is_read_whole_or_refused ... ok
+test base_picks_the_built_in_and_keys_override_its_roles ... ok
+test the_documented_examples_parse ... ok
+test every_role_can_be_set ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/toast.rs (target/debug/build/lumen-term/3cb5137941e87abf/out/toast-3cb5137941e87abf)
+running 12 tests
+test a_point_outside_the_notification_area_hits_nothing ... ok
+test the_notification_area_is_inside_the_content_and_off_every_other_part ... ok
+test a_wide_character_in_a_narrow_rich_block_does_not_panic_either ... ok
+test no_toast_means_the_same_pixels_as_before ... ok
+test toasts_stack_from_the_top_of_the_area_in_order ... ok
+test a_toast_changes_pixels_in_the_notification_area_and_nowhere_else ... ok
+test an_unsigned_toast_carries_the_unverified_output_label_as_an_extra_row ... ok
+test sixteen_toasts_draw_only_as_many_as_fit_and_nothing_below_the_area ... ok
+test wide_characters_in_a_narrow_window_neither_panic_nor_leave_the_area ... ok
+test hostile_program_text_cannot_leave_its_box ... ok
+test a_point_hits_a_toast_exactly_where_one_was_drawn ... ok
+test the_toast_index_follows_the_stacking_order_and_never_exceeds_what_was_drawn ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.79s
+     Running tests/window.rs (target/debug/build/lumen-term/35c15d9ac93b98ef/out/window-35c15d9ac93b98ef)
+running 8 tests
+test the_header_strip_reads_bright ... ok
+test the_margin_is_the_terminals_colour_with_its_own_text ... ok
+test the_window_has_the_size_of_its_cells_and_the_baseline_is_stable ... ok
+test background_output_appears_in_the_strip_and_nowhere_else ... ok
+test foreground_blocks_stay_above_the_editor ... ok
+test opening_the_strip_changes_the_strip_and_nothing_else ... ok
+test a_collapsed_strip_shows_only_the_count_not_what_the_producer_wrote ... ok
+test no_producer_output_changes_a_margin_or_editor_pixel ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+     Running tests/zero_width.rs (target/debug/build/lumen-term/8958a0fb1d7901d2/out/zero_width-8958a0fb1d7901d2)
+running 7 tests
+test a_zero_width_space_is_a_place_to_break_a_line_and_is_never_drawn ... ok
+test a_toast_shows_zero_width_and_bidi_characters_as_escapes ... ok
+test a_word_joiner_and_a_joiner_are_never_the_place_a_line_breaks ... ok
+test a_right_to_left_override_in_one_block_cannot_reach_the_next ... ok
+test the_text_the_block_holds_keeps_every_code_point_for_copy_and_select ... ok
+test wrapping_loses_no_character_whatever_the_text_and_width ... ok
+test characters_that_draw_nothing_change_no_pixel_and_no_width ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+running 3 tests
+test crates/lumen-term/src/grid.rs - grid::GridBlock (line 39) - compile fail ... ok
+test crates/lumen-term/src/design.rs - design::FontData (line 551) - compile fail ... ok
+test crates/lumen-term/src/grid.rs - grid::GridBlock (line 34) - compile fail ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.84s
+EXIT=0
+    Finished `release` profile [optimized] target(s) in 39.07s
+WINDOW-BUILD-EXIT=0

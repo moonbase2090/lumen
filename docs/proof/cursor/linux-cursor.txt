@@ -1,9 +1,8 @@
 Linux cursor rendering proof
-Revision: e78176893459a6fa766ba6d9abe130338f3078a5 (an earlier code head; a Linux run at the merged code head is requested)
-Host: a throwaway Ubuntu 24.04 x86_64 virtual machine, terminated afterwards; Rust installed fresh as a throwaway user; the window shown by an X virtual framebuffer (1280x800) with a lightweight window manager, so a real window gets and loses focus.
-Build: cargo build --release -p lumen-term --features window, inside the machine; binary SHA-256 b2681249867f9c7753de0b2477affb91bf8458aef5ab2aa00b0cb1e09ead9eff
-Program in the window: sh -c "printf 'cursor test\r\n'; printf '<sequence>'; sleep 120", window 640x360, captured with import -window. Unfocused: a second window (xterm) was given the focus.
-Numbers are from linux-measurements.txt: each capture compared with the hidden baseline.
+Revision: 057c5a5aab14e27abb1b4ff53e90eaa3c72cdae8 (the code head; later commits only add proof files)
+Host: a throwaway Ubuntu 24.04 x86_64 virtual machine, terminated afterwards; Rust installed fresh as a throwaway user (rustc 1.100.0); the window shown by an X virtual framebuffer (1280x800) with a lightweight window manager, so a real window gets and loses focus.
+Build: cargo build --release -p lumen-term --features window, inside the machine; binary SHA-256 starts 6c530d8de2d48845 (see linux-measurements.txt). cargo test -p lumen-term ran there: 426 passed, 0 failed (linux-test-output.txt).
+Program in the window: sh -c "printf 'cursor test\r\n'; printf '<sequence>'; sleep 120", window 640x360, captured with import -window. Unfocused: a second window was given the focus. Numbers are in linux-measurements.txt: each capture compared with the hidden baseline.
 
 - linux-block.png: steady block, a full cell (152 pixels differ, 8x19).
 - linux-underline.png: two rows at the foot of the cell.
@@ -11,3 +10,4 @@ Numbers are from linux-measurements.txt: each capture compared with the hidden b
 - linux-unfocused.png: the same cell, outline only; the cell centre is untouched.
 - linux-blink-on.png and linux-blink-off.png: DECSCUSR 1; of eight captures about 0.15 s apart, three were drawn and five were not; the drawn ones are identical to the focused block.
 - linux-hidden.png: DECTCEM off, the baseline.
+- linux-refocus-1-focused.png, -2-unfocused.png, -3-refocused.png: focused, another client takes the focus, the window gets it back; the refocused capture is pixel-identical to the focused one (0 pixels differ), and the unfocused one differs by 102.

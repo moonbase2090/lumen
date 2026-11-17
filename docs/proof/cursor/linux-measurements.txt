@@ -1,5 +1,5 @@
 Xvfb:   dimensions:    1280x800 pixels (325x203 millimeters)
-binary sha256: b2681249867f9c77
+binary sha256: 6c530d8de2d48845
 focused window is: sleep
 --- window size: 640x360
 block: differing pixels vs hidden = 152, changed area WxH+X+Y = 8x19+38+38
@@ -41,3 +41,9 @@ block cell centre (42,47): hidden=srgb(255,255,255) block=srgb(24,26,32) unfocus
 407cb83f6395e7b8  hidden.png
 839caabaf6a6bc81  underline.png
 7c044ab97d7ff80b  unfocused.png
+1 focused: Bright
+2 other client has focus: sleep
+3 window refocused: Bright
+focused vs unfocused differing pixels: 102
+focused vs refocused differing pixels: 0
+block cell centre: focused=srgb(24,26,32) unfocused=srgb(255,255,255) refocused=srgb(24,26,32)
