@@ -22,24 +22,25 @@ fn start(script: &str) -> App {
     .unwrap_or_else(|e| unreachable!("sh starts: {e}"))
 }
 
-/// Pump until the program has ended, then collect every non-idle step.
+/// Pump until the program has ended and its output has been read to the end,
+/// then collect every non-idle step.
 fn steps_until_exit(app: &mut App) -> Vec<Step> {
     let mut seen = Vec::new();
-    let end = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < end {
+    let mut note = |app: &mut App| match app.attention_step() {
+        Step::Idle => {}
+        step => seen.push(step),
+    };
+    let end = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < end && !app.has_exited() {
         app.pump();
-        match app.attention_step() {
-            Step::Idle => {}
-            step => seen.push(step),
-        }
-        if app.has_exited() {
-            app.pump();
-            match app.attention_step() {
-                Step::Idle => {}
-                step => seen.push(step),
-            }
-            break;
-        }
+        note(app);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The program has ended; what it wrote may still be on its way.
+    let drained = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < drained {
+        app.pump();
+        note(app);
         std::thread::sleep(Duration::from_millis(20));
     }
     seen
