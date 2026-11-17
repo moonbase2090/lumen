@@ -135,8 +135,8 @@ fn the_home_is_home_or_on_windows_the_profile_folder() {
     // HOME wins where it is set, on every system.
     for windows in [true, false] {
         assert_eq!(
-            home_dir(os("/home/a"), os(r"C:\Users\a"), windows),
-            Some(PathBuf::from("/home/a"))
+            home_dir(os("/srv/someone"), os(r"C:\Users\a"), windows),
+            Some(PathBuf::from("/srv/someone"))
         );
     }
     // The profile folder stands in only on Windows, and only when HOME is not set or empty.
