@@ -567,7 +567,7 @@ version = "0.8.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.portable-pty]]
-version = "0.9.0@git:ca7b9f8d6541988c76eae1425db125ee613cd3c6"
+version = "0.9.0@git:641103cb41fb7ccdaf18653012ac8a8bada7d397"
 criteria = "safe-to-deploy"
 
 [[exemptions.proc-macro-crate]]

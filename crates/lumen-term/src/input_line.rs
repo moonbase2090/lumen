@@ -31,10 +31,8 @@ pub struct Facts {
     pub echo: Option<bool>,
     /// The grid is on the alternate screen.
     pub alt_screen: bool,
-    /// DECCKM and the application keypad.
+    /// DECCKM, the application keypad and DECSET 2004.
     pub keys: KeyModes,
-    /// DECSET 2004 is on.
-    pub bracketed_paste: bool,
     /// The program has ended.
     pub ended: bool,
 }
@@ -51,8 +49,8 @@ impl Facts {
             keys: KeyModes {
                 cursor_app: false,
                 keypad_app: false,
+                bracketed_paste: false,
             },
-            bracketed_paste: false,
             ended: false,
         }
     }
@@ -304,11 +302,11 @@ impl InputLine {
         if text.is_empty() {
             return Outcome::Write(vec![b'\r']);
         }
-        if text.contains('\n') && !facts.bracketed_paste {
+        if text.contains('\n') && !facts.keys.bracketed_paste {
             self.held = Some(text);
             return Outcome::Hold;
         }
-        let mut out = wrap(&text, facts.bracketed_paste);
+        let mut out = wrap(&text, facts.keys.bracketed_paste);
         out.push(b'\r');
         self.remember(&text);
         self.clear();
@@ -323,7 +321,7 @@ impl InputLine {
         }
         let had_text = !self.text.is_empty();
         let mut out = if had_text {
-            wrap(&self.text(), facts.bracketed_paste)
+            wrap(&self.text(), facts.keys.bracketed_paste)
         } else {
             Vec::new()
         };
@@ -507,6 +505,7 @@ mod tests {
                     keys: KeyModes {
                         cursor_app: true,
                         keypad_app: false,
+                        bracketed_paste: false,
                     },
                     ..p
                 },
@@ -518,6 +517,7 @@ mod tests {
                     keys: KeyModes {
                         cursor_app: false,
                         keypad_app: true,
+                        bracketed_paste: false,
                     },
                     ..p
                 },
@@ -622,6 +622,7 @@ mod tests {
             keys: KeyModes {
                 cursor_app: true,
                 keypad_app: false,
+                bracketed_paste: false,
             },
             ..Facts::at_prompt()
         };
@@ -657,7 +658,10 @@ mod tests {
     #[test]
     fn enter_wraps_the_line_in_bracketed_paste_when_the_shell_asked_for_it() {
         let facts = Facts {
-            bracketed_paste: true,
+            keys: KeyModes {
+                bracketed_paste: true,
+                ..KeyModes::default()
+            },
             ..Facts::at_prompt()
         };
         let mut line = InputLine::new();
@@ -739,7 +743,10 @@ mod tests {
         states.push((
             "editing, bracketed paste on",
             Facts {
-                bracketed_paste: true,
+                keys: KeyModes {
+                    bracketed_paste: true,
+                    ..KeyModes::default()
+                },
                 ..Facts::at_prompt()
             },
             Mode::Editing,
@@ -755,7 +762,7 @@ mod tests {
                     }
                     let mut want = Vec::new();
                     if !text.is_empty() {
-                        want.extend(wrap(text, facts.bracketed_paste));
+                        want.extend(wrap(text, facts.keys.bracketed_paste));
                     }
                     want.extend(&bytes);
                     assert_eq!(
@@ -885,7 +892,10 @@ mod tests {
     #[test]
     fn a_multi_line_line_with_bracketed_paste_is_sent_as_one_paste() {
         let facts = Facts {
-            bracketed_paste: true,
+            keys: KeyModes {
+                bracketed_paste: true,
+                ..KeyModes::default()
+            },
             ..Facts::at_prompt()
         };
         let mut line = InputLine::new();
