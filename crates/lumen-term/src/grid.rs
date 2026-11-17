@@ -131,6 +131,26 @@ impl GridBlock {
         }
     }
 
+    /// How many lines of history sit above the screen and can be scrolled to.
+    /// A program on the alternate screen has none: what it drew is not kept.
+    #[must_use]
+    pub fn history_rows(&self) -> usize {
+        self.emulator.screen().max_view_scroll()
+    }
+
+    /// The cells of history line `index`, oldest first, or `None` past the end.
+    #[must_use]
+    pub fn history_row(&self, index: usize) -> Option<&[prismattyc_core::Cell]> {
+        if index >= self.history_rows() {
+            return None;
+        }
+        self.emulator
+            .screen()
+            .scrollback()
+            .get(index)
+            .map(Vec::as_slice)
+    }
+
     /// Whether the alternate screen is active.
     #[must_use]
     pub fn alt_active(&self) -> bool {
