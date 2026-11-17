@@ -16,6 +16,7 @@
 //! skipped), combining marks (the base glyph only), a cursor (off unless
 //! asked, see [`CursorState`]), kerning, or any other text shaping.
 
+use crate::copy::Kind as CopyKind;
 use crate::design::{FontFile, Fonts};
 use crate::document::{Block, Document, RichBlock};
 use crate::grid::{CursorShape, GridBlock};
@@ -23,6 +24,7 @@ use crate::image_draw;
 use crate::layout::{GUTTER_COLUMNS, Rect, StripPlacement, layout, notification_area};
 use crate::notify::Toast;
 use crate::scroll::Scroll;
+use crate::select::{FlowLine, Join, Selection};
 use lumen_track0::Block as Track0Block;
 use prismattyc_core::{Cell, Color, Style, grapheme_display_width};
 use std::cell::RefCell;
@@ -88,6 +90,8 @@ pub struct Window {
 
 /// One block of the flow of content, and where it sits.
 struct Placed<'a> {
+    /// Index of the block in the document (the first, for a strip).
+    index: usize,
     top: u32,
     height: u32,
     part: Part<'a>,
@@ -613,7 +617,7 @@ impl Renderer {
     /// not in the flow; the strip of an older cycle sits where that cycle's
     /// output ended: one row, collapsed, with the count and nothing the
     /// producer wrote.
-    fn flow<'a>(
+    fn placement<'a>(
         &self,
         doc: &'a Document,
         columns: usize,
@@ -623,7 +627,7 @@ impl Renderer {
         let mut out = Vec::new();
         let mut y = 0u32;
         let mut placed: Vec<u32> = Vec::new();
-        for b in doc.blocks() {
+        for (index, b) in doc.blocks().iter().enumerate() {
             match b {
                 Block::Grid(g) => {
                     let rows = g.history_rows() + g.size().1;
@@ -631,6 +635,7 @@ impl Renderer {
                         .unwrap_or(u32::MAX)
                         .saturating_mul(self.cell_h);
                     out.push(Placed {
+                        index,
                         top: y,
                         height: h,
                         part: Part::Grid(g),
@@ -640,6 +645,7 @@ impl Renderer {
                 Block::Rich(r) if !r.background => {
                     let h = self.rich_height(r, columns);
                     out.push(Placed {
+                        index,
                         top: y,
                         height: h,
                         part: Part::Rich(r),
@@ -661,6 +667,7 @@ impl Renderer {
                             .unwrap_or(u32::MAX)
                             .saturating_mul(self.cell_h);
                         out.push(Placed {
+                            index,
                             top: y,
                             height: h,
                             part: Part::Strip(strip),
@@ -679,7 +686,7 @@ impl Renderer {
     pub fn content_height(&self, doc: &Document, columns: usize) -> u32 {
         let strips = doc.strips();
         let newest = strips.last().map(|s| s.cycle);
-        self.flow(doc, columns, &strips, newest)
+        self.placement(doc, columns, &strips, newest)
             .last()
             .map_or(0, |p| p.top.saturating_add(p.height))
     }
@@ -701,7 +708,7 @@ impl Renderer {
         let newest = strips.last().map(|s| s.cycle);
         let end = view_top.saturating_add(area);
         let mut out = Vec::new();
-        for p in self.flow(doc, columns, &strips, newest) {
+        for p in self.placement(doc, columns, &strips, newest) {
             let Part::Grid(g) = p.part else { continue };
             let hist = g.history_rows();
             let rows = hist + g.size().1;
@@ -738,7 +745,7 @@ impl Renderer {
     pub fn live_screen_top(&self, doc: &Document, columns: usize) -> Option<u32> {
         let strips = doc.strips();
         let newest = strips.last().map(|s| s.cycle);
-        let flow = self.flow(doc, columns, &strips, newest);
+        let flow = self.placement(doc, columns, &strips, newest);
         let last = flow.last()?;
         let Part::Grid(g) = last.part else {
             return None;
@@ -764,6 +771,7 @@ impl Renderer {
         doc: &Document,
         cells: u32,
         scroll: Scroll,
+        selection: Option<&Selection>,
         cursor: Option<CursorState>,
     ) -> Frame {
         let (aw, ah) = size;
@@ -781,6 +789,9 @@ impl Renderer {
             view_top,
             cursor,
         );
+        if let Some(sel) = selection {
+            self.paint_selection(&mut region, &self.flow(doc, columns), sel, view_top);
+        }
         if let Some((top, height)) = scroll.thumb(total, ah) {
             let bar = (2 * self.scale).min(aw);
             region.fill(aw - bar, top, bar, height, self.theme.border);
@@ -805,7 +816,7 @@ impl Renderer {
             Block::Grid(g) => Some(&**g),
             Block::Rich(_) => None,
         });
-        for p in self.flow(doc, columns, strips, newest_cycle) {
+        for p in self.placement(doc, columns, strips, newest_cycle) {
             let end = p.top.saturating_add(p.height);
             if end <= view_top || p.top >= view_end {
                 continue;
@@ -880,6 +891,190 @@ impl Renderer {
             for col in 0..src.width.min(region.width) {
                 if let Some(c) = src.pixel(col, row) {
                     region.put(col, to, c);
+                }
+            }
+        }
+    }
+
+    /// The selectable lines of the content flow, `columns` cells wide, in the
+    /// places [`paint_content`](Self::paint_content) puts them: each grid row,
+    /// and each wrapped line of a rich block's text. Strips and images have no
+    /// line, and the container's label and the note on removed bidi controls are
+    /// the terminal's own and are not text to copy.
+    #[must_use]
+    pub fn flow(&self, doc: &Document, columns: usize) -> Vec<FlowLine> {
+        let mut out = Vec::new();
+        let inner = columns.saturating_sub(2).max(1);
+        let strips = doc.strips();
+        let newest_cycle = strips.last().map(|s| s.cycle);
+        for p in self.placement(doc, columns, &strips, newest_cycle) {
+            match p.part {
+                Part::Grid(g) => {
+                    let hist = g.history_rows();
+                    for k in 0..hist + g.size().1 {
+                        let cells = if k < hist {
+                            g.history_row(k)
+                        } else {
+                            g.screen().row(k - hist)
+                        };
+                        let text: String = cells
+                            .unwrap_or_default()
+                            .iter()
+                            .filter(|c| !c.wide_cont)
+                            .map(|c| c.character)
+                            .collect();
+                        out.push(FlowLine {
+                            block: p.index,
+                            top: p.top + u32::try_from(k).unwrap_or(0) * self.cell_h,
+                            height: self.cell_h,
+                            left: 0,
+                            text: text.trim_end().to_owned(),
+                            grid: true,
+                            kind: CopyKind::Command,
+                            join: Join::Break,
+                        });
+                    }
+                }
+                Part::Rich(r) => {
+                    if r.image.is_none() {
+                        let first = p.top + self.scale + self.cell_h;
+                        self.flow_rich(&mut out, p.index, &r.content, inner, first);
+                    }
+                }
+                // A strip of an older cycle takes its rows and has no text of
+                // its own to select.
+                Part::Strip(_) => {}
+            }
+        }
+        out
+    }
+
+    fn flow_rich(
+        &self,
+        out: &mut Vec<FlowLine>,
+        block: usize,
+        content: &Track0Block,
+        inner: usize,
+        first: u32,
+    ) {
+        let limit = inner * self.cell_w as usize * SUBPIXELS;
+        let mut rows: Vec<(String, bool, CopyKind, Join)> = Vec::new();
+        let mut flowed = |text: &str| {
+            for paragraph in text.split('\n') {
+                let lines = wrap_by(paragraph, limit, &|c| self.advance(c));
+                let last = lines.len().saturating_sub(1);
+                let mut seen = 0usize;
+                for (i, line) in lines.into_iter().enumerate() {
+                    seen += line.chars().filter(|c| !c.is_whitespace()).count();
+                    let join = if i == last {
+                        Join::Break
+                    } else if next_after_nonspace(paragraph, seen).is_some_and(char::is_whitespace)
+                    {
+                        Join::Space
+                    } else {
+                        Join::Cut
+                    };
+                    rows.push((line, false, CopyKind::Text, join));
+                }
+            }
+        };
+        match content {
+            Track0Block::Paragraph(t) => flowed(t),
+            Track0Block::Heading { text, .. } => flowed(text),
+            Track0Block::ImageStart { alt, .. } => flowed(alt),
+            Track0Block::Code { text, .. } => {
+                for l in text.lines() {
+                    rows.push((clip(l, inner), true, CopyKind::Code, Join::Break));
+                }
+            }
+            Track0Block::ImageData { .. } => {}
+        }
+        for (i, (text, grid, kind, join)) in rows.into_iter().enumerate() {
+            out.push(FlowLine {
+                block,
+                top: first + u32::try_from(i).unwrap_or(0) * self.cell_h,
+                height: self.cell_h,
+                left: self.cell_w,
+                text,
+                grid,
+                kind,
+                join,
+            });
+        }
+    }
+
+    /// Where, in pixels from the line's left edge, the character boundary
+    /// `index` of `line` is.
+    #[must_use]
+    pub fn char_left(&self, line: &FlowLine, index: usize) -> u32 {
+        let mut pos = 0usize;
+        for c in line.text.chars().take(index) {
+            pos += if line.grid {
+                cells(c) * self.cell_w as usize * SUBPIXELS
+            } else {
+                self.advance(c)
+            };
+        }
+        u32::try_from((pos + SUBPIXELS / 2) / SUBPIXELS).unwrap_or(u32::MAX)
+    }
+
+    /// The character boundary of `line` nearest `x` pixels from its left edge.
+    #[must_use]
+    pub fn char_at(&self, line: &FlowLine, x: u32) -> usize {
+        let target = x as usize * SUBPIXELS;
+        let mut pos = 0usize;
+        for (i, c) in line.text.chars().enumerate() {
+            let a = if line.grid {
+                cells(c) * self.cell_w as usize * SUBPIXELS
+            } else {
+                self.advance(c)
+            };
+            if target < pos + a / 2 + a % 2 {
+                return i;
+            }
+            pos += a;
+        }
+        line.text.chars().count()
+    }
+
+    /// Tint the characters `sel` covers: each pixel moves a third of the way
+    /// towards the foreground colour, so text drawn in the foreground colour is
+    /// unchanged and what is behind it is lifted. The selection is the
+    /// terminal's, not the program's, so it does not come from the program's
+    /// colours.
+    fn paint_selection(
+        &self,
+        region: &mut Frame,
+        lines: &[FlowLine],
+        sel: &Selection,
+        view_top: u32,
+    ) {
+        let fg = self.theme.foreground;
+        let last = sel.ordered().1.line;
+        for (i, line) in lines.iter().enumerate() {
+            let Some((from, to)) = sel.span_in(lines, i) else {
+                continue;
+            };
+            let start = line.left + self.char_left(line, from);
+            let mut end = line.left + self.char_left(line, to);
+            if i < last && to >= line.text.chars().count() {
+                // A line the selection runs past is tinted a little beyond its end.
+                end += self.cell_w / 2;
+            }
+            if line.top + line.height <= view_top {
+                continue;
+            }
+            let top = line.top.saturating_sub(view_top);
+            let bottom = line.top + line.height - view_top;
+            for y in top..bottom {
+                for x in start..end {
+                    if let Some(p) = region.pixel(x, y) {
+                        let mixed: Rgb = std::array::from_fn(|k| {
+                            u8::try_from((2 * u16::from(p[k]) + u16::from(fg[k])) / 3)
+                                .unwrap_or(p[k])
+                        });
+                        region.put(x, y, mixed);
+                    }
                 }
             }
         }
@@ -1082,6 +1277,35 @@ impl Renderer {
         scroll: Scroll,
         cursor: Option<CursorState>,
     ) -> Frame {
+        self.render_window_full(doc, win, toasts, None, scroll, cursor)
+    }
+
+    /// Paint a window with its toasts and a text selection tinted in the
+    /// content (see [`flow`](Self::flow) for the lines it is made of).
+    #[must_use]
+    pub fn render_window_selected(
+        &self,
+        doc: &Document,
+        win: &Window,
+        toasts: &[Toast],
+        selection: Option<&Selection>,
+    ) -> Frame {
+        self.render_window_full(doc, win, toasts, selection, Scroll::Follow, None)
+    }
+
+    /// Paint a window with its toasts, a tinted selection, the scroll and the
+    /// live cursor.
+    #[must_use]
+    #[allow(clippy::too_many_lines, reason = "one pass over the window's areas")]
+    pub fn render_window_full(
+        &self,
+        doc: &Document,
+        win: &Window,
+        toasts: &[Toast],
+        selection: Option<&Selection>,
+        scroll: Scroll,
+        cursor: Option<CursorState>,
+    ) -> Frame {
         let t = &self.theme;
         let strips = doc.strips();
         let newest = strips.last();
@@ -1108,7 +1332,7 @@ impl Renderer {
         };
         let (ax, ay, aw, ah) = px(&area);
         if aw > 0 && ah > 0 {
-            let region = self.content_region((aw, ah), doc, area.w, scroll, cursor);
+            let region = self.content_region((aw, ah), doc, area.w, scroll, selection, cursor);
             Self::blit(&mut frame, &region, ax, ay);
         }
 
@@ -1326,6 +1550,21 @@ type Measure<'a> = &'a dyn Fn(char) -> usize;
 
 fn cells(c: char) -> usize {
     grapheme_display_width(c, &[])
+}
+
+/// The character right after the `n`th character of `s` that is not whitespace.
+fn next_after_nonspace(s: &str, n: usize) -> Option<char> {
+    let mut seen = 0;
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if !c.is_whitespace() {
+            seen += 1;
+            if seen == n {
+                return chars.next();
+            }
+        }
+    }
+    None
 }
 
 fn width_by(s: &str, m: Measure<'_>) -> usize {

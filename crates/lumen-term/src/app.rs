@@ -19,6 +19,7 @@ use crate::paste::{self, Decision, Hold, Pasted, Rejection};
 use crate::pty::SpawnError;
 use crate::raster::{Frame, Renderer, Window};
 use crate::scroll::Scroll;
+use crate::select::{self, Pos, Selection};
 use crate::session::{MAX_COLUMNS, MAX_ROWS, Session};
 
 /// What [`App::paste`] did.
@@ -48,6 +49,10 @@ pub enum Outcome {
 }
 
 /// A terminal in a window of `width` by `height` pixels.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent window states: selecting, redraw, exited, focus"
+)]
 pub struct App {
     session: Session,
     renderer: Renderer,
@@ -65,6 +70,9 @@ pub struct App {
     mouse: Reporter,
     theme_choice: ThemeChoice,
     appearance: Appearance,
+    selection: Option<Selection>,
+    selecting: bool,
+    selection_changed: bool,
     scroll: Scroll,
     /// How many times the view moved since the host last asked.
     view_moves: u32,
@@ -278,6 +286,9 @@ impl App {
             mouse: Reporter::default(),
             theme_choice: ThemeChoice::System,
             appearance: Appearance::Light,
+            selection: None,
+            selecting: false,
+            selection_changed: false,
             scroll: Scroll::Follow,
             view_moves: 0,
             cursor_epoch_ms: 0,
@@ -482,6 +493,140 @@ impl App {
         (col < u32::try_from(bc).ok()? && row < u32::try_from(br).ok()?).then_some((col, row))
     }
 
+    /// Whether a press of the primary button at `(x, y)` selects text. It does
+    /// unless the program asked for mouse reports and the live block is where
+    /// the press is; holding Shift always selects, as in other terminals.
+    fn pointer_selects(&self, x: u32, y: u32, held: Held) -> bool {
+        if held.shift {
+            return true;
+        }
+        let reporting = self
+            .live_modes()
+            .is_some_and(|m| m.tracking != crate::mouse::MouseTracking::Off && m.sgr);
+        !(reporting && self.live_cell(x, y).is_some())
+    }
+
+    /// The columns of the content area, in cells.
+    fn content_columns(&self) -> usize {
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let win = window_for(columns, rows);
+        usize::try_from(win.cols.saturating_sub(GUTTER_COLUMNS)).unwrap_or(1)
+    }
+
+    /// The selectable lines of the window's content.
+    fn flow(&self) -> Vec<select::FlowLine> {
+        self.renderer
+            .flow(self.session.document(), self.content_columns())
+    }
+
+    /// The place in the flow nearest pixel `(x, y)`. With `inside` the pixel
+    /// must be in the content area; without it, a pixel outside is moved to
+    /// the nearest line, so a drag past an edge still selects.
+    fn pos_at(&self, lines: &[select::FlowLine], x: u32, y: u32, inside: bool) -> Option<Pos> {
+        let (cw, ch) = self.renderer.cell();
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let win = window_for(columns, rows);
+        let content_x = GUTTER_COLUMNS.saturating_mul(cw) + self.renderer.gutter_pad();
+        let content_y = HEADER_ROWS.saturating_mul(ch);
+        let area_bottom = win.editor_row.saturating_mul(ch);
+        if inside && (x < content_x || y < content_y || y >= area_bottom) {
+            return None;
+        }
+        // The pixel row in the flow: the row in the area, plus how far the view is scrolled.
+        let (area, _, total) = self.content_metrics();
+        let cy = y
+            .saturating_sub(content_y)
+            .saturating_add(self.scroll.top(total, area));
+        let cx = x.saturating_sub(content_x);
+        let line = lines
+            .iter()
+            .position(|l| cy >= l.top && cy < l.top + l.height)
+            .or_else(|| {
+                if inside {
+                    return None;
+                }
+                // The line nearest the pixel row.
+                lines
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, l)| {
+                        if cy < l.top {
+                            l.top - cy
+                        } else {
+                            cy.saturating_sub(l.top + l.height - 1)
+                        }
+                    })
+                    .map(|(i, _)| i)
+            })?;
+        let l = &lines[line];
+        let col = self.renderer.char_at(l, cx.saturating_sub(l.left));
+        Some(Pos { line, col })
+    }
+
+    fn begin_selection(&mut self, x: u32, y: u32) {
+        let lines = self.flow();
+        let had = self.selection.take().is_some();
+        match self.pos_at(&lines, x, y, true) {
+            Some(p) => {
+                self.selection = Some(Selection { anchor: p, head: p });
+                self.selecting = true;
+                self.selection_changed = true;
+            }
+            None => self.selection_changed |= had,
+        }
+    }
+
+    fn extend_selection(&mut self, x: u32, y: u32) {
+        let lines = self.flow();
+        let Some(p) = self.pos_at(&lines, x, y, false) else {
+            return;
+        };
+        if let Some(sel) = &mut self.selection
+            && sel.head != p
+        {
+            sel.head = p;
+            self.selection_changed = true;
+        }
+    }
+
+    fn end_selection(&mut self, x: u32, y: u32) {
+        self.extend_selection(x, y);
+        self.selecting = false;
+        // A press and release in one place selects nothing.
+        if self.selection.is_some_and(|s| s.is_empty()) {
+            self.selection = None;
+            self.selection_changed = true;
+        }
+    }
+
+    /// Whether the selection changed since the last call, so the window draws
+    /// again. The pointer calls report only what they sent to the program.
+    pub fn take_selection_redraw(&mut self) -> bool {
+        std::mem::take(&mut self.selection_changed)
+    }
+
+    /// The text of the selection as a copy would carry it, or `None` if
+    /// nothing is selected.
+    #[must_use]
+    pub fn selected_text(&self) -> Option<String> {
+        let sel = self.selection?;
+        select::copy_selection(&self.flow(), &sel).map(|c| c.text)
+    }
+
+    /// Whether any text is selected.
+    #[must_use]
+    pub fn has_selection(&self) -> bool {
+        self.selection.is_some_and(|s| !s.is_empty())
+    }
+
+    /// Drop the selection. Returns whether there was one.
+    pub fn clear_selection(&mut self) -> bool {
+        self.selecting = false;
+        let had = self.selection.take().is_some();
+        self.selection_changed |= had;
+        had
+    }
+
     /// Whether the view moved since the last call, for the window to draw again
     /// after an input that scrolled it.
     pub fn take_view_changed(&mut self) -> bool {
@@ -570,6 +715,10 @@ impl App {
     ///
     /// Returns the write error.
     pub fn mouse_press(&mut self, x: u32, y: u32, b: Button, held: Held) -> std::io::Result<bool> {
+        if b == Button::Left && self.pointer_selects(x, y, held) {
+            self.begin_selection(x, y);
+            return Ok(false);
+        }
         let Some(cell) = self.live_cell(x, y) else {
             return Ok(false);
         };
@@ -592,6 +741,10 @@ impl App {
         b: Button,
         held: Held,
     ) -> std::io::Result<bool> {
+        if b == Button::Left && self.selecting {
+            self.end_selection(x, y);
+            return Ok(false);
+        }
         let cell = self.live_cell(x, y);
         let modes = self.live_modes().unwrap_or(crate::mouse::Modes {
             tracking: crate::mouse::MouseTracking::Off,
@@ -608,6 +761,10 @@ impl App {
     ///
     /// Returns the write error.
     pub fn mouse_move(&mut self, x: u32, y: u32, held: Held) -> std::io::Result<bool> {
+        if self.selecting {
+            self.extend_selection(x, y);
+            return Ok(false);
+        }
         let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes()) else {
             return Ok(false);
         };
@@ -764,6 +921,8 @@ impl App {
         let (columns, rows) = window_cells(width, height, &self.renderer);
         let (block_columns, block_rows) = block_cells(columns, rows);
         self.session.resize(block_columns, block_rows)?;
+        // The lines the selection is in are laid out again.
+        self.clear_selection();
         self.width = width;
         self.height = height;
         Ok(())
@@ -829,6 +988,20 @@ impl App {
     pub fn perform(&mut self, action: Action, clipboard: &dyn Clipboard) -> Outcome {
         match action {
             Action::Quit | Action::Close => Outcome::Exit,
+            Action::Copy => match self.selected_text() {
+                Some(text) if clipboard.set_text(&text) => Outcome::Nothing,
+                Some(_) => Outcome::Refused,
+                None => Outcome::Nothing,
+            },
+            Action::SelectAll => {
+                self.selection = select::select_all(&self.flow());
+                self.selecting = false;
+                if self.selection.is_some() {
+                    Outcome::Redraw
+                } else {
+                    Outcome::Nothing
+                }
+            }
             Action::Paste => {
                 let Some(text) = clipboard.text() else {
                     return Outcome::Nothing;
@@ -1116,10 +1289,11 @@ impl App {
             blink_on: self.blink_on(self.session.now_ms()),
         });
         self.renderer
-            .render_window_scrolled(
+            .render_window_full(
                 self.session.document(),
                 &window_for(columns, rows),
                 &self.toasts(),
+                self.selection.as_ref(),
                 self.scroll,
                 cursor,
             )

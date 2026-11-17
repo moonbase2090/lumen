@@ -10,8 +10,12 @@
 /// Something the window does for the user, apart from typing into the program.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
+    /// Copy the selected text to the system clipboard.
+    Copy,
     /// Paste the system clipboard's text into the program.
     Paste,
+    /// Select all the text in the window.
+    SelectAll,
     /// Draw the text larger.
     ZoomIn,
     /// Draw the text smaller.
@@ -74,7 +78,9 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 return None;
             }
             match (key, held.shift) {
+                ('c', false) => Some(Action::Copy),
                 ('v', false) => Some(Action::Paste),
+                ('a', false) => Some(Action::SelectAll),
                 ('=' | '+', _) => Some(Action::ZoomIn),
                 ('-', false) => Some(Action::ZoomOut),
                 ('0', false) => Some(Action::ZoomReset),
@@ -88,7 +94,9 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 return None;
             }
             match key {
+                'c' => Some(Action::Copy),
                 'v' => Some(Action::Paste),
+                'a' => Some(Action::SelectAll),
                 '=' | '+' => Some(Action::ZoomIn),
                 '-' | '_' => Some(Action::ZoomOut),
                 '0' | ')' => Some(Action::ZoomReset),

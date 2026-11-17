@@ -22,7 +22,6 @@ pub mod app;
 pub mod cli;
 #[cfg(feature = "links-clipboard")]
 pub mod clipboard;
-#[cfg(feature = "links-clipboard")]
 pub mod copy;
 pub mod design;
 pub mod document;
@@ -54,6 +53,7 @@ pub mod reply;
 pub mod scroll;
 #[cfg(target_os = "linux")]
 pub mod seal;
+pub mod select;
 pub mod session;
 pub mod settings;
 pub mod strip;
