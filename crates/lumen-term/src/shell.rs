@@ -52,7 +52,8 @@ pub fn default_shell(setting: Option<&str>) -> String {
 }
 
 /// Whether a file called `name` is in a directory of `PATH`.
-fn in_path(name: &str) -> bool {
+#[must_use]
+pub fn in_path(name: &str) -> bool {
     std::env::var_os("PATH").is_some_and(|path| {
         std::env::split_paths(&path).any(|dir| Path::new(&dir).join(name).is_file())
     })

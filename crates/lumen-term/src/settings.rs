@@ -29,6 +29,7 @@
 //! visibility floor is refused.
 
 use crate::design::{Builtin, FontFile, Fonts, MAX_FONT_PX, MIN_FONT_PX, ThemeChoice};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 /// The most bytes a settings file may hold.
@@ -319,25 +320,30 @@ pub fn parse(text: &str, dir: &Path, home: Option<&Path>) -> Result<LookSettings
     Ok(look)
 }
 
-/// Load the settings from `$HOME/.config/lumen/settings.toml` (the user profile
-/// folder on Windows when `HOME` is not set), or the defaults if there is no home
-/// directory.
+/// The user's home directory: `HOME`, or on Windows, where `HOME` is not usually
+/// set, the user profile folder. An empty value counts as not set.
+#[must_use]
+pub fn home_dir(
+    home: Option<OsString>,
+    user_profile: Option<OsString>,
+    windows: bool,
+) -> Option<PathBuf> {
+    let set = |v: Option<OsString>| v.filter(|h| !h.is_empty()).map(PathBuf::from);
+    set(home).or_else(|| if windows { set(user_profile) } else { None })
+}
+
+/// Load the settings from `$HOME/.config/lumen/settings.toml` (under the user
+/// profile folder on Windows when `HOME` is not set), or the defaults if there
+/// is no home directory.
 #[must_use]
 pub fn load() -> Settings {
-    // Windows has no HOME in the usual case; its profile folder stands in, so the
-    // file (and with it the `shell` setting) can be found there.
-    let home = std::env::var_os("HOME")
-        .filter(|h| !h.is_empty())
-        .or_else(|| {
-            cfg!(windows)
-                .then(|| std::env::var_os("USERPROFILE"))
-                .flatten()
-                .filter(|h| !h.is_empty())
-        });
-    let Some(home) = home else {
+    let Some(home) = home_dir(
+        std::env::var_os("HOME"),
+        std::env::var_os("USERPROFILE"),
+        cfg!(windows),
+    ) else {
         return Settings::Defaults;
     };
-    let home = PathBuf::from(home);
     load_from(&home.join(RELATIVE_PATH), Some(&home))
 }
 

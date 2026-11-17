@@ -125,3 +125,30 @@ fn a_loaded_file_hands_the_setting_on() {
     std::fs::remove_dir_all(&tmp).ok();
     assert_eq!(Settings::Defaults.look().resolve().shell, None);
 }
+
+#[test]
+fn the_home_is_home_or_on_windows_the_profile_folder() {
+    use lumen_term::settings::home_dir;
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+    let os = |s: &str| Some(OsString::from(s));
+    // HOME wins where it is set, on every system.
+    for windows in [true, false] {
+        assert_eq!(
+            home_dir(os("/home/a"), os(r"C:\Users\a"), windows),
+            Some(PathBuf::from("/home/a"))
+        );
+    }
+    // The profile folder stands in only on Windows, and only when HOME is not set or empty.
+    assert_eq!(
+        home_dir(None, os(r"C:\Users\a"), true),
+        Some(PathBuf::from(r"C:\Users\a"))
+    );
+    assert_eq!(
+        home_dir(os(""), os(r"C:\Users\a"), true),
+        Some(PathBuf::from(r"C:\Users\a"))
+    );
+    assert_eq!(home_dir(None, os(r"C:\Users\a"), false), None);
+    assert_eq!(home_dir(None, os(""), true), None);
+    assert_eq!(home_dir(None, None, true), None);
+}

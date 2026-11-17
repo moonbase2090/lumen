@@ -33,10 +33,10 @@ settings: no file; the defaults apply
 theme=system mono_font=bundled mono_size=14 prose_font=bundled prose_size=14 shell=default
 == settings file with shell
 shell = "pwsh"
-settings: /tmp/h2/.config/lumen/settings.toml
+settings: $HOME/.config/lumen/settings.toml
 theme=system mono_font=bundled mono_size=14 prose_font=bundled prose_size=14 shell=pwsh
 == empty shell value
-settings: settings file /tmp/h2/.config/lumen/settings.toml ignored (line 1: `shell` must be a program name or path with no control characters); the defaults apply
+settings: settings file $HOME/.config/lumen/settings.toml ignored (line 1: `shell` must be a program name or path with no control characters); the defaults apply
 theme=system mono_font=bundled mono_size=14 prose_font=bundled prose_size=14 shell=default
 SHELL in this session: /bin/zsh
 == SHELL unset
