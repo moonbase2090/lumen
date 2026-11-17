@@ -15,11 +15,24 @@ use crate::layout::{GUTTER_COLUMNS, HEADER_ROWS, STRIP_COLLAPSED_ROWS};
 use crate::mouse::{Button, Held, Reporter, Wheel};
 use crate::notify::{Desk, Notifier, OsSink, Place, Settings, Toast};
 #[cfg(feature = "links-clipboard")]
-use crate::paste::{self, Decision};
+use crate::paste::{self, Decision, Hold, Pasted, Rejection};
 use crate::pty::SpawnError;
 use crate::raster::{Frame, Renderer, Window};
 use crate::scroll::Scroll;
 use crate::session::{MAX_COLUMNS, MAX_ROWS, Session};
+
+/// What [`App::paste`] did.
+#[cfg(feature = "links-clipboard")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PasteOutcome {
+    /// The paste was sent.
+    Sent,
+    /// The program has not enabled bracketed paste and the text has a line break
+    /// or another control: nothing was sent until the user chooses.
+    Held(Hold),
+    /// The paste was refused (it carries a frame introducer).
+    Rejected(Rejection),
+}
 
 /// What the window does after an action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,11 +60,51 @@ pub struct App {
     /// The render scale the display asked for, and the one in use now.
     base_scale: u32,
     scale: u32,
+    /// A scale the user fixed with an option: the display does not change it.
+    scale_pinned: bool,
     mouse: Reporter,
     theme_choice: ThemeChoice,
     appearance: Appearance,
     scroll: Scroll,
-    view_changed: bool,
+    /// How many times the view moved since the host last asked.
+    view_moves: u32,
+    /// When the cursor last moved the blink back to its on half: output or a key.
+    cursor_epoch_ms: u64,
+    /// The blink half the last frame was drawn with, so a change asks for a new frame.
+    cursor_phase: bool,
+    /// The program has ended: its screen has no cursor any more.
+    exited: bool,
+    preedit: Option<Preedit>,
+}
+
+/// The render scale for a display's scale factor: the nearest whole number,
+/// at least 1 and at most the largest zoom. A factor that is not a finite
+/// positive number is 1.
+#[must_use]
+pub fn display_scale(factor: f64) -> u32 {
+    if !factor.is_finite() || factor < 1.0 {
+        return 1;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a finite factor of at least 1, rounded and capped, fits"
+    )]
+    let whole = factor.round().min(f64::from(actions::MAX_SCALE)) as u32;
+    whole.max(1)
+}
+
+/// The longest preedit, in characters, the app keeps. An input method sends a
+/// few words at most; the cap keeps a misbehaving one from growing it.
+pub const PREEDIT_MAX_CHARS: usize = 256;
+
+/// Text an input method is composing and has not committed yet: it is shown to
+/// the user and sent to the program only when composition finishes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Preedit {
+    text: String,
+    /// The caret or selection inside `text`, as byte offsets.
+    cursor: Option<(usize, usize)>,
 }
 
 /// Rows of text one wheel step scrolls.
@@ -59,6 +112,10 @@ pub const WHEEL_ROWS: u32 = 3;
 
 /// How long the notice that input was not sent stays after the last refusal.
 pub const INPUT_NOTICE_MS: u64 = 4000;
+
+/// How long a blinking cursor stays on, and then off, in milliseconds. A key or output from the
+/// program starts a new cycle with the cursor on.
+pub const CURSOR_BLINK_MS: u64 = 530;
 
 /// Why input could not be sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,6 +193,17 @@ pub fn cells_for(width: u32, height: u32, cell: (u32, u32)) -> (usize, usize) {
     (columns as usize, rows as usize)
 }
 
+/// Columns a character takes in the editor: 2 for the East Asian wide and
+/// fullwidth blocks and emoji, else 1. It only sizes the candidate window's
+/// anchor, so the blocks are the common ones, not the full width table.
+fn cell_columns(c: char) -> u32 {
+    let wide = matches!(c as u32,
+        0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF
+        | 0xFE30..=0xFE6F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6
+        | 0x1F300..=0x1F64F | 0x1F900..=0x1F9FF | 0x20000..=0x3FFFD);
+    if wide { 2 } else { 1 }
+}
+
 /// Rows of the input editor.
 pub const EDITOR_ROWS: u32 = 2;
 
@@ -206,11 +274,16 @@ impl App {
             input_notice: None,
             base_scale: scale,
             scale,
+            scale_pinned: false,
             mouse: Reporter::default(),
             theme_choice: ThemeChoice::System,
             appearance: Appearance::Light,
             scroll: Scroll::Follow,
-            view_changed: false,
+            view_moves: 0,
+            cursor_epoch_ms: 0,
+            cursor_phase: true,
+            exited: false,
+            preedit: None,
         };
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
         Ok(app)
@@ -309,6 +382,7 @@ impl App {
     /// The window gained or lost the focus.
     pub fn set_focused(&mut self, focused: bool) {
         self.desk.focused = focused;
+        self.cursor_epoch_ms = self.session.now_ms();
         self.notifier.set_desk(self.desk);
     }
 
@@ -411,7 +485,7 @@ impl App {
     /// Whether the view moved since the last call, for the window to draw again
     /// after an input that scrolled it.
     pub fn take_view_changed(&mut self) -> bool {
-        std::mem::take(&mut self.view_changed)
+        std::mem::take(&mut self.view_moves) > 0
     }
 
     /// The text of the grid rows the window shows in its content area, top
@@ -455,7 +529,7 @@ impl App {
         let next = self.scroll.up(total, area, pixels);
         let moved = next.top(total, area) != self.scroll.top(total, area);
         self.scroll = next;
-        self.view_changed |= moved;
+        self.view_moves += u32::from(moved);
         moved
     }
 
@@ -470,7 +544,7 @@ impl App {
         let next = self.scroll.page(total, area, self.renderer.cell().1, up);
         let moved = next.top(total, area) != self.scroll.top(total, area);
         self.scroll = next;
-        self.view_changed |= moved;
+        self.view_moves += u32::from(moved);
         moved
     }
 
@@ -484,7 +558,7 @@ impl App {
         };
         let moved = next.top(total, area) != self.scroll.top(total, area);
         self.scroll = next;
-        self.view_changed |= moved;
+        self.view_moves += u32::from(moved);
         moved
     }
 
@@ -639,7 +713,34 @@ impl App {
             self.input_notice = None;
             changed = true;
         }
+        let phase = self.blink_on(now);
+        if phase != self.cursor_phase {
+            self.cursor_phase = phase;
+            changed |= self.cursor_blinks();
+        }
         changed
+    }
+
+    /// Whether the live grid has a cursor that blinks in a focused window.
+    fn cursor_blinks(&self) -> bool {
+        self.desk.focused
+            && !self.exited
+            && self
+                .session
+                .document()
+                .blocks()
+                .iter()
+                .rev()
+                .find_map(|b| match b {
+                    crate::document::Block::Grid(g) => Some(g.cursor()),
+                    crate::document::Block::Rich(_) => None,
+                })
+                .is_some_and(|c| c.visible && c.blink)
+    }
+
+    /// The on half of the blink cycle at `now`.
+    fn blink_on(&self, now: u64) -> bool {
+        (now.saturating_sub(self.cursor_epoch_ms) / CURSOR_BLINK_MS).is_multiple_of(2)
     }
 
     /// The notifier, for reading what is shown and counted.
@@ -688,8 +789,40 @@ impl App {
         self.resize(self.width, self.height)
     }
 
+    /// Keep the scale as given: a display's scale no longer changes it. For a
+    /// scale the user fixed with an option.
+    pub fn pin_scale(&mut self) {
+        self.scale_pinned = true;
+    }
+
+    /// The window moved to a display whose scale factor is `factor` (or its
+    /// factor changed). The render scale follows it, to the nearest whole
+    /// number, so text stays sharp at the display's own pixels, and a zoom the
+    /// user made stays the same number of steps from the display's scale. Does
+    /// nothing for a pinned scale. Returns whether the scale changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the renderer could not be made or the program could not be told.
+    pub fn set_display_scale(&mut self, factor: f64) -> Result<bool, SpawnError> {
+        if self.scale_pinned {
+            return Ok(false);
+        }
+        let base = display_scale(factor);
+        let zoom = i64::from(self.scale) - i64::from(self.base_scale);
+        let next = (i64::from(base) + zoom)
+            .clamp(i64::from(actions::MIN_SCALE), i64::from(actions::MAX_SCALE));
+        let next = u32::try_from(next).unwrap_or(base);
+        self.base_scale = base;
+        if next == self.scale {
+            return Ok(false);
+        }
+        self.set_scale(next).map(|()| true)
+    }
+
     /// Do `action` for the user. A paste reads `clipboard` and goes through the
-    /// paste rules: text with a line break or a control, which the terminal cannot
+    /// paste rules: it is sent bracketed if the program asked for that, and text with
+    /// a line break or a control that is not bracketed, which the terminal cannot
     /// yet ask the user about, is pasted as a single line, and text that carries
     /// a frame introducer is not pasted at all.
     #[cfg(feature = "links-clipboard")]
@@ -700,16 +833,17 @@ impl App {
                 let Some(text) = clipboard.text() else {
                     return Outcome::Nothing;
                 };
-                let to_send = match paste::judge(&text, false) {
-                    Decision::Send(p) => p.text,
-                    Decision::Hold(h) => h.single_line.text,
+                let bracketed = self.session.key_modes().bracketed_paste;
+                let pasted = match paste::judge(&text, bracketed) {
+                    Decision::Send(p) => p,
+                    Decision::Hold(h) => h.single_line,
                     Decision::Reject(_) => return Outcome::Refused,
                 };
-                if to_send.is_empty() {
+                if pasted.text.is_empty() {
                     return Outcome::Nothing;
                 }
                 // A refused write is noted for the user by `text`.
-                let _ = self.text(&to_send);
+                let _ = self.paste_chosen(&pasted);
                 Outcome::Redraw
             }
             Action::ZoomIn | Action::ZoomOut | Action::ZoomReset => {
@@ -735,6 +869,7 @@ impl App {
             return Ok(());
         }
         self.follow();
+        self.cursor_epoch_ms = self.session.now_ms();
         let sent = self.send(&bytes);
         self.note_input(&sent);
         sent
@@ -747,6 +882,9 @@ impl App {
     /// Returns the write error.
     pub fn text(&mut self, text: &str) -> std::io::Result<()> {
         self.follow();
+        if !text.is_empty() {
+            self.cursor_epoch_ms = self.session.now_ms();
+        }
         let sent = self.send(text.as_bytes());
         self.note_input(&sent);
         sent
@@ -785,8 +923,120 @@ impl App {
     fn follow(&mut self) {
         if self.scroll != Scroll::Follow {
             self.scroll = Scroll::Follow;
-            self.view_changed = true;
+            self.view_moves += 1;
         }
+    }
+
+    /// The input method is composing `text`, with the caret or selection at
+    /// `cursor` (byte offsets into `text`). Empty text ends the composition. The
+    /// text is kept for drawing and is not sent to the program.
+    pub fn set_preedit(&mut self, text: &str, cursor: Option<(usize, usize)>) {
+        let kept: String = text
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(PREEDIT_MAX_CHARS)
+            .collect();
+        if kept.is_empty() {
+            self.preedit = None;
+            return;
+        }
+        let cursor =
+            cursor.filter(|&(a, b)| a <= b && kept.is_char_boundary(a) && kept.is_char_boundary(b));
+        self.preedit = Some(Preedit { text: kept, cursor });
+    }
+
+    /// The text being composed and its caret or selection, if a composition is
+    /// in progress.
+    #[must_use]
+    pub fn preedit(&self) -> Option<(&str, Option<(usize, usize)>)> {
+        self.preedit.as_ref().map(|p| (p.text.as_str(), p.cursor))
+    }
+
+    /// Drop any composition without sending it (focus lost, the input method
+    /// turned off, or the user cancelled).
+    pub fn clear_preedit(&mut self) {
+        self.preedit = None;
+    }
+
+    /// Composition finished with `text`: the preedit ends and the text goes to
+    /// the program once. Control characters are dropped, so a committed string
+    /// can never carry an escape sequence to the program.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error.
+    pub fn commit(&mut self, text: &str) -> std::io::Result<()> {
+        self.preedit = None;
+        let clean: String = text.chars().filter(|c| !c.is_control()).collect();
+        if clean.is_empty() {
+            return Ok(());
+        }
+        self.text(&clean)
+    }
+
+    /// Where the input method's candidate window goes, in pixels: `(x, y, width,
+    /// height)`, the editor's first row after the gutter and its padding, as wide as the text
+    /// being composed. The terminal keeps no cursor cell of its own.
+    #[must_use]
+    pub fn ime_area(&self) -> (u32, u32, u32, u32) {
+        let (cell_w, cell_h) = self.renderer.cell();
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let win = window_for(columns, rows);
+        let used = self
+            .preedit
+            .as_ref()
+            .map_or(0, |p| p.text.chars().map(cell_columns).sum::<u32>());
+        (
+            GUTTER_COLUMNS
+                .saturating_mul(cell_w)
+                .saturating_add(self.renderer.gutter_pad()),
+            win.editor_row.saturating_mul(cell_h),
+            used.max(1).saturating_mul(cell_w),
+            cell_h,
+        )
+    }
+
+    /// The user pasted `text`. The text is sanitised first (see [`paste::judge`]).
+    /// If the program has turned bracketed paste on (DECSET 2004) the text is sent
+    /// between `ESC [ 200 ~` and `ESC [ 201 ~`, as one unit, whatever its length
+    /// and line breaks. If not, a paste with a line break or another control is
+    /// not sent but returned as [`PasteOutcome::Held`], for the window to show
+    /// and for [`paste_chosen`](Self::paste_chosen) to send once the user picks.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error; the user is shown the not-sent notice.
+    #[cfg(feature = "links-clipboard")]
+    pub fn paste(&mut self, text: &str) -> std::io::Result<PasteOutcome> {
+        let bracketed = self.session.key_modes().bracketed_paste;
+        match paste::judge(text, bracketed) {
+            Decision::Reject(why) => Ok(PasteOutcome::Rejected(why)),
+            Decision::Hold(hold) => Ok(PasteOutcome::Held(hold)),
+            Decision::Send(pasted) => self.paste_chosen(&pasted).map(|()| PasteOutcome::Sent),
+        }
+    }
+
+    /// Send a paste that is already judged: the text of a [`Pasted`] the user
+    /// chose from a held paste, or one [`paste`](Self::paste) found safe. It is
+    /// bracketed if the program has asked for that.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error; the user is shown the not-sent notice.
+    #[cfg(feature = "links-clipboard")]
+    pub fn paste_chosen(&mut self, pasted: &Pasted) -> std::io::Result<()> {
+        let mut bytes = Vec::with_capacity(pasted.text.len() + 12);
+        let bracketed = self.session.key_modes().bracketed_paste;
+        if bracketed {
+            bytes.extend_from_slice(b"\x1b[200~");
+        }
+        bytes.extend_from_slice(pasted.text.as_bytes());
+        if bracketed {
+            bytes.extend_from_slice(b"\x1b[201~");
+        }
+        let sent = self.send(&bytes);
+        self.note_input(&sent);
+        sent
     }
 
     /// Write to the program, unless it has ended. Whether a write to a PTY whose
@@ -831,6 +1081,9 @@ impl App {
     /// Take what the program has written. Returns the bytes handled.
     pub fn pump(&mut self) -> usize {
         let bytes = self.session.pump();
+        if bytes > 0 {
+            self.cursor_epoch_ms = self.session.now_ms();
+        }
         let events = self.session.take_events();
         if !events.is_empty() {
             self.route(&events);
@@ -839,21 +1092,36 @@ impl App {
         bytes
     }
 
+    /// The window title to show if the program changed it since the last call:
+    /// its title with the terminal's name, or the name alone after an empty or
+    /// reset title. For the window chrome only; it is never drawn in the page.
+    pub fn take_window_title(&mut self) -> Option<String> {
+        self.session
+            .take_title()
+            .map(|t| crate::title::window_title(Some(&t)))
+    }
+
     /// Whether the program has exited.
     pub fn has_exited(&mut self) -> bool {
-        self.session.has_exited()
+        self.exited = self.session.has_exited();
+        self.exited
     }
 
     /// The window's contents: exactly `width` by `height` pixels.
     #[must_use]
     pub fn view(&self) -> Frame {
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let cursor = (!self.exited).then(|| crate::raster::CursorState {
+            focused: self.desk.focused,
+            blink_on: self.blink_on(self.session.now_ms()),
+        });
         self.renderer
             .render_window_scrolled(
                 self.session.document(),
                 &window_for(columns, rows),
                 &self.toasts(),
                 self.scroll,
+                cursor,
             )
             .viewport(self.width, self.height, self.renderer.theme().background)
     }

@@ -313,8 +313,8 @@ fn rich_blocks_stay_whole_when_scrolled_to() {
     let area = (WIN.editor_row - 1) * ch;
     assert!(total > area * 3, "the flow is taller than the view");
 
-    let bottom = r.render_window_scrolled(&doc, &WIN, &[], Scroll::Follow);
-    let top = r.render_window_scrolled(&doc, &WIN, &[], Scroll::to_top(total, area));
+    let bottom = r.render_window_scrolled(&doc, &WIN, &[], Scroll::Follow, None);
+    let top = r.render_window_scrolled(&doc, &WIN, &[], Scroll::to_top(total, area), None);
     assert_ne!(bottom, top, "scrolling changes what is drawn");
 
     // The first block at the top of the flow is drawn exactly as it is on its own.

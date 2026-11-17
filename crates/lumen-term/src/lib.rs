@@ -58,11 +58,12 @@ pub mod session;
 pub mod settings;
 pub mod strip;
 pub mod theme_file;
+pub mod title;
 mod writer;
 
 pub use app::App;
 pub use document::{Block, Document, Event, RichBlock};
-pub use grid::GridBlock;
+pub use grid::{CursorShape, CursorView, GridBlock};
 pub use keys::{Key, Mods};
 pub use layer::{Context, Layer, Notice, Passthrough, Piece};
 pub use layout::{
@@ -70,7 +71,7 @@ pub use layout::{
 };
 pub use modes::{Changes, KeyModes, ModeTracker};
 pub use pty::SpawnError;
-pub use raster::{Frame, Renderer, Theme, Window, wrap_text};
+pub use raster::{CursorState, Frame, Renderer, Theme, Window, wrap_text};
 pub use scroll::Scroll;
 pub use session::Session;
 pub use strip::Strip;

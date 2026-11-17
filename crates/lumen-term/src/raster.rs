@@ -14,11 +14,11 @@
 //!
 //! What it does not do: bold or italic faces, glyphs neither face has (they are
 //! skipped), combining marks (the base glyph only), a cursor (off unless
-//! asked), kerning, or any other text shaping.
+//! asked, see [`CursorState`]), kerning, or any other text shaping.
 
 use crate::design::{FontFile, Fonts};
 use crate::document::{Block, Document, RichBlock};
-use crate::grid::GridBlock;
+use crate::grid::{CursorShape, GridBlock};
 use crate::image_draw;
 use crate::layout::{GUTTER_COLUMNS, Rect, StripPlacement, layout, notification_area};
 use crate::notify::Toast;
@@ -56,6 +56,22 @@ pub const MARGIN_LABEL: &str = "Bright";
 pub use crate::frame::{Frame, Rgb};
 
 pub use crate::design::Theme;
+
+/// How the cursor of the live grid is drawn: whether the window has the focus, and, for a
+/// blinking cursor, which half of its cycle this frame shows.
+///
+/// An unfocused window draws the cursor dimmed (a block as an outline, a bar or underline in a
+/// blend of its colour and the cell's) and steady, whatever the program asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CursorState {
+    /// The window has the focus.
+    pub focused: bool,
+    /// The on half of a blink cycle; ignored by a steady cursor and by an unfocused window.
+    pub blink_on: bool,
+}
+
+/// Thickness of a bar or underline cursor, in pixels at scale 1.
+const CURSOR_LINE_PX: u32 = 2;
 
 /// The size of a window and where its editor sits, in cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -394,6 +410,77 @@ impl Renderer {
         }
     }
 
+    /// Paint the cursor of a grid block whose top left is at `x`, `y`: block, bar or underline as
+    /// the program set it, nothing while the program has hidden it or a blinking cursor is in its
+    /// off half. Call after [`paint_grid`](Self::paint_grid).
+    #[allow(
+        clippy::many_single_char_names,
+        reason = "x, y, w, h and t are the usual pixel names"
+    )]
+    pub fn paint_cursor(
+        &self,
+        frame: &mut Frame,
+        x: u32,
+        y: u32,
+        block: &GridBlock,
+        state: CursorState,
+    ) {
+        let view = block.cursor();
+        if !view.visible || (view.blink && state.focused && !state.blink_on) {
+            return;
+        }
+        let (columns, rows) = block.size();
+        let screen = block.screen();
+        let Some(cells) = screen
+            .row(view.row)
+            .filter(|_| view.row < rows && columns > 0)
+        else {
+            return;
+        };
+        let mut col = view.column.min(columns - 1);
+        if cells.get(col).is_some_and(|c| c.wide_cont) {
+            col = col.saturating_sub(1);
+        }
+        let cell = &cells[col];
+        let span = 1 + usize::from(cells.get(col + 1).is_some_and(|n| n.wide_cont));
+        let w = u32::try_from(span).unwrap_or(1);
+        let left = x + u32::try_from(col).unwrap_or(0) * self.cell_w;
+        let top = y + u32::try_from(view.row).unwrap_or(0) * self.cell_h;
+        let width = w * self.cell_w;
+        let t = self.scale.max(1);
+        let ink = self.theme.foreground;
+        let under = self.colours(cell.style).1;
+        let dimmed = [0, 1, 2].map(|i| ink[i] / 2 + under[i] / 2);
+        let colour = if state.focused { ink } else { dimmed };
+        match view.shape {
+            CursorShape::Block if state.focused => {
+                frame.fill(left, top, width, self.cell_h, ink);
+                self.draw_glyph(frame, cell.character, left, top, w, self.theme.background);
+            }
+            CursorShape::Block => {
+                // Unfocused: an outline, the cell's own glyph left as it was.
+                let edge = t.min(width).min(self.cell_h);
+                frame.fill(left, top, width, edge, ink);
+                frame.fill(left, top + self.cell_h - edge, width, edge, ink);
+                frame.fill(left, top, edge, self.cell_h, ink);
+                frame.fill(left + width - edge, top, edge, self.cell_h, ink);
+            }
+            CursorShape::Bar => {
+                frame.fill(
+                    left,
+                    top,
+                    (CURSOR_LINE_PX * t).min(width),
+                    self.cell_h,
+                    colour,
+                );
+            }
+            CursorShape::Underline => {
+                let h = (CURSOR_LINE_PX * t).min(self.cell_h);
+                frame.fill(left, top + self.cell_h - h, width, h, colour);
+            }
+        }
+    }
+
     fn text_line(&self, frame: &mut Frame, x: u32, y: u32, text: &str, colour: Rgb) {
         let mut col = 0u32;
         for ch in text.chars() {
@@ -669,6 +756,38 @@ impl Renderer {
         Some(last.top.saturating_add(hist.saturating_mul(self.cell_h)))
     }
 
+    /// The content region, `size` pixels, `cells` cells wide: the part of the flow
+    /// at `scroll`, the live cursor, and the scroll bar when the flow is taller.
+    fn content_region(
+        &self,
+        size: (u32, u32),
+        doc: &Document,
+        cells: u32,
+        scroll: Scroll,
+        cursor: Option<CursorState>,
+    ) -> Frame {
+        let (aw, ah) = size;
+        let strips = doc.strips();
+        let mut region = Frame::new(aw, ah, self.theme.background);
+        let columns = usize::try_from(cells).unwrap_or(1);
+        let newest_cycle = strips.last().map(|s| s.cycle);
+        let total = self.content_height(doc, columns);
+        let view_top = scroll.top(total, ah);
+        self.paint_content(
+            &mut region,
+            doc,
+            columns,
+            (&strips, newest_cycle),
+            view_top,
+            cursor,
+        );
+        if let Some((top, height)) = scroll.thumb(total, ah) {
+            let bar = (2 * self.scale).min(aw);
+            region.fill(aw - bar, top, bar, height, self.theme.border);
+        }
+        region
+    }
+
     /// Paint the content region: the part of the flow of foreground blocks that
     /// starts `view_top` pixels down, so the region is the view.
     fn paint_content(
@@ -676,11 +795,16 @@ impl Renderer {
         region: &mut Frame,
         doc: &Document,
         columns: usize,
-        strips: &[crate::strip::Strip<'_>],
-        newest_cycle: Option<u32>,
+        (strips, newest_cycle): (&[crate::strip::Strip<'_>], Option<u32>),
         view_top: u32,
+        cursor: Option<CursorState>,
     ) {
         let view_end = view_top.saturating_add(region.height);
+        // Only the newest grid is the program's live screen, so only it can show a cursor.
+        let live = doc.blocks().iter().rev().find_map(|b| match b {
+            Block::Grid(g) => Some(&**g),
+            Block::Rich(_) => None,
+        });
         for p in self.flow(doc, columns, strips, newest_cycle) {
             let end = p.top.saturating_add(p.height);
             if end <= view_top || p.top >= view_end {
@@ -704,6 +828,22 @@ impl Renderer {
                             + i64::try_from(k).unwrap_or(0) * i64::from(self.cell_h)
                             - i64::from(view_top);
                         self.paint_row_at(region, y, cells);
+                    }
+                    if let (Some(state), Some(l)) = (cursor, live)
+                        && std::ptr::eq(l, g)
+                    {
+                        // The screen is drawn again with the cursor on it, clipped to the view.
+                        let screen_h = u32::try_from(g.size().1)
+                            .unwrap_or(0)
+                            .saturating_mul(self.cell_h);
+                        let mut screen =
+                            Frame::new(region.width, screen_h.max(1), self.theme.background);
+                        self.paint_grid(&mut screen, 0, 0, g);
+                        self.paint_cursor(&mut screen, 0, 0, g, state);
+                        let top = i64::from(p.top)
+                            + i64::try_from(hist).unwrap_or(0) * i64::from(self.cell_h)
+                            - i64::from(view_top);
+                        Self::blit_clipped(region, &screen, top);
                     }
                 }
                 Part::Rich(r) => {
@@ -911,11 +1051,25 @@ impl Renderer {
     /// cleaned text.
     #[must_use]
     pub fn render_window_with(&self, doc: &Document, win: &Window, toasts: &[Toast]) -> Frame {
-        self.render_window_scrolled(doc, win, toasts, Scroll::Follow)
+        self.render_window_cursor(doc, win, toasts, None)
+    }
+
+    /// Paint a window as [`render_window_with`](Self::render_window_with) does, with the cursor of
+    /// the live grid drawn when `cursor` is given. The cursor is clipped to the content area, so
+    /// it never reaches the margin, the editor or a toast.
+    #[must_use]
+    pub fn render_window_cursor(
+        &self,
+        doc: &Document,
+        win: &Window,
+        toasts: &[Toast],
+        cursor: Option<CursorState>,
+    ) -> Frame {
+        self.render_window_scrolled(doc, win, toasts, Scroll::Follow, cursor)
     }
 
     /// Paint a window with the content scrolled to `scroll`. At the bottom
-    /// (`Scroll::Follow`) it is what [`render_window_with`](Self::render_window_with)
+    /// (`Scroll::Follow`) it is what [`render_window_cursor`](Self::render_window_cursor)
     /// draws. A scroll bar is drawn at the right edge of the content area when
     /// the flow is taller than the area; it is the terminal's own and nothing a
     /// producer writes is an input to it.
@@ -926,6 +1080,7 @@ impl Renderer {
         win: &Window,
         toasts: &[Toast],
         scroll: Scroll,
+        cursor: Option<CursorState>,
     ) -> Frame {
         let t = &self.theme;
         let strips = doc.strips();
@@ -953,16 +1108,7 @@ impl Renderer {
         };
         let (ax, ay, aw, ah) = px(&area);
         if aw > 0 && ah > 0 {
-            let mut region = Frame::new(aw, ah, t.background);
-            let columns = usize::try_from(area.w).unwrap_or(1);
-            let newest_cycle = newest.map(|s| s.cycle);
-            let total = self.content_height(doc, columns);
-            let view_top = scroll.top(total, ah);
-            self.paint_content(&mut region, doc, columns, &strips, newest_cycle, view_top);
-            if let Some((top, height)) = scroll.thumb(total, ah) {
-                let bar = (2 * self.scale).min(aw);
-                region.fill(aw - bar, top, bar, height, t.border);
-            }
+            let region = self.content_region((aw, ah), doc, area.w, scroll, cursor);
             Self::blit(&mut frame, &region, ax, ay);
         }
 

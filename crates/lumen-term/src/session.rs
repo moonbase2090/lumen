@@ -243,6 +243,11 @@ impl Session {
         &self.document
     }
 
+    /// Take the window title the program set since the last call.
+    pub fn take_title(&mut self) -> Option<String> {
+        self.document.take_title()
+    }
+
     /// Take the events the document raised since the last call, oldest first.
     pub fn take_events(&mut self) -> Vec<crate::document::Event> {
         self.document.take_events()
@@ -264,7 +269,7 @@ impl Session {
     /// mode survives a rich block between two grid blocks.
     #[must_use]
     pub fn key_modes(&self) -> crate::modes::KeyModes {
-        crate::modes::key_modes_of(self.document.blocks())
+        crate::modes::key_modes_for(&self.document)
     }
 
     /// Milliseconds since the session started: the clock the notifier uses.
