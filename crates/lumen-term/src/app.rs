@@ -59,10 +59,29 @@ pub struct App {
     /// The render scale the display asked for, and the one in use now.
     base_scale: u32,
     scale: u32,
+    /// A scale the user fixed with an option: the display does not change it.
+    scale_pinned: bool,
     mouse: Reporter,
     theme_choice: ThemeChoice,
     appearance: Appearance,
     preedit: Option<Preedit>,
+}
+
+/// The render scale for a display's scale factor: the nearest whole number,
+/// at least 1 and at most the largest zoom. A factor that is not a finite
+/// positive number is 1.
+#[must_use]
+pub fn display_scale(factor: f64) -> u32 {
+    if !factor.is_finite() || factor < 1.0 {
+        return 1;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a finite factor of at least 1, rounded and capped, fits"
+    )]
+    let whole = factor.round().min(f64::from(actions::MAX_SCALE)) as u32;
+    whole.max(1)
 }
 
 /// The longest preedit, in characters, the app keeps. An input method sends a
@@ -238,6 +257,7 @@ impl App {
             input_notice: None,
             base_scale: scale,
             scale,
+            scale_pinned: false,
             mouse: Reporter::default(),
             theme_choice: ThemeChoice::System,
             appearance: Appearance::Light,
@@ -613,6 +633,37 @@ impl App {
                 .map_err(SpawnError)?;
         self.scale = scale;
         self.resize(self.width, self.height)
+    }
+
+    /// Keep the scale as given: a display's scale no longer changes it. For a
+    /// scale the user fixed with an option.
+    pub fn pin_scale(&mut self) {
+        self.scale_pinned = true;
+    }
+
+    /// The window moved to a display whose scale factor is `factor` (or its
+    /// factor changed). The render scale follows it, to the nearest whole
+    /// number, so text stays sharp at the display's own pixels, and a zoom the
+    /// user made stays the same number of steps from the display's scale. Does
+    /// nothing for a pinned scale. Returns whether the scale changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the renderer could not be made or the program could not be told.
+    pub fn set_display_scale(&mut self, factor: f64) -> Result<bool, SpawnError> {
+        if self.scale_pinned {
+            return Ok(false);
+        }
+        let base = display_scale(factor);
+        let zoom = i64::from(self.scale) - i64::from(self.base_scale);
+        let next = (i64::from(base) + zoom)
+            .clamp(i64::from(actions::MIN_SCALE), i64::from(actions::MAX_SCALE));
+        let next = u32::try_from(next).unwrap_or(base);
+        self.base_scale = base;
+        if next == self.scale {
+            return Ok(false);
+        }
+        self.set_scale(next).map(|()| true)
     }
 
     /// Do `action` for the user. A paste reads `clipboard` and goes through the
