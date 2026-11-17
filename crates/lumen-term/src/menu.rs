@@ -14,7 +14,9 @@ use crate::APP_NAME;
 #[must_use]
 pub const fn id_of(action: Action) -> &'static str {
     match action {
+        Action::Copy => "copy",
         Action::Paste => "paste",
+        Action::SelectAll => "select-all",
         Action::ZoomIn => "zoom-in",
         Action::ZoomOut => "zoom-out",
         Action::ZoomReset => "zoom-reset",
@@ -30,7 +32,9 @@ pub const fn id_of(action: Action) -> &'static str {
 #[must_use]
 pub fn action_of(id: &str) -> Option<Action> {
     [
+        Action::Copy,
         Action::Paste,
+        Action::SelectAll,
         Action::ZoomIn,
         Action::ZoomOut,
         Action::ZoomReset,
@@ -93,7 +97,9 @@ impl MenuBar {
             "Edit",
             true,
             &[
+                &item(Action::Copy, "Copy", Code::KeyC),
                 &item(Action::Paste, "Paste", Code::KeyV),
+                &item(Action::SelectAll, "Select All", Code::KeyA),
                 &PredefinedMenuItem::separator(),
                 &item(Action::Find, "Find…", Code::KeyF),
                 &item(Action::FindNext, "Find Next", Code::KeyG),
