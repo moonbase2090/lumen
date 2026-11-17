@@ -8,8 +8,11 @@
 //!    the program `COMSPEC` names, then `cmd.exe`;
 //! 4. elsewhere, `/bin/sh`.
 //!
-//! A value that is empty counts as not set. Nothing here checks that a program
-//! the user named exists: starting it fails with the system's own message.
+//! An empty `SHELL` counts as not set. An empty or blank `shell` setting never
+//! reaches here from the settings file, which refuses it as a bad value and is
+//! ignored whole; [`choose`] still treats a blank setting as unset for any
+//! other caller. Nothing here checks that a program the user named exists:
+//! starting it fails with the system's own message.
 
 use std::path::Path;
 
