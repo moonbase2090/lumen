@@ -317,3 +317,49 @@ fn select_all_takes_every_line_and_a_program_that_asked_for_the_mouse_gets_it_un
             .contains("mouse mode on")
     );
 }
+
+/// Cycle 0's background output, then a grid row, then cycle 1's background
+/// output: the strip of cycle 0 is the older one, drawn before the grid row.
+fn after_an_older_strip() -> Document {
+    let mut doc = Document::new(60, 4);
+    let mut layer = lumen_arm_b::Layer::new(lumen_arm_b::Config {
+        budget: lumen_arm_b::Budget::quarter_of(2000, 8 << 20),
+        background_as_text: false,
+    });
+    doc.receive(&mut layer, &paragraph("one"), Context::default());
+    doc.receive(&mut layer, &paragraph("two"), Context::default());
+    doc.receive(&mut layer, b"later row\r\n", Context::default());
+    doc.begin_prompt_cycle(&mut layer);
+    Layer::close_container(&mut layer);
+    doc.receive(&mut layer, &paragraph("three"), Context::default());
+    doc
+}
+
+fn later_top(doc: &Document) -> u32 {
+    let r = Renderer::light(1).unwrap_or_else(|e| unreachable!("renderer: {e}"));
+    let lines = r.flow(doc, 40);
+    let Some(line) = lines.iter().find(|l| l.text.starts_with("later row")) else {
+        unreachable!("the grid row is in the flow")
+    };
+    line.top
+}
+
+#[test]
+fn a_line_after_a_collapsed_older_strip_is_selected_below_its_row() {
+    let doc = after_an_older_strip();
+    assert_eq!(doc.strips().len(), 2);
+    let r = Renderer::light(1).unwrap_or_else(|e| unreachable!("renderer: {e}"));
+    let cell_h = r.cell().1;
+    assert_eq!(later_top(&doc), cell_h, "one collapsed row above it");
+}
+
+#[test]
+fn a_line_after_an_open_older_strip_is_selected_below_all_its_rows() {
+    let mut doc = after_an_older_strip();
+    assert!(doc.user_opens_strip(0));
+    let r = Renderer::light(1).unwrap_or_else(|e| unreachable!("renderer: {e}"));
+    let cell_h = r.cell().1;
+    let blocks = u32::try_from(doc.strips()[0].blocks.len()).unwrap_or(0);
+    assert!(blocks >= 2);
+    assert_eq!(later_top(&doc), (1 + blocks) * cell_h);
+}

@@ -1,10 +1,28 @@
 //! A block of terminal cells: an emulator and the text it holds.
 
 use crate::modes::{Changes, ModeTracker};
+pub use prismattyc_emulator::CursorShape;
 use prismattyc_emulator::Emulator;
 
 /// Scrollback lines kept per block.
 pub const SCROLLBACK: usize = 1000;
+
+/// What the program running in a block has asked of its cursor: where it is, whether it is shown
+/// (DECTCEM), its shape and whether it blinks (DECSCUSR).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CursorView {
+    /// Zero-based row.
+    pub row: usize,
+    /// Zero-based column. After a write to the last column this can equal the width: the
+    /// cursor is then shown on the last cell.
+    pub column: usize,
+    /// Whether the program wants the cursor shown.
+    pub visible: bool,
+    /// Block, underline or bar.
+    pub shape: CursorShape,
+    /// Whether the program asked for a blinking cursor.
+    pub blink: bool,
+}
 
 /// A block of `columns` by `rows` cells.
 ///
@@ -55,6 +73,12 @@ impl GridBlock {
         self.emulator.feed(bytes);
     }
 
+    /// The window title the program set since the last call: `Some("")` is a
+    /// reset, `None` is no change.
+    pub fn take_title(&mut self) -> Option<String> {
+        self.emulator.take_pending_title()
+    }
+
     /// What the output this block was given did to the key modes.
     #[must_use]
     pub fn key_mode_changes(&self) -> Changes {
@@ -82,6 +106,19 @@ impl GridBlock {
                 line.trim_end().to_owned()
             })
             .collect()
+    }
+
+    /// The cursor, as the program has set it.
+    #[must_use]
+    pub fn cursor(&self) -> CursorView {
+        let at = self.emulator.screen().cursor();
+        CursorView {
+            row: at.row,
+            column: at.column,
+            visible: self.emulator.cursor_visible(),
+            shape: self.emulator.cursor_shape(),
+            blink: self.emulator.cursor_blink(),
+        }
     }
 
     /// The mouse modes the program running in this block has switched on.
