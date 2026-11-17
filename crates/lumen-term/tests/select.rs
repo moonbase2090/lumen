@@ -363,3 +363,40 @@ fn a_line_after_an_open_older_strip_is_selected_below_all_its_rows() {
     assert!(blocks >= 2);
     assert_eq!(later_top(&doc), (1 + blocks) * cell_h);
 }
+
+const COUNT: &str = "i=1; while [ $i -le 300 ]; do echo line$i; i=$((i+1)); done;";
+
+#[test]
+fn the_pointer_selects_what_is_in_view_when_the_view_is_scrolled_and_select_all_takes_the_history()
+{
+    let mut app = start(&format!("{COUNT} sleep 30"));
+    assert!(pump_until(&mut app, |a| a
+        .visible_text()
+        .iter()
+        .any(|l| l == "line300")));
+    assert!(app.scroll_end(true), "scrolled to the oldest output");
+    assert_eq!(
+        app.visible_text().first().map(String::as_str),
+        Some("line1")
+    );
+    let held = Held::default();
+    let (x0, y0) = at(0, 1);
+    let (x1, y1) = at(5, 2);
+    app.mouse_press(x0, y0, Button::Left, held).ok();
+    app.mouse_move(x1, y1, held).ok();
+    app.mouse_release(x1, y1, Button::Left, held).ok();
+    assert_eq!(app.selected_text().as_deref(), Some("line2\nline3"));
+    // Scrolling does not move the selection off its text.
+    assert!(app.scroll_rows(-3));
+    assert_eq!(app.selected_text().as_deref(), Some("line2\nline3"));
+    // Select all reaches the scrolled-away history too.
+    let clip = Clip(RefCell::new(None));
+    app.perform(Action::SelectAll, &clip);
+    let all = app.selected_text().unwrap_or_default();
+    assert!(
+        all.starts_with("line1\nline2\n"),
+        "{:?}",
+        &all[..20.min(all.len())]
+    );
+    assert!(all.contains("line300"));
+}

@@ -23,9 +23,10 @@ use crate::grid::{CursorShape, GridBlock};
 use crate::image_draw;
 use crate::layout::{GUTTER_COLUMNS, Rect, StripPlacement, layout, notification_area};
 use crate::notify::Toast;
+use crate::scroll::Scroll;
 use crate::select::{FlowLine, Join, Selection};
 use lumen_track0::Block as Track0Block;
-use prismattyc_core::{Color, Style, grapheme_display_width};
+use prismattyc_core::{Cell, Color, Style, grapheme_display_width};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -85,6 +86,21 @@ pub struct Window {
     pub editor_row: u32,
     /// Rows of the editor.
     pub editor_rows: u32,
+}
+
+/// One block of the flow of content, and where it sits.
+struct Placed<'a> {
+    /// Index of the block in the document (the first, for a strip).
+    index: usize,
+    top: u32,
+    height: u32,
+    part: Part<'a>,
+}
+
+enum Part<'a> {
+    Grid(&'a GridBlock),
+    Rich(&'a RichBlock),
+    Strip(&'a crate::strip::Strip<'a>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -366,26 +382,35 @@ impl Renderer {
         let screen = block.screen();
         for r in 0..screen.rows() {
             let Some(cells) = screen.row(r) else { continue };
-            let top = y + u32::try_from(r).unwrap_or(0) * self.cell_h;
-            let mut c = 0;
-            while c < cells.len() {
-                let cell = &cells[c];
-                let span = 1 + usize::from(cells.get(c + 1).is_some_and(|n| n.wide_cont));
-                if cell.wide_cont {
-                    c += 1;
-                    continue;
-                }
-                let (fg, bg) = self.colours(cell.style);
-                let left = x + u32::try_from(c).unwrap_or(0) * self.cell_w;
-                let w = u32::try_from(span).unwrap_or(1);
-                frame.fill(left, top, w * self.cell_w, self.cell_h, bg);
-                self.draw_glyph(frame, cell.character, left, top, w, fg);
-                if cell.style.underline {
-                    let line = top + self.cell_h - self.scale.min(self.cell_h);
-                    frame.fill(left, line, w * self.cell_w, self.scale, fg);
-                }
-                c += span;
+            self.paint_cells(
+                frame,
+                x,
+                y + u32::try_from(r).unwrap_or(0) * self.cell_h,
+                cells,
+            );
+        }
+    }
+
+    /// Paint one row of cells with its top left at `x`, `top`.
+    fn paint_cells(&self, frame: &mut Frame, x: u32, top: u32, cells: &[Cell]) {
+        let mut c = 0;
+        while c < cells.len() {
+            let cell = &cells[c];
+            let span = 1 + usize::from(cells.get(c + 1).is_some_and(|n| n.wide_cont));
+            if cell.wide_cont {
+                c += 1;
+                continue;
             }
+            let (fg, bg) = self.colours(cell.style);
+            let left = x + u32::try_from(c).unwrap_or(0) * self.cell_w;
+            let w = u32::try_from(span).unwrap_or(1);
+            frame.fill(left, top, w * self.cell_w, self.cell_h, bg);
+            self.draw_glyph(frame, cell.character, left, top, w, fg);
+            if cell.style.underline {
+                let line = top + self.cell_h - self.scale.min(self.cell_h);
+                frame.fill(left, line, w * self.cell_w, self.scale, fg);
+            }
+            c += span;
         }
     }
 
@@ -586,43 +611,286 @@ impl Renderer {
         }
     }
 
-    /// Paint the content region: foreground blocks top down. The newest cycle's
-    /// strip is below the editor; the strip of an older cycle sits where that
-    /// cycle's output ended, in the flow: one row, collapsed, with the count and
-    /// nothing the producer wrote.
+    /// Where each foreground block sits in the flow of the content, top down:
+    /// the pixel row it starts at and its height. A grid block is its history
+    /// above its screen. The newest cycle's strip is below the editor, so it is
+    /// not in the flow; the strip of an older cycle sits where that cycle's
+    /// output ended: one row, collapsed, with the count and nothing the
+    /// producer wrote.
+    fn placement<'a>(
+        &self,
+        doc: &'a Document,
+        columns: usize,
+        strips: &'a [crate::strip::Strip<'a>],
+        newest_cycle: Option<u32>,
+    ) -> Vec<Placed<'a>> {
+        let mut out = Vec::new();
+        let mut y = 0u32;
+        let mut placed: Vec<u32> = Vec::new();
+        for (index, b) in doc.blocks().iter().enumerate() {
+            match b {
+                Block::Grid(g) => {
+                    let rows = g.history_rows() + g.size().1;
+                    let h = u32::try_from(rows)
+                        .unwrap_or(u32::MAX)
+                        .saturating_mul(self.cell_h);
+                    out.push(Placed {
+                        index,
+                        top: y,
+                        height: h,
+                        part: Part::Grid(g),
+                    });
+                    y = y.saturating_add(h);
+                }
+                Block::Rich(r) if !r.background => {
+                    let h = self.rich_height(r, columns);
+                    out.push(Placed {
+                        index,
+                        top: y,
+                        height: h,
+                        part: Part::Rich(r),
+                    });
+                    y = y.saturating_add(h);
+                }
+                Block::Rich(r) => {
+                    if Some(r.cycle) == newest_cycle || placed.contains(&r.cycle) {
+                        continue;
+                    }
+                    if let Some(strip) = strips.iter().find(|s| s.cycle == r.cycle) {
+                        placed.push(r.cycle);
+                        let rows = if strip.open {
+                            1 + strip.blocks.len()
+                        } else {
+                            1
+                        };
+                        let h = u32::try_from(rows)
+                            .unwrap_or(u32::MAX)
+                            .saturating_mul(self.cell_h);
+                        out.push(Placed {
+                            index,
+                            top: y,
+                            height: h,
+                            part: Part::Strip(strip),
+                        });
+                        y = y.saturating_add(h);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The height in pixels of the whole flow of foreground blocks, `columns`
+    /// cells wide: what a view of the content area scrolls over.
+    #[must_use]
+    pub fn content_height(&self, doc: &Document, columns: usize) -> u32 {
+        let strips = doc.strips();
+        let newest = strips.last().map(|s| s.cycle);
+        self.placement(doc, columns, &strips, newest)
+            .last()
+            .map_or(0, |p| p.top.saturating_add(p.height))
+    }
+
+    /// The text of the grid rows in view when the view starts `view_top` pixels
+    /// down a flow `columns` cells wide and `area` pixels tall, top down, with
+    /// trailing blanks removed. A row of a rich block or a strip is not text
+    /// of a grid, so it is left out. This is what a search or a copy needs to
+    /// read the rows the user sees, and what tests read.
+    #[must_use]
+    pub fn view_rows(
+        &self,
+        doc: &Document,
+        columns: usize,
+        view_top: u32,
+        area: u32,
+    ) -> Vec<String> {
+        let strips = doc.strips();
+        let newest = strips.last().map(|s| s.cycle);
+        let end = view_top.saturating_add(area);
+        let mut out = Vec::new();
+        for p in self.placement(doc, columns, &strips, newest) {
+            let Part::Grid(g) = p.part else { continue };
+            let hist = g.history_rows();
+            let rows = hist + g.size().1;
+            for k in 0..rows {
+                let y = p.top.saturating_add(
+                    u32::try_from(k)
+                        .unwrap_or(u32::MAX)
+                        .saturating_mul(self.cell_h),
+                );
+                if y + self.cell_h <= view_top || y >= end {
+                    continue;
+                }
+                let cells = if k < hist {
+                    g.history_row(k)
+                } else {
+                    g.screen().row(k - hist)
+                };
+                let line: String = cells
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|c| !c.wide_cont)
+                    .map(|c| c.character)
+                    .collect();
+                out.push(line.trim_end().to_owned());
+            }
+        }
+        out
+    }
+
+    /// Where the live grid block's screen starts in the flow, in pixels from the
+    /// top of the flow: the newest block, when it is a grid. A pointer over
+    /// the content area maps into that block's cells from here.
+    #[must_use]
+    pub fn live_screen_top(&self, doc: &Document, columns: usize) -> Option<u32> {
+        let strips = doc.strips();
+        let newest = strips.last().map(|s| s.cycle);
+        let flow = self.placement(doc, columns, &strips, newest);
+        let last = flow.last()?;
+        let Part::Grid(g) = last.part else {
+            return None;
+        };
+        if !std::ptr::eq(
+            doc.blocks().last().and_then(|b| match b {
+                Block::Grid(x) => Some(&**x),
+                Block::Rich(_) => None,
+            })?,
+            g,
+        ) {
+            return None;
+        }
+        let hist = u32::try_from(g.history_rows()).unwrap_or(u32::MAX);
+        Some(last.top.saturating_add(hist.saturating_mul(self.cell_h)))
+    }
+
+    /// The content region, `size` pixels, `cells` cells wide: the part of the flow
+    /// at `scroll`, the live cursor, and the scroll bar when the flow is taller.
+    fn content_region(
+        &self,
+        size: (u32, u32),
+        doc: &Document,
+        cells: u32,
+        scroll: Scroll,
+        selection: Option<&Selection>,
+        cursor: Option<CursorState>,
+    ) -> Frame {
+        let (aw, ah) = size;
+        let strips = doc.strips();
+        let mut region = Frame::new(aw, ah, self.theme.background);
+        let columns = usize::try_from(cells).unwrap_or(1);
+        let newest_cycle = strips.last().map(|s| s.cycle);
+        let total = self.content_height(doc, columns);
+        let view_top = scroll.top(total, ah);
+        self.paint_content(
+            &mut region,
+            doc,
+            columns,
+            (&strips, newest_cycle),
+            view_top,
+            cursor,
+        );
+        if let Some(sel) = selection {
+            self.paint_selection(&mut region, &self.flow(doc, columns), sel, view_top);
+        }
+        if let Some((top, height)) = scroll.thumb(total, ah) {
+            let bar = (2 * self.scale).min(aw);
+            region.fill(aw - bar, top, bar, height, self.theme.border);
+        }
+        region
+    }
+
+    /// Paint the content region: the part of the flow of foreground blocks that
+    /// starts `view_top` pixels down, so the region is the view.
     fn paint_content(
         &self,
         region: &mut Frame,
         doc: &Document,
         columns: usize,
-        strips: &[crate::strip::Strip<'_>],
-        newest_cycle: Option<u32>,
+        (strips, newest_cycle): (&[crate::strip::Strip<'_>], Option<u32>),
+        view_top: u32,
         cursor: Option<CursorState>,
     ) {
-        let mut y = 0;
-        let mut placed: Vec<u32> = Vec::new();
+        let view_end = view_top.saturating_add(region.height);
         // Only the newest grid is the program's live screen, so only it can show a cursor.
-        let live = doc
-            .blocks()
-            .iter()
-            .rposition(|b| matches!(b, Block::Grid(_)));
-        for (i, b) in doc.blocks().iter().enumerate() {
-            match b {
-                Block::Grid(g) => {
-                    self.paint_grid(region, 0, y, g);
-                    if let (Some(state), true) = (cursor, Some(i) == live) {
-                        self.paint_cursor(region, 0, y, g, state);
+        let live = doc.blocks().iter().rev().find_map(|b| match b {
+            Block::Grid(g) => Some(&**g),
+            Block::Rich(_) => None,
+        });
+        for p in self.placement(doc, columns, strips, newest_cycle) {
+            let end = p.top.saturating_add(p.height);
+            if end <= view_top || p.top >= view_end {
+                continue;
+            }
+            match p.part {
+                Part::Grid(g) => {
+                    let hist = g.history_rows();
+                    let first = (view_top.saturating_sub(p.top)) / self.cell_h;
+                    let last = (view_end - p.top).div_ceil(self.cell_h);
+                    let rows = hist + g.size().1;
+                    for k in first..last.min(u32::try_from(rows).unwrap_or(u32::MAX)) {
+                        let k = k as usize;
+                        let cells = if k < hist {
+                            g.history_row(k)
+                        } else {
+                            g.screen().row(k - hist)
+                        };
+                        let Some(cells) = cells else { continue };
+                        let y = i64::from(p.top)
+                            + i64::try_from(k).unwrap_or(0) * i64::from(self.cell_h)
+                            - i64::from(view_top);
+                        self.paint_row_at(region, y, cells);
                     }
-                    y += u32::try_from(g.size().1).unwrap_or(0) * self.cell_h;
-                }
-                Block::Rich(r) if !r.background => {
-                    self.paint_rich(region, 0, y, columns, r);
-                    y += self.rich_height(r, columns);
-                }
-                Block::Rich(r) => {
-                    if let Some(strip) = Self::flow_strip(r, strips, newest_cycle, &mut placed) {
-                        y += self.paint_flow_strip(region, y, columns, strip);
+                    if let (Some(state), Some(l)) = (cursor, live)
+                        && std::ptr::eq(l, g)
+                    {
+                        // The screen is drawn again with the cursor on it, clipped to the view.
+                        let screen_h = u32::try_from(g.size().1)
+                            .unwrap_or(0)
+                            .saturating_mul(self.cell_h);
+                        let mut screen =
+                            Frame::new(region.width, screen_h.max(1), self.theme.background);
+                        self.paint_grid(&mut screen, 0, 0, g);
+                        self.paint_cursor(&mut screen, 0, 0, g, state);
+                        let top = i64::from(p.top)
+                            + i64::try_from(hist).unwrap_or(0) * i64::from(self.cell_h)
+                            - i64::from(view_top);
+                        Self::blit_clipped(region, &screen, top);
                     }
+                }
+                Part::Rich(r) => {
+                    let mut part = Frame::new(region.width, p.height.max(1), self.theme.background);
+                    self.paint_rich(&mut part, 0, 0, columns, r);
+                    Self::blit_clipped(region, &part, i64::from(p.top) - i64::from(view_top));
+                }
+                Part::Strip(s) => {
+                    let mut part = Frame::new(region.width, p.height.max(1), self.theme.background);
+                    self.paint_flow_strip(&mut part, 0, columns, s);
+                    Self::blit_clipped(region, &part, i64::from(p.top) - i64::from(view_top));
+                }
+            }
+        }
+    }
+
+    /// Paint one row of cells at pixel row `y` of `region`, which may be partly
+    /// above or below it: a row that is not wholly in view is cut.
+    fn paint_row_at(&self, region: &mut Frame, y: i64, cells: &[Cell]) {
+        let mut line = Frame::new(region.width, self.cell_h, self.theme.background);
+        self.paint_cells(&mut line, 0, 0, cells);
+        Self::blit_clipped(region, &line, y);
+    }
+
+    /// Copy `src` into `region` with its top at row `y`, which may be negative or
+    /// past the bottom: only the rows that land inside are copied.
+    fn blit_clipped(region: &mut Frame, src: &Frame, y: i64) {
+        for row in 0..src.height {
+            let to = y + i64::from(row);
+            let Ok(to) = u32::try_from(to) else { continue };
+            if to >= region.height {
+                break;
+            }
+            for col in 0..src.width.min(region.width) {
+                if let Some(c) = src.pixel(col, row) {
+                    region.put(col, to, c);
                 }
             }
         }
@@ -636,42 +904,46 @@ impl Renderer {
     #[must_use]
     pub fn flow(&self, doc: &Document, columns: usize) -> Vec<FlowLine> {
         let mut out = Vec::new();
-        let mut y = 0u32;
         let inner = columns.saturating_sub(2).max(1);
         let strips = doc.strips();
         let newest_cycle = strips.last().map(|s| s.cycle);
-        let mut placed: Vec<u32> = Vec::new();
-        for (index, b) in doc.blocks().iter().enumerate() {
-            match b {
-                Block::Grid(g) => {
-                    for (r, text) in g.text_rows().into_iter().enumerate() {
+        for p in self.placement(doc, columns, &strips, newest_cycle) {
+            match p.part {
+                Part::Grid(g) => {
+                    let hist = g.history_rows();
+                    for k in 0..hist + g.size().1 {
+                        let cells = if k < hist {
+                            g.history_row(k)
+                        } else {
+                            g.screen().row(k - hist)
+                        };
+                        let text: String = cells
+                            .unwrap_or_default()
+                            .iter()
+                            .filter(|c| !c.wide_cont)
+                            .map(|c| c.character)
+                            .collect();
                         out.push(FlowLine {
-                            block: index,
-                            top: y + u32::try_from(r).unwrap_or(0) * self.cell_h,
+                            block: p.index,
+                            top: p.top + u32::try_from(k).unwrap_or(0) * self.cell_h,
                             height: self.cell_h,
                             left: 0,
-                            text,
+                            text: text.trim_end().to_owned(),
                             grid: true,
                             kind: CopyKind::Command,
                             join: Join::Break,
                         });
                     }
-                    y += u32::try_from(g.size().1).unwrap_or(0) * self.cell_h;
                 }
-                Block::Rich(r) if !r.background => {
-                    let first = y + self.scale + self.cell_h;
+                Part::Rich(r) => {
                     if r.image.is_none() {
-                        self.flow_rich(&mut out, index, &r.content, inner, first);
-                    }
-                    y += self.rich_height(r, columns);
-                }
-                Block::Rich(r) => {
-                    // A strip of an older cycle takes its rows and has no text
-                    // of its own to select.
-                    if let Some(strip) = Self::flow_strip(r, &strips, newest_cycle, &mut placed) {
-                        y += self.strip_height(strip);
+                        let first = p.top + self.scale + self.cell_h;
+                        self.flow_rich(&mut out, p.index, &r.content, inner, first);
                     }
                 }
+                // A strip of an older cycle takes its rows and has no text of
+                // its own to select.
+                Part::Strip(_) => {}
             }
         }
         out
@@ -770,7 +1042,13 @@ impl Renderer {
     /// unchanged and what is behind it is lifted. The selection is the
     /// terminal's, not the program's, so it does not come from the program's
     /// colours.
-    fn paint_selection(&self, region: &mut Frame, lines: &[FlowLine], sel: &Selection) {
+    fn paint_selection(
+        &self,
+        region: &mut Frame,
+        lines: &[FlowLine],
+        sel: &Selection,
+        view_top: u32,
+    ) {
         let fg = self.theme.foreground;
         let last = sel.ordered().1.line;
         for (i, line) in lines.iter().enumerate() {
@@ -783,7 +1061,12 @@ impl Renderer {
                 // A line the selection runs past is tinted a little beyond its end.
                 end += self.cell_w / 2;
             }
-            for y in line.top..line.top + line.height {
+            if line.top + line.height <= view_top {
+                continue;
+            }
+            let top = line.top.saturating_sub(view_top);
+            let bottom = line.top + line.height - view_top;
+            for y in top..bottom {
                 for x in start..end {
                     if let Some(p) = region.pixel(x, y) {
                         let mixed: Rgb = std::array::from_fn(|k| {
@@ -800,33 +1083,6 @@ impl Renderer {
     /// Paint the strip of an older prompt cycle at row `y` of the content
     /// region, `columns` cells wide, and return its height in pixels: one row
     /// when collapsed, a header and a row per block when the user opened it.
-    fn strip_height(&self, strip: &crate::strip::Strip<'_>) -> u32 {
-        let rows = if strip.open {
-            1 + strip.blocks.len()
-        } else {
-            1
-        };
-        u32::try_from(rows).unwrap_or(u32::MAX) * self.cell_h
-    }
-
-    /// The older-cycle strip a background block stands for, once: `None` for
-    /// the newest cycle's strip (below the editor), for a cycle already placed,
-    /// and for a cycle with no strip. Painting and the selectable flow both ask
-    /// it, so a strip takes the same rows in each.
-    fn flow_strip<'a>(
-        r: &crate::document::RichBlock,
-        strips: &'a [crate::strip::Strip<'a>],
-        newest_cycle: Option<u32>,
-        placed: &mut Vec<u32>,
-    ) -> Option<&'a crate::strip::Strip<'a>> {
-        if Some(r.cycle) == newest_cycle || placed.contains(&r.cycle) {
-            return None;
-        }
-        let strip = strips.iter().find(|s| s.cycle == r.cycle)?;
-        placed.push(r.cycle);
-        Some(strip)
-    }
-
     fn paint_flow_strip(
         &self,
         region: &mut Frame,
@@ -835,7 +1091,12 @@ impl Renderer {
         strip: &crate::strip::Strip<'_>,
     ) -> u32 {
         let t = &self.theme;
-        let height = self.strip_height(strip);
+        let rows = if strip.open {
+            1 + strip.blocks.len()
+        } else {
+            1
+        };
+        let height = u32::try_from(rows).unwrap_or(u32::MAX) * self.cell_h;
         let width = u32::try_from(columns).unwrap_or(1) * self.cell_w;
         region.fill(0, y, width, height, t.container);
         let inner = columns.saturating_sub(2).max(1);
@@ -999,7 +1260,24 @@ impl Renderer {
         toasts: &[Toast],
         cursor: Option<CursorState>,
     ) -> Frame {
-        self.render_window_full(doc, win, toasts, None, cursor)
+        self.render_window_scrolled(doc, win, toasts, Scroll::Follow, cursor)
+    }
+
+    /// Paint a window with the content scrolled to `scroll`. At the bottom
+    /// (`Scroll::Follow`) it is what [`render_window_cursor`](Self::render_window_cursor)
+    /// draws. A scroll bar is drawn at the right edge of the content area when
+    /// the flow is taller than the area; it is the terminal's own and nothing a
+    /// producer writes is an input to it.
+    #[must_use]
+    pub fn render_window_scrolled(
+        &self,
+        doc: &Document,
+        win: &Window,
+        toasts: &[Toast],
+        scroll: Scroll,
+        cursor: Option<CursorState>,
+    ) -> Frame {
+        self.render_window_full(doc, win, toasts, None, scroll, cursor)
     }
 
     /// Paint a window with its toasts and a text selection tinted in the
@@ -1012,10 +1290,11 @@ impl Renderer {
         toasts: &[Toast],
         selection: Option<&Selection>,
     ) -> Frame {
-        self.render_window_full(doc, win, toasts, selection, None)
+        self.render_window_full(doc, win, toasts, selection, Scroll::Follow, None)
     }
 
-    /// Paint a window with its toasts, a tinted selection and the live cursor.
+    /// Paint a window with its toasts, a tinted selection, the scroll and the
+    /// live cursor.
     #[must_use]
     #[allow(clippy::too_many_lines, reason = "one pass over the window's areas")]
     pub fn render_window_full(
@@ -1024,6 +1303,7 @@ impl Renderer {
         win: &Window,
         toasts: &[Toast],
         selection: Option<&Selection>,
+        scroll: Scroll,
         cursor: Option<CursorState>,
     ) -> Frame {
         let t = &self.theme;
@@ -1052,19 +1332,7 @@ impl Renderer {
         };
         let (ax, ay, aw, ah) = px(&area);
         if aw > 0 && ah > 0 {
-            let mut region = Frame::new(aw, ah, t.background);
-            let columns = usize::try_from(area.w).unwrap_or(1);
-            self.paint_content(
-                &mut region,
-                doc,
-                columns,
-                &strips,
-                newest.map(|s| s.cycle),
-                cursor,
-            );
-            if let Some(sel) = selection {
-                self.paint_selection(&mut region, &self.flow(doc, columns), sel);
-            }
+            let region = self.content_region((aw, ah), doc, area.w, scroll, selection, cursor);
             Self::blit(&mut frame, &region, ax, ay);
         }
 

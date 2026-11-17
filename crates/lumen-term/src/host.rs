@@ -64,6 +64,19 @@ pub fn wheel_steps(delta: &MouseScrollDelta, line: f64) -> Option<(Wheel, u32)> 
     Some((if y > 0.0 { Wheel::Up } else { Wheel::Down }, n))
 }
 
+/// The pixels a trackpad moved, as a whole number: up for a positive value.
+/// A movement that is not a number counts as none.
+#[must_use]
+pub fn wheel_pixels(y: f64) -> i64 {
+    if y.is_finite() {
+        #[allow(clippy::cast_possible_truncation, reason = "a pixel count")]
+        let n = y.round().clamp(-100_000.0, 100_000.0) as i64;
+        n
+    } else {
+        0
+    }
+}
+
 /// A window button to the button the program is told of. `None` for the others.
 #[must_use]
 pub fn map_button(b: MouseButton) -> Option<Button> {
@@ -307,7 +320,7 @@ pub fn send_input(app: &mut App, input: Input<'_>) -> bool {
         Input::Key(key, mods) => app.key(key, mods),
         Input::Text(text) => app.text(text),
     };
-    sent.is_err()
+    sent.is_err() | app.take_view_changed()
 }
 
 /// A frame as the 0RGB words softbuffer wants.
@@ -410,6 +423,30 @@ fn chord(state: ModifiersState) -> actions::Held {
 }
 
 impl Host {
+    /// The wheel or trackpad moved: a program that asked for wheel reports gets
+    /// them, and otherwise the output scrolls, by whole rows for a wheel and by
+    /// the pixels moved for a trackpad.
+    fn wheel(&mut self, delta: &MouseScrollDelta) {
+        let held = self.held();
+        let (x, y) = self.pointer;
+        let Some(run) = &mut self.state else { return };
+        let line = f64::from(run.app.cell_height());
+        let redraw = if let MouseScrollDelta::PixelDelta(p) = delta {
+            run.app
+                .wheel_pixels(x, y, wheel_pixels(p.y), held)
+                .unwrap_or(false)
+        } else if let Some((step, n)) = wheel_steps(delta, line) {
+            (0..n).fold(false, |moved, _| {
+                run.app.mouse_wheel(x, y, step, held).unwrap_or(false) | moved
+            })
+        } else {
+            false
+        };
+        if redraw {
+            run.window.request_redraw();
+        }
+    }
+
     /// Do one of the window's own actions, from a menu item or a shortcut.
     fn act(&mut self, event_loop: &ActiveEventLoop, action: Action) {
         let Some(run) = &mut self.state else { return };
@@ -526,20 +563,7 @@ impl Host {
                     run.window.request_redraw();
                 }
             }
-            WindowEvent::MouseWheel { delta, .. } => {
-                let held = self.held();
-                let (x, y) = self.pointer;
-                if let Some(run) = &mut self.state {
-                    let line = f64::from(run.app.cell_height());
-                    if let Some((step, n)) = wheel_steps(&delta, line) {
-                        for _ in 0..n {
-                            if run.app.mouse_wheel(x, y, step, held).unwrap_or(false) {
-                                run.window.request_redraw();
-                            }
-                        }
-                    }
-                }
-            }
+            WindowEvent::MouseWheel { delta, .. } => self.wheel(&delta),
             WindowEvent::ThemeChanged(theme) => {
                 if let Some(run) = &mut self.state
                     && run.app.set_appearance(appearance(Some(theme)))

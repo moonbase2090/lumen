@@ -18,6 +18,7 @@ use crate::notify::{Desk, Notifier, OsSink, Place, Settings, Toast};
 use crate::paste::{self, Decision, Hold, Pasted, Rejection};
 use crate::pty::SpawnError;
 use crate::raster::{Frame, Renderer, Window};
+use crate::scroll::Scroll;
 use crate::select::{self, Pos, Selection};
 use crate::session::{MAX_COLUMNS, MAX_ROWS, Session};
 
@@ -72,6 +73,9 @@ pub struct App {
     selection: Option<Selection>,
     selecting: bool,
     selection_changed: bool,
+    scroll: Scroll,
+    /// How many times the view moved since the host last asked.
+    view_moves: u32,
     /// When the cursor last moved the blink back to its on half: output or a key.
     cursor_epoch_ms: u64,
     /// The blink half the last frame was drawn with, so a change asks for a new frame.
@@ -110,6 +114,9 @@ struct Preedit {
     /// The caret or selection inside `text`, as byte offsets.
     cursor: Option<(usize, usize)>,
 }
+
+/// Rows of text one wheel step scrolls.
+pub const WHEEL_ROWS: u32 = 3;
 
 /// How long the notice that input was not sent stays after the last refusal.
 pub const INPUT_NOTICE_MS: u64 = 4000;
@@ -282,6 +289,8 @@ impl App {
             selection: None,
             selecting: false,
             selection_changed: false,
+            scroll: Scroll::Follow,
+            view_moves: 0,
             cursor_epoch_ms: 0,
             cursor_phase: true,
             exited: false,
@@ -439,61 +448,46 @@ impl App {
         self.renderer.cell().1
     }
 
+    /// The content area's height in pixels, the columns it is drawn in and the
+    /// height of the flow of blocks it shows.
+    fn content_metrics(&self) -> (u32, usize, u32) {
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let win = window_for(columns, rows);
+        let area = win
+            .editor_row
+            .saturating_sub(HEADER_ROWS)
+            .saturating_mul(self.renderer.cell().1);
+        let content_columns = usize::try_from(win.cols.saturating_sub(GUTTER_COLUMNS)).unwrap_or(1);
+        let total = self
+            .renderer
+            .content_height(self.session.document(), content_columns);
+        (area, content_columns, total)
+    }
+
     /// The cell of the live grid block under pixel `(x, y)`, from 0, or `None`
     /// when the pointer is not over it. The live block is the newest block,
-    /// when it is a grid: the one the program writes to. Its place is worked out
-    /// the way the renderer stacks the blocks of the content area.
+    /// when it is a grid: the one the program writes to. Its place is the one the
+    /// renderer gives it in the flow, less how far the view is scrolled, so a
+    /// pointer over scrolled-away output is not over the live block.
     #[must_use]
     pub fn live_cell(&self, x: u32, y: u32) -> Option<(u32, u32)> {
         let (cw, ch) = self.renderer.cell();
         let (cw, ch) = (cw.max(1), ch.max(1));
-        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
-        let win = window_for(columns, rows);
         let doc = self.session.document();
         let Some(Block::Grid(live)) = doc.blocks().last() else {
             return None;
         };
+        let (area, content_columns, total) = self.content_metrics();
         let content_x = GUTTER_COLUMNS.saturating_mul(cw) + self.renderer.gutter_pad();
         let content_y = HEADER_ROWS.saturating_mul(ch);
-        let area_bottom = win.editor_row.saturating_mul(ch);
-        let (px, py) = (x.checked_sub(content_x)?, y.checked_sub(content_y)?);
-        if y >= area_bottom {
+        let px = x.checked_sub(content_x)?;
+        let py = y.checked_sub(content_y)?;
+        if py >= area {
             return None;
         }
-        let content_columns = usize::try_from(win.cols.saturating_sub(GUTTER_COLUMNS)).unwrap_or(1);
-        let strips = doc.strips();
-        let newest = strips.last().map(|s| s.cycle);
-        let mut top = 0u32;
-        let mut placed: Vec<u32> = Vec::new();
-        let last = doc.blocks().len().saturating_sub(1);
-        for (i, b) in doc.blocks().iter().enumerate() {
-            if i == last {
-                break;
-            }
-            match b {
-                Block::Grid(g) => {
-                    top += u32::try_from(g.size().1).unwrap_or(0) * ch;
-                }
-                Block::Rich(r) if !r.background => {
-                    top += self.renderer.rich_height(r, content_columns);
-                }
-                Block::Rich(r) => {
-                    if Some(r.cycle) == newest || placed.contains(&r.cycle) {
-                        continue;
-                    }
-                    if let Some(strip) = strips.iter().find(|s| s.cycle == r.cycle) {
-                        placed.push(r.cycle);
-                        let n = if strip.open {
-                            1 + strip.blocks.len()
-                        } else {
-                            1
-                        };
-                        top += u32::try_from(n).unwrap_or(u32::MAX) * ch;
-                    }
-                }
-            }
-        }
-        let py = py.checked_sub(top)?;
+        let screen_top = self.renderer.live_screen_top(doc, content_columns)?;
+        let in_flow = i64::from(py) + i64::from(self.scroll.top(total, area));
+        let py = u32::try_from(in_flow - i64::from(screen_top)).ok()?;
         let (bc, br) = live.size();
         let (col, row) = (px / cw, py / ch);
         (col < u32::try_from(bc).ok()? && row < u32::try_from(br).ok()?).then_some((col, row))
@@ -538,7 +532,11 @@ impl App {
         if inside && (x < content_x || y < content_y || y >= area_bottom) {
             return None;
         }
-        let cy = y.saturating_sub(content_y);
+        // The pixel row in the flow: the row in the area, plus how far the view is scrolled.
+        let (area, _, total) = self.content_metrics();
+        let cy = y
+            .saturating_sub(content_y)
+            .saturating_add(self.scroll.top(total, area));
         let cx = x.saturating_sub(content_x);
         let line = lines
             .iter()
@@ -629,6 +627,86 @@ impl App {
         had
     }
 
+    /// Whether the view moved since the last call, for the window to draw again
+    /// after an input that scrolled it.
+    pub fn take_view_changed(&mut self) -> bool {
+        std::mem::take(&mut self.view_moves) > 0
+    }
+
+    /// The text of the grid rows the window shows in its content area, top
+    /// down. The same rows the view paints, so what a test or a search reads is
+    /// what the user sees.
+    #[must_use]
+    pub fn visible_text(&self) -> Vec<String> {
+        let (area, columns, total) = self.content_metrics();
+        self.renderer.view_rows(
+            self.session.document(),
+            columns,
+            self.scroll.top(total, area),
+            area,
+        )
+    }
+
+    /// Where the view is along the output.
+    #[must_use]
+    pub fn scroll(&self) -> Scroll {
+        self.scroll
+    }
+
+    /// Whether the view is at the bottom, following new output.
+    #[must_use]
+    pub fn following(&self) -> bool {
+        let (area, _, total) = self.content_metrics();
+        self.scroll.at_bottom(total, area)
+    }
+
+    /// Whether the view is at the oldest output.
+    #[must_use]
+    pub fn at_top(&self) -> bool {
+        let (area, _, total) = self.content_metrics();
+        self.scroll.top(total, area) == 0 && total > area
+    }
+
+    /// Scroll the view by `pixels`: up for a positive value, down for a negative
+    /// one. Returns whether the view moved, so the window knows to draw again.
+    pub fn scroll_pixels(&mut self, pixels: i64) -> bool {
+        let (area, _, total) = self.content_metrics();
+        let next = self.scroll.up(total, area, pixels);
+        let moved = next.top(total, area) != self.scroll.top(total, area);
+        self.scroll = next;
+        self.view_moves += u32::from(moved);
+        moved
+    }
+
+    /// Scroll the view by `rows` rows of text: up for a positive value.
+    pub fn scroll_rows(&mut self, rows: i32) -> bool {
+        self.scroll_pixels(i64::from(rows) * i64::from(self.renderer.cell().1))
+    }
+
+    /// Scroll the view by a page, up or down.
+    pub fn scroll_page(&mut self, up: bool) -> bool {
+        let (area, _, total) = self.content_metrics();
+        let next = self.scroll.page(total, area, self.renderer.cell().1, up);
+        let moved = next.top(total, area) != self.scroll.top(total, area);
+        self.scroll = next;
+        self.view_moves += u32::from(moved);
+        moved
+    }
+
+    /// Scroll to the oldest output (`true`) or back to the newest.
+    pub fn scroll_end(&mut self, top: bool) -> bool {
+        let (area, _, total) = self.content_metrics();
+        let next = if top {
+            Scroll::to_top(total, area)
+        } else {
+            Scroll::Follow
+        };
+        let moved = next.top(total, area) != self.scroll.top(total, area);
+        self.scroll = next;
+        self.view_moves += u32::from(moved);
+        moved
+    }
+
     /// A button went down at pixel `(x, y)`. If it is over the live grid block
     /// and the program asked for mouse reports, the report is sent. Returns
     /// whether anything was sent.
@@ -706,11 +784,50 @@ impl App {
         step: Wheel,
         held: Held,
     ) -> std::io::Result<bool> {
-        let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes()) else {
+        if let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes())
+            && let Some(report) = Reporter::wheel(modes, step, held, cell)
+        {
+            return self.send_report(Some(report));
+        }
+        // The program did not ask for this wheel: it scrolls the output.
+        let rows = i32::try_from(WHEEL_ROWS).unwrap_or(3);
+        Ok(self.scroll_rows(if matches!(step, Wheel::Up) {
+            rows
+        } else {
+            -rows
+        }))
+    }
+
+    /// The wheel or trackpad moved `pixels` with the pointer at pixel `(x, y)`:
+    /// up for a positive value. A program that asked for wheel reports gets
+    /// them, one step for each cell's height of movement; otherwise the output
+    /// scrolls by exactly that many pixels.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error.
+    pub fn wheel_pixels(
+        &mut self,
+        x: u32,
+        y: u32,
+        pixels: i64,
+        held: Held,
+    ) -> std::io::Result<bool> {
+        if pixels == 0 {
             return Ok(false);
-        };
-        let report = Reporter::wheel(modes, step, held, cell);
-        self.send_report(report)
+        }
+        if let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes()) {
+            let step = if pixels > 0 { Wheel::Up } else { Wheel::Down };
+            if Reporter::wheel(modes, step, held, cell).is_some() {
+                let steps = (pixels.unsigned_abs() / u64::from(self.cell_height().max(1))).max(1);
+                let mut sent = false;
+                for _ in 0..steps.min(10) {
+                    sent |= self.send_report(Reporter::wheel(modes, step, held, cell))?;
+                }
+                return Ok(sent);
+            }
+        }
+        Ok(self.scroll_pixels(pixels))
     }
 
     fn live_modes(&self) -> Option<crate::mouse::Modes> {
@@ -917,10 +1034,14 @@ impl App {
     ///
     /// Returns the write error.
     pub fn key(&mut self, key: Key, mods: Mods) -> std::io::Result<()> {
+        if self.scroll_key(key, mods) {
+            return Ok(());
+        }
         let bytes = keys::bytes_in(key, mods, self.session.key_modes());
         if bytes.is_empty() {
             return Ok(());
         }
+        self.follow();
         self.cursor_epoch_ms = self.session.now_ms();
         let sent = self.send(&bytes);
         self.note_input(&sent);
@@ -933,12 +1054,50 @@ impl App {
     ///
     /// Returns the write error.
     pub fn text(&mut self, text: &str) -> std::io::Result<()> {
+        self.follow();
         if !text.is_empty() {
             self.cursor_epoch_ms = self.session.now_ms();
         }
         let sent = self.send(text.as_bytes());
         self.note_input(&sent);
         sent
+    }
+
+    /// Whether a key scrolls the output instead of going to the program: Page Up
+    /// and Page Down (with Shift or alone) and Shift or Control with Home and
+    /// End, while the program is on the main screen. A program on the alternate
+    /// screen keeps every key, because it draws its own pages.
+    fn scroll_key(&mut self, key: Key, mods: Mods) -> bool {
+        if matches!(self.session.document().blocks().last(), Some(Block::Grid(g)) if g.alt_active())
+            || mods.alt
+        {
+            return false;
+        }
+        let plain_or_shift = !mods.ctrl;
+        match key {
+            Key::PageUp if plain_or_shift => {
+                self.scroll_page(true);
+            }
+            Key::PageDown if plain_or_shift => {
+                self.scroll_page(false);
+            }
+            Key::Home if mods.shift || mods.ctrl => {
+                self.scroll_end(true);
+            }
+            Key::End if mods.shift || mods.ctrl => {
+                self.scroll_end(false);
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// Return to the newest output, as typing does.
+    fn follow(&mut self) {
+        if self.scroll != Scroll::Follow {
+            self.scroll = Scroll::Follow;
+            self.view_moves += 1;
+        }
     }
 
     /// The input method is composing `text`, with the caret or selection at
@@ -1135,6 +1294,7 @@ impl App {
                 &window_for(columns, rows),
                 &self.toasts(),
                 self.selection.as_ref(),
+                self.scroll,
                 cursor,
             )
             .viewport(self.width, self.height, self.renderer.theme().background)
