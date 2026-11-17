@@ -56,6 +56,7 @@ pub mod scroll;
 pub mod seal;
 pub mod session;
 pub mod settings;
+pub mod shell;
 pub mod strip;
 pub mod theme_file;
 pub mod title;
