@@ -782,11 +782,30 @@ impl App {
     ///
     /// Returns why the renderer could not be made or the program could not be told.
     pub fn set_scale(&mut self, scale: u32) -> Result<(), SpawnError> {
+        // A view held somewhere in the output keeps its place by its share of
+        // the flow, since the flow's height changes with the cell size and the
+        // wrap.
+        let (area, _, total) = self.content_metrics();
+        let held = match self.scroll {
+            Scroll::Pinned(_) => Some(u64::from(self.scroll.top(total, area))),
+            Scroll::Follow => None,
+        };
         self.renderer =
             Renderer::with_fonts(scale, self.renderer.theme().clone(), self.renderer.fonts())
                 .map_err(SpawnError)?;
         self.scale = scale;
-        self.resize(self.width, self.height)
+        self.resize(self.width, self.height)?;
+        if let Some(top) = held {
+            let (area, _, now) = self.content_metrics();
+            let moved = top * u64::from(now) / u64::from(total.max(1));
+            let moved = u32::try_from(moved).unwrap_or(u32::MAX);
+            self.scroll = if moved >= now.saturating_sub(area) {
+                Scroll::Follow
+            } else {
+                Scroll::Pinned(moved)
+            };
+        }
+        Ok(())
     }
 
     /// Keep the scale as given: a display's scale no longer changes it. For a
