@@ -73,6 +73,12 @@ impl GridBlock {
         self.emulator.feed(bytes);
     }
 
+    /// The window title the program set since the last call: `Some("")` is a
+    /// reset, `None` is no change.
+    pub fn take_title(&mut self) -> Option<String> {
+        self.emulator.take_pending_title()
+    }
+
     /// What the output this block was given did to the key modes.
     #[must_use]
     pub fn key_mode_changes(&self) -> Changes {

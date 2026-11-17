@@ -75,6 +75,7 @@ pub struct Document {
     events: Vec<Event>,
     colour_queries: Vec<ColourQuery>,
     images: ImageHost,
+    pending_title: Option<String>,
 }
 
 /// Most colour queries kept for the owner to answer. Later ones are not kept.
@@ -103,6 +104,7 @@ impl Document {
             events: Vec::new(),
             colour_queries: Vec::new(),
             images,
+            pending_title: None,
         }
     }
 
@@ -182,8 +184,18 @@ impl Document {
             }
         }
         if !allowed.is_empty() {
-            self.grid().feed(&allowed);
+            let grid = self.grid();
+            grid.feed(&allowed);
+            if let Some(title) = grid.take_title() {
+                self.pending_title = Some(title);
+            }
         }
+    }
+
+    /// The newest window title the program set since the last call. `Some("")`
+    /// is a reset. Only the program's own output sets it.
+    pub fn take_title(&mut self) -> Option<String> {
+        self.pending_title.take()
     }
 
     fn grid(&mut self) -> &mut GridBlock {

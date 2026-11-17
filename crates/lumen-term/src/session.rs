@@ -243,6 +243,11 @@ impl Session {
         &self.document
     }
 
+    /// Take the window title the program set since the last call.
+    pub fn take_title(&mut self) -> Option<String> {
+        self.document.take_title()
+    }
+
     /// Take the events the document raised since the last call, oldest first.
     pub fn take_events(&mut self) -> Vec<crate::document::Event> {
         self.document.take_events()
