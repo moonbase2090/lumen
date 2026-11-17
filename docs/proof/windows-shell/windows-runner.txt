@@ -1,0 +1,30 @@
+Windows runner proof: the shell choice, the profile-folder lookup, and a real PowerShell started through the window's session
+Revision: 313361361ca129588bb706f2d474e13ec2ff33a8 (the code head; this file is added after it)
+Host: a GitHub-hosted windows-latest runner (a clean virtual machine made for the job and discarded after it), job term-windows of the Rust workflow run 44196956265.
+Command: cargo test --locked -p lumen-term --test shell --test settings --test shell_windows -- --nocapture
+What the last test does: with no setting and no SHELL it asks the real selection (PATH and COMSPEC of that machine) for the shell, requires pwsh.exe or powershell.exe, starts it through App::start with -Command "Write-Output lumen$(1+1)ok" and requires the window's grid to show "lumen2ok", which the command line itself does not contain.
+Output (test lines only, copied from the job log):
+
+     Running tests\settings.rs 
+test an_empty_file_is_the_defaults ... ok
+test a_comment_may_follow_a_value_but_nothing_else_may ... ok
+test a_bad_line_ignores_the_whole_file_and_names_the_line ... ok
+test every_setting_is_read ... ok
+test theme_names_and_paths ... ok
+test the_documented_examples_parse ... ok
+test a_file_that_cannot_be_used_is_ignored_with_a_notice ... ok
+test files_the_settings_name_are_read_or_left_out_with_a_notice ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\shell.rs 
+test an_empty_or_blank_setting_or_shell_counts_as_not_set ... ok
+test other_systems_keep_shell_then_bin_sh_and_never_ask_for_powershell ... ok
+test a_bad_shell_setting_ignores_the_file_with_a_notice ... ok
+test the_home_is_home_or_on_windows_the_profile_folder ... ok
+test the_shell_setting_is_read_from_the_settings_file ... ok
+test the_users_setting_wins_everywhere_and_then_shell ... ok
+test windows_prefers_pwsh_then_powershell_then_comspec_then_cmd ... ok
+test a_loaded_file_hands_the_setting_on ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\shell_windows.rs 
+test the_default_on_windows_is_powershell_and_the_window_can_run_it ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
