@@ -70,6 +70,7 @@ pub struct App {
     cursor_phase: bool,
     /// The program has ended: its screen has no cursor any more.
     exited: bool,
+    attention: crate::attention::Attention,
     preedit: Option<Preedit>,
 }
 
@@ -274,6 +275,7 @@ impl App {
             cursor_epoch_ms: 0,
             cursor_phase: true,
             exited: false,
+            attention: crate::attention::Attention::new(),
             preedit: None,
         };
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
@@ -944,6 +946,14 @@ impl App {
         self.session
             .take_title()
             .map(|t| crate::title::window_title(Some(&t)))
+    }
+
+    /// What the window should tell the system about the bell since the last
+    /// call. The bell is always taken, so it cannot pile up.
+    pub fn attention_step(&mut self) -> crate::attention::Step {
+        let rang = self.session.take_bell();
+        let now = self.session.now_ms();
+        self.attention.step(rang, now, self.desk.focused)
     }
 
     /// Whether the program has exited.
