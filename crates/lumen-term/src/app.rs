@@ -9,6 +9,7 @@ use crate::actions::{self, Action};
 use crate::clipboard::Clipboard;
 use crate::design::{Appearance, Fonts, ThemeChoice};
 use crate::document::{Block, Event};
+use crate::glide::Glide;
 use crate::input_line::{Facts, InputLine, Mode, Outcome as Line};
 use crate::keys::{Key, Mods};
 use crate::layer::Layer;
@@ -97,6 +98,10 @@ pub struct App {
     copy_on_select: bool,
     copy_pending: bool,
     scroll: Scroll,
+    /// What is left of a wheel's move that the view is easing through.
+    glide: Glide,
+    /// Whether a wheel step eases the view instead of jumping it.
+    smooth_scroll: bool,
     /// How many times the view moved since the host last asked.
     view_moves: u32,
     /// The find bar and its matches, while it is open.
@@ -372,6 +377,8 @@ impl App {
             copy_on_select: true,
             copy_pending: false,
             scroll: Scroll::Follow,
+            glide: Glide::new(),
+            smooth_scroll: true,
             view_moves: 0,
             find: None,
             find_kept: String::new(),
@@ -944,12 +951,46 @@ impl App {
     /// Scroll the view by `pixels`: up for a positive value, down for a negative
     /// one. Returns whether the view moved, so the window knows to draw again.
     pub fn scroll_pixels(&mut self, pixels: i64) -> bool {
+        self.glide.cancel();
+        self.move_view(pixels)
+    }
+
+    fn move_view(&mut self, pixels: i64) -> bool {
         let (area, _, total) = self.content_metrics();
         let next = self.scroll.up(total, area, pixels);
         let moved = next.top(total, area) != self.scroll.top(total, area);
         self.scroll = next;
         self.view_moves += u32::from(moved);
         moved
+    }
+
+    /// Ease the view by `pixels` over the next frames: up for a positive value.
+    /// A move toward a stop the view is already at is dropped. Returns whether
+    /// there is movement to draw, which the next [`tick`](Self::tick) gives.
+    fn glide_pixels(&mut self, pixels: i64) -> bool {
+        let (area, _, total) = self.content_metrics();
+        let blocked = (pixels > 0 && self.scroll.top(total, area) == 0)
+            || (pixels < 0 && self.scroll.at_bottom(total, area));
+        if blocked {
+            self.glide.cancel();
+            return false;
+        }
+        self.glide.add(pixels);
+        self.glide.is_moving()
+    }
+
+    /// Whether wheel steps ease the view (the default) or jump it.
+    pub fn set_smooth_scroll(&mut self, on: bool) {
+        self.smooth_scroll = on;
+        if !on {
+            self.glide.cancel();
+        }
+    }
+
+    /// Whether a wheel's move is still easing the view.
+    #[must_use]
+    pub fn is_gliding(&self) -> bool {
+        self.glide.is_moving()
     }
 
     /// Scroll the view by `rows` rows of text: up for a positive value.
@@ -959,6 +1000,7 @@ impl App {
 
     /// Scroll the view by a page, up or down.
     pub fn scroll_page(&mut self, up: bool) -> bool {
+        self.glide.cancel();
         let (area, _, total) = self.content_metrics();
         let next = self.scroll.page(total, area, self.renderer.cell().1, up);
         let moved = next.top(total, area) != self.scroll.top(total, area);
@@ -969,6 +1011,7 @@ impl App {
 
     /// Scroll to the oldest output (`true`) or back to the newest.
     pub fn scroll_end(&mut self, top: bool) -> bool {
+        self.glide.cancel();
         let (area, _, total) = self.content_metrics();
         let next = if top {
             Scroll::to_top(total, area)
@@ -1073,6 +1116,35 @@ impl App {
         step: Wheel,
         held: Held,
     ) -> std::io::Result<bool> {
+        self.wheel_step(x, y, step, held, false)
+    }
+
+    /// The wheel turned one step, as [`mouse_wheel`](Self::mouse_wheel), but a
+    /// step that scrolls the output eases the view there over the next frames
+    /// (see [`tick`](Self::tick)) unless smooth scrolling is off. A step the
+    /// program is told of is sent at once. Returns whether to draw now.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error.
+    pub fn mouse_wheel_glide(
+        &mut self,
+        x: u32,
+        y: u32,
+        step: Wheel,
+        held: Held,
+    ) -> std::io::Result<bool> {
+        self.wheel_step(x, y, step, held, self.smooth_scroll)
+    }
+
+    fn wheel_step(
+        &mut self,
+        x: u32,
+        y: u32,
+        step: Wheel,
+        held: Held,
+        glide: bool,
+    ) -> std::io::Result<bool> {
         #[cfg(feature = "links-clipboard")]
         if self.links.prompt.is_some() {
             return Ok(false);
@@ -1084,11 +1156,17 @@ impl App {
         }
         // The program did not ask for this wheel: it scrolls the output.
         let rows = i32::try_from(WHEEL_ROWS).unwrap_or(3);
-        Ok(self.scroll_rows(if matches!(step, Wheel::Up) {
+        let rows = if matches!(step, Wheel::Up) {
             rows
         } else {
             -rows
-        }))
+        };
+        if glide {
+            let pixels = i64::from(rows) * i64::from(self.renderer.cell().1);
+            Ok(self.glide_pixels(pixels))
+        } else {
+            Ok(self.scroll_rows(rows))
+        }
     }
 
     /// The wheel or trackpad moved `pixels` with the pointer at pixel `(x, y)`:
@@ -1160,6 +1238,13 @@ impl App {
         let now = self.session.now_ms();
         self.notifier.tick(now);
         let mut changed = self.notifier.shown().len() != before;
+        let eased = self.glide.step(now);
+        if eased != 0 && !self.move_view(eased) {
+            // At a stop: the rest of the move has nowhere to go.
+            self.glide.cancel();
+        } else {
+            changed |= eased != 0;
+        }
         if self
             .input_notice
             .is_some_and(|n| now.saturating_sub(n.last_ms) >= INPUT_NOTICE_MS)
@@ -1239,6 +1324,7 @@ impl App {
     ///
     /// Returns why the renderer could not be made or the program could not be told.
     pub fn set_scale(&mut self, scale: u32) -> Result<(), SpawnError> {
+        self.glide.cancel();
         // A view held somewhere in the output keeps its place by its share of
         // the flow, since the flow's height changes with the cell size and the
         // wrap.
@@ -1638,6 +1724,7 @@ impl App {
 
     /// Return to the newest output, as typing does.
     fn follow(&mut self) {
+        self.glide.cancel();
         if self.scroll != Scroll::Follow {
             self.scroll = Scroll::Follow;
             self.view_moves += 1;

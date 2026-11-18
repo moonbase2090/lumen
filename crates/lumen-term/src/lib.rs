@@ -33,6 +33,7 @@ pub mod document;
 )]
 pub mod ffi_context_menu;
 pub mod frame;
+pub mod glide;
 pub mod grid;
 pub mod guard;
 #[cfg(feature = "window")]

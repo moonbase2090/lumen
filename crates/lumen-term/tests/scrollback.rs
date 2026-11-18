@@ -342,3 +342,115 @@ fn rich_blocks_stay_whole_when_scrolled_to() {
         }
     }
 }
+
+/// Take frames until the glide has given everything it holds.
+fn settle(app: &mut App) {
+    for _ in 0..2000 {
+        if !app.is_gliding() {
+            return;
+        }
+        app.tick();
+    }
+    unreachable!("the glide never finished");
+}
+
+#[test]
+fn a_wheel_step_eases_the_view_three_rows_up_over_several_frames() {
+    let mut app = run(&format!("{COUNT} sleep 30"));
+    let (x, y) = pointer(&app);
+    let row = i64::from(app.cell_height());
+    assert!(app.following());
+    assert!(
+        app.mouse_wheel_glide(x, y, Wheel::Up, NONE)
+            .unwrap_or(false),
+        "the step asked for a move"
+    );
+    assert!(app.following(), "nothing has moved before the first frame");
+    assert!(app.is_gliding());
+    // Frame by frame the view never moves past where three rows would take it.
+    let mut frames = 0;
+    let mut offsets = Vec::new();
+    while app.is_gliding() && frames < 2000 {
+        app.tick();
+        frames += 1;
+        offsets.push(match app.scroll() {
+            Scroll::Pinned(top) => top,
+            Scroll::Follow => 0,
+        });
+    }
+    assert!(!app.is_gliding());
+    assert!(frames > 3, "it took more than one frame: {frames}");
+    let Scroll::Pinned(end) = app.scroll() else {
+        unreachable!("scrolled up is pinned")
+    };
+    let first = *offsets.first().unwrap_or(&0);
+    let moved = i64::from(first) - i64::from(end);
+    assert!(
+        moved < 3 * row,
+        "the first frame moved only part of it: {moved}"
+    );
+    // The same three rows a jump makes.
+    let mut jump = run(&format!("{COUNT} sleep 30"));
+    assert!(jump.mouse_wheel(x, y, Wheel::Up, NONE).unwrap_or(false));
+    assert_eq!(jump.scroll(), app.scroll(), "it ends where a jump ends");
+}
+
+#[test]
+fn easing_ends_at_the_top_and_does_not_hold_a_move_it_cannot_make() {
+    let mut app = run(&format!("{COUNT} sleep 30"));
+    let (x, y) = pointer(&app);
+    assert!(app.scroll_end(true));
+    assert!(app.at_top());
+    assert!(
+        !app.mouse_wheel_glide(x, y, Wheel::Up, NONE).unwrap_or(true),
+        "nothing to ease at the top"
+    );
+    assert!(!app.is_gliding());
+    // One step down from the top eases and arrives.
+    assert!(
+        app.mouse_wheel_glide(x, y, Wheel::Down, NONE)
+            .unwrap_or(false)
+    );
+    settle(&mut app);
+    assert!(!app.at_top());
+}
+
+#[test]
+fn typing_and_other_scrolling_stop_an_easing_view() {
+    let mut app = run(&format!("{COUNT} sleep 30"));
+    let (x, y) = pointer(&app);
+    assert!(
+        app.mouse_wheel_glide(x, y, Wheel::Up, NONE)
+            .unwrap_or(false)
+    );
+    app.tick();
+    assert!(app.is_gliding());
+    assert!(app.scroll_page(true));
+    assert!(!app.is_gliding(), "a page move ends the easing");
+    let held = app.scroll();
+    app.tick();
+    assert_eq!(app.scroll(), held, "and nothing moves after it");
+
+    assert!(
+        app.mouse_wheel_glide(x, y, Wheel::Up, NONE)
+            .unwrap_or(false)
+    );
+    app.key(Key::Char('x'), Mods::default()).unwrap_or(());
+    assert!(!app.is_gliding(), "typing ends the easing");
+    assert!(app.following());
+    app.tick();
+    assert!(app.following(), "and the view stays at the bottom");
+}
+
+#[test]
+fn with_smooth_scrolling_off_a_wheel_step_jumps() {
+    let mut app = run(&format!("{COUNT} sleep 30"));
+    app.set_smooth_scroll(false);
+    let (x, y) = pointer(&app);
+    assert!(
+        app.mouse_wheel_glide(x, y, Wheel::Up, NONE)
+            .unwrap_or(false)
+    );
+    assert!(!app.is_gliding());
+    assert!(!app.following(), "the view moved at once");
+}

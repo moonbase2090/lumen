@@ -67,7 +67,8 @@ fn snapshot(o: &Options, policy: &Policy, look: &Look, path: &str) -> Result<(),
 }
 
 #[cfg(feature = "window")]
-fn window(o: &Options, policy: &Policy, look: &Look, copy_on_select: bool) -> Result<(), String> {
+fn window(o: &Options, policy: &Policy, look: &Look, wheel: (bool, bool)) -> Result<(), String> {
+    let (copy_on_select, smooth_scroll) = wheel;
     lumen_term::host::run(lumen_term::host::Config {
         layer: Box::new(layer),
         command: o.command.clone(),
@@ -79,13 +80,14 @@ fn window(o: &Options, policy: &Policy, look: &Look, copy_on_select: bool) -> Re
         theme: look.theme,
         fonts: look.fonts.clone(),
         copy_on_select,
+        smooth_scroll,
         shell: look.shell.clone(),
         shell_integration: look.shell_integration,
     })
 }
 
 #[cfg(not(feature = "window"))]
-fn window(_: &Options, _: &Policy, _: &Look, _: bool) -> Result<(), String> {
+fn window(_: &Options, _: &Policy, _: &Look, _: (bool, bool)) -> Result<(), String> {
     Err("this build has no window: build with --features window, or use --snapshot".into())
 }
 
@@ -106,12 +108,13 @@ fn describe_settings(settings: &Settings, look: &Look) -> String {
         lumen_term::settings::ThemeSetting::File(p) => p.display().to_string(),
     };
     let mut out = format!(
-        "settings: {source}\ntheme={theme} mono_font={} mono_size={} prose_font={} prose_size={} copy_on_select={} shell={} shell_integration={}",
+        "settings: {source}\ntheme={theme} mono_font={} mono_size={} prose_font={} prose_size={} copy_on_select={} smooth_scroll={} shell={} shell_integration={}",
         face(&s.mono_font),
         look.fonts.mono_px(),
         face(&s.prose_font),
         look.fonts.prose_px(),
         s.copy_on_select,
+        s.smooth_scroll,
         s.shell.as_deref().unwrap_or("default"),
         s.shell_integration
     );
@@ -171,7 +174,15 @@ fn main() -> ExitCode {
     }
     let result = match &options.snapshot {
         Some(path) => snapshot(&options, &policy, &look, path),
-        None => window(&options, &policy, &look, settings.look().copy_on_select),
+        None => window(
+            &options,
+            &policy,
+            &look,
+            (
+                settings.look().copy_on_select,
+                settings.look().smooth_scroll,
+            ),
+        ),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
