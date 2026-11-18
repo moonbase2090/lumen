@@ -27,8 +27,9 @@ Unsafe code is confined to named modules; each crate that has any denies it at t
 | `lumen-seal` | `ffi_linux.rs` | The namespace-parent ioctl and the pid file descriptor reads of the seal decision. Linux only. |
 | `lumen-holder` | `ffi_linux.rs`, `spawn.rs` | The system calls the holder and its spawner need (one wrapper per call, each `unsafe` block says why it is sound), and the spawner. |
 | `lumen-gates` | `ffi_cred.rs`, `ffi_mem.rs` | Socket-credential primitives for gate G1 and memory-locking primitives for gate G6. |
+| `lumen-term` | `ffi_context_menu.rs` | The one call that shows the right-click menu in the window, which the menu library marks `unsafe` because it takes a raw window pointer. The pointer comes from the window's own handle on the thread that owns the window. macOS and Windows only; the module is not built on Linux. |
 
-Every other workspace crate forbids unsafe code, through `#![forbid(unsafe_code)]` or the workspace lint `unsafe_code = "forbid"`. The four crates above set their own `deny` in their manifests, so adding unsafe code to any crate is a visible change to a manifest or a crate root.
+Every other workspace crate forbids unsafe code, through `#![forbid(unsafe_code)]` or the workspace lint `unsafe_code = "forbid"`. The five crates above set their own `deny` in their manifests, so adding unsafe code to any crate is a visible change to a manifest or a crate root.
 
 ## The reused VT core
 

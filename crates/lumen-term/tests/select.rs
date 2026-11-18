@@ -400,3 +400,42 @@ fn the_pointer_selects_what_is_in_view_when_the_view_is_scrolled_and_select_all_
     );
     assert!(all.contains("line300"));
 }
+
+#[test]
+fn a_finished_drag_asks_for_a_copy_unless_the_setting_is_off_and_a_click_or_select_all_does_not() {
+    let mut app = start("echo hello world; echo second line; sleep 30");
+    assert!(pump_until(&mut app, |a| {
+        a.session().document().blocks().iter().any(|b| match b {
+            lumen_term::Block::Grid(g) => g.text_rows().iter().any(|r| r == "second line"),
+            lumen_term::Block::Rich(_) => false,
+        })
+    }));
+    let held = Held::default();
+    let (x0, y0) = at(0, 0);
+    let (x1, _) = at(5, 0);
+    // A click with no drag selects nothing, so there is nothing to copy.
+    app.mouse_press(x0, y0, Button::Left, held).ok();
+    app.mouse_release(x0, y0, Button::Left, held).ok();
+    assert!(!app.take_copy_on_select());
+    // A drag asks for the copy once, when the button is released, not before.
+    app.mouse_press(x0, y0, Button::Left, held).ok();
+    app.mouse_move(x1, y0, held).ok();
+    assert!(!app.take_copy_on_select(), "still dragging");
+    app.mouse_release(x1, y0, Button::Left, held).ok();
+    assert!(app.take_copy_on_select());
+    assert!(!app.take_copy_on_select(), "asked once");
+    // The request goes through the explicit copy, so the clipboard gets the text.
+    let clip = Clip(RefCell::new(None));
+    assert_eq!(app.perform(Action::Copy, &clip), Outcome::Nothing);
+    assert_eq!(clip.0.borrow().as_deref(), Some("hello"));
+    // Select all is not a mouse selection.
+    assert_eq!(app.perform(Action::SelectAll, &clip), Outcome::Redraw);
+    assert!(!app.take_copy_on_select());
+    // With the setting off a drag asks for nothing.
+    app.set_copy_on_select(false);
+    app.mouse_press(x0, y0, Button::Left, held).ok();
+    app.mouse_move(x1, y0, held).ok();
+    app.mouse_release(x1, y0, Button::Left, held).ok();
+    assert!(app.has_selection());
+    assert!(!app.take_copy_on_select());
+}

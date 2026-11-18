@@ -74,6 +74,8 @@ pub struct App {
     selection: Option<Selection>,
     selecting: bool,
     selection_changed: bool,
+    copy_on_select: bool,
+    copy_pending: bool,
     scroll: Scroll,
     /// How many times the view moved since the host last asked.
     view_moves: u32,
@@ -317,6 +319,8 @@ impl App {
             selection: None,
             selecting: false,
             selection_changed: false,
+            copy_on_select: true,
+            copy_pending: false,
             scroll: Scroll::Follow,
             view_moves: 0,
             find: None,
@@ -573,6 +577,15 @@ impl App {
         !(reporting && self.live_cell(x, y).is_some())
     }
 
+    /// Whether a right click at `(x, y)` is the terminal's, to open its context
+    /// menu. It is unless the program asked for mouse reports and the live block
+    /// is where the click is; holding Shift always opens the menu, as Shift
+    /// always selects.
+    #[must_use]
+    pub fn owns_context_click(&self, x: u32, y: u32, held: Held) -> bool {
+        self.pointer_selects(x, y, held)
+    }
+
     /// The columns of the content area, in cells.
     fn content_columns(&self) -> usize {
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
@@ -663,7 +676,23 @@ impl App {
         if self.selection.is_some_and(|s| s.is_empty()) {
             self.selection = None;
             self.selection_changed = true;
+        } else if self.selection.is_some() {
+            self.copy_pending = self.copy_on_select;
         }
+    }
+
+    /// Choose whether a finished mouse selection is copied at once.
+    pub fn set_copy_on_select(&mut self, on: bool) {
+        self.copy_on_select = on;
+    }
+
+    /// Whether a mouse selection just finished and the setting asks for it to
+    /// be copied. The caller then does a copy, which has the same rules as an
+    /// explicit one. Only a selection the terminal itself made is ever
+    /// reported: a program that asked for mouse reports gets the clicks and no
+    /// selection is made.
+    pub fn take_copy_on_select(&mut self) -> bool {
+        std::mem::take(&mut self.copy_pending)
     }
 
     /// Whether the selection changed since the last call, so the window draws
@@ -678,6 +707,12 @@ impl App {
     pub fn selected_text(&self) -> Option<String> {
         let sel = self.selection?;
         select::copy_selection(&self.flow(), &sel).map(|c| c.text)
+    }
+
+    /// Whether a mouse selection is being dragged out now.
+    #[must_use]
+    pub fn is_selecting(&self) -> bool {
+        self.selecting
     }
 
     /// Whether any text is selected.

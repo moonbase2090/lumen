@@ -12,7 +12,7 @@
 //! the plain [`Passthrough`] layer is for a stream with no arm in front of it.
 //! Arm A is kept as the evidence record in its own crate and is not used here.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 pub mod actions;
 /// The terminal's user-facing name.
@@ -26,6 +26,12 @@ pub mod clipboard;
 pub mod copy;
 pub mod design;
 pub mod document;
+#[cfg(all(feature = "window", any(target_os = "macos", windows)))]
+#[allow(
+    unsafe_code,
+    reason = "the platform's call that shows a context menu in a window; see the module docs"
+)]
+pub mod ffi_context_menu;
 pub mod frame;
 pub mod grid;
 pub mod guard;
@@ -40,7 +46,7 @@ pub mod layer;
 pub mod layout;
 #[cfg(feature = "links-clipboard")]
 pub mod link;
-#[cfg(all(feature = "window", target_os = "macos"))]
+#[cfg(all(feature = "window", any(target_os = "macos", windows)))]
 pub mod menu;
 pub mod modes;
 pub mod mouse;
@@ -59,6 +65,7 @@ pub mod search;
 pub mod select;
 pub mod session;
 pub mod settings;
+pub mod shell;
 pub mod strip;
 pub mod theme_file;
 pub mod title;

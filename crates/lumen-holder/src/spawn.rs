@@ -1,7 +1,7 @@
 //! The terminal's side: start a holder with its four descriptors.
 
 use crate::ffi_linux;
-use crate::layout::ALL;
+use crate::layout::{ALL, PIDFD_FD};
 use crate::principal;
 use std::io;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -121,32 +121,81 @@ pub fn start_on(
         eof_read.as_raw_fd(),
         shell_pidfd.as_raw_fd(),
     ];
+    let terminal_arg = terminal.to_string();
+    let shell_pid_arg = shell_pid.to_string();
+    let start_time_arg = start_time.to_string();
+    let mut args: Vec<&std::ffi::OsStr> = vec![
+        "--terminal".as_ref(),
+        terminal_arg.as_ref(),
+        "--shell-pid".as_ref(),
+        shell_pid_arg.as_ref(),
+        "--shell-start".as_ref(),
+        start_time_arg.as_ref(),
+    ];
+    args.extend(extra.iter().map(|a| -> &std::ffi::OsStr { a.as_ref() }));
+    // Why the exec failed, if it did, comes back on this pipe. Its write end is
+    // above the descriptors the child places, so nothing overwrites it.
+    let (reason_read, low_write) = ffi_linux::pipe()?;
+    let reason_write = ffi_linux::duplicate_above(low_write.as_raw_fd(), PIDFD_FD + 1)?;
+    drop(low_write);
+    let program = on_path(program);
+    let program = program.as_path();
+    let plan = ffi_linux::ExecPlan::new(program, &args, reason_write.as_raw_fd())?;
     let mut command = Command::new(program);
     command
-        .arg("--terminal")
-        .arg(terminal.to_string())
-        .arg("--shell-pid")
-        .arg(shell_pid.to_string())
-        .arg("--shell-start")
-        .arg(start_time.to_string())
-        .args(extra)
+        .args(&args)
         .env_clear()
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     // SAFETY: the closure runs between fork and exec and calls only `fcntl`,
-    // `dup2` and `close` through `place_descriptors`, which are async-signal-safe,
-    // and it allocates nothing.
+    // `dup2`, `close`, `execve` and `write` (through `place_descriptors` and
+    // `ExecPlan::exec`), which are async-signal-safe, and it allocates nothing.
     #[allow(unsafe_code, reason = "pre_exec is unsafe; see the safety comment")]
     unsafe {
-        command.pre_exec(move || ffi_linux::place_descriptors(&sources, &ALL));
+        command.pre_exec(move || {
+            ffi_linux::place_descriptors(&sources, &ALL)?;
+            Err(plan.exec())
+        });
     }
-    let child = command.spawn()?;
+    let mut child = command.spawn()?;
+    // The exec replaced the child, so its copy of the write end is closed too:
+    // what is left to read is the reason, or nothing.
+    drop(reason_write);
+    let mut reason = Vec::new();
+    std::io::Read::read_to_end(&mut std::fs::File::from(reason_read), &mut reason)?;
+    if let Some(code) = reason.first_chunk::<4>() {
+        let _ = child.wait();
+        return Err(io::Error::from_raw_os_error(i32::from_ne_bytes(*code)));
+    }
     Ok(Running {
         child,
         spawn: spawn_terminal,
         eof_write,
     })
+}
+
+/// `program` as it will be run: a name with no `/` is looked for in `PATH`, as
+/// the standard library's `Command` does, and one that is not there stays as it
+/// is, so that the exec fails with the usual error.
+fn on_path(program: &Path) -> std::path::PathBuf {
+    if program.components().count() != 1 || program.is_absolute() {
+        return program.to_path_buf();
+    }
+    let Some(dirs) = std::env::var_os("PATH") else {
+        return program.to_path_buf();
+    };
+    for dir in std::env::split_paths(&dirs) {
+        let candidate = dir.join(program);
+        let runnable = std::fs::metadata(&candidate).is_ok_and(|m| {
+            use std::os::unix::fs::PermissionsExt as _;
+            m.is_file() && m.permissions().mode() & 0o111 != 0
+        });
+        if runnable {
+            return candidate;
+        }
+    }
+    program.to_path_buf()
 }
 
 /// Start `program` as a holder for the shell that `shell_pidfd` names. The
