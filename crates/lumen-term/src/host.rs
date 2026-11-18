@@ -353,6 +353,10 @@ pub struct Config {
     pub theme: crate::design::ThemeChoice,
     /// The user's fonts.
     pub fonts: crate::design::Fonts,
+    /// The shell to run when `command` is empty, or `None` for `$SHELL`.
+    pub shell: Option<String>,
+    /// Whether a shell started directly gets the prompt-mark hooks.
+    pub shell_integration: bool,
 }
 
 struct Running {
@@ -613,15 +617,21 @@ impl ApplicationHandler for Host {
             .unwrap_or_else(|| window.scale_factor().round().max(1.0) as u32);
         let (program, arguments) = match self.config.command.split_first() {
             Some((p, a)) => (p.clone(), a.to_vec()),
-            None => (default_shell(), Vec::new()),
+            None => (
+                self.config.shell.clone().unwrap_or_else(default_shell),
+                Vec::new(),
+            ),
         };
-        match App::start(
+        match App::start_with_shell(
             (self.config.layer)(),
             &program,
             &arguments,
             scale,
             size.width,
             size.height,
+            crate::shellint::ShellOptions {
+                integration: self.config.shell_integration,
+            },
         ) {
             Ok(mut app) => {
                 if self.config.scale.is_some() {

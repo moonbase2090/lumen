@@ -273,10 +273,37 @@ impl App {
         width: u32,
         height: u32,
     ) -> Result<Self, SpawnError> {
+        Self::start_with_shell(
+            layer,
+            program,
+            arguments,
+            scale,
+            width,
+            height,
+            crate::shellint::ShellOptions::default(),
+        )
+    }
+
+    /// [`start`](Self::start) with the shell's options given: whether a shell
+    /// started directly gets the prompt-mark hooks.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the renderer or the program could not be started.
+    pub fn start_with_shell<S: AsRef<std::ffi::OsStr>>(
+        layer: Box<dyn Layer + Send>,
+        program: &str,
+        arguments: &[S],
+        scale: u32,
+        width: u32,
+        height: u32,
+        shell: crate::shellint::ShellOptions,
+    ) -> Result<Self, SpawnError> {
         let renderer = Renderer::new(scale, crate::design::theme()).map_err(SpawnError)?;
         let (columns, rows) = window_cells(width, height, &renderer);
         let (block_columns, block_rows) = block_cells(columns, rows);
-        let session = Session::start(layer, block_columns, block_rows, program, arguments)?;
+        let session =
+            Session::start_with_shell(layer, block_columns, block_rows, program, arguments, shell)?;
         let mut app = Self {
             session,
             renderer,

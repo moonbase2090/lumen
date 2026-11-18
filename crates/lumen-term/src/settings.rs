@@ -1,4 +1,4 @@
-//! The user's settings file: the look (theme and fonts), and nothing else yet.
+//! The user's settings file: the look (theme and fonts) and the shell.
 //!
 //! The file is `$HOME/.config/lumen/settings.toml`, beside the policy file.
 //! Its syntax is the small part of TOML the settings need: `key = value` on a
@@ -10,6 +10,8 @@
 //! mono_size = 14          # 8 to 72
 //! prose_font = "bundled"
 //! prose_size = 16
+//! # shell = "/usr/bin/fish"  # the shell to run; the default is $SHELL
+//! shell_integration = true # add prompt marks to zsh, bash, fish and PowerShell
 //! ```
 //!
 //! A file is a value with a `/` in it: an absolute path, a path under the home
@@ -71,6 +73,11 @@ pub struct LookSettings {
     pub prose_font: FontSetting,
     /// The prose size in pixels at scale 1.
     pub prose_size: u32,
+    /// The shell to run when no program is given, or `None` for the user's
+    /// own (`$SHELL`).
+    pub shell: Option<String>,
+    /// Whether a shell started directly gets the prompt-mark hooks.
+    pub shell_integration: bool,
 }
 
 impl Default for LookSettings {
@@ -82,6 +89,8 @@ impl Default for LookSettings {
             mono_size: fonts.mono_px(),
             prose_font: FontSetting::Bundled,
             prose_size: fonts.prose_px(),
+            shell: None,
+            shell_integration: true,
         }
     }
 }
@@ -96,6 +105,10 @@ pub struct Look {
     pub fonts: Fonts,
     /// One line for each theme or font file left out.
     pub notices: Vec<String>,
+    /// The shell to run when no program is given, or `None` for `$SHELL`.
+    pub shell: Option<String>,
+    /// Whether a shell started directly gets the prompt-mark hooks.
+    pub shell_integration: bool,
 }
 
 impl LookSettings {
@@ -139,6 +152,8 @@ impl LookSettings {
             theme,
             fonts,
             notices,
+            shell: self.shell.clone(),
+            shell_integration: self.shell_integration,
         }
     }
 }
@@ -291,6 +306,22 @@ pub fn parse(text: &str, dir: &Path, home: Option<&Path>) -> Result<LookSettings
             "prose_font" => look.prose_font = font()?,
             "mono_size" => look.mono_size = size()?,
             "prose_size" => look.prose_size = size()?,
+            "shell" => {
+                let v = quoted()?;
+                if v.is_empty() {
+                    return Err((line, "`shell` must not be empty".to_owned()));
+                }
+                look.shell = Some(v.to_owned());
+            }
+            "shell_integration" => {
+                look.shell_integration = match value {
+                    "true" => true,
+                    "false" => false,
+                    _ => {
+                        return Err((line, "`shell_integration` must be true or false".to_owned()));
+                    }
+                };
+            }
             _ => return Err((line, format!("unknown setting `{key}`"))),
         }
         if seen.contains(&key) {

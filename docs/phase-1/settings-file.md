@@ -1,6 +1,6 @@
 # The settings file (Phase 1 terminal)
 
-The terminal reads the user's look settings, the theme and the fonts, from one file. This note says where it is, what it may hold and what happens when part of it cannot be used. The palettes, the theme file format and the floors themes are held to are in the [design system](../design-system.md) note.
+The terminal reads the user's look settings, the theme and the fonts, and the shell it runs, from one file. This note says where it is, what it may hold and what happens when part of it cannot be used. The palettes, the theme file format and the floors themes are held to are in the [design system](../design-system.md) note.
 
 **Where.** `$HOME/.config/lumen/settings.toml`, beside the [policy file](policy-file.md). It is read when the terminal starts.
 
@@ -13,6 +13,8 @@ mono_font = "bundled"   # bundled, or a font file
 mono_size = 14          # 8 to 72
 prose_font = "bundled"
 prose_size = 16
+# shell = "/usr/bin/fish"  # the shell to run; the default is $SHELL
+shell_integration = true # add prompt marks to zsh, bash, fish and PowerShell
 ```
 
 | Key | Values | Default |
@@ -22,6 +24,8 @@ prose_size = 16
 | `mono_size` | a whole number of pixels, 8 to 72 | `14` |
 | `prose_font` | `"bundled"`, or a path to a font file, for paragraphs and headings in rich blocks | `"bundled"` |
 | `prose_size` | a whole number of pixels, 8 to 72 | `14` |
+| `shell` | a quoted program name or path: the shell to run when no program is given on the command line | the user's own, `$SHELL` |
+| `shell_integration` | `true` or `false`: whether a shell started directly gets the [prompt-mark hooks](shell-integration.md) | `true` |
 
 A path is a value with a `/` in it: absolute (`"/Library/Fonts/Mine.otf"`), under the home directory (`"~/themes/mine.toml"`) or relative to the settings file's directory (`"./mine.toml"`, `"themes/mine.toml"`).
 

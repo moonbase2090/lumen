@@ -7,6 +7,7 @@ use crate::pty::{Pty, SpawnError};
 use crate::raster::Theme;
 #[cfg(feature = "colour-replies")]
 use crate::reply::Replies;
+use crate::shellint::ShellOptions;
 #[cfg(all(unix, feature = "multiplexer-client"))]
 use std::os::fd::OwnedFd;
 #[cfg(all(unix, feature = "multiplexer-client"))]
@@ -90,6 +91,8 @@ pub struct Session {
     document: Document,
     layer: Box<dyn Layer + Send>,
     pty: Pty,
+    /// The shell's hook files, which go when the session does.
+    shell_files: Option<crate::shellint::Scratch>,
     clock: Instant,
     tmux_or_screen: bool,
     #[cfg(feature = "colour-replies")]
@@ -105,6 +108,7 @@ impl Session {
             document: Document::new(columns, rows),
             layer,
             pty,
+            shell_files: None,
             clock: Instant::now(),
             #[cfg(feature = "colour-replies")]
             replies: Replies::new(crate::design::theme()),
@@ -126,21 +130,72 @@ impl Session {
         program: &str,
         arguments: &[S],
     ) -> Result<Self, SpawnError> {
+        Self::start_with_shell(
+            layer,
+            columns,
+            rows,
+            program,
+            arguments,
+            ShellOptions::default(),
+        )
+    }
+
+    /// [`start`](Self::start) with the shell's options given: whether a shell
+    /// started directly gets the prompt-mark hooks (see [`shellint`](crate::shellint)).
+    ///
+    /// # Errors
+    ///
+    /// Returns why the program could not be started.
+    pub fn start_with_shell<S: AsRef<std::ffi::OsStr>>(
+        layer: Box<dyn Layer + Send>,
+        columns: usize,
+        rows: usize,
+        program: &str,
+        arguments: &[S],
+        shell: ShellOptions,
+    ) -> Result<Self, SpawnError> {
         #[cfg(target_os = "linux")]
-        return Self::start_with_seal(
+        return Self::start_with_seal_and_shell(
             layer,
             columns,
             rows,
             program,
             arguments,
             &crate::seal::Config::default(),
+            shell,
         );
         #[cfg(not(target_os = "linux"))]
         {
             check_size(columns, rows)?;
-            let pty = Pty::spawn(columns, rows, program, arguments)?;
-            Ok(Self::from_pty(layer, columns, rows, pty))
+            Self::start_unsealed(layer, columns, rows, program, arguments, shell)
         }
+    }
+
+    /// Start `program` on a PTY with no sealed layer. A shell started directly
+    /// gets the hooks `shell` allows.
+    fn start_unsealed<S: AsRef<std::ffi::OsStr>>(
+        layer: Box<dyn Layer + Send>,
+        columns: usize,
+        rows: usize,
+        program: &str,
+        arguments: &[S],
+        shell: ShellOptions,
+    ) -> Result<Self, SpawnError> {
+        if !arguments.is_empty() {
+            let pty = Pty::spawn(columns, rows, program, arguments)?;
+            return Ok(Self::from_pty(layer, columns, rows, pty));
+        }
+        let launch = crate::shellint::plan(program, &[], shell, &|name| std::env::var(name).ok());
+        let pty = Pty::spawn_with_environment(
+            columns,
+            rows,
+            &launch.program,
+            &launch.arguments,
+            &launch.environment,
+        )?;
+        let mut session = Self::from_pty(layer, columns, rows, pty);
+        session.shell_files = launch.scratch;
+        Ok(session)
     }
 
     /// [`start`](Self::start) with the sealed layer's settings given. A listed
@@ -152,12 +207,40 @@ impl Session {
     /// Returns why the program could not be started.
     #[cfg(target_os = "linux")]
     pub fn start_with_seal<S: AsRef<std::ffi::OsStr>>(
+        layer: Box<dyn Layer + Send>,
+        columns: usize,
+        rows: usize,
+        program: &str,
+        arguments: &[S],
+        config: &crate::seal::Config,
+    ) -> Result<Self, SpawnError> {
+        Self::start_with_seal_and_shell(
+            layer,
+            columns,
+            rows,
+            program,
+            arguments,
+            config,
+            ShellOptions::default(),
+        )
+    }
+
+    /// [`start_with_seal`](Self::start_with_seal) with the shell's options
+    /// given. A shell that gets a sealed layer already has its own hooks, so
+    /// only a shell that does not is given the prompt marks.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the program could not be started.
+    #[cfg(target_os = "linux")]
+    pub fn start_with_seal_and_shell<S: AsRef<std::ffi::OsStr>>(
         mut layer: Box<dyn Layer + Send>,
         columns: usize,
         rows: usize,
         program: &str,
         arguments: &[S],
         config: &crate::seal::Config,
+        shell: ShellOptions,
     ) -> Result<Self, SpawnError> {
         check_size(columns, rows)?;
         // A listed shell started directly (no arguments, so no `-c`) is run by
@@ -168,8 +251,7 @@ impl Session {
             None
         };
         let Some(resolved) = resolved else {
-            let pty = Pty::spawn(columns, rows, program, arguments)?;
-            return Ok(Self::from_pty(layer, columns, rows, pty));
+            return Self::start_unsealed(layer, columns, rows, program, arguments, shell);
         };
         let started = crate::seal::start(columns, rows, &resolved, config)?;
         if let Some(receiver) = started.receiver {

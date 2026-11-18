@@ -102,6 +102,24 @@ impl Pty {
         Self::from_session(session)
     }
 
+    /// Run `program` on a PTY with `environment` added to its own.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the PTY or the program could not be started.
+    pub fn spawn_with_environment<S: AsRef<std::ffi::OsStr>>(
+        columns: usize,
+        rows: usize,
+        program: &str,
+        arguments: &[S],
+        environment: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Self, SpawnError> {
+        let size = pty_size_with_cell_pixels(columns, rows, CELL_PX.0, CELL_PX.1);
+        let session = PtySession::spawn_config(program, arguments, None, environment, size)
+            .map_err(|e| SpawnError(e.to_string()))?;
+        Self::from_session(session)
+    }
+
     /// Run a configured multiplexer client and map its key source into only
     /// that child at `key_target`.
     #[cfg(all(unix, feature = "multiplexer-client"))]
