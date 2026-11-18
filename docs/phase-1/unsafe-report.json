@@ -1080,7 +1080,7 @@
     "forbids_unsafe": false,
     "source": "Path",
     "unsafe_items": {
-     "exprs": 0,
+     "exprs": 7,
      "functions": 0,
      "item_impls": 0,
      "item_traits": 0,
