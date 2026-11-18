@@ -26,9 +26,15 @@ function _bright_postexec --on-event fish_postexec
     printf '\e]133;D;%s\a' $status
 end
 
-# The end of the prompt: wrap the user's prompt function, whichever it is.
-functions -q fish_prompt; and functions -c fish_prompt _bright_user_prompt
-function fish_prompt
-    _bright_user_prompt
-    printf '\e]133;B\a'
+# The end of the prompt: the first time a prompt is about to be drawn, the
+# user's config has been read, so wrap whichever fish_prompt they ended up with.
+function _bright_wrap_prompt --on-event fish_prompt
+    set -q _bright_wrapped; and return
+    set -g _bright_wrapped 1
+    functions -q fish_prompt; or return
+    functions -c fish_prompt _bright_user_prompt
+    function fish_prompt
+        _bright_user_prompt
+        printf '\e]133;B\a'
+    end
 end

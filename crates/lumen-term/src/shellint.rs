@@ -268,10 +268,10 @@ mod tests {
 
     #[test]
     fn zsh_gets_its_own_zdotdir_and_remembers_the_users() {
-        let own = |name: &str| (name == "ZDOTDIR").then(|| "/home/u/zsh".to_owned());
+        let own = |name: &str| (name == "ZDOTDIR").then(|| "/srv/someone/zsh".to_owned());
         let launch = plan("/bin/zsh", &[], ShellOptions::default(), &own);
-        assert_eq!(launch.environment["BRIGHT_USER_ZDOTDIR"], "/home/u/zsh");
-        assert_ne!(launch.environment["ZDOTDIR"], "/home/u/zsh");
+        assert_eq!(launch.environment["BRIGHT_USER_ZDOTDIR"], "/srv/someone/zsh");
+        assert_ne!(launch.environment["ZDOTDIR"], "/srv/someone/zsh");
         let unset = plan("/bin/zsh", &[], ShellOptions::default(), &no_env);
         assert_eq!(unset.environment["BRIGHT_USER_ZDOTDIR"], "");
     }

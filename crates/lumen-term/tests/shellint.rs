@@ -80,7 +80,7 @@ impl Home {
         put(
             ".config/powershell/Microsoft.PowerShell_profile.ps1",
             &format!(
-                "$env:USER_ENV_FILE = 'profile-ran'\nfunction prompt {{ '{PROMPT}' }}\nSet-Alias hello Write-Output\nfunction hello {{ 'user-alias-works' }}\n"
+                "$env:USER_ENV_FILE = 'profile-ran'\nfunction prompt {{ '{PROMPT}' }}\nfunction hello {{ 'user-alias-works' }}\n"
             ),
         );
         Self { dir, sub }
@@ -151,16 +151,22 @@ fn run(program: &Path, home: &Home, integration: bool, lines: &[&str]) -> Vec<u8
         }
     });
     let mut seen = Vec::new();
-    let take = |until: &[u8], wait: Duration, seen: &mut Vec<u8>| {
+    let take = |until: &[u8], wait: Duration, seen: &mut Vec<u8>, writer: &mut dyn Write| {
         let end = Instant::now() + wait;
         while Instant::now() < end && !contains(seen, until) {
             if let Ok(chunk) = receive.recv_timeout(Duration::from_millis(50)) {
+                answer_cursor_queries(&chunk, writer);
                 seen.extend(chunk);
             }
         }
     };
     // The first prompt.
-    take(PROMPT.as_bytes(), Duration::from_secs(30), &mut seen);
+    take(
+        PROMPT.as_bytes(),
+        Duration::from_secs(30),
+        &mut seen,
+        &mut writer,
+    );
     for (n, line) in lines.iter().enumerate() {
         let _ = writer.write_all(format!("{line}\r").as_bytes());
         let _ = writer.flush();
@@ -169,6 +175,7 @@ fn run(program: &Path, home: &Home, integration: bool, lines: &[&str]) -> Vec<u8
         let end = Instant::now() + Duration::from_secs(20);
         while Instant::now() < end && seen_count(&seen, PROMPT.as_bytes()) < wanted {
             if let Ok(chunk) = receive.recv_timeout(Duration::from_millis(50)) {
+                answer_cursor_queries(&chunk, &mut writer);
                 seen.extend(chunk);
             }
         }
@@ -176,10 +183,28 @@ fn run(program: &Path, home: &Home, integration: bool, lines: &[&str]) -> Vec<u8
     }
     let _ = writer.write_all(b"exit\r");
     let _ = writer.flush();
-    take(b"\0never", Duration::from_secs(2), &mut seen);
+    take(b"\0never", Duration::from_secs(2), &mut seen, &mut writer);
     session.kill_and_reap();
     drop(launch);
     seen
+}
+
+/// A terminal answers the cursor-position query (`ESC [ 6 n`) some shells send;
+/// PowerShell's line editor draws nothing sensible without the answer.
+fn answer_cursor_queries(chunk: &[u8], writer: &mut dyn Write) {
+    for _ in 0..seen_count(chunk, b"\x1b[6n") {
+        let _ = writer.write_all(b"\x1b[1;1R");
+    }
+    let _ = writer.flush();
+}
+
+/// The command that prints the variable the user's start-up file sets.
+fn var_command(name: &str) -> &'static str {
+    if name.starts_with("pwsh") {
+        "$env:USER_ENV_FILE"
+    } else {
+        "echo $USER_ENV_FILE"
+    }
 }
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
@@ -238,7 +263,7 @@ fn check(name: &str, program: &Path) {
         program,
         &home,
         true,
-        &["hello", "sh -c 'exit 3'", &cd, "echo $USER_ENV_FILE"],
+        &["hello", "sh -c 'exit 3'", &cd, var_command(name)],
     );
     let text = String::from_utf8_lossy(&out).into_owned();
     // The user's files work: their prompt, alias and variable.
@@ -277,11 +302,35 @@ fn check(name: &str, program: &Path) {
             .any(|m| m.starts_with("7;file://") && m.ends_with("/a%20b")),
         "{name}: the working directory arrives, percent-encoded: {list:?}"
     );
-    // The user's files were not changed or added to.
+    // The user's own files are the same bytes they were.
+    let after = home.snapshot();
+    let changed: Vec<&PathBuf> = before
+        .iter()
+        .filter(|(path, bytes)| !path.is_dir() && after.get(*path) != Some(bytes))
+        .map(|(path, _)| path)
+        .collect();
+    assert!(
+        changed.is_empty(),
+        "{name}: the user's files changed: {changed:?}"
+    );
+    // The shell may keep state of its own (history, a completion cache). The
+    // hooks add nothing to what it keeps with the integration off.
+    let off = Home::new(&format!("{name}-baseline"));
+    let _ = run(
+        program,
+        &off,
+        false,
+        &["hello", "sh -c 'exit 3'", &cd, var_command(name)],
+    );
+    let names = |s: &BTreeMap<PathBuf, Vec<u8>>, root: &Path| -> Vec<PathBuf> {
+        s.keys()
+            .filter_map(|k| k.strip_prefix(root).ok().map(Path::to_path_buf))
+            .collect()
+    };
     assert_eq!(
-        home.snapshot(),
-        before,
-        "{name}: nothing in the home changed"
+        names(&after, &home.dir),
+        names(&off.snapshot(), &off.dir),
+        "{name}: the same files exist with and without the hooks"
     );
 }
 
