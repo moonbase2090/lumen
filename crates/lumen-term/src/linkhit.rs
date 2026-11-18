@@ -127,8 +127,13 @@ fn detect(cells: &[Cell], taken: &[Range<usize>]) -> Vec<Hit> {
             continue;
         }
         let mut end = i + scheme_len;
-        while end < chars.len() && in_address(chars[end].1) && end - i < MAX_DETECTED {
+        while end < chars.len() && in_address(chars[end].1) {
             end += 1;
+        }
+        if end - i > MAX_DETECTED {
+            // A run this long is not a link at all, not a link to its start.
+            i = end;
+            continue;
         }
         let end = trim_end(&chars, i + scheme_len, end);
         if end > i + scheme_len {
@@ -203,7 +208,13 @@ mod tests {
     }
 
     fn targets(bytes: &str) -> Vec<(String, Range<usize>)> {
-        row0(bytes)
+        targets_in(60, bytes)
+    }
+
+    fn targets_in(columns: usize, bytes: &str) -> Vec<(String, Range<usize>)> {
+        let mut block = GridBlock::new(columns, 3);
+        block.feed(bytes.as_bytes());
+        row_links(block.screen(), 0)
             .into_iter()
             .map(|h| (h.target, h.columns))
             .collect()
@@ -235,6 +246,33 @@ mod tests {
         assert_eq!(targets("xhttps://example.com").len(), 0);
         assert_eq!(targets("https://").len(), 0);
         assert_eq!(targets("ftp://example.com").len(), 0);
+    }
+
+    #[test]
+    fn a_run_over_the_limit_is_no_link_and_a_run_at_the_limit_is() {
+        let at = format!(
+            "https://e.org/{}",
+            "a".repeat(MAX_DETECTED - "https://e.org/".len())
+        );
+        assert_eq!(at.chars().count(), MAX_DETECTED);
+        assert_eq!(
+            targets_in(2300, &at).len(),
+            1,
+            "a run of exactly the limit is a link"
+        );
+        let over = format!("{at}a");
+        assert!(
+            targets_in(2300, &over).is_empty(),
+            "a longer run is not a link"
+        );
+        let mixed = format!("{over} but https://ok.example/x is");
+        assert_eq!(
+            targets_in(2300, &mixed)
+                .iter()
+                .map(|t| t.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["https://ok.example/x"]
+        );
     }
 
     #[test]

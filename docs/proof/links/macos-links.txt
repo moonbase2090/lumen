@@ -1,7 +1,7 @@
 macOS proof: links in the window (clean VM)
 
-Image: fresh clone of the pinned clean macOS image (macos-tahoe-vanilla, sha256 eeec54bf...), macOS 26.6.2 arm64.
-Throwaway standard user (uid 502, not an administrator), created for the run and deleted after it. The VM was stopped and deleted afterwards.
+Machine: a fresh virtual machine from a clean, unmodified macOS install (macOS 26.6.2, arm64).
+Throwaway standard user (uid 502, not an administrator), created for the run and deleted after it. The machine was deleted afterwards.
 Binaries were built on the host from this branch and copied in; checksums matched on both sides:
   bright (release, window feature)   fe1bf689d9ab16fe   built at c0c4ef05553183df0add8ea22022c254620b40df
   link_window test binary            fe13dfb2e46e761f

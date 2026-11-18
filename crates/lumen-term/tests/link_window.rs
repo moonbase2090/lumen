@@ -374,3 +374,57 @@ fn an_address_in_the_scrollback_is_underlined_and_activatable() {
     enter(&mut app);
     assert_eq!(opened.all(), vec!["https://example.com/old"]);
 }
+
+struct Clip(&'static str);
+
+impl lumen_term::clipboard::Clipboard for Clip {
+    fn text(&self) -> Option<String> {
+        Some(self.0.to_owned())
+    }
+}
+
+#[test]
+fn a_menu_or_shortcut_action_does_nothing_while_the_prompt_is_up() {
+    use lumen_term::actions::Action;
+    use lumen_term::app::Outcome;
+    let (mut app, _) = start("echo 'at https://example.com/p here'; stty raw -echo; cat -v");
+    assert!(pump_until(&mut app, |a| shows(a, "here")));
+    let (x, y) = pixel_of(&app, "https://example.com/p", 2);
+
+    // With no prompt, Paste reaches the program.
+    assert_eq!(
+        app.perform(Action::Paste, &Clip("first-paste")),
+        Outcome::Redraw
+    );
+    assert!(pump_until(&mut app, |a| shows(a, "first-paste")));
+
+    assert!(app.link_press(x, y));
+    for action in [
+        Action::Paste,
+        Action::Find,
+        Action::SelectAll,
+        Action::ZoomIn,
+    ] {
+        assert_eq!(
+            app.perform(action, &Clip("second-paste")),
+            Outcome::Nothing,
+            "{action:?} is the prompt's while it is up"
+        );
+    }
+    for _ in 0..10 {
+        app.pump();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!shows(&app, "second-paste"), "the program saw nothing");
+    assert!(app.link_prompt().is_some());
+
+    // Close still works, and after the answer Paste reaches the program again.
+    assert_eq!(app.perform(Action::Close, &Clip("")), Outcome::Exit);
+    app.key(Key::Escape, lumen_term::Mods::default())
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert_eq!(
+        app.perform(Action::Paste, &Clip("third-paste")),
+        Outcome::Redraw
+    );
+    assert!(pump_until(&mut app, |a| shows(a, "third-paste")));
+}

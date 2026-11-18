@@ -666,6 +666,15 @@ impl App {
         !(reporting && self.live_cell(x, y).is_some())
     }
 
+    /// Whether a right click at `(x, y)` is the terminal's, to open its context
+    /// menu. It is unless the program asked for mouse reports and the live block
+    /// is where the click is; holding Shift always opens the menu, as Shift
+    /// always selects.
+    #[must_use]
+    pub fn owns_context_click(&self, x: u32, y: u32, held: Held) -> bool {
+        self.pointer_selects(x, y, held)
+    }
+
     /// The columns of the content area, in cells.
     fn content_columns(&self) -> usize {
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
@@ -787,6 +796,12 @@ impl App {
     pub fn selected_text(&self) -> Option<String> {
         let sel = self.selection?;
         select::copy_selection(&self.flow(), &sel).map(|c| c.text)
+    }
+
+    /// Whether a mouse selection is being dragged out now.
+    #[must_use]
+    pub fn is_selecting(&self) -> bool {
+        self.selecting
     }
 
     /// Whether any text is selected.
@@ -1205,6 +1220,15 @@ impl App {
     /// a frame introducer is not pasted at all.
     #[cfg(feature = "links-clipboard")]
     pub fn perform(&mut self, action: Action, clipboard: &dyn Clipboard) -> Outcome {
+        #[cfg(feature = "links-clipboard")]
+        if self.links.prompt.is_some()
+            && !matches!(action, Action::Quit | Action::Close | Action::Copy)
+        {
+            // The prompt owns the input: a menu item or a shortcut for paste,
+            // find, select all or zoom does nothing until it is answered. The
+            // window can still be closed, and a copy sends nothing anywhere.
+            return Outcome::Nothing;
+        }
         match action {
             Action::Quit | Action::Close => Outcome::Exit,
             Action::Find => {

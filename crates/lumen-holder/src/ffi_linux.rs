@@ -499,6 +499,100 @@ pub fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
     Ok(unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) })
 }
 
+/// A copy of `fd` at the lowest free descriptor at or above `min`,
+/// close-on-exec.
+///
+/// # Errors
+///
+/// Returns the error `fcntl` reports.
+pub fn duplicate_above(fd: RawFd, min: RawFd) -> io::Result<OwnedFd> {
+    // SAFETY: `fcntl` with `F_DUPFD_CLOEXEC` copies a descriptor to a free one.
+    let copy = check(unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, min) })?;
+    // SAFETY: a descriptor the call just returned and nothing else owns.
+    Ok(unsafe { OwnedFd::from_raw_fd(copy) })
+}
+
+/// Everything `execve` needs, made before the fork so that nothing is
+/// allocated after it, and a descriptor to tell the parent why it failed.
+///
+/// The standard library tells the parent that an exec failed over a socket it
+/// opens before the fork, on the lowest free descriptor. When the spawner
+/// places the holder's descriptors at 3 to 6 between the fork and the exec, a
+/// socket that sat on one of those numbers is overwritten and the failure is
+/// never reported. This does the exec itself and reports over a descriptor
+/// above those numbers, which nothing overwrites.
+pub struct ExecPlan {
+    path: std::ffi::CString,
+    #[allow(dead_code, reason = "owns the strings `pointers` point into")]
+    strings: Vec<std::ffi::CString>,
+    pointers: Vec<*const libc::c_char>,
+    report: RawFd,
+}
+
+// SAFETY: `pointers` point into the `CString`s this value owns, whose buffers do
+// not move when it does, and nothing writes through them.
+unsafe impl Send for ExecPlan {}
+// SAFETY: as for `Send`: the value is only read after it is made.
+unsafe impl Sync for ExecPlan {}
+
+impl ExecPlan {
+    /// Make the plan to run `program` with `args` (the program's own name is
+    /// added as the first), an empty environment, and `report` as the
+    /// descriptor that gets the reason on failure. `report` must be above every
+    /// descriptor the spawner places.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidInput` for a string with a NUL in it.
+    pub fn new(
+        program: &std::path::Path,
+        args: &[&std::ffi::OsStr],
+        report: RawFd,
+    ) -> io::Result<Self> {
+        use std::os::unix::ffi::OsStrExt;
+        let cstring = |bytes: &[u8]| {
+            std::ffi::CString::new(bytes).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
+        };
+        let path = cstring(program.as_os_str().as_bytes())?;
+        let mut strings = vec![path.clone()];
+        for a in args {
+            strings.push(cstring(a.as_bytes())?);
+        }
+        let mut pointers: Vec<*const libc::c_char> = strings.iter().map(|a| a.as_ptr()).collect();
+        pointers.push(std::ptr::null());
+        Ok(Self {
+            path,
+            strings,
+            pointers,
+            report,
+        })
+    }
+
+    /// In the child, after the descriptors are placed: replace the process.
+    /// Comes back only when that failed, with the error, which it has also
+    /// written to the report descriptor as four bytes. Allocates nothing.
+    #[must_use]
+    pub fn exec(&self) -> io::Error {
+        let environment: [*const libc::c_char; 1] = [std::ptr::null()];
+        // SAFETY: `path` and every entry of `pointers` are NUL-terminated strings
+        // that live as long as `self`, `pointers` ends in a null, and so does
+        // `environment`.
+        unsafe {
+            libc::execve(
+                self.path.as_ptr(),
+                self.pointers.as_ptr(),
+                environment.as_ptr(),
+            )
+        };
+        let error = io::Error::last_os_error();
+        let code = error.raw_os_error().unwrap_or(libc::EIO).to_ne_bytes();
+        // SAFETY: `code` is four readable bytes; a failed write cannot be acted on
+        // here and the error is returned either way.
+        unsafe { libc::write(self.report, code.as_ptr().cast(), code.len()) };
+        error
+    }
+}
+
 /// In a child between `fork` and `exec`: put `sources[i]` at descriptor
 /// `targets[i]` without a source ever being overwritten before it is copied.
 /// Uses only `fcntl`, `dup2` and `close`, which are safe there.
