@@ -167,7 +167,7 @@ impl InputLine {
             self.insert(text);
             return Outcome::Redraw;
         }
-        self.note_raw(text.as_bytes());
+        self.note_raw(facts, text.as_bytes());
         Outcome::Write(text.as_bytes().to_vec())
     }
 
@@ -230,15 +230,18 @@ impl InputLine {
             self.handed_off = false;
             self.typeahead = false;
         } else {
-            self.note_raw(&bytes);
+            self.note_raw(facts, &bytes);
         }
         Outcome::Write(bytes)
     }
 
     /// Bytes that went to the program while the box was not editing. At a
-    /// prompt they are typeahead the shell's next line already holds.
-    fn note_raw(&mut self, bytes: &[u8]) {
-        if !self.handed_off && !bytes.is_empty() && !ends_line(bytes) {
+    /// prompt they are typeahead the shell's next line already holds. That is
+    /// so only for a program on a cooked tty, where the kernel queues what is
+    /// typed; a program reading raw (vim, less) takes its keys itself.
+    fn note_raw(&mut self, facts: Facts, bytes: &[u8]) {
+        if !self.handed_off && !bytes.is_empty() && !ends_line(bytes) && facts.icanon == Some(true)
+        {
             self.typeahead = true;
         }
     }
@@ -828,9 +831,22 @@ mod tests {
     }
 
     #[test]
+    fn keys_a_raw_reading_program_takes_are_not_typeahead() {
+        let vim = Facts {
+            shell_in_front: Some(false),
+            ..Facts::at_prompt()
+        };
+        let mut line = InputLine::new();
+        line.key(vim, Key::Char('x'), NONE);
+        assert_eq!(line.mode(Facts::at_prompt()), Mode::Editing);
+    }
+
+    #[test]
     fn bytes_typed_while_a_command_runs_are_typeahead_the_box_leaves_to_the_shell() {
         let running = Facts {
             shell_in_front: Some(false),
+            icanon: Some(true),
+            echo: Some(true),
             ..Facts::at_prompt()
         };
         let mut line = InputLine::new();

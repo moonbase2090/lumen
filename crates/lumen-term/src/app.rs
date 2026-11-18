@@ -1182,6 +1182,18 @@ impl App {
         }
     }
 
+    /// The text in the input box.
+    #[must_use]
+    pub fn input_text(&self) -> String {
+        self.input.text()
+    }
+
+    /// Where keys go now: the box, or the program.
+    pub fn input_mode(&mut self) -> Mode {
+        let facts = self.facts();
+        self.input.mode(facts)
+    }
+
     /// The one place the window writes what the user typed to the program: the
     /// box's line and its Enter, an Enter while handed off, a raw Enter while
     /// the shell is in front, and each line of "send as commands". Nothing else
