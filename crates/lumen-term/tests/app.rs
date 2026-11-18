@@ -194,12 +194,33 @@ fn the_view_draws_the_trust_margin_the_producer_cannot_reach() {
     };
     let mut app = start("echo shown", 640, 380);
     assert!(pump_until(&mut app, |a| text(a).contains("shown")));
+    for _ in 0..200 {
+        if app.has_exited() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(app.has_exited());
     let view = app.view();
     let (cw, ch) = r.cell();
     let pad = r.gutter_pad();
     let (cols, rows) = cells_for(640 - pad, 380, (cw, ch));
     let win = window_for(cols, rows);
-    let expect = r.render_window(&lumen_term::Document::new(1, 1), &win);
+    // The box shows the terminal's own status, never the program's text.
+    let ended = lumen_term::raster::InputView {
+        status: Some("The program has ended".to_owned()),
+        focused: true,
+        ..Default::default()
+    };
+    let expect = r.render_window_input(
+        &lumen_term::Document::new(1, 1),
+        &win,
+        &[],
+        None,
+        lumen_term::scroll::Scroll::Follow,
+        (None, None),
+        Some(&ended),
+    );
     let lay = lumen_term::layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
     for rect in lay.margin.iter().chain([&lay.editor]) {
         for y in rect.y * ch..(rect.y + rect.h) * ch {

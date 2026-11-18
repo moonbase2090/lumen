@@ -12,6 +12,7 @@
 //! prose_size = 16
 //! copy_on_select = true   # true or false: copy a finished mouse selection
 //! shell = "pwsh"          # the program to run when none is named; see `shell`
+//! shell_integration = true # add prompt marks to zsh, bash, fish and PowerShell
 //! ```
 //!
 //! A file is a value with a `/` in it: an absolute path, a path under the home
@@ -78,6 +79,8 @@ pub struct LookSettings {
     pub copy_on_select: bool,
     /// The program to run when none is named on the command line, if set.
     pub shell: Option<String>,
+    /// Whether a shell started directly gets the prompt-mark hooks.
+    pub shell_integration: bool,
 }
 
 impl Default for LookSettings {
@@ -91,6 +94,7 @@ impl Default for LookSettings {
             prose_size: fonts.prose_px(),
             copy_on_select: true,
             shell: None,
+            shell_integration: true,
         }
     }
 }
@@ -107,6 +111,8 @@ pub struct Look {
     pub shell: Option<String>,
     /// One line for each theme or font file left out.
     pub notices: Vec<String>,
+    /// Whether a shell started directly gets the prompt-mark hooks.
+    pub shell_integration: bool,
 }
 
 impl LookSettings {
@@ -151,6 +157,7 @@ impl LookSettings {
             fonts,
             shell: self.shell.clone(),
             notices,
+            shell_integration: self.shell_integration,
         }
     }
 }
@@ -233,6 +240,7 @@ fn uncommented(value: &str) -> &str {
 ///
 /// Returns the line and the reason for the first line that is not a blank
 /// line, a comment, or a known key written once with a good value.
+#[allow(clippy::too_many_lines, reason = "one arm per settings key")]
 pub fn parse(text: &str, dir: &Path, home: Option<&Path>) -> Result<LookSettings, (usize, String)> {
     let mut look = LookSettings::default();
     let mut seen: Vec<&str> = Vec::new();
@@ -320,6 +328,15 @@ pub fn parse(text: &str, dir: &Path, home: Option<&Path>) -> Result<LookSettings
                     ));
                 }
                 look.shell = Some(v.to_owned());
+            }
+            "shell_integration" => {
+                look.shell_integration = match value {
+                    "true" => true,
+                    "false" => false,
+                    _ => {
+                        return Err((line, "`shell_integration` must be true or false".to_owned()));
+                    }
+                };
             }
             _ => return Err((line, format!("unknown setting `{key}`"))),
         }

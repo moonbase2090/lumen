@@ -11,9 +11,9 @@ repository = "https://github.com/moonbase2090/lumen"
 publish = false
 
 [workspace.dependencies]
-prismattyc-core = { git = "https://github.com/moonbase2090/Prismattyc", rev = "ca7b9f8d6541988c76eae1425db125ee613cd3c6" }
-prismattyc-emulator = { git = "https://github.com/moonbase2090/Prismattyc", rev = "ca7b9f8d6541988c76eae1425db125ee613cd3c6" }
-prismattyc-render = { git = "https://github.com/moonbase2090/Prismattyc", rev = "ca7b9f8d6541988c76eae1425db125ee613cd3c6" }
+prismattyc-core = { git = "https://github.com/moonbase2090/Prismattyc", rev = "641103cb41fb7ccdaf18653012ac8a8bada7d397" }
+prismattyc-emulator = { git = "https://github.com/moonbase2090/Prismattyc", rev = "641103cb41fb7ccdaf18653012ac8a8bada7d397" }
+prismattyc-render = { git = "https://github.com/moonbase2090/Prismattyc", rev = "641103cb41fb7ccdaf18653012ac8a8bada7d397" }
 
 [workspace.lints.rust]
 missing_docs = "deny"
@@ -28,4 +28,4 @@ todo = "deny"
 unimplemented = "deny"
 
 [patch.crates-io]
-portable-pty = { git = "https://github.com/moonbase2090/Prismattyc", rev = "ca7b9f8d6541988c76eae1425db125ee613cd3c6" }
+portable-pty = { git = "https://github.com/moonbase2090/Prismattyc", rev = "641103cb41fb7ccdaf18653012ac8a8bada7d397" }

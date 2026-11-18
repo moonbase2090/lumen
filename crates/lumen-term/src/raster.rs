@@ -106,6 +106,24 @@ pub enum PromptHit {
 /// Thickness of a bar or underline cursor, in pixels at scale 1.
 const CURSOR_LINE_PX: u32 = 2;
 
+/// What the input box shows: its text, or a one-row status.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InputView {
+    /// The text of the box, one entry per line. Empty when it shows a status.
+    pub lines: Vec<String>,
+    /// The caret as (line, column in characters), when the box is edited.
+    pub caret: Option<(usize, usize)>,
+    /// The window has focus.
+    pub focused: bool,
+    /// A one-row status in place of the text: where keys go.
+    pub status: Option<String>,
+    /// A line under the text, inside the box: the choice a held line waits for.
+    pub hint: Option<String>,
+}
+
+/// Most lines of text the box shows before it scrolls.
+pub const INPUT_MAX_LINES: usize = 5;
+
 /// The size of a window and where its editor sits, in cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Window {
@@ -1541,6 +1559,79 @@ impl Renderer {
         }
     }
 
+    /// Paint the input box into `frame` at `(ex, ey, ew, eh)` pixels. Its text is
+    /// the user's own and its status is fixed text: no program output.
+    fn paint_input_box(
+        &self,
+        frame: &mut Frame,
+        (ex, ey, ew, eh): (u32, u32, u32, u32),
+        editor_rows: u32,
+        input: Option<&InputView>,
+    ) {
+        let t = &self.theme;
+        // A status is one row of muted text: no field, border, mark or caret,
+        // so nothing looks typeable while the keys go elsewhere.
+        if let Some(InputView {
+            status: Some(s), ..
+        }) = input
+        {
+            let room = (ew / self.cell_w.max(1)).saturating_sub(2) as usize;
+            let shown: String = s.chars().take(room.max(1)).collect();
+            self.text_line(frame, ex + self.cell_w, ey, &shown, t.muted);
+            return;
+        }
+        // The box stops a gutter padding short of the right edge, as the text
+        // column starts one right of the gutter.
+        let ew = ew.saturating_sub(self.gutter_pad());
+        let focused = input.is_some_and(|i| i.focused);
+        let edge = if focused { t.prompt } else { t.border };
+        frame.fill(ex, ey, ew, eh, edge);
+        frame.fill(
+            ex + self.scale,
+            ey + self.scale,
+            ew.saturating_sub(2 * self.scale),
+            eh.saturating_sub(2 * self.scale),
+            t.editor,
+        );
+        let text_x = ex + 3 * self.cell_w;
+        let room = (ew / self.cell_w.max(1)).saturating_sub(4) as usize;
+        match input {
+            Some(view) => {
+                self.text_line(frame, ex + self.cell_w, ey, ">", t.prompt);
+                let rows = (editor_rows.saturating_sub(1) as usize).max(1);
+                let caret_line = view.caret.map_or(0, |c| c.0);
+                let first = (caret_line + 1)
+                    .saturating_sub(rows)
+                    .min(view.lines.len().saturating_sub(rows));
+                for (i, line) in view.lines.iter().skip(first).take(rows).enumerate() {
+                    let shown: String = line.chars().take(room.max(1)).collect();
+                    let y = ey + u32::try_from(i).unwrap_or(0) * self.cell_h;
+                    self.text_line(frame, text_x, y, &shown, t.foreground);
+                }
+                let caret = view
+                    .caret
+                    .filter(|&(line, _)| focused && (first..first + rows).contains(&line));
+                if let Some(hint) = &view.hint {
+                    let shown: String = hint.chars().take(room.max(1)).collect();
+                    let y = ey + eh.saturating_sub(self.cell_h + self.scale);
+                    self.text_line(frame, text_x, y, &shown, t.muted);
+                }
+                if let Some((line, col)) = caret {
+                    let width: u32 = view.lines.get(line).map_or(0, |l| {
+                        l.chars()
+                            .take(col)
+                            .map(|c| u32::try_from(grapheme_display_width(c, &[])).unwrap_or(1))
+                            .sum()
+                    });
+                    let y = ey + u32::try_from(line - first).unwrap_or(0) * self.cell_h;
+                    let x = text_x + width * self.cell_w;
+                    frame.fill(x, y, self.scale.max(2), self.cell_h, t.prompt);
+                }
+            }
+            None => self.text_line(frame, ex + self.cell_w, ey, ">", t.prompt),
+        }
+    }
+
     /// Paint a window: the trust margin, the content above the editor, the
     /// editor, and the background strip below it.
     ///
@@ -1631,6 +1722,27 @@ impl Renderer {
         scroll: Scroll,
         (cursor, overlay): (Option<CursorState>, Option<&Overlay>),
     ) -> Frame {
+        self.render_window_input(doc, win, toasts, selection, scroll, (cursor, overlay), None)
+    }
+
+    /// Paint a window as [`render_window_full`](Self::render_window_full) does,
+    /// with the input box showing `input`: the user's own text and caret or a
+    /// fixed status line, never program output.
+    #[must_use]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per part of the window"
+    )]
+    pub fn render_window_input(
+        &self,
+        doc: &Document,
+        win: &Window,
+        toasts: &[Toast],
+        selection: Option<&Selection>,
+        scroll: Scroll,
+        (cursor, overlay): (Option<CursorState>, Option<&Overlay>),
+        input: Option<&InputView>,
+    ) -> Frame {
         let t = &self.theme;
         let strips = doc.strips();
         let newest = strips.last();
@@ -1666,17 +1778,8 @@ impl Renderer {
         let note = notification_area(&lay);
         self.paint_toasts(&mut frame, px(&note), note.w, toasts);
 
-        // Editor: a fixed box with a prompt.
         let (ex, ey, ew, eh) = px(&lay.editor);
-        frame.fill(ex, ey, ew, eh, t.border);
-        frame.fill(
-            ex + self.scale,
-            ey + self.scale,
-            ew.saturating_sub(2 * self.scale),
-            eh.saturating_sub(2 * self.scale),
-            t.editor,
-        );
-        self.text_line(&mut frame, ex + self.cell_w, ey, ">", t.prompt);
+        self.paint_input_box(&mut frame, (ex, ey, ew, eh), win.editor_rows, input);
 
         // Strip: below the editor.
         if let (StripPlacement::Placed(r), Some(strip)) = (lay.strip, newest) {

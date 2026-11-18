@@ -1,0 +1,67 @@
+# Bright shell integration for bash.
+#
+# Bright starts bash with --rcfile pointing at this file. It reads the user's
+# own ~/.bashrc as bash would have, then adds the prompt marks: OSC 133 A
+# (prompt start), B (prompt end), C (command start) and D with the exit status
+# (command end), and OSC 7 with the working directory. No file of the user's is
+# changed.
+
+if [ -f "$HOME/.bashrc" ]; then
+  . "$HOME/.bashrc"
+fi
+
+if [ -z "${_bright_marks-}" ] && [ -t 1 ]; then
+  _bright_marks=1
+  _bright_first=1
+  _bright_in_prompt=1
+
+  # _bright_url PATH: the path with every byte outside the safe set as %XX, in _bright_out.
+  _bright_url() {
+    local LC_ALL=C s=$1 c i
+    _bright_out=
+    for (( i = 0; i < ${#s}; i++ )); do
+      c=${s:i:1}
+      case $c in
+        [a-zA-Z0-9/._~-]) _bright_out+=$c ;;
+        *) printf -v c '%%%02X' "'$c"; _bright_out+=$c ;;
+      esac
+    done
+  }
+
+  _bright_prompt() {
+    local last=$?
+    # Every prompt after the first closes the command before it, an empty line
+    # included, as other shells' integrations do.
+    if [ -z "$_bright_first" ]; then
+      printf '\e]133;D;%s\a' "$last"
+    fi
+    _bright_first=
+    _bright_url "$PWD"
+    printf '\e]7;file://%s%s\a\e]133;A\a' "${HOSTNAME:-localhost}" "$_bright_out"
+    _bright_in_prompt=
+    return "$last"
+  }
+
+  # Command start. PS0 (bash 4.4) is shown after a command is read and before it
+  # runs. Older bash has no PS0, so a DEBUG trap stands in, unless the user has
+  # one of their own.
+  if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
+    PS0=$'\e]133;C\a'${PS0-}
+  elif [ -z "$(trap -p DEBUG)" ]; then
+    _bright_debug() {
+      if [ -z "$_bright_in_prompt" ]; then
+        _bright_in_prompt=1
+        printf '\e]133;C\a'
+      fi
+    }
+    trap '_bright_debug' DEBUG
+  fi
+
+  # The prompt marks go first in PROMPT_COMMAND so $? is still the command's.
+  if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
+    PROMPT_COMMAND=(_bright_prompt "${PROMPT_COMMAND[@]}")
+  else
+    PROMPT_COMMAND="_bright_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+  fi
+  PS1=${PS1-}'\[\e]133;B\a\]'
+fi

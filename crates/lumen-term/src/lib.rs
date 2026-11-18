@@ -39,6 +39,7 @@ pub mod guard;
 pub mod host;
 pub mod image_draw;
 pub mod images;
+pub mod input_line;
 pub mod isolate;
 pub mod keys;
 pub mod layer;
@@ -49,6 +50,7 @@ pub mod link;
 pub mod linkhit;
 #[cfg(feature = "links-clipboard")]
 pub mod linkprompt;
+pub mod marks;
 #[cfg(all(feature = "window", any(target_os = "macos", windows)))]
 pub mod menu;
 pub mod modes;
@@ -69,6 +71,7 @@ pub mod select;
 pub mod session;
 pub mod settings;
 pub mod shell;
+pub mod shellint;
 pub mod strip;
 pub mod theme_file;
 pub mod title;

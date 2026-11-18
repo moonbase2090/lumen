@@ -53,7 +53,7 @@ fn start(script: &str) -> (App, Opened) {
     (app, opened)
 }
 
-fn pump_until(app: &mut App, done: impl Fn(&App) -> bool) -> bool {
+fn pump_until(app: &mut App, done: impl Fn(&mut App) -> bool) -> bool {
     let end = Instant::now() + Duration::from_secs(20);
     while Instant::now() < end {
         app.pump();
@@ -387,8 +387,13 @@ impl lumen_term::clipboard::Clipboard for Clip {
 fn a_menu_or_shortcut_action_does_nothing_while_the_prompt_is_up() {
     use lumen_term::actions::Action;
     use lumen_term::app::Outcome;
-    let (mut app, _) = start("echo 'at https://example.com/p here'; stty raw -echo; cat -v");
+    let (mut app, _) =
+        start("echo 'at https://example.com/p here'; printf '\\033[?1h'; stty raw -echo; cat -v");
     assert!(pump_until(&mut app, |a| shows(a, "here")));
+    // The keys and paste are the program's once it sets application keys (otherwise the input box takes them); before that they
+    // would land in the input box.
+    assert!(pump_until(&mut app, |a| a.input_mode()
+        == lumen_term::input_line::Mode::Raw));
     let (x, y) = pixel_of(&app, "https://example.com/p", 2);
 
     // With no prompt, Paste reaches the program.
