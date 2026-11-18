@@ -93,29 +93,34 @@ fn writers() -> &'static [(&'static str, &'static [&'static str])] {
     }
 }
 
+/// Give `text` to the first of `tools` that takes it and exits successfully.
+fn write_with(tools: &[(&str, &[&str])], text: &str) -> bool {
+    use std::io::Write as _;
+    for (program, args) in tools {
+        let Ok(mut child) = tool(program, args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            continue;
+        };
+        let wrote = child
+            .stdin
+            .take()
+            .is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
+        // The tool keeps the text once its input is closed.
+        let done = child.wait().is_ok_and(|s| s.success());
+        if wrote && done {
+            return true;
+        }
+    }
+    false
+}
+
 impl Clipboard for SystemClipboard {
     fn set_text(&self, text: &str) -> bool {
-        use std::io::Write as _;
-        for (program, args) in writers() {
-            let Ok(mut child) = tool(program, args)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-            else {
-                continue;
-            };
-            let wrote = child
-                .stdin
-                .take()
-                .is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
-            // The tool keeps the text once its input is closed.
-            let done = child.wait().is_ok_and(|s| s.success());
-            if wrote && done {
-                return true;
-            }
-        }
-        false
+        write_with(writers(), text)
     }
 
     fn text(&self) -> Option<String> {
@@ -142,5 +147,27 @@ impl Clipboard for SystemClipboard {
             }
         }
         None
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::write_with;
+
+    #[test]
+    fn a_writer_that_exits_with_an_error_is_a_failed_copy() {
+        let failing: &[(&str, &[&str])] = &[("sh", &["-c", "cat >/dev/null; exit 1"])];
+        assert!(!write_with(failing, "text"));
+    }
+
+    #[test]
+    fn a_writer_that_succeeds_is_a_copy_and_a_later_one_is_tried_after_a_failure() {
+        let working: &[(&str, &[&str])] = &[("sh", &["-c", "cat >/dev/null"])];
+        assert!(write_with(working, "text"));
+        let both: &[(&str, &[&str])] = &[
+            ("sh", &["-c", "cat >/dev/null; exit 1"]),
+            ("sh", &["-c", "cat >/dev/null"]),
+        ];
+        assert!(write_with(both, "text"));
     }
 }
