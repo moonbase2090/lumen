@@ -357,6 +357,8 @@ pub struct Config {
     pub copy_on_select: bool,
     /// The user's `shell` setting: what to run when `command` is empty.
     pub shell: Option<String>,
+    /// Whether a shell started directly gets the prompt-mark hooks.
+    pub shell_integration: bool,
 }
 
 struct Running {
@@ -642,13 +644,16 @@ impl ApplicationHandler for Host {
                 Vec::new(),
             ),
         };
-        match App::start(
+        match App::start_with_shell(
             (self.config.layer)(),
             &program,
             &arguments,
             scale,
             size.width,
             size.height,
+            crate::shellint::ShellOptions {
+                integration: self.config.shell_integration,
+            },
         ) {
             Ok(mut app) => {
                 if self.config.scale.is_some() {

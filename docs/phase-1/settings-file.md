@@ -15,6 +15,7 @@ prose_font = "bundled"
 prose_size = 16
 copy_on_select = true   # true or false: copy a finished mouse selection
 shell = "pwsh"          # the program to run when none is named; see below
+shell_integration = true # add prompt marks to zsh, bash, fish and PowerShell
 ```
 
 | Key | Values | Default |
@@ -26,6 +27,7 @@ shell = "pwsh"          # the program to run when none is named; see below
 | `prose_size` | a whole number of pixels, 8 to 72 | `14` |
 | `copy_on_select` | `true` copies a text selection made with the mouse to the clipboard when the button is released; `false` copies only on the copy command | `true` |
 | `shell` | a program name or path, in quotes: what the window runs when no program is named on the command line | not set |
+| `shell_integration` | `true` or `false`: whether a shell started directly gets the [prompt-mark hooks](shell-integration.md) | `true` |
 
 A path is a value with a `/` in it: absolute (`"/Library/Fonts/Mine.otf"`), under the home directory (`"~/themes/mine.toml"`) or relative to the settings file's directory (`"./mine.toml"`, `"themes/mine.toml"`).
 

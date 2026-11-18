@@ -45,6 +45,7 @@ pub mod layer;
 pub mod layout;
 #[cfg(feature = "links-clipboard")]
 pub mod link;
+pub mod marks;
 #[cfg(all(feature = "window", any(target_os = "macos", windows)))]
 pub mod menu;
 pub mod modes;
@@ -65,6 +66,7 @@ pub mod select;
 pub mod session;
 pub mod settings;
 pub mod shell;
+pub mod shellint;
 pub mod strip;
 pub mod theme_file;
 pub mod title;
