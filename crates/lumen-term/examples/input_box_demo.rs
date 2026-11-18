@@ -72,8 +72,8 @@ impl Recorder {
 fn record(dir: &str) {
     let Ok(mut app) = App::start(
         Box::new(Passthrough),
-        "/bin/zsh",
-        &["-f", "-i"],
+        "/usr/bin/env",
+        &["PS1=$ ", "/bin/zsh", "-f", "-i"],
         2,
         1100,
         640,
@@ -142,8 +142,8 @@ fn main() {
         for (zoom, scale) in [("", 1u32), ("-zoomed", 2)] {
             let Ok(mut app) = App::start(
                 Box::new(Passthrough),
-                "/bin/zsh",
-                &["-f", "-i"],
+                "/usr/bin/env",
+                &["PS1=$ ", "/bin/zsh", "-f", "-i"],
                 scale,
                 720 * scale,
                 380 * scale,
