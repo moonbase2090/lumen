@@ -319,6 +319,39 @@ impl Session {
             .map_or(crate::seal::Status::NotApplicable, |s| s.status().clone())
     }
 
+    /// Whether the layer has sealing keys now: it was sealed, it is not pinned
+    /// to grid mode, nothing has made it grid-only and its holder runs. Always
+    /// false where there is no sealed layer (every system but Linux).
+    pub fn has_sealed_keys(&mut self) -> bool {
+        if self
+            .document
+            .notices()
+            .contains(&crate::layer::Notice::Pinned)
+        {
+            return false;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            self.sealing
+                .as_mut()
+                .is_some_and(crate::seal::Sealing::has_keys)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            false
+        }
+    }
+
+    /// Run the sealing checks required at every Enter the terminal forwards
+    /// for the user. A layer that fails them loses its keys for good. Nothing
+    /// to do on a layer without keys.
+    pub fn recheck_seal(&mut self) {
+        #[cfg(target_os = "linux")]
+        if let Some(sealing) = self.sealing.as_mut() {
+            sealing.recheck();
+        }
+    }
+
     /// The holder's process id, if the layer is sealed.
     #[cfg(target_os = "linux")]
     #[must_use]

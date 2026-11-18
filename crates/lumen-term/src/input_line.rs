@@ -35,6 +35,15 @@ pub struct Facts {
     pub keys: KeyModes,
     /// The program has ended.
     pub ended: bool,
+    /// On a layer with sealing keys, whether the shell's last sealed boundary
+    /// is a prompt with no command start, and no forwarded Enter, after it.
+    /// `None` on a layer without keys (or one that lost them): the other facts
+    /// decide alone.
+    pub sealed_prompt: Option<bool>,
+    /// On a layer with sealing keys, no command is running by the frames (an
+    /// Enter was forwarded and nothing has come since, or the last frame is not
+    /// a command start), so a key typed now is for the shell's next line.
+    pub sealed_between_commands: bool,
 }
 
 impl Facts {
@@ -52,6 +61,8 @@ impl Facts {
                 bracketed_paste: false,
             },
             ended: false,
+            sealed_prompt: None,
+            sealed_between_commands: false,
         }
     }
 }
@@ -90,16 +101,33 @@ pub enum Outcome {
     NotMine,
 }
 
+/// Keys sent while the box was not editing that a line may still hold.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Typeahead {
+    /// None.
+    #[default]
+    None,
+    /// Typed while a cooked program other than the shell was in front: the
+    /// shell's next line may hold them, or the program may have read them.
+    Program,
+    /// Typed while the shell was in front or, on a sealed layer, between
+    /// commands: the shell's line holds them.
+    Shell,
+}
+
 /// The box's text and what it needs to route keys.
 #[derive(Debug, Clone, Default)]
 pub struct InputLine {
     text: Vec<char>,
     caret: usize,
     handed_off: bool,
-    typeahead: bool,
+    typeahead: Typeahead,
     held: Option<String>,
     history: Vec<String>,
     history_at: Option<usize>,
+    /// The last write was for the shell's own line (see
+    /// [`InputLine::wrote_for_shell`]).
+    for_shell: bool,
 }
 
 impl InputLine {
@@ -119,6 +147,15 @@ impl InputLine {
     #[must_use]
     pub fn caret(&self) -> usize {
         self.caret
+    }
+
+    /// Whether the last write was for the shell's own line, so an Enter in it
+    /// ends a line the shell runs: the box's line, a key while the shell holds
+    /// the line or typeahead for it, or a raw key while the shell is in front.
+    /// A key for another program in front is not.
+    #[must_use]
+    pub fn wrote_for_shell(&self) -> bool {
+        self.for_shell
     }
 
     /// The held multi-line text, while a choice is pending.
@@ -142,20 +179,30 @@ impl InputLine {
         if facts.shell_in_front != Some(true) || facts.icanon != Some(false) {
             return Mode::Raw;
         }
+        // On a sealed layer the shell must also have said, sealed, that it is
+        // at a prompt: a builtin reading keys (`read -k`, `vared`) leaves the
+        // shell in front with ICANON off, and only the frames tell it apart.
+        if facts.sealed_prompt == Some(false) {
+            return Mode::Raw;
+        }
         if self.handed_off {
             return Mode::HandedOff;
         }
-        if self.typeahead {
+        if self.typeahead != Typeahead::None {
             return Mode::Raw;
         }
         Mode::Editing
     }
 
     /// The tty was looked at: when the shell is not at a prompt any more (a
-    /// command runs, or the shell is reading cooked), the line it held is over,
-    /// however it was accepted.
+    /// command runs, the shell is reading cooked, or a sealed layer sent a
+    /// command start), the line it held is over, however it was accepted.
     pub fn observe(&mut self, facts: Facts) {
-        if self.handed_off && (facts.shell_in_front != Some(true) || facts.icanon != Some(false)) {
+        if self.handed_off
+            && (facts.shell_in_front != Some(true)
+                || facts.icanon != Some(false)
+                || facts.sealed_prompt == Some(false))
+        {
             self.handed_off = false;
         }
     }
@@ -176,6 +223,7 @@ impl InputLine {
             self.insert(text);
             return Outcome::Redraw;
         }
+        self.for_shell = self.shells_line(facts);
         self.note_raw(facts, text.as_bytes());
         Outcome::Write(text.as_bytes().to_vec())
     }
@@ -202,6 +250,7 @@ impl InputLine {
         let Some(held) = self.held.take() else {
             return Outcome::None;
         };
+        self.for_shell = true;
         let mut out = Vec::new();
         for line in held.lines() {
             out.extend_from_slice(line.as_bytes());
@@ -217,6 +266,7 @@ impl InputLine {
         let Some(held) = self.held.take() else {
             return Outcome::None;
         };
+        self.for_shell = true;
         let joined = held.lines().collect::<Vec<_>>().join(" ");
         self.remember(&held);
         self.clear();
@@ -252,10 +302,11 @@ impl InputLine {
         if bytes.is_empty() {
             return Outcome::None;
         }
-        let line_empty = !self.handed_off && !self.typeahead;
+        self.for_shell = self.shells_line(facts);
+        let line_empty = !self.handed_off && self.typeahead == Typeahead::None;
         if ends_line(&bytes, line_empty) {
             self.handed_off = false;
-            self.typeahead = false;
+            self.typeahead = Typeahead::None;
         } else {
             self.note_raw(facts, &bytes);
         }
@@ -264,19 +315,38 @@ impl InputLine {
 
     /// Bytes that went to the program while the box was not editing. At a
     /// prompt they are typeahead the shell's next line already holds. That is
-    /// so only for a program on a cooked tty, where the kernel queues what is
-    /// typed; a program reading raw (vim, less) takes its keys itself.
+    /// so for a program on a cooked tty, where the kernel queues what is
+    /// typed, and on a sealed layer between commands, when only the shell's
+    /// next line can read them; a program reading raw (vim, less, `read -k`)
+    /// takes its keys itself.
     fn note_raw(&mut self, facts: Facts, bytes: &[u8]) {
         if !self.handed_off
             && !bytes.is_empty()
             && !ends_line(bytes, false)
-            && facts.icanon == Some(true)
+            && (facts.icanon == Some(true) || facts.sealed_between_commands)
         {
-            self.typeahead = true;
+            if facts.shell_in_front == Some(true) || facts.sealed_between_commands {
+                self.typeahead = Typeahead::Shell;
+            } else if self.typeahead == Typeahead::None {
+                self.typeahead = Typeahead::Program;
+            }
         }
     }
 
+    /// Whether a raw key now is for the shell's line: the shell is in front,
+    /// holds the line or has typeahead for it, or on a sealed layer no command
+    /// is running. Typeahead a cooked program in front (cat) was given is not.
+    fn shells_line(&self, facts: Facts) -> bool {
+        facts.shell_in_front == Some(true)
+            || self.handed_off
+            || self.typeahead == Typeahead::Shell
+            || facts.sealed_between_commands
+    }
+
     fn edit_key(&mut self, facts: Facts, key: Key, mods: Mods) -> Outcome {
+        // The box edits only at the shell's prompt: whatever it writes is for
+        // the shell's line.
+        self.for_shell = true;
         if self.held.is_some() {
             if key == Key::Escape {
                 self.held = None;
@@ -527,6 +597,36 @@ fn starts_line_work(bytes: &[u8]) -> bool {
     matches!(bytes, [b'\t' | 0x12])
 }
 
+/// How many Enters a write to the program holds: each carriage return or line
+/// feed on its own, the keys a shell's line editor accepts a line on. One
+/// inside a bracketed paste is text, and one after ESC is the Alt form of the
+/// key, which inserts a newline instead of running the line.
+#[must_use]
+pub fn enters_in(bytes: &[u8]) -> u32 {
+    let mut count = 0u32;
+    let mut i = 0;
+    let mut pasting = false;
+    while i < bytes.len() {
+        let rest = &bytes[i..];
+        if rest.starts_with(PASTE_START) {
+            pasting = true;
+            i += PASTE_START.len();
+            continue;
+        }
+        if rest.starts_with(PASTE_END) {
+            pasting = false;
+            i += PASTE_END.len();
+            continue;
+        }
+        let after_escape = i > 0 && bytes[i - 1] == 0x1b;
+        if !pasting && !after_escape && matches!(bytes[i], b'\r' | b'\n') {
+            count = count.saturating_add(1);
+        }
+        i += 1;
+    }
+    count
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -552,7 +652,7 @@ mod tests {
     /// mode it must give.
     fn raw_states() -> Vec<(&'static str, Facts, Mode)> {
         let p = Facts::at_prompt();
-        vec![
+        let mut states = vec![
             (
                 "alternate screen",
                 Facts {
@@ -639,6 +739,33 @@ mod tests {
                 Mode::Hidden,
             ),
             ("ended", Facts { ended: true, ..p }, Mode::Ended),
+        ];
+        states.extend(sealed_raw_states());
+        states
+    }
+
+    /// The states only a sealed layer's frames can tell apart.
+    fn sealed_raw_states() -> Vec<(&'static str, Facts, Mode)> {
+        let p = Facts::at_prompt();
+        vec![
+            (
+                "sealed layer, a command started (read -k in a function)",
+                Facts {
+                    sealed_prompt: Some(false),
+                    ..p
+                },
+                Mode::Raw,
+            ),
+            (
+                "sealed layer, a hidden read in the shell",
+                Facts {
+                    icanon: Some(true),
+                    echo: Some(false),
+                    sealed_prompt: Some(false),
+                    ..p
+                },
+                Mode::Hidden,
+            ),
         ]
     }
 
@@ -646,6 +773,11 @@ mod tests {
     fn the_mode_follows_the_facts() {
         let line = InputLine::new();
         assert_eq!(line.mode(Facts::at_prompt()), Mode::Editing);
+        let sealed_prompt = Facts {
+            sealed_prompt: Some(true),
+            ..Facts::at_prompt()
+        };
+        assert_eq!(line.mode(sealed_prompt), Mode::Editing);
         for (name, facts, want) in raw_states() {
             assert_eq!(line.mode(facts), want, "{name}");
         }
@@ -1159,5 +1291,128 @@ mod tests {
         }
         assert_eq!(line.text(), "");
         assert_eq!(line.mode(facts), Mode::Hidden);
+    }
+
+    #[test]
+    fn a_sealed_command_start_ends_a_handed_off_line() {
+        let facts = Facts {
+            sealed_prompt: Some(true),
+            ..Facts::at_prompt()
+        };
+        let mut line = InputLine::new();
+        typed(&mut line, facts, "ls");
+        line.key(facts, Key::Tab, NONE);
+        assert_eq!(line.mode(facts), Mode::HandedOff);
+        // A builtin ran: the kernel facts did not move, the sealed frames did.
+        let started = Facts {
+            sealed_prompt: Some(false),
+            ..facts
+        };
+        line.observe(started);
+        assert_eq!(line.mode(started), Mode::Raw);
+        assert_eq!(line.mode(facts), Mode::Editing, "back at a sealed prompt");
+    }
+
+    #[test]
+    fn enters_are_counted_where_a_shell_would_run_a_line() {
+        assert_eq!(enters_in(b"ls -l\r"), 1);
+        assert_eq!(enters_in(b"\r"), 1);
+        assert_eq!(enters_in(b"\n"), 1, "Ctrl+J accepts the line");
+        assert_eq!(enters_in(b"a\rb\rc\r"), 3);
+        assert_eq!(enters_in(b"\x1b\r"), 0, "Alt+Enter inserts a newline");
+        assert_eq!(enters_in(b"\x1b[200~one\ntwo\rthree\x1b[201~\r"), 1);
+        assert_eq!(enters_in(b"\x1b[200~one\ntwo\x1b[201~"), 0);
+        assert_eq!(enters_in(b"echo hi\t"), 0);
+        assert_eq!(enters_in(b""), 0);
+    }
+
+    #[test]
+    fn send_as_commands_writes_one_enter_per_line_and_joining_writes_one() {
+        let mut line = InputLine::new();
+        line.text_input(Facts::at_prompt(), "one\ntwo\nthree");
+        assert_eq!(
+            line.key(Facts::at_prompt(), Key::Enter, NONE),
+            Outcome::Hold
+        );
+        let Outcome::Write(bytes) = line.send_held_as_commands() else {
+            unreachable!("the held lines are sent")
+        };
+        assert_eq!(enters_in(&bytes), 3);
+        line.text_input(Facts::at_prompt(), "one\ntwo\nthree");
+        assert_eq!(
+            line.key(Facts::at_prompt(), Key::Enter, NONE),
+            Outcome::Hold
+        );
+        let Outcome::Write(bytes) = line.send_held_joined() else {
+            unreachable!("the held lines are sent")
+        };
+        assert_eq!(enters_in(&bytes), 1);
+    }
+
+    #[test]
+    fn the_box_line_with_bracketed_paste_is_one_enter() {
+        let facts = Facts {
+            keys: KeyModes {
+                cursor_app: false,
+                keypad_app: false,
+                bracketed_paste: true,
+            },
+            ..Facts::at_prompt()
+        };
+        let mut line = InputLine::new();
+        line.text_input(facts, "for i in 1 2\ndo echo $i\ndone");
+        let Outcome::Write(bytes) = line.key(facts, Key::Enter, NONE) else {
+            unreachable!("the line is sent")
+        };
+        assert_eq!(enters_in(&bytes), 1);
+    }
+
+    #[test]
+    fn keys_typed_before_the_shell_answers_an_enter_stay_with_the_shell() {
+        // Sealed layer, just after the box sent a line: the kernel facts are
+        // still those of the prompt, and the shell has sent nothing since.
+        let waiting = Facts {
+            sealed_prompt: Some(false),
+            sealed_between_commands: true,
+            ..Facts::at_prompt()
+        };
+        let mut line = InputLine::new();
+        assert_eq!(line.mode(waiting), Mode::Raw);
+        assert_eq!(
+            line.key(waiting, Key::Char('l'), NONE),
+            Outcome::Write(b"l".to_vec())
+        );
+        // The prompt comes back: the shell's line holds the key, so the box
+        // stays raw until that line ends.
+        let back = Facts {
+            sealed_prompt: Some(true),
+            ..Facts::at_prompt()
+        };
+        assert_eq!(line.mode(back), Mode::Raw);
+        assert_eq!(
+            line.key(back, Key::Enter, NONE),
+            Outcome::Write(b"\r".to_vec())
+        );
+        assert_eq!(line.mode(back), Mode::Editing);
+    }
+
+    #[test]
+    fn a_key_a_running_builtin_reads_raw_is_not_typeahead() {
+        // read -k: a command started, the shell is in front, ICANON is off.
+        let running = Facts {
+            sealed_prompt: Some(false),
+            sealed_between_commands: false,
+            ..Facts::at_prompt()
+        };
+        let mut line = InputLine::new();
+        assert_eq!(
+            line.key(running, Key::Char('q'), NONE),
+            Outcome::Write(b"q".to_vec())
+        );
+        let back = Facts {
+            sealed_prompt: Some(true),
+            ..Facts::at_prompt()
+        };
+        assert_eq!(line.mode(back), Mode::Editing);
     }
 }

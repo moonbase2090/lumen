@@ -101,7 +101,7 @@ fn config(yama: u32, home: &std::path::Path) -> Config {
     Config {
         holder: holder(),
         listed: LISTED.iter().map(|s| (*s).to_owned()).collect(),
-        probe: Box::new(Sysctls {
+        probe: Arc::new(Sysctls {
             yama,
             real: FsProbe::default(),
         }),

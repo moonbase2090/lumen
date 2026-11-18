@@ -5,6 +5,7 @@
 //! without a window.
 
 use crate::actions::{self, Action};
+use crate::boundary::{Boundaries, Seen};
 #[cfg(feature = "links-clipboard")]
 use crate::clipboard::Clipboard;
 use crate::design::{Appearance, Fonts, ThemeChoice};
@@ -98,6 +99,13 @@ pub struct App {
     box_rows: u32,
     /// The name of the program in front, by process group, for the status row.
     front_name: Option<(i32, String)>,
+    /// The sealed layer's boundary frames: whether the shell said, sealed,
+    /// that it is at a prompt.
+    boundaries: Boundaries,
+    /// Whether the layer had sealing keys when last asked.
+    sealed_keys: bool,
+    /// Enters forwarded for the user while the shell was in front.
+    forwarded_enters: u64,
 }
 
 /// The render scale for a display's scale factor: the nearest whole number,
@@ -326,6 +334,39 @@ impl App {
         let (block_columns, block_rows) = block_cells(columns, rows);
         let session =
             Session::start_with_shell(layer, block_columns, block_rows, program, arguments, shell)?;
+        Ok(Self::with_session(session, renderer, scale, width, height))
+    }
+
+    /// [`start`](Self::start) with the sealed layer's settings given: a listed
+    /// shell started directly gets a sealed layer if the sealing conditions
+    /// hold.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the renderer or the program could not be started.
+    #[cfg(target_os = "linux")]
+    pub fn start_with_seal<S: AsRef<std::ffi::OsStr>>(
+        layer: Box<dyn Layer + Send>,
+        program: &str,
+        arguments: &[S],
+        (scale, width, height): (u32, u32, u32),
+        config: &crate::seal::Config,
+    ) -> Result<Self, SpawnError> {
+        let renderer = Renderer::new(scale, crate::design::theme()).map_err(SpawnError)?;
+        let (columns, rows) = window_cells(width, height, &renderer);
+        let (block_columns, block_rows) = block_cells(columns, rows);
+        let session =
+            Session::start_with_seal(layer, block_columns, block_rows, program, arguments, config)?;
+        Ok(Self::with_session(session, renderer, scale, width, height))
+    }
+
+    fn with_session(
+        session: Session,
+        renderer: Renderer,
+        scale: u32,
+        width: u32,
+        height: u32,
+    ) -> Self {
         let mut app = Self {
             session,
             renderer,
@@ -360,9 +401,13 @@ impl App {
             input: InputLine::new(),
             box_rows: EDITOR_ROWS,
             front_name: None,
+            boundaries: Boundaries::new(),
+            sealed_keys: false,
+            forwarded_enters: 0,
         };
+        app.sealed_keys = app.session.has_sealed_keys();
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
-        Ok(app)
+        app
     }
 
     /// The system now shows `appearance`. With [`ThemeChoice::System`] the look
@@ -465,6 +510,17 @@ impl App {
     /// Route the document's events to the notifier, as [`pump`](Self::pump)
     /// does with what the program wrote.
     pub fn route(&mut self, events: &[Event]) {
+        for event in events {
+            if let Event::Sealed { kind, body } = event {
+                let seen = self.boundaries.see(*kind, body);
+                // The shell-replacement check runs at every authenticated
+                // command start too, not only at a forwarded Enter.
+                if seen == Seen::Applied && *kind == lumen_sealed::types::KIND_COMMAND_START {
+                    self.session.recheck_seal();
+                    self.sealed_keys = self.session.has_sealed_keys();
+                }
+            }
+        }
         let now = self.session.now_ms();
         self.notifier.route(now, LAYER, events, self.sink.as_mut());
     }
@@ -1240,6 +1296,7 @@ impl App {
     /// What the tty and the grid say now, for the input line.
     fn facts(&mut self) -> Facts {
         let ended = self.exited || self.session.has_exited();
+        self.sealed_keys = self.session.has_sealed_keys();
         let facts = self.facts_with(ended);
         self.input.observe(facts);
         facts
@@ -1255,6 +1312,12 @@ impl App {
             alt_screen: alt,
             keys: self.session.key_modes(),
             ended,
+            sealed_prompt: if self.sealed_keys {
+                self.boundaries.at_prompt()
+            } else {
+                None
+            },
+            sealed_between_commands: self.sealed_keys && self.boundaries.between_commands(),
         }
     }
 
@@ -1265,7 +1328,8 @@ impl App {
             Line::Write(bytes) => {
                 self.follow();
                 self.cursor_epoch_ms = self.session.now_ms();
-                let sent = self.forward_user_input(&bytes);
+                let for_shell = self.input.wrote_for_shell();
+                let sent = self.forward_user_input(&bytes, for_shell);
                 self.sync_box();
                 sent
             }
@@ -1374,12 +1438,35 @@ impl App {
 
     /// The one place the window writes what the user typed to the program: the
     /// box's line and its Enter, an Enter while handed off, a raw Enter while
-    /// the shell is in front, and each line of "send as commands". Nothing else
-    /// writes a carriage return for the user.
-    fn forward_user_input(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+    /// the shell is in front, each line of "send as commands", and a paste
+    /// sent to the program. Nothing else writes a carriage return for the user.
+    ///
+    /// Each Enter in the write first runs the sealing checks the layer must
+    /// pass at every forwarded Enter (a shell that executed another program
+    /// loses its keys here). An Enter `for_shell`, which ends a line the shell
+    /// runs, is counted, and the box waits for the shell's next frame.
+    fn forward_user_input(&mut self, bytes: &[u8], for_shell: bool) -> std::io::Result<()> {
+        let enters = crate::input_line::enters_in(bytes);
+        if enters > 0 {
+            self.session.recheck_seal();
+            self.sealed_keys = self.session.has_sealed_keys();
+        }
         let sent = self.send(bytes);
+        if sent.is_ok() && for_shell && enters > 0 {
+            self.forwarded_enters = self.forwarded_enters.saturating_add(u64::from(enters));
+            self.boundaries.line_sent();
+        }
         self.note_input(&sent);
         sent
+    }
+
+    /// How many Enters the window has forwarded for the user that end a line
+    /// the shell runs: one per line the box sent, per Enter for a line the
+    /// shell holds or has typeahead for, per raw Enter while the shell is in
+    /// front, and per line of "send as commands".
+    #[must_use]
+    pub fn forwarded_enters(&self) -> u64 {
+        self.forwarded_enters
     }
 
     /// Give the editor as many rows as its text has lines, up to the most the
@@ -1568,9 +1655,10 @@ impl App {
         if bracketed {
             bytes.extend_from_slice(b"\x1b[201~");
         }
-        let sent = self.send(&bytes);
-        self.note_input(&sent);
-        sent
+        // A paste the program does not take bracketed runs a line at each line
+        // break, so it goes the way every Enter does.
+        let for_shell = self.session.tty_state().shell_in_front == Some(true);
+        self.forward_user_input(&bytes, for_shell)
     }
 
     /// Write to the program, unless it has ended. Whether a write to a PTY whose
@@ -1625,6 +1713,9 @@ impl App {
         let events = self.session.take_events();
         if !events.is_empty() {
             self.route(&events);
+            // A sealed command start ends a line the shell was holding.
+            let facts = self.facts();
+            self.input.observe(facts);
         }
         self.tick();
         bytes
