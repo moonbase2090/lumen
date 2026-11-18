@@ -240,6 +240,7 @@ fn uncommented(value: &str) -> &str {
 ///
 /// Returns the line and the reason for the first line that is not a blank
 /// line, a comment, or a known key written once with a good value.
+#[allow(clippy::too_many_lines, reason = "one arm per settings key")]
 pub fn parse(text: &str, dir: &Path, home: Option<&Path>) -> Result<LookSettings, (usize, String)> {
     let mut look = LookSettings::default();
     let mut seen: Vec<&str> = Vec::new();
