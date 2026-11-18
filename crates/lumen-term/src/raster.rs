@@ -73,6 +73,36 @@ pub struct CursorState {
     pub blink_on: bool,
 }
 
+/// The widest a link prompt is, in cells.
+#[cfg(feature = "links-clipboard")]
+const PROMPT_COLUMNS: u32 = 72;
+
+/// Where a link prompt is drawn.
+#[cfg(feature = "links-clipboard")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptBox {
+    /// The box: x, y, width and height in pixels.
+    pub rect: (u32, u32, u32, u32),
+    /// The text lines, wrapped to the box.
+    pub lines: Vec<String>,
+    /// Each button's label and its rectangle.
+    pub buttons: Vec<(String, (u32, u32, u32, u32))>,
+}
+
+/// What a point on a link prompt is.
+#[cfg(feature = "links-clipboard")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptHit {
+    /// The button that opens the link.
+    Open,
+    /// The button that closes the prompt without opening.
+    Cancel,
+    /// The box, away from a button.
+    Box,
+    /// Outside the box.
+    Outside,
+}
+
 /// Thickness of a bar or underline cursor, in pixels at scale 1.
 const CURSOR_LINE_PX: u32 = 2;
 
@@ -435,12 +465,27 @@ impl Renderer {
         let hist = block.history_rows();
         for r in 0..screen.rows() {
             let Some(cells) = screen.row(r) else { continue };
-            self.paint_cells(
-                frame,
-                x,
-                y + u32::try_from(r).unwrap_or(0) * self.cell_h,
-                cells,
-                marks.row(hist + r),
+            let top = y + u32::try_from(r).unwrap_or(0) * self.cell_h;
+            self.paint_cells(frame, x, top, cells, marks.row(hist + r));
+            #[cfg(feature = "links-clipboard")]
+            self.paint_link_marks(frame, x, top, &crate::linkhit::row_links(screen, r));
+        }
+    }
+
+    /// Underline the links of one row in the accent colour, one pixel row
+    /// above the bottom of the cell. The cells keep the program's own colours.
+    #[cfg(feature = "links-clipboard")]
+    fn paint_link_marks(&self, frame: &mut Frame, x: u32, top: u32, hits: &[crate::linkhit::Hit]) {
+        let line = top + self.cell_h.saturating_sub(self.scale * 2);
+        for hit in hits {
+            let left = x + u32::try_from(hit.columns.start).unwrap_or(0) * self.cell_w;
+            let cols = u32::try_from(hit.columns.len()).unwrap_or(0);
+            frame.fill(
+                left,
+                line,
+                cols * self.cell_w,
+                self.scale,
+                self.theme.prompt,
             );
         }
     }
@@ -1155,6 +1200,8 @@ impl Renderer {
     fn paint_row_at(&self, region: &mut Frame, y: i64, cells: &[Cell], marks: &[Mark]) {
         let mut line = Frame::new(region.width, self.cell_h, self.theme.background);
         self.paint_cells(&mut line, 0, 0, cells, marks);
+        #[cfg(feature = "links-clipboard")]
+        self.paint_link_marks(&mut line, 0, 0, &crate::linkhit::cell_links(cells));
         Self::blit_clipped(region, &line, y);
     }
 
@@ -1882,6 +1929,123 @@ impl Renderer {
             }
             Self::blit(frame, &box_frame, nx, ny + used);
             used += height;
+        }
+    }
+
+    /// Where a link prompt sits in a window frame of `width` by `height`
+    /// pixels: its box, the text lines wrapped to it, and the buttons. Painting
+    /// and hit testing both use this, so a click lands on what was drawn.
+    #[cfg(feature = "links-clipboard")]
+    #[must_use]
+    pub fn link_prompt_box(
+        &self,
+        width: u32,
+        height: u32,
+        prompt: &crate::linkprompt::Prompt,
+    ) -> PromptBox {
+        let cw = self.cell_w.max(1);
+        let columns = (width / cw).max(1);
+        let box_cols =
+            usize::try_from(columns.saturating_sub(2).clamp(1, PROMPT_COLUMNS)).unwrap_or(1);
+        let inner = box_cols.saturating_sub(2).max(1);
+        let mut lines = Vec::new();
+        for line in prompt.lines() {
+            if line.is_empty() {
+                lines.push(String::new());
+            } else {
+                lines.extend(wrap_by(&line, inner, &cells));
+            }
+        }
+        let rows = u32::try_from(lines.len()).unwrap_or(0) + 2;
+        let box_w = u32::try_from(box_cols).unwrap_or(1) * cw;
+        let box_h = rows * self.cell_h + self.cell_h + 4 * self.scale;
+        let x = width.saturating_sub(box_w) / 2;
+        let y = height.saturating_sub(box_h) / 2;
+        let buttons_y = y + 2 * self.scale + self.cell_h / 2 + (rows - 1) * self.cell_h;
+        let labels: &[&str] = if prompt.target().is_some() {
+            &[" Open (Enter) ", " Cancel (Esc) "]
+        } else {
+            &[" Close (Esc) "]
+        };
+        let mut col = 1u32;
+        let mut buttons = Vec::new();
+        for label in labels {
+            let n = u32::try_from(label.chars().count()).unwrap_or(0);
+            buttons.push((
+                label.to_string(),
+                (x + col * cw, buttons_y, n * cw, self.cell_h),
+            ));
+            col += n + 2;
+        }
+        PromptBox {
+            rect: (x, y, box_w, box_h),
+            lines,
+            buttons,
+        }
+    }
+
+    /// Draw a link prompt over `frame`, the whole window. It is the last thing
+    /// painted, so nothing a program drew can cover it or pass for it.
+    #[cfg(feature = "links-clipboard")]
+    pub fn paint_link_prompt(&self, frame: &mut Frame, prompt: &crate::linkprompt::Prompt) {
+        let theme = &self.theme;
+        let placed = self.link_prompt_box(frame.width, frame.height, prompt);
+        let (left, top, width, height) = placed.rect;
+        frame.fill(left, top, width, height, theme.toast_border);
+        let edge = 2 * self.scale;
+        frame.fill(
+            left + edge,
+            top + edge,
+            width.saturating_sub(2 * edge),
+            height.saturating_sub(2 * edge),
+            theme.toast,
+        );
+        let mut line_top = top + edge + self.cell_h / 2;
+        for (i, line) in placed.lines.iter().enumerate() {
+            let colour = if i == 0 {
+                theme.heading
+            } else if line.starts_with("Warning:") {
+                theme.label
+            } else {
+                theme.foreground
+            };
+            self.text_line(frame, left + self.cell_w, line_top, line, colour);
+            line_top += self.cell_h;
+        }
+        for (label, (bx, by, bw, bh)) in &placed.buttons {
+            frame.fill(*bx, *by, *bw, *bh, theme.toast_border);
+            self.text_line(frame, *bx, *by, label, theme.foreground);
+        }
+    }
+
+    /// What is at pixel `(px, py)` of a link prompt drawn over a window frame
+    /// of `width` by `height`.
+    #[cfg(feature = "links-clipboard")]
+    #[must_use]
+    pub fn link_prompt_at(
+        &self,
+        width: u32,
+        height: u32,
+        prompt: &crate::linkprompt::Prompt,
+        px: u32,
+        py: u32,
+    ) -> PromptHit {
+        let b = self.link_prompt_box(width, height, prompt);
+        let inside =
+            |(x, y, w, h): (u32, u32, u32, u32)| px >= x && px < x + w && py >= y && py < y + h;
+        for (label, rect) in &b.buttons {
+            if inside(*rect) {
+                return if label.contains("Open") {
+                    PromptHit::Open
+                } else {
+                    PromptHit::Cancel
+                };
+            }
+        }
+        if inside(b.rect) {
+            PromptHit::Box
+        } else {
+            PromptHit::Outside
         }
     }
 

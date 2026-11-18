@@ -149,18 +149,32 @@ impl Clipboard for Fixed {
 fn the_paste_chord_lands_in_the_box_and_nothing_runs() {
     let mut app = zsh();
     type_str(&mut app, "echo ");
-    let before = grid_text(&app);
     app.perform(Action::Paste, &Fixed("one\ntwo"));
     assert_eq!(app.input_text(), "echo one\ntwo");
-    std::thread::sleep(Duration::from_millis(300));
-    app.pump();
-    // The box grew a row, so the grid is a row shorter: compare what is written.
-    assert_eq!(
-        grid_text(&app).trim_end(),
-        before.trim_end(),
-        "the shell was sent nothing"
+    // Empty the box and run a marker. The shell reads what it was sent in
+    // order, so once the marker's output is on screen anything the paste had
+    // sent would have run before it: no sleep, and the shell's redraw when the
+    // box grows and shrinks does not matter.
+    for _ in 0.."echo one\ntwo".chars().count() {
+        app.key(Key::Backspace, Mods::default())
+            .unwrap_or_else(|e| unreachable!("backspace: {e}"));
+    }
+    assert_eq!(app.input_text(), "");
+    type_str(&mut app, "echo marker-after-paste");
+    enter(&mut app);
+    assert!(
+        until(&mut app, |a| grid_text(a)
+            .matches("marker-after-paste")
+            .count()
+            >= 2),
+        "the marker ran: {}",
+        grid_text(&app)
     );
-    assert!(!grid_text(&app).contains("one"));
+    let screen = grid_text(&app);
+    assert!(
+        !screen.contains("one") && !screen.contains("two"),
+        "the shell was sent nothing from the paste:\n{screen}"
+    );
 }
 
 #[test]

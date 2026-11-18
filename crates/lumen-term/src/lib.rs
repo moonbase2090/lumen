@@ -47,6 +47,10 @@ pub mod layer;
 pub mod layout;
 #[cfg(feature = "links-clipboard")]
 pub mod link;
+#[cfg(feature = "links-clipboard")]
+pub mod linkhit;
+#[cfg(feature = "links-clipboard")]
+pub mod linkprompt;
 pub mod marks;
 #[cfg(all(feature = "window", any(target_os = "macos", windows)))]
 pub mod menu;
