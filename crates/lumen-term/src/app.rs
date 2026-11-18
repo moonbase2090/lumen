@@ -1835,26 +1835,6 @@ impl App {
         bytes
     }
 
-    /// Wait up to `wait` for the program's next output, then take it like
-    /// [`pump`](Self::pump). Returns at once when output is already there. For
-    /// tests that wait for what a program writes, not for a clock.
-    pub fn pump_wait(&mut self, wait: std::time::Duration) -> usize {
-        self.refresh_front();
-        let facts = self.facts_with(self.exited);
-        self.input.observe(facts);
-        let bytes = self.session.pump_wait(wait);
-        if bytes > 0 {
-            self.cursor_epoch_ms = self.session.now_ms();
-            self.refresh_find();
-        }
-        let events = self.session.take_events();
-        if !events.is_empty() {
-            self.route(&events);
-        }
-        self.tick();
-        bytes
-    }
-
     /// The window title to show if the program changed it since the last call:
     /// its title with the terminal's name, or the name alone after an empty or
     /// reset title. For the window chrome only; it is never drawn in the page.

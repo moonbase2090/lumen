@@ -139,10 +139,11 @@ fn less_gets_raw_keys() {
 #[test]
 fn a_password_read_is_hidden_and_never_drawn() {
     let mut app = zsh();
-    // The marker is printed in order just before the read turns echo off.
+    // Echo is off (as a password prompt leaves it) before the marker is
+    // printed, so the marker is ordered after the change the box reads.
     type_str(
         &mut app,
-        "printf 'ask-%s\\n' pw; read -s pw; echo got:${#pw}",
+        "stty -echo; printf 'ask-%s\\n' pw; read pw; stty echo; echo got:${#pw}",
     );
     enter(&mut app);
     assert!(until(&mut app, |a| grid_text(a).contains("ask-pw")));
