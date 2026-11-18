@@ -28,9 +28,11 @@ fn grid_text(app: &App) -> String {
         .join("\n")
 }
 
-/// Wait until `done` holds, taking the program's output as it arrives. It
-/// blocks on the program's output, not on a clock; the limit only bounds a
-/// test that would otherwise hang.
+/// Wait until `done` holds, taking the program's output as it arrives. Each
+/// wait blocks on the program's output for as long as the hang bound has left;
+/// nothing wakes on a clock. A `done` that depends on a tty change with no
+/// output of its own is not awaited here: wait for an output marker the
+/// program prints in order with that change instead.
 fn until(app: &mut App, done: impl Fn(&mut App) -> bool) -> bool {
     let end = Instant::now() + Duration::from_secs(20);
     loop {
@@ -38,11 +40,11 @@ fn until(app: &mut App, done: impl Fn(&mut App) -> bool) -> bool {
         if done(app) {
             return true;
         }
-        let now = Instant::now();
-        if now >= end {
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
             return false;
         }
-        app.pump_wait((end - now).min(Duration::from_millis(50)));
+        app.pump_wait(left);
     }
 }
 
@@ -137,9 +139,14 @@ fn less_gets_raw_keys() {
 #[test]
 fn a_password_read_is_hidden_and_never_drawn() {
     let mut app = zsh();
-    type_str(&mut app, "read -s pw; echo got:${#pw}");
+    // The marker is printed in order just before the read turns echo off.
+    type_str(
+        &mut app,
+        "printf 'ask-%s\\n' pw; read -s pw; echo got:${#pw}",
+    );
     enter(&mut app);
-    assert!(until(&mut app, |a| a.input_mode() == Mode::Hidden));
+    assert!(until(&mut app, |a| grid_text(a).contains("ask-pw")));
+    assert_eq!(app.input_mode(), Mode::Hidden);
     type_str(&mut app, "s3cret");
     assert_eq!(app.input_text(), "", "the secret never entered the box");
     enter(&mut app);
