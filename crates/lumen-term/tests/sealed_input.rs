@@ -209,32 +209,62 @@ fn a_builtin_reading_keys_gets_them_and_the_box_waits_for_the_sealed_prompt() {
     );
 }
 
-/// The shell's own process has executed sh and sh reads its line cooked, in
-/// front. zsh itself turns ICANON back on when it accepts a line, so the tty
-/// alone does not say which program reads; the process's name does.
-fn sh_reads_its_line(app: &App) -> bool {
-    let tty = app.session().tty_state();
-    let replaced = tty.group.is_some_and(|g| {
-        std::fs::read_to_string(format!("/proc/{g}/comm"))
-            .is_ok_and(|c| !c.trim_end().starts_with("zsh"))
-    });
-    replaced && tty.shell_in_front == Some(true) && tty.icanon == Some(true)
+/// A program the shell executes in place keeps the shell's pid, start time and
+/// seal channel, so the holder still answers it. This one asks for a sealed
+/// command start with the next id, as the shim would, writes the frame to the
+/// terminal, then prints a marker. Arguments: the channel's descriptor and the
+/// command id.
+const REPLACEMENT: &str = r#"zmodload zsh/system
+emulate -L zsh
+unsetopt multibyte
+be() {
+  local -i v=$1 i; local out= h
+  for (( i = 3; i >= 0; i-- )); do
+    h=${(l:2::0:)$(( [##16] (v >> (8 * i)) & 255 ))}; printf -v h "\\x$h"; out+=$h
+  done
+  REPLY=$out
 }
+be 900; num=$REPLY; be $2; body=$REPLY
+printf -v msg '\x01\x03'
+msg+=$num$'\x10'$body
+if syswrite -o $1 -- $msg && sysread -i $1 -t 5 -s 128 reply \
+    && [[ ${reply[1,2]} == $'\x01\x04' ]]; then
+  sealed=${reply[7,-1]}
+  be ${#sealed}; len=$REPLY
+  printf -v tag '\x8aLUMEN\x01\xf3'
+  stty -opost
+  print -rn -- $'\e_'$tag$'\x10'$len$sealed
+  stty opost
+fi
+print replaced-sent
+read -r _
+"#;
 
 #[test]
-fn a_shell_that_executes_another_program_loses_its_keys_at_its_command_start() {
+fn a_program_the_shell_executes_in_place_loses_the_keys_at_its_command_start() {
     let Some(mut app) = start("sealed-input-exec-start") else {
         return;
     };
+    let script = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("sealed-input-exec-start")
+        .join("replace.zsh");
+    assert!(std::fs::write(&script, REPLACEMENT).is_ok());
     assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
-    line(&mut app, "exec /bin/sh");
-    // The sealed command start is checked when it arrives; by then the shell
-    // has executed sh. No further Enter is needed.
+    // The same program under another name: the pid and start time stay, the
+    // name it was run under does not. No Enter follows.
+    line(
+        &mut app,
+        "exec -a replaced zsh -f ~/replace.zsh $_lumen_fd $((_lumen_id + 1))",
+    );
     assert!(
-        until(&mut app, |a| matches!(
-            a.session().seal_status(),
-            Status::GridOnly(_)
-        )),
+        until(&mut app, |a| grid_text(a).contains("replaced-sent\n")),
+        "the replacement ran: {}",
+        grid_text(&app)
+    );
+    // Its frame came before its marker; by the time the marker is drawn the
+    // command start has been checked and the layer has no keys.
+    assert!(
+        matches!(app.session().seal_status(), Status::GridOnly(_)),
         "the replaced shell lost its keys: {:?}",
         app.session().seal_status()
     );
@@ -247,18 +277,27 @@ fn a_shell_that_executes_another_program_loses_its_keys_at_the_next_enter() {
         return;
     };
     assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
-    // The command start comes while zsh is still zsh (sleep runs); the exec
-    // comes after it, with no frame of its own.
-    line(&mut app, "sleep 1; exec /bin/sh");
+    // The command start comes while zsh is still zsh, waiting in `read`; the
+    // exec comes after it, with no frame of its own. The prompt is quoted in
+    // two parts so that the command line drawn in the grid does not hold it.
+    line(
+        &mut app,
+        "echo waiting; read -r go; exec env PS1='sh''-ready> ' /bin/sh",
+    );
+    assert!(until(&mut app, |a| grid_text(a).contains("waiting\n")));
+    assert_eq!(app.session().seal_status(), Status::Sealed);
+    // The Enter that answers `read` is checked before it is written: zsh is
+    // still zsh then.
+    line(&mut app, "go");
     assert!(
-        until(&mut app, |a| sh_reads_its_line(a)
-            && a.input_mode() == Mode::Raw),
-        "sh reads its line"
+        until(&mut app, |a| grid_text(a).contains("\nsh-ready>")),
+        "sh drew its prompt: {}",
+        grid_text(&app)
     );
     assert_eq!(
         app.session().seal_status(),
         Status::Sealed,
-        "nothing has checked the shell since its command start"
+        "nothing has checked the shell since it executed sh"
     );
     key(&mut app, Key::Enter);
     assert!(
