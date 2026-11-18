@@ -353,6 +353,8 @@ pub struct Config {
     pub theme: crate::design::ThemeChoice,
     /// The user's fonts.
     pub fonts: crate::design::Fonts,
+    /// Copy a finished mouse selection at once.
+    pub copy_on_select: bool,
     /// The user's `shell` setting: what to run when `command` is empty.
     pub shell: Option<String>,
 }
@@ -561,8 +563,12 @@ impl Host {
                     .unwrap_or(false);
                 }
                 redraw |= run.app.take_selection_redraw();
+                let copy = run.app.take_copy_on_select();
                 if redraw {
                     run.window.request_redraw();
+                }
+                if copy {
+                    self.act(event_loop, Action::Copy);
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => self.wheel(&delta),
@@ -637,6 +643,7 @@ impl ApplicationHandler for Host {
                 // The user's look, then the system's appearance, if it says;
                 // light until it does.
                 app.set_theme_choice(self.config.theme);
+                app.set_copy_on_select(self.config.copy_on_select);
                 app.set_appearance(appearance(window.theme()));
                 if let Err(e) = app.set_fonts(&self.config.fonts) {
                     eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
