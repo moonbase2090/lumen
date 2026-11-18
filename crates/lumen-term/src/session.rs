@@ -248,6 +248,11 @@ impl Session {
         self.document.take_title()
     }
 
+    /// Whether the program rang the bell since the last call.
+    pub fn take_bell(&mut self) -> bool {
+        self.document.take_bell()
+    }
+
     /// Take the events the document raised since the last call, oldest first.
     pub fn take_events(&mut self) -> Vec<crate::document::Event> {
         self.document.take_events()
