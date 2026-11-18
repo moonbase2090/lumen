@@ -25,6 +25,7 @@ The [text runs](../spec/v0/text-runs.md#runs.colour) section of the spec names c
 | `caution` | The **unverified output** label: a caution, not an error |
 | `control_border` | The edge of the input editor and of the unverified output container |
 | `notice`, `notice_border` | A toast's box and border |
+| `find_match`, `find_current`, `find_text` | The backgrounds of a find match and of the one the user is on, and the text inside either |
 | `ansi[0..16]` | The sixteen ANSI colours of grid blocks |
 
 ## Built-in palettes
@@ -45,6 +46,7 @@ The tests in `crates/lumen-term/tests/design.rs` check these for each built-in p
 - **Text.** 4.5:1 is WCAG AA for body text. The spec's [visibility rule](../spec/v0/text-runs.md#runs.visible) treats a run under 3:1 as hidden, so a theme file is refused if any of its text falls under that.
 - **ANSI.** The black and white slots that sit next to the background by convention are exempt: 7 and 15 on a light palette, 0 on a dark one. The readable one of black and white is at least 4.5:1.
 - **Edges.** The edge of the editor and of the unverified output container use the control border, so that boundary is always clearly drawn.
+- **Find.** `find_text` is held to the text floor on both `find_match` and `find_current`. The current match is also drawn with a one-pixel outline in `find_text`, so it stands apart from the others by more than its colour.
 - **Margin.** The trust margin has the canvas colour, and a one-pixel divider separates it from the content: subtle in light and dark, at least 3:1 in high contrast. The header label is `chrome_text`, held to the text floor on the canvas like every text role.
 - **Sizes.** Every step of the type scale, and every font size a user may choose (8 to 72 px), is over the spec's 6 px floor for a visible run.
 

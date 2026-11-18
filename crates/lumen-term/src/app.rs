@@ -19,6 +19,7 @@ use crate::paste::{self, Decision, Hold, Pasted, Rejection};
 use crate::pty::SpawnError;
 use crate::raster::{Frame, Renderer, Window};
 use crate::scroll::Scroll;
+use crate::select::{self, Pos, Selection};
 use crate::session::{MAX_COLUMNS, MAX_ROWS, Session};
 
 /// What [`App::paste`] did.
@@ -68,6 +69,10 @@ impl Default for Links {
 }
 
 /// A terminal in a window of `width` by `height` pixels.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent window states: selecting, redraw, exited, focus"
+)]
 pub struct App {
     session: Session,
     renderer: Renderer,
@@ -85,15 +90,26 @@ pub struct App {
     mouse: Reporter,
     theme_choice: ThemeChoice,
     appearance: Appearance,
+    selection: Option<Selection>,
+    selecting: bool,
+    selection_changed: bool,
+    copy_on_select: bool,
+    copy_pending: bool,
     scroll: Scroll,
     /// How many times the view moved since the host last asked.
     view_moves: u32,
+    /// The find bar and its matches, while it is open.
+    find: Option<crate::search::Find>,
+    /// What was typed in the find bar when it was last closed, so reopening it,
+    /// or going to the next or previous match, searches for it again.
+    find_kept: String,
     /// When the cursor last moved the blink back to its on half: output or a key.
     cursor_epoch_ms: u64,
     /// The blink half the last frame was drawn with, so a change asks for a new frame.
     cursor_phase: bool,
     /// The program has ended: its screen has no cursor any more.
     exited: bool,
+    attention: crate::attention::Attention,
     preedit: Option<Preedit>,
     /// What the terminal is asking about a link, and how it opens one.
     #[cfg(feature = "links-clipboard")]
@@ -129,6 +145,8 @@ struct Preedit {
     /// The caret or selection inside `text`, as byte offsets.
     cursor: Option<(usize, usize)>,
 }
+
+mod find;
 
 /// Rows of text one wheel step scrolls.
 pub const WHEEL_ROWS: u32 = 3;
@@ -301,11 +319,19 @@ impl App {
             mouse: Reporter::default(),
             theme_choice: ThemeChoice::System,
             appearance: Appearance::Light,
+            selection: None,
+            selecting: false,
+            selection_changed: false,
+            copy_on_select: true,
+            copy_pending: false,
             scroll: Scroll::Follow,
             view_moves: 0,
+            find: None,
+            find_kept: String::new(),
             cursor_epoch_ms: 0,
             cursor_phase: true,
             exited: false,
+            attention: crate::attention::Attention::new(),
             preedit: None,
             #[cfg(feature = "links-clipboard")]
             links: Links::default(),
@@ -484,15 +510,21 @@ impl App {
     #[cfg(feature = "links-clipboard")]
     #[must_use]
     pub fn link_at(&self, x: u32, y: u32) -> Option<crate::linkhit::Hit> {
-        let (col, row) = self.live_cell(x, y)?;
+        let (col, row) = self.live_point(x, y)?;
         let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
             return None;
         };
-        crate::linkhit::link_at(
-            live.screen(),
-            usize::try_from(row).ok()?,
-            usize::try_from(col).ok()?,
-        )
+        let col = usize::try_from(col).ok()?;
+        let hits = if row < 0 {
+            // A line of the scrollback, counted up from the screen's top.
+            let back = live
+                .history_rows()
+                .checked_sub(usize::try_from(row.unsigned_abs()).ok()?)?;
+            crate::linkhit::cell_links(live.history_row(back)?)
+        } else {
+            crate::linkhit::row_links(live.screen(), usize::try_from(row).ok()?)
+        };
+        hits.into_iter().find(|hit| hit.columns.contains(&col))
     }
 
     /// The user pressed the link modifier with the primary button at pixel
@@ -587,6 +619,19 @@ impl App {
     /// pointer over scrolled-away output is not over the live block.
     #[must_use]
     pub fn live_cell(&self, x: u32, y: u32) -> Option<(u32, u32)> {
+        let (col, row) = self.live_point(x, y)?;
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return None;
+        };
+        let rows = i64::try_from(live.size().1).ok()?;
+        (0..rows)
+            .contains(&row)
+            .then(|| (col, u32::try_from(row).unwrap_or(0)))
+    }
+
+    /// The column and row of the live grid under pixel `(x, y)`, where a row
+    /// above the screen is negative: it is a line of the scrollback.
+    fn live_point(&self, x: u32, y: u32) -> Option<(u32, i64)> {
         let (cw, ch) = self.renderer.cell();
         let (cw, ch) = (cw.max(1), ch.max(1));
         let doc = self.session.document();
@@ -603,10 +648,159 @@ impl App {
         }
         let screen_top = self.renderer.live_screen_top(doc, content_columns)?;
         let in_flow = i64::from(py) + i64::from(self.scroll.top(total, area));
-        let py = u32::try_from(in_flow - i64::from(screen_top)).ok()?;
-        let (bc, br) = live.size();
-        let (col, row) = (px / cw, py / ch);
-        (col < u32::try_from(bc).ok()? && row < u32::try_from(br).ok()?).then_some((col, row))
+        let py = in_flow - i64::from(screen_top);
+        let col = px / cw;
+        (col < u32::try_from(live.size().0).ok()?).then_some((col, py.div_euclid(i64::from(ch))))
+    }
+
+    /// Whether a press of the primary button at `(x, y)` selects text. It does
+    /// unless the program asked for mouse reports and the live block is where
+    /// the press is; holding Shift always selects, as in other terminals.
+    fn pointer_selects(&self, x: u32, y: u32, held: Held) -> bool {
+        if held.shift {
+            return true;
+        }
+        let reporting = self
+            .live_modes()
+            .is_some_and(|m| m.tracking != crate::mouse::MouseTracking::Off && m.sgr);
+        !(reporting && self.live_cell(x, y).is_some())
+    }
+
+    /// The columns of the content area, in cells.
+    fn content_columns(&self) -> usize {
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let win = window_for(columns, rows);
+        usize::try_from(win.cols.saturating_sub(GUTTER_COLUMNS)).unwrap_or(1)
+    }
+
+    /// The selectable lines of the window's content.
+    fn flow(&self) -> Vec<select::FlowLine> {
+        self.renderer
+            .flow(self.session.document(), self.content_columns())
+    }
+
+    /// The place in the flow nearest pixel `(x, y)`. With `inside` the pixel
+    /// must be in the content area; without it, a pixel outside is moved to
+    /// the nearest line, so a drag past an edge still selects.
+    fn pos_at(&self, lines: &[select::FlowLine], x: u32, y: u32, inside: bool) -> Option<Pos> {
+        let (cw, ch) = self.renderer.cell();
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let win = window_for(columns, rows);
+        let content_x = GUTTER_COLUMNS.saturating_mul(cw) + self.renderer.gutter_pad();
+        let content_y = HEADER_ROWS.saturating_mul(ch);
+        let area_bottom = win.editor_row.saturating_mul(ch);
+        if inside && (x < content_x || y < content_y || y >= area_bottom) {
+            return None;
+        }
+        // The pixel row in the flow: the row in the area, plus how far the view is scrolled.
+        let (area, _, total) = self.content_metrics();
+        let cy = y
+            .saturating_sub(content_y)
+            .saturating_add(self.scroll.top(total, area));
+        let cx = x.saturating_sub(content_x);
+        let line = lines
+            .iter()
+            .position(|l| cy >= l.top && cy < l.top + l.height)
+            .or_else(|| {
+                if inside {
+                    return None;
+                }
+                // The line nearest the pixel row.
+                lines
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, l)| {
+                        if cy < l.top {
+                            l.top - cy
+                        } else {
+                            cy.saturating_sub(l.top + l.height - 1)
+                        }
+                    })
+                    .map(|(i, _)| i)
+            })?;
+        let l = &lines[line];
+        let col = self.renderer.char_at(l, cx.saturating_sub(l.left));
+        Some(Pos { line, col })
+    }
+
+    fn begin_selection(&mut self, x: u32, y: u32) {
+        let lines = self.flow();
+        let had = self.selection.take().is_some();
+        match self.pos_at(&lines, x, y, true) {
+            Some(p) => {
+                self.selection = Some(Selection { anchor: p, head: p });
+                self.selecting = true;
+                self.selection_changed = true;
+            }
+            None => self.selection_changed |= had,
+        }
+    }
+
+    fn extend_selection(&mut self, x: u32, y: u32) {
+        let lines = self.flow();
+        let Some(p) = self.pos_at(&lines, x, y, false) else {
+            return;
+        };
+        if let Some(sel) = &mut self.selection
+            && sel.head != p
+        {
+            sel.head = p;
+            self.selection_changed = true;
+        }
+    }
+
+    fn end_selection(&mut self, x: u32, y: u32) {
+        self.extend_selection(x, y);
+        self.selecting = false;
+        // A press and release in one place selects nothing.
+        if self.selection.is_some_and(|s| s.is_empty()) {
+            self.selection = None;
+            self.selection_changed = true;
+        } else if self.selection.is_some() {
+            self.copy_pending = self.copy_on_select;
+        }
+    }
+
+    /// Choose whether a finished mouse selection is copied at once.
+    pub fn set_copy_on_select(&mut self, on: bool) {
+        self.copy_on_select = on;
+    }
+
+    /// Whether a mouse selection just finished and the setting asks for it to
+    /// be copied. The caller then does a copy, which has the same rules as an
+    /// explicit one. Only a selection the terminal itself made is ever
+    /// reported: a program that asked for mouse reports gets the clicks and no
+    /// selection is made.
+    pub fn take_copy_on_select(&mut self) -> bool {
+        std::mem::take(&mut self.copy_pending)
+    }
+
+    /// Whether the selection changed since the last call, so the window draws
+    /// again. The pointer calls report only what they sent to the program.
+    pub fn take_selection_redraw(&mut self) -> bool {
+        std::mem::take(&mut self.selection_changed)
+    }
+
+    /// The text of the selection as a copy would carry it, or `None` if
+    /// nothing is selected.
+    #[must_use]
+    pub fn selected_text(&self) -> Option<String> {
+        let sel = self.selection?;
+        select::copy_selection(&self.flow(), &sel).map(|c| c.text)
+    }
+
+    /// Whether any text is selected.
+    #[must_use]
+    pub fn has_selection(&self) -> bool {
+        self.selection.is_some_and(|s| !s.is_empty())
+    }
+
+    /// Drop the selection. Returns whether there was one.
+    pub fn clear_selection(&mut self) -> bool {
+        self.selecting = false;
+        let had = self.selection.take().is_some();
+        self.selection_changed |= had;
+        had
     }
 
     /// Whether the view moved since the last call, for the window to draw again
@@ -704,6 +898,9 @@ impl App {
             }
             self.links.press_down = false;
         }
+        if b == Button::Left && self.pointer_selects(x, y, held) {
+            self.begin_selection(x, y);
+        }
         let Some(cell) = self.live_cell(x, y) else {
             return Ok(false);
         };
@@ -731,6 +928,10 @@ impl App {
             // The release of a press the link prompt took.
             return Ok(false);
         }
+        if b == Button::Left && self.selecting {
+            self.end_selection(x, y);
+            return Ok(false);
+        }
         let cell = self.live_cell(x, y);
         let modes = self.live_modes().unwrap_or(crate::mouse::Modes {
             tracking: crate::mouse::MouseTracking::Off,
@@ -749,6 +950,10 @@ impl App {
     pub fn mouse_move(&mut self, x: u32, y: u32, held: Held) -> std::io::Result<bool> {
         #[cfg(feature = "links-clipboard")]
         if self.links.prompt.is_some() {
+            return Ok(false);
+        }
+        if self.selecting {
+            self.extend_selection(x, y);
             return Ok(false);
         }
         let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes()) else {
@@ -804,6 +1009,10 @@ impl App {
         held: Held,
     ) -> std::io::Result<bool> {
         if pixels == 0 {
+            return Ok(false);
+        }
+        #[cfg(feature = "links-clipboard")]
+        if self.links.prompt.is_some() {
             return Ok(false);
         }
         if let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes()) {
@@ -911,8 +1120,11 @@ impl App {
         let (columns, rows) = window_cells(width, height, &self.renderer);
         let (block_columns, block_rows) = block_cells(columns, rows);
         self.session.resize(block_columns, block_rows)?;
+        // The lines the selection is in are laid out again.
+        self.clear_selection();
         self.width = width;
         self.height = height;
+        self.refresh_find();
         Ok(())
     }
 
@@ -929,11 +1141,30 @@ impl App {
     ///
     /// Returns why the renderer could not be made or the program could not be told.
     pub fn set_scale(&mut self, scale: u32) -> Result<(), SpawnError> {
+        // A view held somewhere in the output keeps its place by its share of
+        // the flow, since the flow's height changes with the cell size and the
+        // wrap.
+        let (area, _, total) = self.content_metrics();
+        let held = match self.scroll {
+            Scroll::Pinned(_) => Some(u64::from(self.scroll.top(total, area))),
+            Scroll::Follow => None,
+        };
         self.renderer =
             Renderer::with_fonts(scale, self.renderer.theme().clone(), self.renderer.fonts())
                 .map_err(SpawnError)?;
         self.scale = scale;
-        self.resize(self.width, self.height)
+        self.resize(self.width, self.height)?;
+        if let Some(top) = held {
+            let (area, _, now) = self.content_metrics();
+            let moved = top * u64::from(now) / u64::from(total.max(1));
+            let moved = u32::try_from(moved).unwrap_or(u32::MAX);
+            self.scroll = if moved >= now.saturating_sub(area) {
+                Scroll::Follow
+            } else {
+                Scroll::Pinned(moved)
+            };
+        }
+        Ok(())
     }
 
     /// Keep the scale as given: a display's scale no longer changes it. For a
@@ -976,6 +1207,40 @@ impl App {
     pub fn perform(&mut self, action: Action, clipboard: &dyn Clipboard) -> Outcome {
         match action {
             Action::Quit | Action::Close => Outcome::Exit,
+            Action::Find => {
+                self.find_open();
+                Outcome::Redraw
+            }
+            Action::FindNext => {
+                self.find_next();
+                Outcome::Redraw
+            }
+            Action::FindPrevious => {
+                self.find_previous();
+                Outcome::Redraw
+            }
+            Action::Paste if self.find.is_some() => {
+                // Into the bar, as one line.
+                if let Some(text) = clipboard.text() {
+                    let line = text.lines().next().unwrap_or_default().to_owned();
+                    self.find_text(&line);
+                }
+                Outcome::Redraw
+            }
+            Action::Copy => match self.selected_text() {
+                Some(text) if clipboard.set_text(&text) => Outcome::Nothing,
+                Some(_) => Outcome::Refused,
+                None => Outcome::Nothing,
+            },
+            Action::SelectAll => {
+                self.selection = select::select_all(&self.flow());
+                self.selecting = false;
+                if self.selection.is_some() {
+                    Outcome::Redraw
+                } else {
+                    Outcome::Nothing
+                }
+            }
             Action::Paste => {
                 let Some(text) = clipboard.text() else {
                     return Outcome::Nothing;
@@ -1022,6 +1287,10 @@ impl App {
         if self.scroll_key(key, mods) {
             return Ok(());
         }
+        if self.find.is_some() {
+            self.find_key(key, mods);
+            return Ok(());
+        }
         let bytes = keys::bytes_in(key, mods, self.session.key_modes());
         if bytes.is_empty() {
             return Ok(());
@@ -1041,6 +1310,10 @@ impl App {
     pub fn text(&mut self, text: &str) -> std::io::Result<()> {
         #[cfg(feature = "links-clipboard")]
         if self.links.prompt.is_some() {
+            return Ok(());
+        }
+        if self.find.is_some() {
+            self.find_text(text);
             return Ok(());
         }
         self.follow();
@@ -1245,6 +1518,7 @@ impl App {
         let bytes = self.session.pump();
         if bytes > 0 {
             self.cursor_epoch_ms = self.session.now_ms();
+            self.refresh_find();
         }
         let events = self.session.take_events();
         if !events.is_empty() {
@@ -1261,6 +1535,14 @@ impl App {
         self.session
             .take_title()
             .map(|t| crate::title::window_title(Some(&t)))
+    }
+
+    /// What the window should tell the system about the bell since the last
+    /// call. The bell is always taken, so it cannot pile up.
+    pub fn attention_step(&mut self) -> crate::attention::Step {
+        let rang = self.session.take_bell();
+        let now = self.session.now_ms();
+        self.attention.step(rang, now, self.desk.focused)
     }
 
     /// Whether the program has exited.
@@ -1283,12 +1565,13 @@ impl App {
         )]
         let mut frame = self
             .renderer
-            .render_window_scrolled(
+            .render_window_full(
                 self.session.document(),
                 &window_for(columns, rows),
                 &self.toasts(),
+                self.selection.as_ref(),
                 self.scroll,
-                cursor,
+                (cursor, self.find_overlay().as_ref()),
             )
             .viewport(self.width, self.height, self.renderer.theme().background);
         #[cfg(feature = "links-clipboard")]

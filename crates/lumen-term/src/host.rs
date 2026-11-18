@@ -353,6 +353,10 @@ pub struct Config {
     pub theme: crate::design::ThemeChoice,
     /// The user's fonts.
     pub fonts: crate::design::Fonts,
+    /// Copy a finished mouse selection at once.
+    pub copy_on_select: bool,
+    /// The user's `shell` setting: what to run when `command` is empty.
+    pub shell: Option<String>,
 }
 
 struct Running {
@@ -538,6 +542,7 @@ impl Host {
                         .app
                         .mouse_move(self.pointer.0, self.pointer.1, held)
                         .unwrap_or(false)
+                        | run.app.take_selection_redraw()
                 {
                     run.window.request_redraw();
                 }
@@ -572,8 +577,13 @@ impl Host {
                     }
                     .unwrap_or(false);
                 }
+                redraw |= run.app.take_selection_redraw();
+                let copy = run.app.take_copy_on_select();
                 if redraw {
                     run.window.request_redraw();
+                }
+                if copy {
+                    self.act(event_loop, Action::Copy);
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => self.wheel(&delta),
@@ -626,7 +636,10 @@ impl ApplicationHandler for Host {
             .unwrap_or_else(|| window.scale_factor().round().max(1.0) as u32);
         let (program, arguments) = match self.config.command.split_first() {
             Some((p, a)) => (p.clone(), a.to_vec()),
-            None => (default_shell(), Vec::new()),
+            None => (
+                crate::shell::default_shell(self.config.shell.as_deref()),
+                Vec::new(),
+            ),
         };
         match App::start(
             (self.config.layer)(),
@@ -645,6 +658,7 @@ impl ApplicationHandler for Host {
                 // The user's look, then the system's appearance, if it says;
                 // light until it does.
                 app.set_theme_choice(self.config.theme);
+                app.set_copy_on_select(self.config.copy_on_select);
                 app.set_appearance(appearance(window.theme()));
                 if let Err(e) = app.set_fonts(&self.config.fonts) {
                     eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
@@ -688,6 +702,13 @@ impl ApplicationHandler for Host {
             if let Some(title) = run.app.take_window_title() {
                 run.window.set_title(&title);
             }
+            match run.app.attention_step() {
+                crate::attention::Step::Request => run
+                    .window
+                    .request_user_attention(Some(winit::window::UserAttentionType::Informational)),
+                crate::attention::Step::Cancel => run.window.request_user_attention(None),
+                crate::attention::Step::Idle => {}
+            }
             if run.app.has_exited() {
                 event_loop.exit();
                 return;
@@ -706,13 +727,6 @@ pub fn appearance(theme: Option<WinitTheme>) -> Appearance {
         Some(WinitTheme::Dark) => Appearance::Dark,
         Some(WinitTheme::Light) | None => Appearance::Light,
     }
-}
-
-fn default_shell() -> String {
-    std::env::var("SHELL")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "/bin/sh".to_owned())
 }
 
 /// Open the window and run until it closes or the program exits.

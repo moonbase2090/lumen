@@ -19,10 +19,10 @@ pub mod actions;
 pub const APP_NAME: &str = "Bright";
 
 pub mod app;
+pub mod attention;
 pub mod cli;
 #[cfg(feature = "links-clipboard")]
 pub mod clipboard;
-#[cfg(feature = "links-clipboard")]
 pub mod copy;
 pub mod design;
 pub mod document;
@@ -58,8 +58,11 @@ pub mod reply;
 pub mod scroll;
 #[cfg(target_os = "linux")]
 pub mod seal;
+pub mod search;
+pub mod select;
 pub mod session;
 pub mod settings;
+pub mod shell;
 pub mod strip;
 pub mod theme_file;
 pub mod title;
@@ -77,5 +80,6 @@ pub use modes::{Changes, KeyModes, ModeTracker};
 pub use pty::SpawnError;
 pub use raster::{CursorState, Frame, Renderer, Theme, Window, wrap_text};
 pub use scroll::Scroll;
+pub use search::{Find, Hit, Mark, Overlay, SearchRow};
 pub use session::Session;
 pub use strip::Strip;

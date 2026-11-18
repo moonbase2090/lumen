@@ -10,14 +10,24 @@
 /// Something the window does for the user, apart from typing into the program.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
+    /// Copy the selected text to the system clipboard.
+    Copy,
     /// Paste the system clipboard's text into the program.
     Paste,
+    /// Select all the text in the window.
+    SelectAll,
     /// Draw the text larger.
     ZoomIn,
     /// Draw the text smaller.
     ZoomOut,
     /// Draw the text at the display's own size.
     ZoomReset,
+    /// Open the find bar.
+    Find,
+    /// Go to the next match of the find.
+    FindNext,
+    /// Go to the previous match of the find.
+    FindPrevious,
     /// Close the window and end the session.
     Close,
     /// Quit the application.
@@ -74,10 +84,15 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 return None;
             }
             match (key, held.shift) {
+                ('c', false) => Some(Action::Copy),
                 ('v', false) => Some(Action::Paste),
+                ('a', false) => Some(Action::SelectAll),
                 ('=' | '+', _) => Some(Action::ZoomIn),
                 ('-', false) => Some(Action::ZoomOut),
                 ('0', false) => Some(Action::ZoomReset),
+                ('f', false) => Some(Action::Find),
+                ('g', false) => Some(Action::FindNext),
+                ('g', true) => Some(Action::FindPrevious),
                 ('w', false) => Some(Action::Close),
                 ('q', false) => Some(Action::Quit),
                 _ => None,
@@ -88,10 +103,14 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 return None;
             }
             match key {
+                'c' => Some(Action::Copy),
                 'v' => Some(Action::Paste),
+                'a' => Some(Action::SelectAll),
                 '=' | '+' => Some(Action::ZoomIn),
                 '-' | '_' => Some(Action::ZoomOut),
                 '0' | ')' => Some(Action::ZoomReset),
+                'f' => Some(Action::Find),
+                'g' => Some(Action::FindNext),
                 _ => None,
             }
         }
@@ -139,6 +158,13 @@ mod tests {
         assert_eq!(action_for(Platform::Mac, 'v', CMD), Some(Action::Paste));
         assert_eq!(action_for(Platform::Mac, 'q', CMD), Some(Action::Quit));
         assert_eq!(action_for(Platform::Mac, 'w', CMD), Some(Action::Close));
+        assert_eq!(action_for(Platform::Mac, 'f', CMD), Some(Action::Find));
+        assert_eq!(action_for(Platform::Mac, 'g', CMD), Some(Action::FindNext));
+        let shifted = Held { shift: true, ..CMD };
+        assert_eq!(
+            action_for(Platform::Mac, 'g', shifted),
+            Some(Action::FindPrevious)
+        );
         assert_eq!(action_for(Platform::Mac, '=', CMD), Some(Action::ZoomIn));
         assert_eq!(action_for(Platform::Mac, '-', CMD), Some(Action::ZoomOut));
         assert_eq!(action_for(Platform::Mac, '0', CMD), Some(Action::ZoomReset));
@@ -156,12 +182,20 @@ mod tests {
             control: true,
             ..Held::default()
         };
-        for key in ['v', 'w', 'c', 'q', '=', '-', '0'] {
+        for key in ['v', 'w', 'c', 'q', '=', '-', '0', 'f', 'g'] {
             assert_eq!(action_for(Platform::Other, key, ctrl), None, "{key}");
         }
         assert_eq!(
             action_for(Platform::Other, 'v', CTRL_SHIFT),
             Some(Action::Paste)
+        );
+        assert_eq!(
+            action_for(Platform::Other, 'f', CTRL_SHIFT),
+            Some(Action::Find)
+        );
+        assert_eq!(
+            action_for(Platform::Other, 'g', CTRL_SHIFT),
+            Some(Action::FindNext)
         );
         assert_eq!(action_for(Platform::Other, 'q', CTRL_SHIFT), None);
         assert_eq!(action_for(Platform::Other, 'w', CTRL_SHIFT), None);

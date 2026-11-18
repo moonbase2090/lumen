@@ -300,3 +300,77 @@ fn a_written_address_is_underlined_in_the_accent_colour() {
         (cell_bottom.saturating_sub(4)..cell_bottom).any(|row| frame.pixel(x, row) == Some(accent));
     assert!(found, "an accent underline under the address");
 }
+
+#[test]
+fn the_pixel_wheel_is_the_prompts_too_while_it_is_up() {
+    // The program asks for mouse reports and shows what it is sent, so a
+    // wheel report that reached it would be on screen.
+    let (mut app, _) = start(
+        "printf '\\033[?1000h\\033[?1006h'; echo 'at https://example.com/w here'; stty raw -echo; cat -v",
+    );
+    assert!(pump_until(&mut app, |a| shows(a, "here")));
+    let (x, y) = pixel_of(&app, "https://example.com/w", 2);
+
+    // Before the prompt, a trackpad wheel reaches the program.
+    assert!(
+        app.wheel_pixels(x, y, 40, lumen_term::mouse::Held::default())
+            .unwrap_or_else(|e| unreachable!("{e}"))
+    );
+    assert!(pump_until(&mut app, |a| shows(a, "^[[<64;")));
+
+    assert!(app.link_press(x, y));
+    let before = app.visible_text();
+    for pixels in [40, -40, 400] {
+        assert!(
+            !app.wheel_pixels(x, y, pixels, lumen_term::mouse::Held::default())
+                .unwrap_or_else(|e| unreachable!("{e}")),
+            "the pixel wheel is the prompt's while it is up"
+        );
+    }
+    for _ in 0..10 {
+        app.pump();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(app.visible_text(), before, "the program saw nothing");
+    assert!(app.link_prompt().is_some());
+}
+
+#[test]
+fn an_address_in_the_scrollback_is_underlined_and_activatable() {
+    let (mut app, opened) =
+        start("echo 'old https://example.com/old end'; seq 1 200; echo tail; sleep 30");
+    assert!(pump_until(&mut app, |a| shows(a, "tail")));
+    assert!(
+        !shows(&app, "https://example.com/old"),
+        "it has scrolled off"
+    );
+    assert!(app.scroll_end(true), "scrolled to the top");
+
+    let found = (0..SIZE.1)
+        .step_by(2)
+        .flat_map(|y| (0..SIZE.0).step_by(2).map(move |x| (x, y)))
+        .find(|&(x, y)| app.link_at(x, y).is_some())
+        .unwrap_or_else(|| unreachable!("no link in the scrollback"));
+    let hit = app.link_at(found.0, found.1);
+    assert_eq!(
+        hit.as_ref().map(|h| h.target.as_str()),
+        Some("https://example.com/old")
+    );
+
+    // It is drawn underlined.
+    let accent = lumen_term::design::theme().prompt;
+    let frame = app.view();
+    let ch = app.cell_height();
+    let bottom = found.1 - found.1 % ch + ch;
+    assert!(
+        (bottom.saturating_sub(4)..bottom).any(|row| frame.pixel(found.0, row) == Some(accent)),
+        "an accent underline under the address in the history"
+    );
+
+    // And it asks, and opens only on yes.
+    assert!(app.link_press(found.0, found.1));
+    assert!(lines(&app).contains("https://example.com/old"));
+    assert_eq!(opened.count(), 0);
+    enter(&mut app);
+    assert_eq!(opened.all(), vec!["https://example.com/old"]);
+}

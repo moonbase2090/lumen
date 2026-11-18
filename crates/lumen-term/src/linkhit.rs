@@ -45,6 +45,14 @@ pub fn row_links(screen: &Screen, row: usize) -> Vec<Hit> {
     links_in(cells, &uri)
 }
 
+/// Every written address in `cells`, a row of scrollback or of the screen,
+/// left to right. Scrollback keeps no program links, and the grid drops them
+/// before they reach it, so only written addresses are found.
+#[must_use]
+pub fn cell_links(cells: &[Cell]) -> Vec<Hit> {
+    links_in(cells, &|_| None)
+}
+
 /// The link under column `col` of `row`, if there is one.
 #[must_use]
 pub fn link_at(screen: &Screen, row: usize, col: usize) -> Option<Hit> {

@@ -63,6 +63,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --locked -p lumen-decoder --test g4_sandbox -- --nocapture --test-threads=1
 
+  # The terminal's shell choice on Windows: the real order, the profile-folder
+  # lookup for the settings file, and a real PowerShell started through the window's session.
+  term-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --locked -p lumen-term --test shell --test settings --test shell_windows --test settings_userprofile_windows -- --nocapture
+
   deny:
     runs-on: ubuntu-latest
     steps:
