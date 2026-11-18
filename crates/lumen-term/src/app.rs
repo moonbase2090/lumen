@@ -1161,13 +1161,23 @@ impl App {
         if self.front_name.as_ref().is_some_and(|(g, _)| *g == group) {
             return;
         }
+        // A pipeline's group leader may have ended already, so the last process
+        // listed in the group is the one named.
         let out = std::process::Command::new("ps")
-            .args(["-o", "comm=", "-p", &group.to_string()])
+            .args(["-ax", "-o", "pgid=,comm="])
             .output()
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .unwrap_or_default();
-        let base = out.trim().rsplit('/').next().unwrap_or("");
+        let comm = out
+            .lines()
+            .rev()
+            .find_map(|l| {
+                let (g, c) = l.trim_start().split_once(char::is_whitespace)?;
+                (g.parse::<i32>().ok()? == group).then_some(c.trim())
+            })
+            .unwrap_or("");
+        let base = comm.rsplit('/').next().unwrap_or("");
         let name: String = base
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
