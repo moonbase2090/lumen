@@ -451,12 +451,17 @@ impl InputLine {
 
     /// An Enter went to the shell: until the shell shows it read the line, keys
     /// are its typeahead.
+    ///
+    /// Ctrl+C is the other way a line ends: the shell drops the line and stays
+    /// at its prompt, so there is nothing to wait for.
     fn note_enter(&mut self, bytes: &[u8]) {
         if bytes.ends_with(b"\r") {
             self.sent = Some(Sent {
                 at: Instant::now(),
                 left: false,
             });
+        } else if bytes == [0x03] {
+            self.sent = None;
         }
     }
 
@@ -1324,10 +1329,30 @@ mod tests {
     }
 
     #[test]
-    fn control_c_does_not_wait_for_the_shell() {
+    fn control_c_after_enter_ends_the_wait_at_once() {
         let at = Facts::at_prompt();
         let mut line = waiting();
-        line.key(at, Key::Char('c'), CTRL);
-        assert_eq!(line.mode(at), Mode::Editing);
+        line.key(at, Key::Enter, NONE);
+        assert_eq!(line.mode(at), Mode::Raw, "waiting for the shell");
+        assert_eq!(
+            line.key(at, Key::Char('c'), CTRL),
+            Outcome::Write(vec![0x03])
+        );
+        assert_eq!(
+            line.mode(at),
+            Mode::Editing,
+            "the shell dropped the line and stayed at its prompt"
+        );
+    }
+
+    #[test]
+    fn deleting_the_wait_would_fail_these_tests() {
+        // The state under test is real: with it, the first key after Enter is
+        // the shell's; without a send, the same key edits the box.
+        let at = Facts::at_prompt();
+        let mut fresh = waiting();
+        assert_eq!(fresh.mode(at), Mode::Editing);
+        fresh.key(at, Key::Enter, NONE);
+        assert_eq!(fresh.mode(at), Mode::Raw);
     }
 }

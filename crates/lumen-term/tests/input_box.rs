@@ -28,16 +28,22 @@ fn grid_text(app: &App) -> String {
         .join("\n")
 }
 
+/// Wait until `done` holds, taking the program's output as it arrives. It
+/// blocks on the program's output, not on a clock; the limit only bounds a
+/// test that would otherwise hang.
 fn until(app: &mut App, done: impl Fn(&mut App) -> bool) -> bool {
     let end = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < end {
+    loop {
         app.pump();
         if done(app) {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(20));
+        let now = Instant::now();
+        if now >= end {
+            return false;
+        }
+        app.pump_wait((end - now).min(Duration::from_millis(50)));
     }
-    false
 }
 
 fn type_str(app: &mut App, s: &str) {
@@ -81,7 +87,10 @@ fn a_control_key_is_never_swallowed_by_the_box() {
     // The marker comes from the job itself, so it holds the terminal before
     // Ctrl-C is sent (the box reads Raw earlier too, while the shell is
     // still starting the job on a cooked tty).
-    type_str(&mut app, "sh -c 'echo job-started; exec sleep 30'");
+    type_str(
+        &mut app,
+        "sh -c 'printf \"job-%s\\n\" started; exec sleep 30'",
+    );
     enter(&mut app);
     assert!(until(&mut app, |a| grid_text(a).contains("job-started")));
     assert!(until(&mut app, |a| a.input_mode() == Mode::Raw));
@@ -132,12 +141,12 @@ fn a_password_read_is_hidden_and_never_drawn() {
     enter(&mut app);
     assert!(until(&mut app, |a| a.input_mode() == Mode::Hidden));
     type_str(&mut app, "s3cret");
-    std::thread::sleep(Duration::from_millis(200));
-    app.pump();
-    assert!(!grid_text(&app).contains("s3cret"));
     assert_eq!(app.input_text(), "", "the secret never entered the box");
     enter(&mut app);
+    // The shell read all six characters and the line, in order, so its output
+    // is the signal that anything it would have echoed is already drawn.
     assert!(until(&mut app, |a| grid_text(a).contains("got:6")));
+    assert!(!grid_text(&app).contains("s3cret"), "the secret was drawn");
 }
 
 struct Fixed(&'static str);
@@ -178,15 +187,22 @@ fn control_d_after_box_text_leaves_the_shell_holding_the_line() {
         },
     )
     .unwrap_or_else(|e| unreachable!("key: {e}"));
-    std::thread::sleep(Duration::from_millis(400));
-    app.pump();
     assert_eq!(app.input_text(), "", "the box handed its text over");
     assert_eq!(
         app.input_mode(),
         Mode::HandedOff,
         "zsh still holds the prefix, so the shell owns the line"
     );
-    // The line is finished by the shell: Ctrl+C clears it and the box is back.
+    // The shell lists what completes `echo` (it holds the line, so the Ctrl+D
+    // did not end it), then reads the Ctrl+C, which clears the line.
+    assert!(until(&mut app, |a| grid_text(a).contains("echoti")));
+    let empty_prompts = |a: &App| {
+        grid_text(a)
+            .lines()
+            .filter(|l| l.trim_end().ends_with('%'))
+            .count()
+    };
+    let before = empty_prompts(&app);
     app.key(
         Key::Char('c'),
         Mods {
@@ -196,6 +212,20 @@ fn control_d_after_box_text_leaves_the_shell_holding_the_line() {
     )
     .unwrap_or_else(|e| unreachable!("key: {e}"));
     assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    // A new empty prompt is the signal that the shell has read the Ctrl+C. It
+    // drops what was typed before that, so type after it.
+    assert!(until(&mut app, |a| empty_prompts(a) > before));
+    // The shell is still there: it answers a line typed after the Ctrl+D.
+    type_str(&mut app, "echo shell-still-here");
+    enter(&mut app);
+    assert!(
+        until(&mut app, |a| grid_text(a)
+            .matches("shell-still-here")
+            .count()
+            >= 2),
+        "the shell answered the line: {}",
+        grid_text(&app)
+    );
 }
 
 #[test]
