@@ -10,6 +10,7 @@
 //! mono_size = 14          # 8 to 72
 //! prose_font = "bundled"
 //! prose_size = 16
+//! copy_on_select = true   # true or false: copy a finished mouse selection
 //! ```
 //!
 //! A file is a value with a `/` in it: an absolute path, a path under the home
@@ -71,6 +72,8 @@ pub struct LookSettings {
     pub prose_font: FontSetting,
     /// The prose size in pixels at scale 1.
     pub prose_size: u32,
+    /// Whether a finished mouse selection is copied at once. On by default.
+    pub copy_on_select: bool,
 }
 
 impl Default for LookSettings {
@@ -82,6 +85,7 @@ impl Default for LookSettings {
             mono_size: fonts.mono_px(),
             prose_font: FontSetting::Bundled,
             prose_size: fonts.prose_px(),
+            copy_on_select: true,
         }
     }
 }
@@ -291,6 +295,13 @@ pub fn parse(text: &str, dir: &Path, home: Option<&Path>) -> Result<LookSettings
             "prose_font" => look.prose_font = font()?,
             "mono_size" => look.mono_size = size()?,
             "prose_size" => look.prose_size = size()?,
+            "copy_on_select" => {
+                look.copy_on_select = match value {
+                    "true" => true,
+                    "false" => false,
+                    _ => return Err((line, format!("`{key}` must be true or false"))),
+                };
+            }
             _ => return Err((line, format!("unknown setting `{key}`"))),
         }
         if seen.contains(&key) {
