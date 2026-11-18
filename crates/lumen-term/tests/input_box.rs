@@ -4,6 +4,8 @@
 
 #![cfg(unix)]
 
+use lumen_term::actions::Action;
+use lumen_term::clipboard::Clipboard;
 use lumen_term::input_line::Mode;
 use lumen_term::{App, Block, Key, Mods, Passthrough};
 use std::time::{Duration, Instant};
@@ -129,4 +131,30 @@ fn a_password_read_is_hidden_and_never_drawn() {
     assert_eq!(app.input_text(), "", "the secret never entered the box");
     enter(&mut app);
     assert!(until(&mut app, |a| grid_text(a).contains("got:6")));
+}
+
+struct Fixed(&'static str);
+
+impl Clipboard for Fixed {
+    fn text(&self) -> Option<String> {
+        Some(self.0.to_owned())
+    }
+}
+
+#[test]
+fn the_paste_chord_lands_in_the_box_and_nothing_runs() {
+    let mut app = zsh();
+    type_str(&mut app, "echo ");
+    let before = grid_text(&app);
+    app.perform(Action::Paste, &Fixed("one\ntwo"));
+    assert_eq!(app.input_text(), "echo one\ntwo");
+    std::thread::sleep(Duration::from_millis(300));
+    app.pump();
+    // The box grew a row, so the grid is a row shorter: compare what is written.
+    assert_eq!(
+        grid_text(&app).trim_end(),
+        before.trim_end(),
+        "the shell was sent nothing"
+    );
+    assert!(!grid_text(&app).contains("one"));
 }

@@ -341,6 +341,7 @@ impl Palette {
             prompt: self.accent,
             toast: self.notice,
             toast_border: self.notice_border,
+            muted: self.text_muted,
             find_match: self.find_match,
             find_current: self.find_current,
             find_text: self.find_text,
@@ -385,6 +386,8 @@ pub struct Theme {
     pub toast: Rgb,
     /// A toast's border.
     pub toast_border: Rgb,
+    /// Secondary text: the input box's status row.
+    pub muted: Rgb,
     /// The background of a find match.
     pub find_match: Rgb,
     /// The background of the find match the user is on.
@@ -431,6 +434,7 @@ impl Theme {
             prompt: [28, 28, 28],
             toast: [255, 250, 230],
             toast_border: [190, 150, 60],
+            muted: [110, 110, 110],
             find_match: [255, 230, 130],
             find_current: [255, 160, 60],
             find_text: [28, 28, 28],

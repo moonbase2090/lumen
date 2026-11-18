@@ -151,6 +151,15 @@ impl InputLine {
         Mode::Editing
     }
 
+    /// The tty was looked at: when the shell is not at a prompt any more (a
+    /// command runs, or the shell is reading cooked), the line it held is over,
+    /// however it was accepted.
+    pub fn observe(&mut self, facts: Facts) {
+        if self.handed_off && (facts.shell_in_front != Some(true) || facts.icanon != Some(false)) {
+            self.handed_off = false;
+        }
+    }
+
     /// A key.
     pub fn key(&mut self, facts: Facts, key: Key, mods: Mods) -> Outcome {
         match self.mode(facts) {
@@ -269,7 +278,35 @@ impl InputLine {
                 self.held = None;
                 return Outcome::Redraw;
             }
-            return Outcome::None;
+            // A key that is not the box's to edit with is never swallowed: it
+            // ends the choice, the text stays in the box unsent, and the key's
+            // bytes alone go to the program.
+            let edits = matches!(
+                key,
+                Key::Char(_)
+                    | Key::Keypad(_)
+                    | Key::Backspace
+                    | Key::Delete
+                    | Key::Left
+                    | Key::Right
+                    | Key::Up
+                    | Key::Down
+                    | Key::Home
+                    | Key::End
+                    | Key::Enter
+                    | Key::KeypadEnter
+            ) && !mods.ctrl
+                && !mods.alt;
+            if edits {
+                return Outcome::None;
+            }
+            self.held = None;
+            let bytes = bytes_in(key, mods, facts.keys);
+            return if bytes.is_empty() {
+                Outcome::Redraw
+            } else {
+                Outcome::Write(bytes)
+            };
         }
         let plain = !mods.ctrl && !mods.alt;
         match key {
@@ -353,7 +390,7 @@ impl InputLine {
         self.clear();
         if ends_line(&key_bytes) {
             self.handed_off = false;
-        } else if had_text || touches_line(&key_bytes) {
+        } else if had_text || starts_line_work(&key_bytes) {
             self.handed_off = true;
         }
         Outcome::Write(out)
@@ -473,16 +510,10 @@ fn ends_line(bytes: &[u8]) -> bool {
 }
 
 /// A key that can change the line the shell holds, so the shell has it now.
-fn touches_line(bytes: &[u8]) -> bool {
-    match bytes {
-        // Tab, Esc, Ctrl+R and the other Ctrl+letter line editing keys; but
-        // not Ctrl+L or Ctrl+Z, which leave the line alone.
-        [b'\t' | 0x1b] => true,
-        [b] if *b < 0x20 => !matches!(*b, 0x0c | 0x1a),
-        // Alt+key sends ESC and the key.
-        [0x1b, b] => *b != b'[' && *b != b'O',
-        _ => false,
-    }
+/// Keys that, with nothing in the box, can still make the shell hold a line:
+/// completion and history search. The rest go straight through.
+fn starts_line_work(bytes: &[u8]) -> bool {
+    matches!(bytes, [b'\t' | 0x12])
 }
 
 #[cfg(test)]
@@ -721,6 +752,10 @@ mod tests {
     }
 
     /// Every key that is not the box's to edit with, as it is written.
+    fn facts_keys() -> KeyModes {
+        Facts::at_prompt().keys
+    }
+
     fn hand_off_keys() -> Vec<(String, Key, Mods, Vec<u8>)> {
         let mut keys = vec![
             ("Tab".to_owned(), Key::Tab, NONE, b"\t".to_vec()),
@@ -820,6 +855,84 @@ mod tests {
             assert_eq!(l.key(facts, end, mods), Outcome::Write(bytes.to_vec()));
             assert_eq!(l.mode(facts), Mode::Editing, "{end:?} ends the line");
         }
+    }
+
+    #[test]
+    fn with_an_empty_box_only_completion_and_search_hand_off() {
+        let facts = Facts::at_prompt();
+        for key in [
+            Key::Escape,
+            Key::Char('a'),
+            Key::Char('k'),
+            Key::Char('u'),
+            Key::Char('w'),
+        ] {
+            let mods = if key == Key::Escape { NONE } else { CTRL };
+            let mut line = InputLine::new();
+            line.key(facts, key, mods);
+            assert_eq!(
+                line.mode(facts),
+                Mode::Editing,
+                "{key:?} leaves the box usable"
+            );
+        }
+        for (key, mods) in [(Key::Tab, NONE), (Key::Char('r'), CTRL)] {
+            let mut line = InputLine::new();
+            line.key(facts, key, mods);
+            assert_eq!(
+                line.mode(facts),
+                Mode::HandedOff,
+                "{key:?} may fill the line"
+            );
+        }
+    }
+
+    #[test]
+    fn a_handed_off_line_ends_when_the_prompt_state_ends() {
+        let facts = Facts::at_prompt();
+        let mut line = InputLine::new();
+        typed(&mut line, facts, "ls");
+        line.key(facts, Key::Tab, NONE);
+        assert_eq!(line.mode(facts), Mode::HandedOff);
+        // The line was accepted another way (Ctrl+J): a command ran and ended.
+        let running = Facts {
+            shell_in_front: Some(false),
+            icanon: Some(true),
+            echo: Some(true),
+            ..facts
+        };
+        line.observe(running);
+        assert_eq!(line.mode(facts), Mode::Editing);
+    }
+
+    #[test]
+    fn a_control_key_ends_a_held_choice_and_still_goes_through() {
+        let facts = Facts {
+            keys: KeyModes {
+                bracketed_paste: false,
+                ..facts_keys()
+            },
+            ..Facts::at_prompt()
+        };
+        let mut line = InputLine::new();
+        typed(&mut line, facts, "a");
+        line.key(
+            facts,
+            Key::Enter,
+            Mods {
+                shift: true,
+                ..NONE
+            },
+        );
+        typed(&mut line, facts, "b");
+        assert_eq!(line.key(facts, Key::Enter, NONE), Outcome::Hold);
+        assert!(line.held().is_some());
+        let out = line.key(facts, Key::Char('c'), CTRL);
+        assert!(
+            matches!(out, Outcome::Write(ref b) if b.ends_with(&[0x03])),
+            "{out:?}"
+        );
+        assert!(line.held().is_none());
     }
 
     #[test]

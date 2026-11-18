@@ -486,7 +486,7 @@ impl App {
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         let win = window_for_box(columns, rows, self.box_rows);
         let top = win.editor_row * cell_h;
-        let left = GUTTER_COLUMNS * cell_w + self.renderer.gutter_pad() + 2 * cell_w;
+        let left = GUTTER_COLUMNS * cell_w + self.renderer.gutter_pad() + 3 * cell_w;
         let inside = y >= top && y < (win.editor_row + win.editor_rows) * cell_h;
         if !inside || x < left || cell_h == 0 || cell_w == 0 {
             return false;
@@ -1113,6 +1113,17 @@ impl App {
                 let Some(text) = clipboard.text() else {
                     return Outcome::Nothing;
                 };
+                // While the box edits, a paste lands in it for review and
+                // nothing runs until Enter.
+                let facts = self.facts();
+                match self.input.paste(facts, &text) {
+                    Line::Redraw => {
+                        let _ = self.apply_line(Line::Redraw);
+                        return Outcome::Redraw;
+                    }
+                    Line::Refused => return Outcome::Refused,
+                    _ => {}
+                }
                 let bracketed = self.session.key_modes().bracketed_paste;
                 let pasted = match paste::judge(&text, bracketed) {
                     Decision::Send(p) => p,
@@ -1167,7 +1178,9 @@ impl App {
     /// What the tty and the grid say now, for the input line.
     fn facts(&mut self) -> Facts {
         let ended = self.exited || self.session.has_exited();
-        self.facts_with(ended)
+        let facts = self.facts_with(ended);
+        self.input.observe(facts);
+        facts
     }
 
     fn facts_with(&self, ended: bool) -> Facts {
@@ -1258,7 +1271,7 @@ impl App {
             }),
             Mode::Ended => Some("The program has ended".to_owned()),
             Mode::Hidden => Some(format!("Keys go to {name} · input not shown")),
-            Mode::HandedOff => Some("Keys go to the shell".to_owned()),
+            Mode::HandedOff => Some("Editing in the shell: Enter runs the line".to_owned()),
             Mode::Raw if facts.shell_in_front == Some(true) => {
                 Some("Keys go to the shell".to_owned())
             }
@@ -1438,7 +1451,7 @@ impl App {
             GUTTER_COLUMNS
                 .saturating_mul(cell_w)
                 .saturating_add(self.renderer.gutter_pad())
-                .saturating_add(col.saturating_add(2).saturating_mul(cell_w)),
+                .saturating_add(col.saturating_add(3).saturating_mul(cell_w)),
             win.editor_row.saturating_add(line).saturating_mul(cell_h),
             used.max(1).saturating_mul(cell_w),
             cell_h,
@@ -1535,6 +1548,8 @@ impl App {
     /// Take what the program has written. Returns the bytes handled.
     pub fn pump(&mut self) -> usize {
         self.refresh_front();
+        let facts = self.facts_with(self.exited);
+        self.input.observe(facts);
         let bytes = self.session.pump();
         if bytes > 0 {
             self.cursor_epoch_ms = self.session.now_ms();
@@ -1575,8 +1590,11 @@ impl App {
     #[must_use]
     pub fn view(&self) -> Frame {
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let editing_box = self.input.mode(self.facts_with(self.exited)) == Mode::Editing;
         let cursor = (!self.exited).then(|| crate::raster::CursorState {
-            focused: self.desk.focused,
+            // While the box is the place to type, the grid's cursor is drawn
+            // unfocused: there is one typeable place at a time.
+            focused: self.desk.focused && !editing_box,
             blink_on: self.blink_on(self.session.now_ms()),
         });
         self.renderer
