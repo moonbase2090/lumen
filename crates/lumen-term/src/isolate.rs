@@ -11,7 +11,9 @@
 //!   range that continues a UTF-8 sequence is text and stays;
 //! - invalid UTF-8, so the filter and the emulator agree on what a code point is;
 //! - OSC other than the allowlist: title (0, 1, 2) and colours (4, 10 to 19,
-//!   104, 110 to 119). OSC 8, 52 and 133 have no protocol effect here.
+//!   104, 110 to 119). OSC 8, 52 and 133 have no protocol effect here. The
+//!   prompt marks (OSC 133 A to D and OSC 7) are removed too, but each is noted
+//!   as a [`Mark`].
 //!
 //! The only string terminator is `ESC \`, and BEL for an allowlisted OSC. The
 //! 8-bit ST, CAN and SUB do not end a string. A string is read up to 4 KiB; at
@@ -35,6 +37,48 @@ pub enum Note {
     StringTruncated,
     /// An allowed OSC sequence that is exactly one colour query.
     ColourQuery(crate::reply::ColourQuery),
+}
+
+/// The most prompt marks kept: the newest are, and the oldest go first.
+pub const MARKS_KEPT: usize = 256;
+
+/// A prompt mark the shell wrote: OSC 133 `A`, `B`, `C` or `D`, or OSC 7. They
+/// have no effect on the document; they are noted for what reads them next and
+/// for tests, and the sequence itself is removed like any other OSC.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Mark {
+    /// OSC 133 `A`: the prompt starts.
+    PromptStart,
+    /// OSC 133 `B`: the prompt ends and the command is typed.
+    PromptEnd,
+    /// OSC 133 `C`: the command starts running.
+    CommandStart,
+    /// OSC 133 `D`: the command ended, with its exit status when it gave one.
+    CommandEnd(Option<i32>),
+    /// OSC 7: the working directory, as the URL the shell wrote.
+    Directory(String),
+}
+
+fn mark_of(body: &[u8]) -> Option<Mark> {
+    if let Some(rest) = body.strip_prefix(b"133;") {
+        return match rest {
+            [b'A', ..] => Some(Mark::PromptStart),
+            [b'B', ..] => Some(Mark::PromptEnd),
+            [b'C', ..] => Some(Mark::CommandStart),
+            [b'D'] => Some(Mark::CommandEnd(None)),
+            [b'D', b';', status @ ..] => {
+                let digits = status.split(|b| *b == b';').next().unwrap_or_default();
+                Some(Mark::CommandEnd(
+                    std::str::from_utf8(digits)
+                        .ok()
+                        .and_then(|s| s.parse().ok()),
+                ))
+            }
+            _ => None,
+        };
+    }
+    body.strip_prefix(b"7;")
+        .map(|url| Mark::Directory(String::from_utf8_lossy(url).into_owned()))
 }
 
 /// What the filter has removed so far, for tests and the log.
@@ -76,6 +120,7 @@ pub struct Isolator {
     /// The bytes of the UTF-8 sequence in progress.
     pending: Vec<u8>,
     stats: Stats,
+    marks: std::collections::VecDeque<Mark>,
 }
 
 impl Default for Isolator {
@@ -133,7 +178,14 @@ impl Isolator {
             state: State::Ground,
             pending: Vec::new(),
             stats: Stats::default(),
+            marks: std::collections::VecDeque::new(),
         }
+    }
+
+    /// The prompt marks seen, oldest first, up to [`MARKS_KEPT`].
+    #[must_use]
+    pub fn marks(&self) -> Vec<Mark> {
+        self.marks.iter().cloned().collect()
     }
 
     /// What the filter has removed so far.
@@ -232,6 +284,12 @@ impl Isolator {
                 out.extend_from_slice(end);
             } else {
                 self.stats.osc += 1;
+                if let Some(mark) = mark_of(&body) {
+                    if self.marks.len() == MARKS_KEPT {
+                        self.marks.pop_front();
+                    }
+                    self.marks.push_back(mark);
+                }
             }
             self.abandon_utf8();
             return;

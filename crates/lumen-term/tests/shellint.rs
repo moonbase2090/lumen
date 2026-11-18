@@ -10,7 +10,9 @@
 
 #![cfg(unix)]
 
+use lumen_term::isolate::Mark;
 use lumen_term::shellint::{ShellOptions, plan};
+use lumen_term::{Block, Layer, Session};
 use prismattyc_emulator::{PtySession, pty_size_with_cell_pixels};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -117,8 +119,96 @@ impl Drop for Home {
     }
 }
 
-/// What a shell wrote while it ran `lines`, one after another.
-fn run(program: &Path, home: &Home, integration: bool, lines: &[&str]) -> Vec<u8> {
+fn layer() -> Box<dyn Layer + Send> {
+    Box::new(lumen_arm_b::Layer::new(lumen_arm_b::Config {
+        budget: lumen_arm_b::Budget::quarter_of(2000, 8 << 20),
+        background_as_text: false,
+    }))
+}
+
+/// What the session shows as text, and the prompt marks it has noted.
+struct Seen {
+    text: String,
+    marks: Vec<Mark>,
+}
+
+fn text(s: &Session) -> String {
+    s.document()
+        .blocks()
+        .iter()
+        .filter_map(|b| match b {
+            Block::Grid(g) => Some(g.text_rows().join("\n")),
+            Block::Rich(_) => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn pump_until(s: &mut Session, done: impl Fn(&Session) -> bool) -> bool {
+    let end = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < end {
+        s.pump_wait(Duration::from_millis(100));
+        if done(s) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Start `program` in the terminal's own session, in `home`, and type `lines`
+/// to it one after another, each once the previous one's prompt is back.
+fn run(program: &Path, home: &Home, integration: bool, lines: &[&str]) -> Seen {
+    let program = program.display().to_string();
+    let mut environment = BTreeMap::new();
+    environment.insert("HOME".to_owned(), home.dir.display().to_string());
+    environment.insert(
+        "XDG_CONFIG_HOME".to_owned(),
+        home.dir.join(".config").display().to_string(),
+    );
+    environment.insert("TERM".to_owned(), "xterm-256color".to_owned());
+    let mut session = Session::start_in_environment(
+        layer(),
+        100,
+        30,
+        &program,
+        &[] as &[&str],
+        ShellOptions { integration },
+        &environment,
+    )
+    .unwrap_or_else(|e| unreachable!("the shell starts: {e}"));
+    let prompts = |s: &Session| text(s).matches(PROMPT.trim_end()).count();
+    assert!(
+        pump_until(&mut session, |s| prompts(s) >= 1),
+        "the user's prompt shows:\n{}",
+        text(&session)
+    );
+    for line in lines {
+        let wanted = prompts(&session) + 1;
+        assert!(session.send(format!("{line}\r").as_bytes()).is_ok());
+        assert!(
+            pump_until(&mut session, |s| prompts(s) >= wanted),
+            "the prompt returns after {line:?}:\n{}",
+            text(&session)
+        );
+    }
+    let seen = Seen {
+        text: text(&session),
+        marks: session.document().marks(),
+    };
+    session.finish();
+    seen
+}
+
+// PowerShell's line editor asks the terminal where the cursor is (`ESC [ 6 n`)
+// and draws nothing sensible without an answer. The terminal does not answer
+// that yet, so PowerShell is run here on a stand-in terminal that does: the
+// same plan the terminal makes, on a PTY, with the answer given.
+fn run_on_a_terminal_that_answers(
+    program: &Path,
+    home: &Home,
+    integration: bool,
+    lines: &[&str],
+) -> Seen {
     let program = program.display().to_string();
     let var = |name: &str| std::env::var(name).ok();
     let launch = plan(&program, &[], ShellOptions { integration }, &var);
@@ -156,7 +246,7 @@ fn run(program: &Path, home: &Home, integration: bool, lines: &[&str]) -> Vec<u8
     let mut seen = Vec::new();
     let take = |until: &[u8], wait: Duration, seen: &mut Vec<u8>, writer: &mut dyn Write| {
         let end = Instant::now() + wait;
-        while Instant::now() < end && !contains(seen, until) {
+        while Instant::now() < end && !bytes_contain(seen, until) {
             if let Ok(chunk) = receive.recv_timeout(Duration::from_millis(50)) {
                 answer_cursor_queries(&chunk, writer);
                 seen.extend(chunk);
@@ -189,7 +279,10 @@ fn run(program: &Path, home: &Home, integration: bool, lines: &[&str]) -> Vec<u8
     take(b"\0never", Duration::from_secs(2), &mut seen, &mut writer);
     session.kill_and_reap();
     drop(launch);
-    seen
+    Seen {
+        marks: raw_marks(&seen),
+        text: String::from_utf8_lossy(&seen).into_owned(),
+    }
 }
 
 /// A terminal answers the cursor-position query (`ESC [ 6 n`) some shells send;
@@ -201,16 +294,7 @@ fn answer_cursor_queries(chunk: &[u8], writer: &mut dyn Write) {
     let _ = writer.flush();
 }
 
-/// The command that prints the variable the user's start-up file sets.
-fn var_command(name: &str) -> &'static str {
-    if name.starts_with("pwsh") {
-        "$env:USER_ENV_FILE"
-    } else {
-        "echo $USER_ENV_FILE"
-    }
-}
-
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
     seen_count(haystack, needle) > 0
 }
 
@@ -225,8 +309,8 @@ fn seen_count(haystack: &[u8], needle: &[u8]) -> usize {
 }
 
 /// The marks in `bytes`, in order: `A`, `B`, `C`, `D;n`, or `7;url`.
-fn marks(bytes: &[u8]) -> Vec<String> {
-    let mut out = Vec::new();
+fn raw_marks(bytes: &[u8]) -> Vec<Mark> {
+    let mut out: Vec<Mark> = Vec::new();
     let mut i = 0;
     while i + 2 < bytes.len() {
         if bytes[i] == 0x1b && bytes[i + 1] == b']' {
@@ -237,9 +321,9 @@ fn marks(bytes: &[u8]) -> Vec<String> {
                 .unwrap_or(rest.len());
             let body = String::from_utf8_lossy(&rest[..end]).into_owned();
             if let Some(m) = body.strip_prefix("133;") {
-                out.push(m.to_owned());
+                out.extend(mark_from(m));
             } else if body.starts_with("7;") {
-                out.push(body);
+                out.extend(mark_from(&body));
             }
             i += 2 + end;
         } else {
@@ -249,11 +333,47 @@ fn marks(bytes: &[u8]) -> Vec<String> {
     out
 }
 
-fn position(list: &[String], what: &str, from: usize) -> Option<usize> {
-    list.iter()
-        .skip(from)
-        .position(|m| m == what || m.starts_with(&format!("{what};")))
-        .map(|p| p + from)
+/// The mark a body such as `A`, `D;3` or `7;file://...` stands for.
+fn mark_from(body: &str) -> Option<Mark> {
+    match body.as_bytes() {
+        [b'A', ..] => Some(Mark::PromptStart),
+        [b'B', ..] => Some(Mark::PromptEnd),
+        [b'C', ..] => Some(Mark::CommandStart),
+        [b'D'] => Some(Mark::CommandEnd(None)),
+        [b'D', b';', rest @ ..] => Some(Mark::CommandEnd(
+            std::str::from_utf8(rest).ok().and_then(|s| s.parse().ok()),
+        )),
+        _ => body
+            .strip_prefix("7;")
+            .map(|u| Mark::Directory(u.to_owned())),
+    }
+}
+
+/// The command that prints the variable the user's start-up file sets.
+fn var_command(name: &str) -> &'static str {
+    if name.starts_with("pwsh") {
+        "$env:USER_ENV_FILE"
+    } else {
+        "echo $USER_ENV_FILE"
+    }
+}
+
+/// Run the shell for `name`: in the terminal's own session, except PowerShell.
+fn run_for(name: &str, program: &Path, home: &Home, integration: bool, lines: &[&str]) -> Seen {
+    if name.starts_with("pwsh") {
+        run_on_a_terminal_that_answers(program, home, integration, lines)
+    } else {
+        run(program, home, integration, lines)
+    }
+}
+
+fn contains(seen: &Seen, what: &str) -> bool {
+    seen.text.contains(what)
+}
+
+/// The index of the first mark at or after `from` for which `is` holds.
+fn position(marks: &[Mark], from: usize, is: impl Fn(&Mark) -> bool) -> Option<usize> {
+    marks.iter().skip(from).position(is).map(|p| p + from)
 }
 
 /// Run the common script in `program` and check everything the ticket asks for.
@@ -262,47 +382,50 @@ fn check(name: &str, program: &Path) {
     let before = home.snapshot();
     let sub = home.sub.display().to_string();
     let cd = format!("cd '{sub}'");
-    let out = run(
+    let out = run_for(
+        name,
         program,
         &home,
         true,
         &["hello", "sh -c 'exit 3'", &cd, var_command(name)],
     );
-    let text = String::from_utf8_lossy(&out).into_owned();
+    let text = out.text.clone();
     // The user's files work: their prompt, alias and variable.
     assert!(
-        text.contains(PROMPT),
+        contains(&out, PROMPT.trim_end()),
         "{name}: the user's prompt shows\n{text}"
     );
     assert!(
-        text.contains("user-alias-works"),
+        contains(&out, "user-alias-works"),
         "{name}: the user's alias works\n{text}"
     );
     assert!(
-        text.contains("-ran"),
+        contains(&out, "-ran"),
         "{name}: the user's variable was set by their file\n{text}"
     );
     // The marks, in order, around the first command (`hello`) and the second.
-    let list = marks(&out);
-    let a = position(&list, "A", 0).unwrap_or(usize::MAX);
-    let b = position(&list, "B", a.saturating_add(1)).unwrap_or(usize::MAX);
-    let c = position(&list, "C", b.saturating_add(1)).unwrap_or(usize::MAX);
-    let d = position(&list, "D", c.saturating_add(1)).unwrap_or(usize::MAX);
+    let list = &out.marks;
+    let a = position(list, 0, |m| *m == Mark::PromptStart);
+    let b = a.and_then(|a| position(list, a + 1, |m| *m == Mark::PromptEnd));
+    let c = b.and_then(|b| position(list, b + 1, |m| *m == Mark::CommandStart));
+    let d = c.and_then(|c| position(list, c + 1, |m| matches!(m, Mark::CommandEnd(_))));
     assert!(
-        d != usize::MAX && a < b && b < c && c < d,
-        "{name}: A, B, C, D in order: {list:?}"
+        d.is_some(),
+        "{name}: A, B, C, D come in that order: {list:?}"
     );
     assert_eq!(
-        list[d], "D;0",
+        d.map(|d| &list[d]),
+        Some(&Mark::CommandEnd(Some(0))),
         "{name}: a command that succeeded ends with 0: {list:?}"
     );
     assert!(
-        list.iter().any(|m| m == "D;3"),
+        list.contains(&Mark::CommandEnd(Some(3))),
         "{name}: the exit status of a failing command is reported: {list:?}"
     );
     assert!(
-        list.iter()
-            .any(|m| m.starts_with("7;file://") && m.ends_with("/a%20b")),
+        list.iter().any(
+            |m| matches!(m, Mark::Directory(url) if url.starts_with("file://") && url.ends_with("/a%20b"))
+        ),
         "{name}: the working directory arrives, percent-encoded: {list:?}"
     );
     // The user's own files are the same bytes they were.
@@ -319,7 +442,8 @@ fn check(name: &str, program: &Path) {
     // The shell may keep state of its own (history, a completion cache). The
     // hooks add nothing to what it keeps with the integration off.
     let off = Home::new(&format!("{name}-baseline"));
-    let _ = run(
+    let _ = run_for(
+        name,
         program,
         &off,
         false,
@@ -340,16 +464,16 @@ fn check(name: &str, program: &Path) {
 /// The same shell with the integration off: no marks, and the user's files work.
 fn check_off(name: &str, program: &Path) {
     let home = Home::new(&format!("{name}-off"));
-    let out = run(program, &home, false, &["hello"]);
-    let text = String::from_utf8_lossy(&out).into_owned();
+    let out = run_for(name, program, &home, false, &["hello"]);
     assert!(
-        text.contains("user-alias-works"),
-        "{name}: works unchanged\n{text}"
+        contains(&out, "user-alias-works"),
+        "{name}: works unchanged\n{}",
+        out.text
     );
     assert!(
-        marks(&out).is_empty(),
+        out.marks.is_empty(),
         "{name}: no marks with the setting off: {:?}",
-        marks(&out)
+        out.marks
     );
 }
 

@@ -166,9 +166,36 @@ impl Session {
         );
         #[cfg(not(target_os = "linux"))]
         {
-            check_size(columns, rows)?;
-            Self::start_unsealed(layer, columns, rows, program, arguments, shell)
+            Self::start_in_environment(
+                layer,
+                columns,
+                rows,
+                program,
+                arguments,
+                shell,
+                &std::collections::BTreeMap::new(),
+            )
         }
+    }
+
+    /// [`start_with_shell`](Self::start_with_shell) with `environment` added to
+    /// the program's own, and no sealed layer. This is how a shell is started
+    /// in a home directory of its own.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the program could not be started.
+    pub fn start_in_environment<S: AsRef<std::ffi::OsStr>>(
+        layer: Box<dyn Layer + Send>,
+        columns: usize,
+        rows: usize,
+        program: &str,
+        arguments: &[S],
+        shell: ShellOptions,
+        environment: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Self, SpawnError> {
+        check_size(columns, rows)?;
+        Self::start_unsealed(layer, columns, rows, program, arguments, shell, environment)
     }
 
     /// Start `program` on a PTY with no sealed layer. A shell started directly
@@ -180,19 +207,28 @@ impl Session {
         program: &str,
         arguments: &[S],
         shell: ShellOptions,
+        environment: &std::collections::BTreeMap<String, String>,
     ) -> Result<Self, SpawnError> {
         if !arguments.is_empty() {
-            let pty = Pty::spawn(columns, rows, program, arguments)?;
+            let pty = if environment.is_empty() {
+                Pty::spawn(columns, rows, program, arguments)?
+            } else {
+                Pty::spawn_with_environment(columns, rows, program, arguments, environment)?
+            };
             return Ok(Self::from_pty(layer, columns, rows, pty));
         }
-        let launch = crate::shellint::plan(program, &[], shell, &|name| std::env::var(name).ok());
-        let pty = Pty::spawn_with_environment(
-            columns,
-            rows,
-            &launch.program,
-            &launch.arguments,
-            &launch.environment,
-        )?;
+        // What the shell is given counts as its environment for the plan too.
+        let var = |name: &str| {
+            environment
+                .get(name)
+                .cloned()
+                .or_else(|| std::env::var(name).ok())
+        };
+        let launch = crate::shellint::plan(program, &[], shell, &var);
+        let mut added = environment.clone();
+        added.extend(launch.environment.clone());
+        let pty =
+            Pty::spawn_with_environment(columns, rows, &launch.program, &launch.arguments, &added)?;
         let mut session = Self::from_pty(layer, columns, rows, pty);
         session.shell_files = launch.scratch;
         Ok(session)
@@ -251,7 +287,15 @@ impl Session {
             None
         };
         let Some(resolved) = resolved else {
-            return Self::start_unsealed(layer, columns, rows, program, arguments, shell);
+            return Self::start_unsealed(
+                layer,
+                columns,
+                rows,
+                program,
+                arguments,
+                shell,
+                &config.environment,
+            );
         };
         let started = crate::seal::start(columns, rows, &resolved, config)?;
         if let Some(receiver) = started.receiver {
