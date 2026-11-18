@@ -1791,8 +1791,18 @@ impl App {
             self.put_back_queued();
             return;
         }
-        if let Some(next) = self.queued.pop_front() {
-            let _ = self.write_user_input(&next, true);
+        self.send_next_queued();
+    }
+
+    /// Write the next queued line. If the write fails (the program has ended
+    /// or is not reading), that line and the rest go back into the box unsent.
+    fn send_next_queued(&mut self) {
+        let Some(next) = self.queued.pop_front() else {
+            return;
+        };
+        if self.write_user_input(&next, true).is_err() {
+            self.queued.push_front(next);
+            self.put_back_queued();
         }
     }
 
@@ -1847,5 +1857,42 @@ impl App {
                 Some(&self.input_view()),
             )
             .viewport(self.width, self.height, self.renderer.theme().background)
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::App;
+    use crate::layer::Passthrough;
+
+    #[test]
+    fn a_queued_line_whose_write_fails_goes_back_to_the_box_with_the_rest() {
+        // Once the program has ended every write is refused. Its tty closing
+        // ends the output stream, which is what the wait waits for.
+        let mut app = App::start(
+            Box::new(Passthrough),
+            "/bin/sh",
+            &["-c", "exit 0"],
+            1,
+            800,
+            600,
+        )
+        .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !app.session.has_exited() {
+            let left = end.saturating_duration_since(std::time::Instant::now());
+            assert!(!left.is_zero(), "the program ended");
+            app.pump_wait(left);
+        }
+        app.queued
+            .extend([b"echo two\r".to_vec(), b"echo three\r".to_vec()]);
+        app.send_next_queued();
+        assert!(app.queued.is_empty(), "nothing is left queued");
+        assert_eq!(
+            app.input.text(),
+            "echo two\necho three",
+            "the line whose write failed and the one after it are back in the box"
+        );
+        assert_eq!(app.forwarded_enters(), 0, "no Enter was counted");
     }
 }

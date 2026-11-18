@@ -137,18 +137,21 @@ fn start_with_rc(name: &str, rc: &str) -> Option<App> {
     Some(app)
 }
 
-/// Wait for `done`, taking the program's output as it comes: each turn blocks
-/// until the program writes (or a short wait passes with nothing written). The
-/// deadline only bounds a hung test.
+/// Wait for `done`, which turns true on the program's output: after each check
+/// the test blocks until the program writes again. The deadline only bounds a
+/// hung test; there is no polling interval.
 fn until(app: &mut App, done: impl Fn(&mut App) -> bool) -> bool {
     let end = Instant::now() + Duration::from_secs(30);
-    while Instant::now() < end {
-        app.pump_wait(Duration::from_millis(200));
+    loop {
         if done(app) {
             return true;
         }
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        app.pump_wait(left);
     }
-    false
 }
 
 fn grid_text(app: &App) -> String {
@@ -192,16 +195,28 @@ fn a_builtin_reading_keys_gets_them_and_the_box_waits_for_the_sealed_prompt() {
         until(&mut app, |a| a.input_mode() == Mode::Editing),
         "the box takes keys at the sealed prompt"
     );
-    line(&mut app, "echo reading; read -k k; echo got-$k-done");
-    // While `read -k` waits, the shell is in front with ICANON off, which is
-    // all a layer without sealing has to go on. The sealed command start,
-    // which came before "reading", says the shell is not at a prompt, so keys
-    // go to it.
+    // stty puts the tty in the state `read -k` reads in before the marker is
+    // written, so when "reading" is drawn the shell is in front with ICANON
+    // off: all a layer without sealing has to go on, and it reads as a
+    // prompt. The sealed command start came before the marker too, and says
+    // the shell is not at a prompt, so keys go to it.
+    line(
+        &mut app,
+        "stty -icanon -echo; echo reading; read -k k; stty sane; echo got-$k-done",
+    );
     assert!(
-        until(&mut app, |a| grid_text(a).contains("reading\n")
-            && kernel_says_prompt(a)
-            && a.input_mode() == Mode::Raw),
-        "read -k waits with the kernel facts of a prompt and the box raw"
+        until(&mut app, |a| grid_text(a).contains("reading\n")),
+        "the command ran: {}",
+        grid_text(&app)
+    );
+    assert!(
+        kernel_says_prompt(&app),
+        "the kernel facts read as a prompt"
+    );
+    assert_eq!(
+        app.input_mode(),
+        Mode::Raw,
+        "the box does not take the keys"
     );
     key(&mut app, Key::Char('q'));
     assert!(
