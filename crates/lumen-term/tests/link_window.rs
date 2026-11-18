@@ -53,16 +53,21 @@ fn start(script: &str) -> (App, Opened) {
     (app, opened)
 }
 
+/// Take the program's output as it arrives until `done`. Each wait ends when
+/// the program writes; the limit only ends a test that never gets its signal.
 fn pump_until(app: &mut App, done: impl Fn(&mut App) -> bool) -> bool {
     let end = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < end {
+    loop {
         app.pump();
         if done(app) {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(20));
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        app.pump_wait(left);
     }
-    false
 }
 
 fn shows(app: &App, text: &str) -> bool {
@@ -306,9 +311,11 @@ fn the_pixel_wheel_is_the_prompts_too_while_it_is_up() {
     // The program asks for mouse reports and shows what it is sent, so a
     // wheel report that reached it would be on screen.
     let (mut app, _) = start(
-        "printf '\\033[?1000h\\033[?1006h'; echo 'at https://example.com/w here'; stty raw -echo; cat -v",
+        "printf '\\033[?1000h\\033[?1006h\\033[?1h'; echo 'at https://example.com/w here'; stty raw -echo; printf 'READY\\r\\n'; cat -v",
     );
-    assert!(pump_until(&mut app, |a| shows(a, "here")));
+    // READY is written once the program has the terminal raw: input before that
+    // would be echoed twice by the line discipline.
+    assert!(pump_until(&mut app, |a| shows(a, "READY")));
     let (x, y) = pixel_of(&app, "https://example.com/w", 2);
 
     // Before the prompt, a trackpad wheel reaches the program.
@@ -316,7 +323,10 @@ fn the_pixel_wheel_is_the_prompts_too_while_it_is_up() {
         app.wheel_pixels(x, y, 40, lumen_term::mouse::Held::default())
             .unwrap_or_else(|e| unreachable!("{e}"))
     );
-    assert!(pump_until(&mut app, |a| shows(a, "^[[<64;")));
+    // The program's output keeps the order it was sent in, so a marker typed
+    // after the wheel is on screen only once the wheel's report is.
+    app.text("Q").unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(pump_until(&mut app, |a| shows(a, "^[[<64;") && shows(a, "Q")));
 
     assert!(app.link_press(x, y));
     let before = app.visible_text();
@@ -327,12 +337,20 @@ fn the_pixel_wheel_is_the_prompts_too_while_it_is_up() {
             "the pixel wheel is the prompt's while it is up"
         );
     }
-    for _ in 0..10 {
-        app.pump();
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    assert_eq!(app.visible_text(), before, "the program saw nothing");
     assert!(app.link_prompt().is_some());
+
+    // Answer the question, then send a second marker: when it is on screen,
+    // anything the wheel had sent the program would be too, before it.
+    app.key(Key::Escape, lumen_term::Mods::default())
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    app.text("Z").unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(pump_until(&mut app, |a| shows(a, "Z")));
+    let after: Vec<String> = app
+        .visible_text()
+        .iter()
+        .map(|line| line.replace('Z', ""))
+        .collect();
+    assert_eq!(after, before, "the program saw nothing");
 }
 
 #[test]
@@ -387,9 +405,10 @@ impl lumen_term::clipboard::Clipboard for Clip {
 fn a_menu_or_shortcut_action_does_nothing_while_the_prompt_is_up() {
     use lumen_term::actions::Action;
     use lumen_term::app::Outcome;
-    let (mut app, _) =
-        start("echo 'at https://example.com/p here'; printf '\\033[?1h'; stty raw -echo; cat -v");
-    assert!(pump_until(&mut app, |a| shows(a, "here")));
+    let (mut app, _) = start(
+        "echo 'at https://example.com/p here'; printf '\\033[?1h'; stty raw -echo; printf 'READY\\r\\n'; cat -v",
+    );
+    assert!(pump_until(&mut app, |a| shows(a, "READY")));
     // The keys and paste are the program's once it sets application keys (otherwise the input box takes them); before that they
     // would land in the input box.
     assert!(pump_until(&mut app, |a| a.input_mode()
@@ -416,11 +435,6 @@ fn a_menu_or_shortcut_action_does_nothing_while_the_prompt_is_up() {
             "{action:?} is the prompt's while it is up"
         );
     }
-    for _ in 0..10 {
-        app.pump();
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    assert!(!shows(&app, "second-paste"), "the program saw nothing");
     assert!(app.link_prompt().is_some());
 
     // Close still works, and after the answer Paste reaches the program again.
@@ -432,4 +446,6 @@ fn a_menu_or_shortcut_action_does_nothing_while_the_prompt_is_up() {
         Outcome::Redraw
     );
     assert!(pump_until(&mut app, |a| shows(a, "third-paste")));
+    // Output keeps its order: the second paste would be on screen by now.
+    assert!(!shows(&app, "second-paste"), "the program saw nothing");
 }

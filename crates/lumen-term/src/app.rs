@@ -1806,10 +1806,23 @@ impl App {
 
     /// Take what the program has written. Returns the bytes handled.
     pub fn pump(&mut self) -> usize {
+        self.pump_taking(None)
+    }
+
+    /// Wait up to `wait` for the program's next output, then take it as
+    /// [`pump`](Self::pump) does. The wait ends as soon as output arrives.
+    pub fn pump_wait(&mut self, wait: std::time::Duration) -> usize {
+        self.pump_taking(Some(wait))
+    }
+
+    fn pump_taking(&mut self, wait: Option<std::time::Duration>) -> usize {
         self.refresh_front();
         let facts = self.facts_with(self.exited);
         self.input.observe(facts);
-        let bytes = self.session.pump();
+        let bytes = match wait {
+            Some(wait) => self.session.pump_wait(wait),
+            None => self.session.pump(),
+        };
         if bytes > 0 {
             self.cursor_epoch_ms = self.session.now_ms();
             self.refresh_find();
