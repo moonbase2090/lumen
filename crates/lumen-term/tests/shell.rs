@@ -8,7 +8,7 @@ use lumen_term::shell::choose;
 use std::path::Path;
 
 fn good(text: &str) -> settings::LookSettings {
-    settings::parse(text, Path::new("/tmp"), None).unwrap_or_else(|e| unreachable!("{text}: {e:?}"))
+    settings::parse(text, Path::new("."), None).unwrap_or_else(|e| unreachable!("{text}: {e:?}"))
 }
 
 fn path_has<'a>(names: &'a [&'a str]) -> impl Fn(&str) -> bool + 'a {
@@ -106,7 +106,7 @@ fn a_bad_shell_setting_ignores_the_file_with_a_notice() {
         ("shell = pwsh", "`shell` needs a quoted value"),
         ("shell = \"a\"\nshell = \"b\"", "`shell` is given twice"),
     ] {
-        let Err(err) = settings::parse(text, Path::new("/tmp"), None) else {
+        let Err(err) = settings::parse(text, Path::new("."), None) else {
             unreachable!("{text} was accepted");
         };
         assert!(err.1.contains(why), "{text}: {}", err.1);
@@ -135,20 +135,20 @@ fn the_home_is_home_or_on_windows_the_profile_folder() {
     // HOME wins where it is set, on every system.
     for windows in [true, false] {
         assert_eq!(
-            home_dir(os("/srv/someone"), os(r"D:\profile"), windows),
-            Some(PathBuf::from("/srv/someone"))
+            home_dir(os("home-sentinel"), os("profile-sentinel"), windows),
+            Some(PathBuf::from("home-sentinel"))
         );
     }
     // The profile folder stands in only on Windows, and only when HOME is not set or empty.
     assert_eq!(
-        home_dir(None, os(r"D:\profile"), true),
-        Some(PathBuf::from(r"D:\profile"))
+        home_dir(None, os("profile-sentinel"), true),
+        Some(PathBuf::from("profile-sentinel"))
     );
     assert_eq!(
-        home_dir(os(""), os(r"D:\profile"), true),
-        Some(PathBuf::from(r"D:\profile"))
+        home_dir(os(""), os("profile-sentinel"), true),
+        Some(PathBuf::from("profile-sentinel"))
     );
-    assert_eq!(home_dir(None, os(r"D:\profile"), false), None);
+    assert_eq!(home_dir(None, os("profile-sentinel"), false), None);
     assert_eq!(home_dir(None, os(""), true), None);
     assert_eq!(home_dir(None, None, true), None);
 }
