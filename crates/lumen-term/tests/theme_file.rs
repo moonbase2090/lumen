@@ -122,10 +122,23 @@ fn every_role_can_be_set() {
         "control_border",
         "notice",
         "notice_border",
+        "find_match",
+        "find_current",
+        "find_text",
     ];
     // Black text roles on white surfaces; borders and ANSI anything.
     for role in roles {
-        let white = ["canvas", "surface", "sunken", "field", "chrome", "notice"].contains(&role);
+        let white = [
+            "canvas",
+            "surface",
+            "sunken",
+            "field",
+            "chrome",
+            "notice",
+            "find_match",
+            "find_current",
+        ]
+        .contains(&role);
         let value = if white { "#ffffff" } else { "#000000" };
         assert!(parse(&format!("{role} = \"{value}\"")).is_ok(), "{role}");
     }

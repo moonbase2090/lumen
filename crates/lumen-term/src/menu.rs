@@ -20,6 +20,9 @@ pub const fn id_of(action: Action) -> &'static str {
         Action::ZoomIn => "zoom-in",
         Action::ZoomOut => "zoom-out",
         Action::ZoomReset => "zoom-reset",
+        Action::Find => "find",
+        Action::FindNext => "find-next",
+        Action::FindPrevious => "find-previous",
         Action::Close => "close",
         Action::Quit => "quit",
     }
@@ -35,6 +38,9 @@ pub fn action_of(id: &str) -> Option<Action> {
         Action::ZoomIn,
         Action::ZoomOut,
         Action::ZoomReset,
+        Action::Find,
+        Action::FindNext,
+        Action::FindPrevious,
         Action::Close,
         Action::Quit,
     ]
@@ -43,11 +49,15 @@ pub fn action_of(id: &str) -> Option<Action> {
 }
 
 fn item(action: Action, text: &str, code: Code) -> MenuItem {
+    item_with(action, text, Modifiers::META, code)
+}
+
+fn item_with(action: Action, text: &str, modifiers: Modifiers, code: Code) -> MenuItem {
     MenuItem::with_id(
         id_of(action),
         text,
         true,
-        Some(Accelerator::new(Modifiers::META, code)),
+        Some(Accelerator::new(modifiers, code)),
     )
 }
 
@@ -90,6 +100,15 @@ impl MenuBar {
                 &item(Action::Copy, "Copy", Code::KeyC),
                 &item(Action::Paste, "Paste", Code::KeyV),
                 &item(Action::SelectAll, "Select All", Code::KeyA),
+                &PredefinedMenuItem::separator(),
+                &item(Action::Find, "Find…", Code::KeyF),
+                &item(Action::FindNext, "Find Next", Code::KeyG),
+                &item_with(
+                    Action::FindPrevious,
+                    "Find Previous",
+                    Modifiers::META | Modifiers::SHIFT,
+                    Code::KeyG,
+                ),
             ],
         )
         .map_err(err)?;

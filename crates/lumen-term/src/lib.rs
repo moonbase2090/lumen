@@ -54,6 +54,7 @@ pub mod reply;
 pub mod scroll;
 #[cfg(target_os = "linux")]
 pub mod seal;
+pub mod search;
 pub mod select;
 pub mod session;
 pub mod settings;
@@ -74,5 +75,6 @@ pub use modes::{Changes, KeyModes, ModeTracker};
 pub use pty::SpawnError;
 pub use raster::{CursorState, Frame, Renderer, Theme, Window, wrap_text};
 pub use scroll::Scroll;
+pub use search::{Find, Hit, Mark, Overlay, SearchRow};
 pub use session::Session;
 pub use strip::Strip;

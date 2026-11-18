@@ -76,6 +76,11 @@ pub struct App {
     scroll: Scroll,
     /// How many times the view moved since the host last asked.
     view_moves: u32,
+    /// The find bar and its matches, while it is open.
+    find: Option<crate::search::Find>,
+    /// What was typed in the find bar when it was last closed, so reopening it,
+    /// or going to the next or previous match, searches for it again.
+    find_kept: String,
     /// When the cursor last moved the blink back to its on half: output or a key.
     cursor_epoch_ms: u64,
     /// The blink half the last frame was drawn with, so a change asks for a new frame.
@@ -115,6 +120,8 @@ struct Preedit {
     /// The caret or selection inside `text`, as byte offsets.
     cursor: Option<(usize, usize)>,
 }
+
+mod find;
 
 /// Rows of text one wheel step scrolls.
 pub const WHEEL_ROWS: u32 = 3;
@@ -292,6 +299,8 @@ impl App {
             selection_changed: false,
             scroll: Scroll::Follow,
             view_moves: 0,
+            find: None,
+            find_kept: String::new(),
             cursor_epoch_ms: 0,
             cursor_phase: true,
             exited: false,
@@ -927,6 +936,7 @@ impl App {
         self.clear_selection();
         self.width = width;
         self.height = height;
+        self.refresh_find();
         Ok(())
     }
 
@@ -990,6 +1000,26 @@ impl App {
     pub fn perform(&mut self, action: Action, clipboard: &dyn Clipboard) -> Outcome {
         match action {
             Action::Quit | Action::Close => Outcome::Exit,
+            Action::Find => {
+                self.find_open();
+                Outcome::Redraw
+            }
+            Action::FindNext => {
+                self.find_next();
+                Outcome::Redraw
+            }
+            Action::FindPrevious => {
+                self.find_previous();
+                Outcome::Redraw
+            }
+            Action::Paste if self.find.is_some() => {
+                // Into the bar, as one line.
+                if let Some(text) = clipboard.text() {
+                    let line = text.lines().next().unwrap_or_default().to_owned();
+                    self.find_text(&line);
+                }
+                Outcome::Redraw
+            }
             Action::Copy => match self.selected_text() {
                 Some(text) if clipboard.set_text(&text) => Outcome::Nothing,
                 Some(_) => Outcome::Refused,
@@ -1039,6 +1069,10 @@ impl App {
         if self.scroll_key(key, mods) {
             return Ok(());
         }
+        if self.find.is_some() {
+            self.find_key(key, mods);
+            return Ok(());
+        }
         let bytes = keys::bytes_in(key, mods, self.session.key_modes());
         if bytes.is_empty() {
             return Ok(());
@@ -1056,6 +1090,10 @@ impl App {
     ///
     /// Returns the write error.
     pub fn text(&mut self, text: &str) -> std::io::Result<()> {
+        if self.find.is_some() {
+            self.find_text(text);
+            return Ok(());
+        }
         self.follow();
         if !text.is_empty() {
             self.cursor_epoch_ms = self.session.now_ms();
@@ -1258,6 +1296,7 @@ impl App {
         let bytes = self.session.pump();
         if bytes > 0 {
             self.cursor_epoch_ms = self.session.now_ms();
+            self.refresh_find();
         }
         let events = self.session.take_events();
         if !events.is_empty() {
@@ -1305,7 +1344,7 @@ impl App {
                 &self.toasts(),
                 self.selection.as_ref(),
                 self.scroll,
-                cursor,
+                (cursor, self.find_overlay().as_ref()),
             )
             .viewport(self.width, self.height, self.renderer.theme().background)
     }

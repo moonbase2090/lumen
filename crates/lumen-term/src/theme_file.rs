@@ -112,6 +112,9 @@ fn slot<'a>(p: &'a mut Palette, key: &str) -> Option<&'a mut Rgb> {
         "control_border" => &mut p.control_border,
         "notice" => &mut p.notice,
         "notice_border" => &mut p.notice_border,
+        "find_match" => &mut p.find_match,
+        "find_current" => &mut p.find_current,
+        "find_text" => &mut p.find_text,
         _ => return None,
     })
 }
