@@ -570,10 +570,25 @@ impl Host {
                     return;
                 }
                 let mut redraw = false;
+                let mut taken = false;
                 if state == ElementState::Pressed && button == MouseButton::Left {
                     redraw = run.app.click(x, y);
+                    // The link modifier with the primary button asks about the
+                    // link under the pointer, and a press on the prompt answers
+                    // it. Either way the press is not the program's.
+                    let link_modifier = if cfg!(target_os = "macos") {
+                        self.modifiers.super_key()
+                    } else {
+                        self.modifiers.control_key()
+                    };
+                    if run.app.link_prompt().is_some() || link_modifier {
+                        taken = run.app.link_press(x, y);
+                        redraw |= taken;
+                    }
                 }
-                if let Some(b) = map_button(button) {
+                if taken {
+                    // Nothing more: the program sees none of it.
+                } else if let Some(b) = map_button(button) {
                     redraw |= match state {
                         ElementState::Pressed => run.app.mouse_press(x, y, b, held),
                         ElementState::Released => run.app.mouse_release(x, y, b, held),

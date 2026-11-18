@@ -1,0 +1,33 @@
+macOS proof: links in the window (clean VM)
+
+Machine: a fresh virtual machine from a clean, unmodified macOS install (macOS 26.6.2, arm64).
+Throwaway standard user (uid 502, not an administrator), created for the run and deleted after it. The machine was deleted afterwards.
+Binaries were built on the host from this branch and copied in; checksums matched on both sides:
+  bright (release, window feature)   4c004b9dbac3f1ba   built at 077b396291952d9b3131a8be16a1236a7208d84e
+  link_window test binary            2211205bfd0b971a
+
+1. The 12 real-PTY link tests, run in the guest as the throwaway user:
+   running 12 tests
+   test a_link_a_program_sets_with_osc_8_has_no_effect_in_a_grid ... ok
+   test a_menu_or_shortcut_action_does_nothing_while_the_prompt_is_up ... ok
+   test a_press_off_any_link_is_left_for_the_program ... ok
+   test a_written_address_is_underlined_in_the_accent_colour ... ok
+   test an_address_in_the_scrollback_is_underlined_and_activatable ... ok
+   test an_address_in_the_output_asks_with_the_whole_target_and_opens_only_on_yes ... ok
+   test an_address_with_a_user_name_in_it_is_shown_and_refused ... ok
+   test cancelling_opens_nothing_and_the_program_sees_none_of_it ... ok
+   test only_web_addresses_in_text_are_links ... ok
+   test the_buttons_answer_by_click_and_a_click_away_cancels ... ok
+   test the_pixel_wheel_is_the_prompts_too_while_it_is_up ... ok
+   test the_prompt_is_drawn_over_the_page_and_changes_only_its_box ... ok
+   test result: ok. 12 passed; 0 failed
+
+2. The real binary, snapshot mode, over a remote shell as the throwaway user, with a generic shell script as the program:
+   bright --size 640x300 --wait 4000 --snapshot /tmp/proof81/snap.png -- sh /tmp/proof81/say.sh
+   Snapshot SHA-256 (guest and host matched): 4dd74a47bb6e17824b9fbc8a75bb82305cb0b15b1d611f86c9d36c166f6658ea
+   Capture: macos-snapshot-link.png. Two written addresses are underlined in the accent colour, the sentence punctuation and the unbalanced bracket are left out of the second one, and the line with no address is not marked.
+
+3. The prompt, drawn by the same renderer in the guest (the pixel test writes its two frames when a directory is named; this capture is from the run at e5d0959d, and the prompt painter is unchanged since):
+   Capture: macos-prompt.png. The prompt shows the whole target, where it came from and the host, with Open (Enter) and Cancel (Esc).
+
+Not shown: a live Control or Command click in a macOS window. The VM was driven over a remote shell with no display session, and synthetic mouse input needs permissions a clean image does not grant. The click path is covered by the tests above, which press at the pixel of a link in the app the window uses; the window's own handling of the modifier is a few lines in the host that no test reaches.
