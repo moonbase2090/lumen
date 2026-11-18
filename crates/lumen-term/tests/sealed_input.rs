@@ -209,10 +209,16 @@ fn a_builtin_reading_keys_gets_them_and_the_box_waits_for_the_sealed_prompt() {
     );
 }
 
-/// sh reads its line cooked, in front: the box is raw for it.
+/// The shell's own process has executed sh and sh reads its line cooked, in
+/// front. zsh itself turns ICANON back on when it accepts a line, so the tty
+/// alone does not say which program reads; the process's name does.
 fn sh_reads_its_line(app: &App) -> bool {
     let tty = app.session().tty_state();
-    tty.shell_in_front == Some(true) && tty.icanon == Some(true)
+    let replaced = tty.group.is_some_and(|g| {
+        std::fs::read_to_string(format!("/proc/{g}/comm"))
+            .is_ok_and(|c| !c.trim_end().starts_with("zsh"))
+    });
+    replaced && tty.shell_in_front == Some(true) && tty.icanon == Some(true)
 }
 
 #[test]
