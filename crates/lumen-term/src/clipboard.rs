@@ -35,8 +35,9 @@ const WINDOWS_READ: &[&str] = &[
     "-NoProfile",
     "-NonInteractive",
     "-Command",
-    "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; \
-     $t = Get-Clipboard -Raw; if ($t) { [Console]::Out.Write($t) }",
+    "$ErrorActionPreference = 'Stop'; try { \
+     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; \
+     $t = Get-Clipboard -Raw; if ($t) { [Console]::Out.Write($t) } } catch { exit 1 }",
 ];
 
 /// Windows PowerShell putting its UTF-8 input on the clipboard unchanged.
@@ -45,8 +46,9 @@ const WINDOWS_WRITE: &[&str] = &[
     "-NoProfile",
     "-NonInteractive",
     "-Command",
-    "[Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false; \
-     Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+    "$ErrorActionPreference = 'Stop'; try { \
+     [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false; \
+     Set-Clipboard -Value ([Console]::In.ReadToEnd()) } catch { exit 1 }",
 ];
 
 /// A command for a clipboard tool that opens no console window on Windows.
@@ -134,7 +136,6 @@ impl Clipboard for SystemClipboard {
             let _ = child.kill();
             let _ = child.wait();
             if let Ok(text) = String::from_utf8(bytes)
-                && let text = text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned()
                 && !text.is_empty()
             {
                 return Some(text);
