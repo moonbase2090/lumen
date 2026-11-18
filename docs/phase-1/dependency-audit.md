@@ -27,12 +27,15 @@ Unsafe code is confined to named modules; each crate that has any denies it at t
 | `lumen-seal` | `ffi_linux.rs` | The namespace-parent ioctl and the pid file descriptor reads of the seal decision. Linux only. |
 | `lumen-holder` | `ffi_linux.rs`, `spawn.rs` | The system calls the holder and its spawner need (one wrapper per call, each `unsafe` block says why it is sound), and the spawner. |
 | `lumen-gates` | `ffi_cred.rs`, `ffi_mem.rs` | Socket-credential primitives for gate G1 and memory-locking primitives for gate G6. |
+| `lumen-term` | `ffi_context_menu.rs` | The one call that shows the right-click menu in the window, which the menu library marks `unsafe` because it takes a raw window pointer. The pointer comes from the window's own handle on the thread that owns the window. macOS and Windows only; the module is not built on Linux. |
 
-Every other workspace crate forbids unsafe code, through `#![forbid(unsafe_code)]` or the workspace lint `unsafe_code = "forbid"`. The four crates above set their own `deny` in their manifests, so adding unsafe code to any crate is a visible change to a manifest or a crate root.
+Every other workspace crate forbids unsafe code, through `#![forbid(unsafe_code)]` or the workspace lint `unsafe_code = "forbid"`. The five crates above set their own `deny` in their manifests, so adding unsafe code to any crate is a visible change to a manifest or a crate root.
 
 ## The reused VT core
 
-The terminal links five crates from the upstream VT core repository at the pinned revision `ca7b9f8d6541`: `prismattyc-core`, `prismattyc-emulator`, `prismattyc-render` (through `lumen-term`), `prismattyc-protocol`, and the vendored `portable-pty`. Reviewed at that revision:
+The terminal links five crates from the upstream VT core repository at the pinned revision `641103cb41fb`: `prismattyc-core`, `prismattyc-emulator`, `prismattyc-render` (through `lumen-term`), `prismattyc-protocol`, and the vendored `portable-pty`. The pin moved from `ca7b9f8d6541` to `641103cb41fb` to take the PTY foreground group and tty mode accessors. The table below was reviewed at `ca7b9f8d6541`; at `641103cb41fb` only the changed unsafe-relevant surface was re-checked: the diff between the two revisions adds no `unsafe` in the five linked crates' production code, and the new read-only termios calls use the `nix` safe API. The rest of that diff (about 2000 lines in the core, emulator and protocol crates, including new Kitty raw-format decoding in the emulator's graphics module) was not re-reviewed line by line. Lumen never reads the emulator's graphics state, and the producer-bytes test pins that a graphics APC gives a producer no authority.
+
+Reviewed at `ca7b9f8d6541`:
 
 | Crate | Unsafe in what the terminal builds | Review |
 |---|---|---|

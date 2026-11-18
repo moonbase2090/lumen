@@ -18,28 +18,30 @@ fn layer() -> Box<dyn lumen_term::Layer + Send> {
     }))
 }
 
-fn command(o: &Options) -> (String, Vec<String>) {
+/// The program to run: the one given on the command line, else the shell the
+/// settings name, else the user's own (`$SHELL`).
+fn command(o: &Options, look: &Look) -> (String, Vec<String>) {
     match o.command.split_first() {
         Some((p, a)) => (p.clone(), a.to_vec()),
         None => (
-            std::env::var("SHELL")
-                .ok()
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "/bin/sh".to_owned()),
+            lumen_term::shell::default_shell(look.shell.as_deref()),
             Vec::new(),
         ),
     }
 }
 
 fn snapshot(o: &Options, policy: &Policy, look: &Look, path: &str) -> Result<(), String> {
-    let (program, arguments) = command(o);
-    let mut app = App::start(
+    let (program, arguments) = command(o, look);
+    let mut app = App::start_with_shell(
         layer(),
         &program,
         &arguments,
         o.scale.unwrap_or(1),
         o.size.0,
         o.size.1,
+        lumen_term::shellint::ShellOptions {
+            integration: look.shell_integration,
+        },
     )
     .map_err(|e| e.to_string())?;
     app.use_settings(policy.settings());
@@ -65,7 +67,7 @@ fn snapshot(o: &Options, policy: &Policy, look: &Look, path: &str) -> Result<(),
 }
 
 #[cfg(feature = "window")]
-fn window(o: &Options, policy: &Policy, look: &Look) -> Result<(), String> {
+fn window(o: &Options, policy: &Policy, look: &Look, copy_on_select: bool) -> Result<(), String> {
     lumen_term::host::run(lumen_term::host::Config {
         layer: Box::new(layer),
         command: o.command.clone(),
@@ -76,11 +78,14 @@ fn window(o: &Options, policy: &Policy, look: &Look) -> Result<(), String> {
         images: policy.images(),
         theme: look.theme,
         fonts: look.fonts.clone(),
+        copy_on_select,
+        shell: look.shell.clone(),
+        shell_integration: look.shell_integration,
     })
 }
 
 #[cfg(not(feature = "window"))]
-fn window(_: &Options, _: &Policy, _: &Look) -> Result<(), String> {
+fn window(_: &Options, _: &Policy, _: &Look, _: bool) -> Result<(), String> {
     Err("this build has no window: build with --features window, or use --snapshot".into())
 }
 
@@ -101,11 +106,14 @@ fn describe_settings(settings: &Settings, look: &Look) -> String {
         lumen_term::settings::ThemeSetting::File(p) => p.display().to_string(),
     };
     let mut out = format!(
-        "settings: {source}\ntheme={theme} mono_font={} mono_size={} prose_font={} prose_size={}",
+        "settings: {source}\ntheme={theme} mono_font={} mono_size={} prose_font={} prose_size={} copy_on_select={} shell={} shell_integration={}",
         face(&s.mono_font),
         look.fonts.mono_px(),
         face(&s.prose_font),
-        look.fonts.prose_px()
+        look.fonts.prose_px(),
+        s.copy_on_select,
+        s.shell.as_deref().unwrap_or("default"),
+        s.shell_integration
     );
     for notice in &look.notices {
         out.push('\n');
@@ -163,7 +171,7 @@ fn main() -> ExitCode {
     }
     let result = match &options.snapshot {
         Some(path) => snapshot(&options, &policy, &look, path),
-        None => window(&options, &policy, &look),
+        None => window(&options, &policy, &look, settings.look().copy_on_select),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

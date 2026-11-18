@@ -48,7 +48,7 @@ fn pump_until(app: &mut App, done: impl Fn(&App) -> bool) -> bool {
 /// `ready`, reads exactly `count` bytes raw and prints them as hex.
 fn reader(mode: &str, count: usize) -> String {
     format!(
-        "stty raw -echo; printf '\\033[?2004{mode}'; echo ready; \
+        "stty raw -echo; printf '\\033[?2004{mode}'; echo ready; set -m; \
          dd bs=1 count={count} 2>/dev/null | od -An -v -tx1 | tr -d ' \\n'; echo; echo done"
     )
 }
@@ -135,7 +135,7 @@ fn without_bracketed_paste_a_multi_line_paste_is_held_and_sends_nothing_until_ch
 
 #[test]
 fn turning_bracketed_paste_off_again_stops_the_markers() {
-    let script = "stty raw -echo; printf '\\033[?2004h'; printf '\\033[?2004l'; echo ready; \
+    let script = "stty raw -echo; printf '\\033[?2004h'; printf '\\033[?2004l'; echo ready; set -m; \
                   dd bs=1 count=2 2>/dev/null | od -An -v -tx1 | tr -d ' \\n'; echo; echo done";
     let mut app = start(script);
     ready(&mut app);
@@ -164,7 +164,7 @@ fn a_large_bracketed_paste_arrives_whole() {
     let text = "line of pasted text\n".repeat(3000);
     let total = text.len() + 12;
     let script = format!(
-        "stty raw -echo; printf '\\033[?2004h'; echo ready; \
+        "stty raw -echo; printf '\\033[?2004h'; echo ready; set -m; \
          head -c {total} | wc -c | tr -d ' \\n'; echo; echo done"
     );
     let mut app = start(&script);

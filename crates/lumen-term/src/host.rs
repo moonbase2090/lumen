@@ -353,6 +353,12 @@ pub struct Config {
     pub theme: crate::design::ThemeChoice,
     /// The user's fonts.
     pub fonts: crate::design::Fonts,
+    /// Copy a finished mouse selection at once.
+    pub copy_on_select: bool,
+    /// The user's `shell` setting: what to run when `command` is empty.
+    pub shell: Option<String>,
+    /// Whether a shell started directly gets the prompt-mark hooks.
+    pub shell_integration: bool,
 }
 
 struct Running {
@@ -547,6 +553,22 @@ impl Host {
                 let held = self.held();
                 let (x, y) = self.pointer;
                 let Some(run) = &mut self.state else { return };
+                #[cfg(any(target_os = "macos", windows))]
+                if state == ElementState::Pressed
+                    && button == MouseButton::Right
+                    && !run.app.is_selecting()
+                    && run.app.owns_context_click(x, y, held)
+                {
+                    let menu_state = crate::menu::ContextState {
+                        can_copy: run.app.has_selection(),
+                        can_paste: SystemClipboard.text().is_some(),
+                    };
+                    // A menu that cannot be built leaves the click unused.
+                    if let Ok(menu) = crate::menu::context_menu(menu_state) {
+                        crate::ffi_context_menu::show(&menu, &*run.window);
+                    }
+                    return;
+                }
                 let mut redraw = false;
                 if state == ElementState::Pressed && button == MouseButton::Left {
                     redraw = run.app.click(x, y);
@@ -559,8 +581,12 @@ impl Host {
                     .unwrap_or(false);
                 }
                 redraw |= run.app.take_selection_redraw();
+                let copy = run.app.take_copy_on_select();
                 if redraw {
                     run.window.request_redraw();
+                }
+                if copy {
+                    self.act(event_loop, Action::Copy);
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => self.wheel(&delta),
@@ -613,15 +639,21 @@ impl ApplicationHandler for Host {
             .unwrap_or_else(|| window.scale_factor().round().max(1.0) as u32);
         let (program, arguments) = match self.config.command.split_first() {
             Some((p, a)) => (p.clone(), a.to_vec()),
-            None => (default_shell(), Vec::new()),
+            None => (
+                crate::shell::default_shell(self.config.shell.as_deref()),
+                Vec::new(),
+            ),
         };
-        match App::start(
+        match App::start_with_shell(
             (self.config.layer)(),
             &program,
             &arguments,
             scale,
             size.width,
             size.height,
+            crate::shellint::ShellOptions {
+                integration: self.config.shell_integration,
+            },
         ) {
             Ok(mut app) => {
                 if self.config.scale.is_some() {
@@ -632,6 +664,7 @@ impl ApplicationHandler for Host {
                 // The user's look, then the system's appearance, if it says;
                 // light until it does.
                 app.set_theme_choice(self.config.theme);
+                app.set_copy_on_select(self.config.copy_on_select);
                 app.set_appearance(appearance(window.theme()));
                 if let Err(e) = app.set_fonts(&self.config.fonts) {
                     eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
@@ -663,8 +696,8 @@ impl ApplicationHandler for Host {
             event_loop.exit();
             return;
         }
-        #[cfg(target_os = "macos")]
-        for action in crate::menu::MenuBar::chosen() {
+        #[cfg(any(target_os = "macos", windows))]
+        for action in crate::menu::chosen() {
             self.act(event_loop, action);
         }
         if let Some(run) = &mut self.state {
@@ -700,13 +733,6 @@ pub fn appearance(theme: Option<WinitTheme>) -> Appearance {
         Some(WinitTheme::Dark) => Appearance::Dark,
         Some(WinitTheme::Light) | None => Appearance::Light,
     }
-}
-
-fn default_shell() -> String {
-    std::env::var("SHELL")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "/bin/sh".to_owned())
 }
 
 /// Open the window and run until it closes or the program exits.

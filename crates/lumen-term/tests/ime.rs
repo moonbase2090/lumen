@@ -131,13 +131,14 @@ fn a_committed_string_cannot_carry_an_escape_sequence() {
 }
 
 /// Where the candidate window must sit for `app`: the first editor row, at the
-/// text column, which starts a gutter padding right of the gutter's cells.
+/// text column, which starts a gutter padding right of the gutter's cells and
+/// the box's prompt mark and the cell after it (three cells).
 fn expected_anchor(app: &App, cell_w: u32) -> (u32, u32) {
     let cell_h = app.cell_height();
     let pad = GUTTER_PAD_PX * app.scale();
     let (columns, rows) = cells_for(640 - pad, 380, (cell_w, cell_h));
     (
-        GUTTER_COLUMNS * cell_w + pad,
+        GUTTER_COLUMNS * cell_w + pad + 3 * cell_w,
         window_for(columns, rows).editor_row * cell_h,
     )
 }

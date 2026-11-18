@@ -1047,9 +1047,9 @@
     "forbids_unsafe": false,
     "source": "Path",
     "unsafe_items": {
-     "exprs": 91,
+     "exprs": 108,
      "functions": 0,
-     "item_impls": 0,
+     "item_impls": 2,
      "item_traits": 0,
      "methods": 0
     }
@@ -1080,7 +1080,7 @@
     "forbids_unsafe": false,
     "source": "Path",
     "unsafe_items": {
-     "exprs": 0,
+     "exprs": 7,
      "functions": 0,
      "item_impls": 0,
      "item_traits": 0,
@@ -1252,7 +1252,7 @@
      "methods": 0
     }
    },
-   "prismattyc-core 0.3.52": {
+   "prismattyc-core 0.3.67": {
     "forbids_unsafe": false,
     "source": "Git",
     "unsafe_items": {
@@ -1263,7 +1263,7 @@
      "methods": 3
     }
    },
-   "prismattyc-emulator 0.3.52": {
+   "prismattyc-emulator 0.3.67": {
     "forbids_unsafe": false,
     "source": "Git",
     "unsafe_items": {
@@ -1274,7 +1274,7 @@
      "methods": 0
     }
    },
-   "prismattyc-protocol 0.3.52": {
+   "prismattyc-protocol 0.3.67": {
     "forbids_unsafe": false,
     "source": "Git",
     "unsafe_items": {

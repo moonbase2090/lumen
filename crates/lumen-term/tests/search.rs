@@ -178,7 +178,7 @@ fn the_current_match_is_drawn_apart_from_the_others() {
 
 #[test]
 fn typing_goes_to_the_bar_and_not_to_the_program() {
-    let mut app = run("stty -icanon -echo min 1; cat -v");
+    let mut app = run("stty -icanon -echo min 1; set -m; cat -v");
     app.find_open();
     type_in(&mut app, "qzx");
     assert_eq!(app.find_query(), "qzx");

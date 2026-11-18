@@ -52,7 +52,9 @@ fn every_setting_is_read() {
          mono_font = \"~/fonts/Mono.ttf\"\n\
          mono_size = 16\n\
          prose_font = \"/abs/Sans.otf\"\n\
-         prose_size = 18\n",
+         prose_size = 18\n\
+         shell = \"pwsh\"\n\
+         shell_integration = false\n",
     );
     assert_eq!(
         look,
@@ -62,8 +64,34 @@ fn every_setting_is_read() {
             mono_size: 16,
             prose_font: FontSetting::File(PathBuf::from("/abs/Sans.otf")),
             prose_size: 18,
+            copy_on_select: true,
+            shell: Some("pwsh".to_owned()),
+            shell_integration: false,
         })
     );
+}
+
+#[test]
+fn the_shell_defaults_to_the_users_own_with_the_hooks_on() {
+    let look = parse("", Path::new("/srv/someone/.config/lumen"), None);
+    let look = look.unwrap_or_else(|e| unreachable!("an empty file parses: {e:?}"));
+    assert_eq!(look.shell, None);
+    assert!(look.shell_integration);
+}
+
+#[test]
+fn a_bad_shell_setting_ignores_the_file() {
+    for text in [
+        "shell = fish\n",
+        "shell = \"\"\n",
+        "shell_integration = maybe\n",
+        "shell_integration = \"true\"\n",
+    ] {
+        assert!(
+            parse(text, Path::new("/srv/someone/.config/lumen"), None).is_err(),
+            "{text:?} is refused"
+        );
+    }
 }
 
 /// The ```` ```toml ```` blocks in `text`, with `prefix` taken off each line.
@@ -92,6 +120,8 @@ fn the_documented_examples_parse() {
     assert_eq!((docs.len(), module.len()), (1, 1));
     let want = LookSettings {
         prose_size: 16,
+        copy_on_select: true,
+        shell: Some("pwsh".to_owned()),
         ..LookSettings::default()
     };
     for example in docs.iter().chain(&module) {
@@ -368,4 +398,29 @@ fn the_binary_draws_with_the_settings_file() -> Result<(), Box<dyn std::error::E
         "{text}"
     );
     Ok(())
+}
+
+#[test]
+fn copy_on_select_is_on_by_default_and_takes_only_true_or_false() {
+    assert!(LookSettings::default().copy_on_select);
+    assert_eq!(
+        parsed("copy_on_select = false").map(|l| l.copy_on_select),
+        Ok(false)
+    );
+    assert_eq!(
+        parsed("copy_on_select = true").map(|l| l.copy_on_select),
+        Ok(true)
+    );
+    for bad in [
+        "copy_on_select = \"false\"",
+        "copy_on_select = 1",
+        "copy_on_select =",
+    ] {
+        assert_eq!(
+            parsed(bad),
+            Err((1, "`copy_on_select` must be true or false".to_owned())),
+            "{bad:?}"
+        );
+    }
+    assert!(parsed("copy_on_select = true\ncopy_on_select = true").is_err());
 }

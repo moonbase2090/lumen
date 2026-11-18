@@ -24,6 +24,19 @@ impl std::fmt::Display for SpawnError {
 
 impl std::error::Error for SpawnError {}
 
+/// What the tty says about who reads it now.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TtyState {
+    /// The foreground process group is the shell that was spawned.
+    pub shell_in_front: Option<bool>,
+    /// The foreground process group.
+    pub group: Option<i32>,
+    /// The ICANON flag.
+    pub icanon: Option<bool>,
+    /// The ECHO flag.
+    pub echo: Option<bool>,
+}
+
 /// A program on a PTY. Its output is read on a thread and collected for the
 /// owner to take when it chooses.
 pub struct Pty {
@@ -99,6 +112,24 @@ impl Pty {
         let size = pty_size_with_cell_pixels(columns, rows, CELL_PX.0, CELL_PX.1);
         let session =
             PtySession::spawn(program, arguments, size).map_err(|e| SpawnError(e.to_string()))?;
+        Self::from_session(session)
+    }
+
+    /// Run `program` on a PTY with `environment` added to its own.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the PTY or the program could not be started.
+    pub fn spawn_with_environment<S: AsRef<std::ffi::OsStr>>(
+        columns: usize,
+        rows: usize,
+        program: &str,
+        arguments: &[S],
+        environment: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Self, SpawnError> {
+        let size = pty_size_with_cell_pixels(columns, rows, CELL_PX.0, CELL_PX.1);
+        let session = PtySession::spawn_config(program, arguments, None, environment, size)
+            .map_err(|e| SpawnError(e.to_string()))?;
         Self::from_session(session)
     }
 
@@ -235,6 +266,32 @@ impl Pty {
         #[cfg(not(unix))]
         {
             None
+        }
+    }
+
+    /// What the tty says about who is reading it. Each part is `None` where it
+    /// cannot be read (always so on Windows), which the input line treats as
+    /// "keys go to the program".
+    #[must_use]
+    pub fn tty_state(&self) -> TtyState {
+        #[cfg(unix)]
+        {
+            let group = self.session.foreground_process_group();
+            let shell = self
+                .session
+                .process_id()
+                .and_then(|p| i32::try_from(p).ok());
+            let modes = self.session.tty_modes();
+            TtyState {
+                shell_in_front: group.zip(shell).map(|(g, s)| g == s),
+                group,
+                icanon: modes.map(|m| m.canonical),
+                echo: modes.map(|m| m.echo),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            TtyState::default()
         }
     }
 
