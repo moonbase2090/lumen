@@ -1,7 +1,8 @@
 //! The system clipboard's text: read for the Paste action, written for Copy.
 //!
 //! The terminal asks the operating system's own clipboard tool for the text, as
-//! it does for notifications: `pbpaste` on macOS, and `wl-paste`, `xclip` or
+//! it does for notifications: `pbpaste` on macOS, Windows PowerShell's
+//! `Get-Clipboard` and `Set-Clipboard` on Windows, and `wl-paste`, `xclip` or
 //! `xsel` elsewhere (the first one found). Only text is read, with a size
 //! limit, and a missing tool or an empty clipboard is no text.
 
@@ -27,9 +28,47 @@ pub trait Clipboard {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemClipboard;
 
+/// Windows PowerShell reading the clipboard as UTF-8 text with no byte order
+/// mark. `-Raw` keeps the text as one string; an empty clipboard prints nothing.
+#[cfg_attr(not(windows), allow(dead_code))]
+const WINDOWS_READ: &[&str] = &[
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    "$ErrorActionPreference = 'Stop'; try { \
+     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; \
+     $t = Get-Clipboard -Raw; if ($t) { [Console]::Out.Write($t) } } catch { exit 1 }",
+];
+
+/// Windows PowerShell putting its UTF-8 input on the clipboard unchanged.
+#[cfg_attr(not(windows), allow(dead_code))]
+const WINDOWS_WRITE: &[&str] = &[
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    "$ErrorActionPreference = 'Stop'; try { \
+     [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false; \
+     Set-Clipboard -Value ([Console]::In.ReadToEnd()) } catch { exit 1 }",
+];
+
+/// A command for a clipboard tool that opens no console window on Windows.
+fn tool(program: &str, args: &[&str]) -> Command {
+    let mut command = Command::new(program);
+    command.args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        // CREATE_NO_WINDOW
+        command.creation_flags(0x0800_0000);
+    }
+    command
+}
+
 fn candidates() -> &'static [(&'static str, &'static [&'static str])] {
     if cfg!(target_os = "macos") {
         &[("/usr/bin/pbpaste", &[])]
+    } else if cfg!(windows) {
+        &[("powershell.exe", WINDOWS_READ)]
     } else {
         &[
             ("wl-paste", &["--no-newline"]),
@@ -43,6 +82,8 @@ fn candidates() -> &'static [(&'static str, &'static [&'static str])] {
 fn writers() -> &'static [(&'static str, &'static [&'static str])] {
     if cfg!(target_os = "macos") {
         &[("/usr/bin/pbcopy", &[])]
+    } else if cfg!(windows) {
+        &[("powershell.exe", WINDOWS_WRITE)]
     } else {
         &[
             ("wl-copy", &[]),
@@ -52,36 +93,39 @@ fn writers() -> &'static [(&'static str, &'static [&'static str])] {
     }
 }
 
+/// Give `text` to the first of `tools` that takes it and exits successfully.
+fn write_with(tools: &[(&str, &[&str])], text: &str) -> bool {
+    use std::io::Write as _;
+    for (program, args) in tools {
+        let Ok(mut child) = tool(program, args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            continue;
+        };
+        let wrote = child
+            .stdin
+            .take()
+            .is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
+        // The tool keeps the text once its input is closed.
+        let done = child.wait().is_ok_and(|s| s.success());
+        if wrote && done {
+            return true;
+        }
+    }
+    false
+}
+
 impl Clipboard for SystemClipboard {
     fn set_text(&self, text: &str) -> bool {
-        use std::io::Write as _;
-        for (program, args) in writers() {
-            let Ok(mut child) = Command::new(program)
-                .args(*args)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-            else {
-                continue;
-            };
-            let wrote = child
-                .stdin
-                .take()
-                .is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
-            // The tool keeps the text once its input is closed.
-            let done = child.wait().is_ok_and(|s| s.success());
-            if wrote && done {
-                return true;
-            }
-        }
-        false
+        write_with(writers(), text)
     }
 
     fn text(&self) -> Option<String> {
         for (program, args) in candidates() {
-            let Ok(mut child) = Command::new(program)
-                .args(*args)
+            let Ok(mut child) = tool(program, args)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
@@ -103,5 +147,27 @@ impl Clipboard for SystemClipboard {
             }
         }
         None
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::write_with;
+
+    #[test]
+    fn a_writer_that_exits_with_an_error_is_a_failed_copy() {
+        let failing: &[(&str, &[&str])] = &[("sh", &["-c", "cat >/dev/null; exit 1"])];
+        assert!(!write_with(failing, "text"));
+    }
+
+    #[test]
+    fn a_writer_that_succeeds_is_a_copy_and_a_later_one_is_tried_after_a_failure() {
+        let working: &[(&str, &[&str])] = &[("sh", &["-c", "cat >/dev/null"])];
+        assert!(write_with(working, "text"));
+        let both: &[(&str, &[&str])] = &[
+            ("sh", &["-c", "cat >/dev/null; exit 1"]),
+            ("sh", &["-c", "cat >/dev/null"]),
+        ];
+        assert!(write_with(both, "text"));
     }
 }

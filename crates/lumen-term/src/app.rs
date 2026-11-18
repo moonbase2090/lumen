@@ -49,6 +49,26 @@ pub enum Outcome {
     Exit,
 }
 
+/// The state of link activation: the question on screen, the opener, and
+/// whether the press that took the prompt is still down.
+#[cfg(feature = "links-clipboard")]
+struct Links {
+    prompt: Option<crate::linkprompt::Prompt>,
+    opener: Box<dyn crate::linkprompt::LinkOpener + Send>,
+    press_down: bool,
+}
+
+#[cfg(feature = "links-clipboard")]
+impl Default for Links {
+    fn default() -> Self {
+        Self {
+            prompt: None,
+            opener: Box::new(crate::linkprompt::SystemOpener),
+            press_down: false,
+        }
+    }
+}
+
 /// A terminal in a window of `width` by `height` pixels.
 #[allow(
     clippy::struct_excessive_bools,
@@ -96,6 +116,9 @@ pub struct App {
     exited: bool,
     attention: crate::attention::Attention,
     preedit: Option<Preedit>,
+    /// What the terminal is asking about a link, and how it opens one.
+    #[cfg(feature = "links-clipboard")]
+    links: Links,
     /// The input box: what the user is typing, and where keys go.
     input: InputLine,
     /// Rows the editor has now: its border and one row per line of its text.
@@ -381,6 +404,8 @@ impl App {
             exited: false,
             attention: crate::attention::Attention::new(),
             preedit: None,
+            #[cfg(feature = "links-clipboard")]
+            links: Links::default(),
             input: InputLine::new(),
             box_rows: EDITOR_ROWS,
             front_name: None,
@@ -531,6 +556,114 @@ impl App {
         }
     }
 
+    /// Use `opener` to open links the user confirms.
+    #[cfg(feature = "links-clipboard")]
+    pub fn use_link_opener(&mut self, opener: Box<dyn crate::linkprompt::LinkOpener + Send>) {
+        self.links.opener = opener;
+    }
+
+    /// The question the terminal is drawing about a link, if there is one.
+    #[cfg(feature = "links-clipboard")]
+    #[must_use]
+    pub fn link_prompt(&self) -> Option<&crate::linkprompt::Prompt> {
+        self.links.prompt.as_ref()
+    }
+
+    /// Where the link prompt is drawn and its buttons, if there is one.
+    #[cfg(feature = "links-clipboard")]
+    #[must_use]
+    pub fn link_prompt_box(&self) -> Option<crate::raster::PromptBox> {
+        let prompt = self.links.prompt.as_ref()?;
+        Some(
+            self.renderer
+                .link_prompt_box(self.width, self.height, prompt),
+        )
+    }
+
+    /// The link under pixel `(x, y)` of the live grid, if there is one.
+    #[cfg(feature = "links-clipboard")]
+    #[must_use]
+    pub fn link_at(&self, x: u32, y: u32) -> Option<crate::linkhit::Hit> {
+        let (col, row) = self.live_point(x, y)?;
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return None;
+        };
+        let col = usize::try_from(col).ok()?;
+        let hits = if row < 0 {
+            // A line of the scrollback, counted up from the screen's top.
+            let back = live
+                .history_rows()
+                .checked_sub(usize::try_from(row.unsigned_abs()).ok()?)?;
+            crate::linkhit::cell_links(live.history_row(back)?)
+        } else {
+            crate::linkhit::row_links(live.screen(), usize::try_from(row).ok()?)
+        };
+        hits.into_iter().find(|hit| hit.columns.contains(&col))
+    }
+
+    /// The user pressed the link modifier with the primary button at pixel
+    /// `(x, y)`. Over a link, the terminal asks before anything opens, and the
+    /// press is the terminal's, not the program's: returns `true`. Nothing is
+    /// opened here.
+    #[cfg(feature = "links-clipboard")]
+    pub fn link_press(&mut self, x: u32, y: u32) -> bool {
+        if self.links.prompt.is_some() {
+            return self.prompt_click(x, y);
+        }
+        let Some(hit) = self.link_at(x, y) else {
+            return false;
+        };
+        self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&hit));
+        self.links.press_down = true;
+        self.view_moves = self.view_moves.wrapping_add(1);
+        true
+    }
+
+    /// A press at pixel `(x, y)` while a link prompt is shown. A press on the
+    /// open button opens, on the cancel button or away from the box closes,
+    /// and elsewhere on the box does nothing. Returns whether the press was
+    /// the prompt's.
+    #[cfg(feature = "links-clipboard")]
+    pub fn prompt_click(&mut self, x: u32, y: u32) -> bool {
+        use crate::raster::PromptHit;
+        let Some(prompt) = &self.links.prompt else {
+            return false;
+        };
+        self.links.press_down = true;
+        match self
+            .renderer
+            .link_prompt_at(self.width, self.height, prompt, x, y)
+        {
+            PromptHit::Open => {
+                let _ = self.answer_link(true);
+            }
+            PromptHit::Cancel | PromptHit::Outside => {
+                let _ = self.answer_link(false);
+            }
+            PromptHit::Box => {}
+        }
+        true
+    }
+
+    /// The user answered the link prompt: `true` to open, `false` to close it.
+    /// Returns whether a link was handed to the system. A prompt that only
+    /// informs never opens.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the system opener could not be started.
+    #[cfg(feature = "links-clipboard")]
+    pub fn answer_link(&mut self, open: bool) -> std::io::Result<bool> {
+        let Some(prompt) = self.links.prompt.take() else {
+            return Ok(false);
+        };
+        self.view_moves = self.view_moves.wrapping_add(1);
+        match (open, prompt.target()) {
+            (true, Some(target)) => self.links.opener.open(target).map(|()| true),
+            _ => Ok(false),
+        }
+    }
+
     /// A press in the input box while it edits puts the caret at the cell
     /// pressed. Returns whether the box changed.
     fn click_box(&mut self, x: u32, y: u32) -> bool {
@@ -593,6 +726,19 @@ impl App {
     /// pointer over scrolled-away output is not over the live block.
     #[must_use]
     pub fn live_cell(&self, x: u32, y: u32) -> Option<(u32, u32)> {
+        let (col, row) = self.live_point(x, y)?;
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return None;
+        };
+        let rows = i64::try_from(live.size().1).ok()?;
+        (0..rows)
+            .contains(&row)
+            .then(|| (col, u32::try_from(row).unwrap_or(0)))
+    }
+
+    /// The column and row of the live grid under pixel `(x, y)`, where a row
+    /// above the screen is negative: it is a line of the scrollback.
+    fn live_point(&self, x: u32, y: u32) -> Option<(u32, i64)> {
         let (cw, ch) = self.renderer.cell();
         let (cw, ch) = (cw.max(1), ch.max(1));
         let doc = self.session.document();
@@ -609,10 +755,9 @@ impl App {
         }
         let screen_top = self.renderer.live_screen_top(doc, content_columns)?;
         let in_flow = i64::from(py) + i64::from(self.scroll.top(total, area));
-        let py = u32::try_from(in_flow - i64::from(screen_top)).ok()?;
-        let (bc, br) = live.size();
-        let (col, row) = (px / cw, py / ch);
-        (col < u32::try_from(bc).ok()? && row < u32::try_from(br).ok()?).then_some((col, row))
+        let py = in_flow - i64::from(screen_top);
+        let col = px / cw;
+        (col < u32::try_from(live.size().0).ok()?).then_some((col, py.div_euclid(i64::from(ch))))
     }
 
     /// Whether a press of the primary button at `(x, y)` selects text. It does
@@ -868,9 +1013,15 @@ impl App {
     ///
     /// Returns the write error.
     pub fn mouse_press(&mut self, x: u32, y: u32, b: Button, held: Held) -> std::io::Result<bool> {
+        #[cfg(feature = "links-clipboard")]
+        {
+            if self.links.prompt.is_some() {
+                return Ok(false);
+            }
+            self.links.press_down = false;
+        }
         if b == Button::Left && self.pointer_selects(x, y, held) {
             self.begin_selection(x, y);
-            return Ok(false);
         }
         let Some(cell) = self.live_cell(x, y) else {
             return Ok(false);
@@ -894,6 +1045,11 @@ impl App {
         b: Button,
         held: Held,
     ) -> std::io::Result<bool> {
+        #[cfg(feature = "links-clipboard")]
+        if std::mem::take(&mut self.links.press_down) {
+            // The release of a press the link prompt took.
+            return Ok(false);
+        }
         if b == Button::Left && self.selecting {
             self.end_selection(x, y);
             return Ok(false);
@@ -914,6 +1070,10 @@ impl App {
     ///
     /// Returns the write error.
     pub fn mouse_move(&mut self, x: u32, y: u32, held: Held) -> std::io::Result<bool> {
+        #[cfg(feature = "links-clipboard")]
+        if self.links.prompt.is_some() {
+            return Ok(false);
+        }
         if self.selecting {
             self.extend_selection(x, y);
             return Ok(false);
@@ -937,6 +1097,10 @@ impl App {
         step: Wheel,
         held: Held,
     ) -> std::io::Result<bool> {
+        #[cfg(feature = "links-clipboard")]
+        if self.links.prompt.is_some() {
+            return Ok(false);
+        }
         if let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes())
             && let Some(report) = Reporter::wheel(modes, step, held, cell)
         {
@@ -967,6 +1131,10 @@ impl App {
         held: Held,
     ) -> std::io::Result<bool> {
         if pixels == 0 {
+            return Ok(false);
+        }
+        #[cfg(feature = "links-clipboard")]
+        if self.links.prompt.is_some() {
             return Ok(false);
         }
         if let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes()) {
@@ -1221,6 +1389,15 @@ impl App {
     /// a frame introducer is not pasted at all.
     #[cfg(feature = "links-clipboard")]
     pub fn perform(&mut self, action: Action, clipboard: &dyn Clipboard) -> Outcome {
+        #[cfg(feature = "links-clipboard")]
+        if self.links.prompt.is_some()
+            && !matches!(action, Action::Quit | Action::Close | Action::Copy)
+        {
+            // The prompt owns the input: a menu item or a shortcut for paste,
+            // find, select all or zoom does nothing until it is answered. The
+            // window can still be closed, and a copy sends nothing anywhere.
+            return Outcome::Nothing;
+        }
         match action {
             Action::Quit | Action::Close => Outcome::Exit,
             Action::Find => {
@@ -1300,6 +1477,17 @@ impl App {
     ///
     /// Returns the write error.
     pub fn key(&mut self, key: Key, mods: Mods) -> std::io::Result<()> {
+        #[cfg(feature = "links-clipboard")]
+        if self.links.prompt.is_some() {
+            // The prompt owns the keys: Enter opens, Escape closes, and nothing
+            // reaches the program until it is answered.
+            match key {
+                Key::Enter => self.answer_link(true).map(|_| ()),
+                Key::Escape => self.answer_link(false).map(|_| ()),
+                _ => Ok(()),
+            }?;
+            return Ok(());
+        }
         if self.scroll_key(key, mods) {
             return Ok(());
         }
@@ -1489,6 +1677,10 @@ impl App {
     ///
     /// Returns the write error.
     pub fn text(&mut self, text: &str) -> std::io::Result<()> {
+        #[cfg(feature = "links-clipboard")]
+        if self.links.prompt.is_some() {
+            return Ok(());
+        }
         if self.find.is_some() {
             self.find_text(text);
             return Ok(());
@@ -1700,17 +1892,16 @@ impl App {
 
     /// Take what the program has written. Returns the bytes handled.
     pub fn pump(&mut self) -> usize {
-        self.pump_with(None)
+        self.pump_taking(None)
     }
 
     /// Wait up to `wait` for the program's next output, then take it as
-    /// [`pump`](Self::pump) does. Returns at once when output arrives, so a
-    /// caller waits on the program rather than on a clock. For tests.
+    /// [`pump`](Self::pump) does. The wait ends as soon as output arrives.
     pub fn pump_wait(&mut self, wait: std::time::Duration) -> usize {
-        self.pump_with(Some(wait))
+        self.pump_taking(Some(wait))
     }
 
-    fn pump_with(&mut self, wait: Option<std::time::Duration>) -> usize {
+    fn pump_taking(&mut self, wait: Option<std::time::Duration>) -> usize {
         self.refresh_front();
         let facts = self.facts_with(self.exited);
         self.input.observe(facts);
@@ -1765,7 +1956,12 @@ impl App {
             focused: self.desk.focused && !editing_box,
             blink_on: self.blink_on(self.session.now_ms()),
         });
-        self.renderer
+        #[allow(
+            unused_mut,
+            reason = "the link prompt is drawn only with links-clipboard"
+        )]
+        let mut frame = self
+            .renderer
             .render_window_input(
                 self.session.document(),
                 &window_for_box(columns, rows, self.box_rows),
@@ -1775,6 +1971,12 @@ impl App {
                 (cursor, self.find_overlay().as_ref()),
                 Some(&self.input_view()),
             )
-            .viewport(self.width, self.height, self.renderer.theme().background)
+            .viewport(self.width, self.height, self.renderer.theme().background);
+        #[cfg(feature = "links-clipboard")]
+        if let Some(prompt) = &self.links.prompt {
+            // Last, over everything: a program's output cannot cover it.
+            self.renderer.paint_link_prompt(&mut frame, prompt);
+        }
+        frame
     }
 }
