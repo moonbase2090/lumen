@@ -33,7 +33,9 @@ Every other workspace crate forbids unsafe code, through `#![forbid(unsafe_code)
 
 ## The reused VT core
 
-The terminal links five crates from the upstream VT core repository at the pinned revision `ca7b9f8d6541`: `prismattyc-core`, `prismattyc-emulator`, `prismattyc-render` (through `lumen-term`), `prismattyc-protocol`, and the vendored `portable-pty`. Reviewed at that revision:
+The terminal links five crates from the upstream VT core repository at the pinned revision `641103cb41fb`: `prismattyc-core`, `prismattyc-emulator`, `prismattyc-render` (through `lumen-term`), `prismattyc-protocol`, and the vendored `portable-pty`. The pin moved from `ca7b9f8d6541` to `641103cb41fb` to take the PTY foreground group and tty mode accessors. The table below was reviewed at `ca7b9f8d6541`; at `641103cb41fb` only the changed unsafe-relevant surface was re-checked: the diff between the two revisions adds no `unsafe` in the five linked crates' production code, and the new read-only termios calls use the `nix` safe API. The rest of that diff (about 2000 lines in the core, emulator and protocol crates, including new Kitty raw-format decoding in the emulator's graphics module) was not re-reviewed line by line. Lumen never reads the emulator's graphics state, and the producer-bytes test pins that a graphics APC gives a producer no authority.
+
+Reviewed at `ca7b9f8d6541`:
 
 | Crate | Unsafe in what the terminal builds | Review |
 |---|---|---|

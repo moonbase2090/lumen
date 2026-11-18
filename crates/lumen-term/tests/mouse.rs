@@ -38,7 +38,7 @@ fn pump_until(app: &mut App, done: impl Fn(&str) -> bool) -> bool {
 /// A program that switches on `modes`, prints READY, then shows every byte it
 /// is sent (escape as `^[`) until it ends.
 fn start(modes: &str) -> App {
-    let script = format!("printf '\\033[?{modes}h'; stty raw -echo; printf READY; exec cat -v");
+    let script = format!("printf '\\033[?{modes}h'; stty raw -echo; printf READY; set -m; cat -v");
     let mut app = App::start(
         Box::new(Passthrough),
         "/bin/sh",
@@ -218,8 +218,8 @@ fn nothing_is_sent_when_the_mode_is_off() {
     assert!(!text(&off).contains("^[[<"), "{}", text(&off));
 
     // On, then turned off by the program: the reports stop.
-    let script = "printf '\\033[?1002;1006h'; stty raw -echo; printf READY; \
-                  dd bs=1 count=1 2>/dev/null; printf '\\033[?1002;1006l'; printf OFF; exec cat -v";
+    let script = "printf '\\033[?1002;1006h'; stty raw -echo; printf READY; set -m; \
+                  dd bs=1 count=1 2>/dev/null; printf '\\033[?1002;1006l'; printf OFF; set -m; cat -v";
     let mut app = App::start(
         Box::new(Passthrough),
         "/bin/sh",
@@ -249,8 +249,8 @@ fn nothing_is_sent_when_the_mode_is_off() {
 
 #[test]
 fn a_release_is_not_sent_for_a_press_that_was_not() {
-    let script = "stty raw -echo; printf READY; dd bs=1 count=1 2>/dev/null; \
-                  printf '\\033[?1002;1006h'; printf ON; exec cat -v";
+    let script = "stty raw -echo; printf READY; set -m; dd bs=1 count=1 2>/dev/null; \
+                  printf '\\033[?1002;1006h'; printf ON; set -m; cat -v";
     let mut app = App::start(
         Box::new(Passthrough),
         "/bin/sh",

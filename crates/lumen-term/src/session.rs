@@ -490,6 +490,12 @@ impl Session {
         Ok(())
     }
 
+    /// The tty's view of who reads it: see [`Pty::tty_state`].
+    #[must_use]
+    pub fn tty_state(&self) -> crate::pty::TtyState {
+        self.pty.tty_state()
+    }
+
     /// Whether the program has exited.
     pub fn has_exited(&mut self) -> bool {
         self.pty.has_exited()

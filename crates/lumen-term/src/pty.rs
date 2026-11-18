@@ -24,6 +24,19 @@ impl std::fmt::Display for SpawnError {
 
 impl std::error::Error for SpawnError {}
 
+/// What the tty says about who reads it now.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TtyState {
+    /// The foreground process group is the shell that was spawned.
+    pub shell_in_front: Option<bool>,
+    /// The foreground process group.
+    pub group: Option<i32>,
+    /// The ICANON flag.
+    pub icanon: Option<bool>,
+    /// The ECHO flag.
+    pub echo: Option<bool>,
+}
+
 /// A program on a PTY. Its output is read on a thread and collected for the
 /// owner to take when it chooses.
 pub struct Pty {
@@ -239,6 +252,32 @@ impl Pty {
         self.session
             .resize(size)
             .map_err(|e| SpawnError(e.to_string()))
+    }
+
+    /// What the tty says about who is reading it. Each part is `None` where it
+    /// cannot be read (always so on Windows), which the input line treats as
+    /// "keys go to the program".
+    #[must_use]
+    pub fn tty_state(&self) -> TtyState {
+        #[cfg(unix)]
+        {
+            let group = self.session.foreground_process_group();
+            let shell = self
+                .session
+                .process_id()
+                .and_then(|p| i32::try_from(p).ok());
+            let modes = self.session.tty_modes();
+            TtyState {
+                shell_in_front: group.zip(shell).map(|(g, s)| g == s),
+                group,
+                icanon: modes.map(|m| m.canonical),
+                echo: modes.map(|m| m.echo),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            TtyState::default()
+        }
     }
 
     /// Whether the program has exited. Once it has, this stays true: the

@@ -9,7 +9,8 @@ use crate::actions::{self, Action};
 use crate::clipboard::Clipboard;
 use crate::design::{Appearance, Fonts, ThemeChoice};
 use crate::document::{Block, Event};
-use crate::keys::{self, Key, Mods};
+use crate::input_line::{Facts, InputLine, Mode, Outcome as Line};
+use crate::keys::{Key, Mods};
 use crate::layer::Layer;
 use crate::layout::{GUTTER_COLUMNS, HEADER_ROWS, STRIP_COLLAPSED_ROWS};
 use crate::mouse::{Button, Held, Reporter, Wheel};
@@ -17,7 +18,7 @@ use crate::notify::{Desk, Notifier, OsSink, Place, Settings, Toast};
 #[cfg(feature = "links-clipboard")]
 use crate::paste::{self, Decision, Hold, Pasted, Rejection};
 use crate::pty::SpawnError;
-use crate::raster::{Frame, Renderer, Window};
+use crate::raster::{Frame, INPUT_MAX_LINES, InputView, Renderer, Window};
 use crate::scroll::Scroll;
 use crate::select::{self, Pos, Selection};
 use crate::session::{MAX_COLUMNS, MAX_ROWS, Session};
@@ -91,6 +92,12 @@ pub struct App {
     exited: bool,
     attention: crate::attention::Attention,
     preedit: Option<Preedit>,
+    /// The input box: what the user is typing, and where keys go.
+    input: InputLine,
+    /// Rows the editor has now: its border and one row per line of its text.
+    box_rows: u32,
+    /// The name of the program in front, by process group, for the status row.
+    front_name: Option<(i32, String)>,
 }
 
 /// The render scale for a display's scale factor: the nearest whole number,
@@ -229,13 +236,20 @@ pub const EDITOR_ROWS: u32 = 2;
 /// editor sits above the one row kept for the background strip.
 #[must_use]
 pub fn window_for(columns: usize, rows: usize) -> Window {
+    window_for_box(columns, rows, EDITOR_ROWS)
+}
+
+/// [`window_for`] with an editor of `editor_rows` rows, as the input box grows
+/// with its text.
+#[must_use]
+pub fn window_for_box(columns: usize, rows: usize, editor_rows: u32) -> Window {
     let cols = u32::try_from(columns).unwrap_or(u32::MAX);
     let rows = u32::try_from(rows).unwrap_or(u32::MAX);
     Window {
         cols,
         rows,
-        editor_row: rows.saturating_sub(EDITOR_ROWS + STRIP_COLLAPSED_ROWS),
-        editor_rows: EDITOR_ROWS,
+        editor_row: rows.saturating_sub(editor_rows + STRIP_COLLAPSED_ROWS),
+        editor_rows,
     }
 }
 
@@ -244,7 +258,13 @@ pub fn window_for(columns: usize, rows: usize) -> Window {
 /// row. At least 1 by 1.
 #[must_use]
 pub fn block_cells(columns: usize, rows: usize) -> (usize, usize) {
-    let win = window_for(columns, rows);
+    block_cells_for(columns, rows, EDITOR_ROWS)
+}
+
+/// [`block_cells`] with an editor of `editor_rows` rows.
+#[must_use]
+pub fn block_cells_for(columns: usize, rows: usize, editor_rows: u32) -> (usize, usize) {
+    let win = window_for_box(columns, rows, editor_rows);
     let usable_columns = win.cols.saturating_sub(GUTTER_COLUMNS).max(1);
     let usable_rows = win.editor_row.saturating_sub(HEADER_ROWS).max(1);
     (usable_columns as usize, usable_rows as usize)
@@ -337,6 +357,9 @@ impl App {
             exited: false,
             attention: crate::attention::Attention::new(),
             preedit: None,
+            input: InputLine::new(),
+            box_rows: EDITOR_ROWS,
+            front_name: None,
         };
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
         Ok(app)
@@ -480,8 +503,41 @@ impl App {
                 }
                 true
             }
-            None => false,
+            None => self.click_box(x, y),
         }
+    }
+
+    /// A press in the input box while it edits puts the caret at the cell
+    /// pressed. Returns whether the box changed.
+    fn click_box(&mut self, x: u32, y: u32) -> bool {
+        if self.input_mode() != Mode::Editing {
+            return false;
+        }
+        let (cell_w, cell_h) = self.renderer.cell();
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let win = window_for_box(columns, rows, self.box_rows);
+        let top = win.editor_row * cell_h;
+        let left = GUTTER_COLUMNS * cell_w + self.renderer.gutter_pad() + 3 * cell_w;
+        let inside = y >= top && y < (win.editor_row + win.editor_rows) * cell_h;
+        if !inside || x < left || cell_h == 0 || cell_w == 0 {
+            return false;
+        }
+        let line = ((y - top) / cell_h) as usize;
+        let column = ((x - left) / cell_w) as usize;
+        let first = self.visible_first_line();
+        self.input.set_caret_at(first + line, column);
+        true
+    }
+
+    /// The first line of the box's text that is shown: the box scrolls to keep
+    /// the caret's line in view.
+    fn visible_first_line(&self) -> usize {
+        let view = self.input_view();
+        let rows = (self.box_rows.saturating_sub(1) as usize).max(1);
+        let caret_line = view.caret.map_or(0, |c| c.0);
+        (caret_line + 1)
+            .saturating_sub(rows)
+            .min(view.lines.len().saturating_sub(rows))
     }
 
     /// The height of a cell in pixels.
@@ -494,7 +550,7 @@ impl App {
     /// height of the flow of blocks it shows.
     fn content_metrics(&self) -> (u32, usize, u32) {
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
-        let win = window_for(columns, rows);
+        let win = window_for_box(columns, rows, self.box_rows);
         let area = win
             .editor_row
             .saturating_sub(HEADER_ROWS)
@@ -560,7 +616,7 @@ impl App {
     /// The columns of the content area, in cells.
     fn content_columns(&self) -> usize {
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
-        let win = window_for(columns, rows);
+        let win = window_for_box(columns, rows, self.box_rows);
         usize::try_from(win.cols.saturating_sub(GUTTER_COLUMNS)).unwrap_or(1)
     }
 
@@ -576,7 +632,7 @@ impl App {
     fn pos_at(&self, lines: &[select::FlowLine], x: u32, y: u32, inside: bool) -> Option<Pos> {
         let (cw, ch) = self.renderer.cell();
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
-        let win = window_for(columns, rows);
+        let win = window_for_box(columns, rows, self.box_rows);
         let content_x = GUTTER_COLUMNS.saturating_mul(cw) + self.renderer.gutter_pad();
         let content_y = HEADER_ROWS.saturating_mul(ch);
         let area_bottom = win.editor_row.saturating_mul(ch);
@@ -925,7 +981,7 @@ impl App {
     #[must_use]
     pub fn click_would_hit(&self, x: u32, y: u32) -> Option<usize> {
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
-        let win = window_for(columns, rows);
+        let win = window_for_box(columns, rows, self.box_rows);
         self.renderer.toast_at(&win, &self.toasts(), x, y)
     }
 
@@ -992,7 +1048,7 @@ impl App {
     /// Returns why the program could not be told.
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), SpawnError> {
         let (columns, rows) = window_cells(width, height, &self.renderer);
-        let (block_columns, block_rows) = block_cells(columns, rows);
+        let (block_columns, block_rows) = block_cells_for(columns, rows, self.box_rows);
         self.session.resize(block_columns, block_rows)?;
         // The lines the selection is in are laid out again.
         self.clear_selection();
@@ -1119,6 +1175,17 @@ impl App {
                 let Some(text) = clipboard.text() else {
                     return Outcome::Nothing;
                 };
+                // While the box edits, a paste lands in it for review and
+                // nothing runs until Enter.
+                let facts = self.facts();
+                match self.input.paste(facts, &text) {
+                    Line::Redraw => {
+                        let _ = self.apply_line(Line::Redraw);
+                        return Outcome::Redraw;
+                    }
+                    Line::Refused => return Outcome::Refused,
+                    _ => {}
+                }
                 let bracketed = self.session.key_modes().bracketed_paste;
                 let pasted = match paste::judge(&text, bracketed) {
                     Decision::Send(p) => p,
@@ -1154,15 +1221,180 @@ impl App {
             self.find_key(key, mods);
             return Ok(());
         }
-        let bytes = keys::bytes_in(key, mods, self.session.key_modes());
-        if bytes.is_empty() {
-            return Ok(());
+        let facts = self.facts();
+        if self.input.held().is_some() && self.input.mode(facts) == Mode::Editing {
+            let plain = !mods.ctrl && !mods.alt;
+            let outcome = match key {
+                Key::Enter | Key::KeypadEnter if plain => Some(self.input.send_held_as_commands()),
+                Key::Char('j' | 'J') if plain => Some(self.input.send_held_joined()),
+                _ => None,
+            };
+            if let Some(outcome) = outcome {
+                return self.apply_line(outcome);
+            }
         }
-        self.follow();
-        self.cursor_epoch_ms = self.session.now_ms();
-        let sent = self.send(&bytes);
+        let outcome = self.input.key(facts, key, mods);
+        self.apply_line(outcome)
+    }
+
+    /// What the tty and the grid say now, for the input line.
+    fn facts(&mut self) -> Facts {
+        let ended = self.exited || self.session.has_exited();
+        let facts = self.facts_with(ended);
+        self.input.observe(facts);
+        facts
+    }
+
+    fn facts_with(&self, ended: bool) -> Facts {
+        let tty = self.session.tty_state();
+        let alt = matches!(self.session.document().blocks().last(), Some(Block::Grid(g)) if g.alt_active());
+        Facts {
+            shell_in_front: tty.shell_in_front,
+            icanon: tty.icanon,
+            echo: tty.echo,
+            alt_screen: alt,
+            keys: self.session.key_modes(),
+            ended,
+        }
+    }
+
+    /// Do what the input line decided: write to the program, or draw the box
+    /// again (which may change how many rows it takes).
+    fn apply_line(&mut self, outcome: Line) -> std::io::Result<()> {
+        match outcome {
+            Line::Write(bytes) => {
+                self.follow();
+                self.cursor_epoch_ms = self.session.now_ms();
+                let sent = self.forward_user_input(&bytes);
+                self.sync_box();
+                sent
+            }
+            Line::Redraw | Line::Hold => {
+                self.follow();
+                self.cursor_epoch_ms = self.session.now_ms();
+                self.sync_box();
+                Ok(())
+            }
+            Line::None | Line::Refused | Line::NotMine => Ok(()),
+        }
+    }
+
+    /// Remember the name of the program in front, when it is not the shell. The
+    /// name is for the status row only, so it is cut to a plain word: a program
+    /// cannot put text of its choosing in the terminal's own chrome.
+    fn refresh_front(&mut self) {
+        let tty = self.session.tty_state();
+        let Some(group) = tty.group.filter(|_| tty.shell_in_front == Some(false)) else {
+            self.front_name = None;
+            return;
+        };
+        if self.front_name.as_ref().is_some_and(|(g, _)| *g == group) {
+            return;
+        }
+        // A pipeline's group leader may have ended already, so the last process
+        // listed in the group is the one named.
+        let out = std::process::Command::new("ps")
+            .args(["-ax", "-o", "pgid=,comm="])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_default();
+        let comm = out
+            .lines()
+            .rev()
+            .find_map(|l| {
+                let (g, c) = l.trim_start().split_once(char::is_whitespace)?;
+                (g.parse::<i32>().ok()? == group).then_some(c.trim())
+            })
+            .unwrap_or("");
+        let base = comm.rsplit('/').next().unwrap_or("");
+        let name: String = base
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            .take(24)
+            .collect();
+        self.front_name = Some((group, name));
+    }
+
+    /// What the input box shows now.
+    fn input_view(&self) -> InputView {
+        let facts = self.facts_with(self.exited);
+        let mode = self.input.mode(facts);
+        let name = self
+            .front_name
+            .as_ref()
+            .map(|(_, n)| n.as_str())
+            .filter(|n| !n.is_empty())
+            .unwrap_or("the program");
+        let status = match mode {
+            Mode::Editing => None,
+            Mode::Ended => Some("The program has ended".to_owned()),
+            Mode::Hidden => Some(format!("Keys go to {name} · input not shown")),
+            Mode::HandedOff => Some("Editing in the shell: Enter runs the line".to_owned()),
+            Mode::Raw if facts.shell_in_front == Some(true) => {
+                Some("Keys go to the shell".to_owned())
+            }
+            Mode::Raw => Some(format!("Keys go to {name}")),
+        };
+        let text = self.input.text();
+        let lines: Vec<String> = text.split('\n').map(str::to_owned).collect();
+        let caret = {
+            let before: String = text.chars().take(self.input.caret()).collect();
+            let line = before.matches('\n').count();
+            let col = before.rsplit('\n').next().map_or(0, |l| l.chars().count());
+            Some((line, col))
+        };
+        let hint = (mode == Mode::Editing)
+            .then(|| self.input.held())
+            .flatten()
+            .map(|h| {
+                let n = h.lines().count();
+                format!("Send as {n} commands: Enter. Join as one line: J. Cancel: Esc")
+            });
+        InputView {
+            lines,
+            caret,
+            focused: self.desk.focused,
+            status,
+            hint,
+        }
+    }
+
+    /// The text in the input box.
+    #[must_use]
+    pub fn input_text(&self) -> String {
+        self.input.text()
+    }
+
+    /// Where keys go now: the box, or the program.
+    pub fn input_mode(&mut self) -> Mode {
+        let facts = self.facts();
+        self.input.mode(facts)
+    }
+
+    /// The one place the window writes what the user typed to the program: the
+    /// box's line and its Enter, an Enter while handed off, a raw Enter while
+    /// the shell is in front, and each line of "send as commands". Nothing else
+    /// writes a carriage return for the user.
+    fn forward_user_input(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        let sent = self.send(bytes);
         self.note_input(&sent);
         sent
+    }
+
+    /// Give the editor as many rows as its text has lines, up to the most the
+    /// box shows, and tell the program its window changed if that moved.
+    fn sync_box(&mut self) {
+        let lines = if self.input.text().is_empty() {
+            1
+        } else {
+            self.input.text().split('\n').count()
+        };
+        let rows = 1 + u32::try_from(lines.clamp(1, INPUT_MAX_LINES)).unwrap_or(1);
+        if rows != self.box_rows {
+            self.box_rows = rows;
+            let _ = self.resize(self.width, self.height);
+        }
     }
 
     /// Text was pasted or typed as a whole (an input method's result).
@@ -1175,13 +1407,12 @@ impl App {
             self.find_text(text);
             return Ok(());
         }
-        self.follow();
-        if !text.is_empty() {
-            self.cursor_epoch_ms = self.session.now_ms();
+        if text.is_empty() {
+            return Ok(());
         }
-        let sent = self.send(text.as_bytes());
-        self.note_input(&sent);
-        sent
+        let facts = self.facts();
+        let outcome = self.input.text_input(facts, text);
+        self.apply_line(outcome)
     }
 
     /// Whether a key scrolls the output instead of going to the program: Page Up
@@ -1275,16 +1506,20 @@ impl App {
     pub fn ime_area(&self) -> (u32, u32, u32, u32) {
         let (cell_w, cell_h) = self.renderer.cell();
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
-        let win = window_for(columns, rows);
+        let win = window_for_box(columns, rows, self.box_rows);
         let used = self
             .preedit
             .as_ref()
             .map_or(0, |p| p.text.chars().map(cell_columns).sum::<u32>());
+        let (line, col) = self.input_view().caret.unwrap_or((0, 0));
+        let line = u32::try_from(line.saturating_sub(self.visible_first_line())).unwrap_or(0);
+        let col = u32::try_from(col).unwrap_or(0);
         (
             GUTTER_COLUMNS
                 .saturating_mul(cell_w)
-                .saturating_add(self.renderer.gutter_pad()),
-            win.editor_row.saturating_mul(cell_h),
+                .saturating_add(self.renderer.gutter_pad())
+                .saturating_add(col.saturating_add(3).saturating_mul(cell_w)),
+            win.editor_row.saturating_add(line).saturating_mul(cell_h),
             used.max(1).saturating_mul(cell_w),
             cell_h,
         )
@@ -1302,6 +1537,11 @@ impl App {
     /// Returns the write error; the user is shown the not-sent notice.
     #[cfg(feature = "links-clipboard")]
     pub fn paste(&mut self, text: &str) -> std::io::Result<PasteOutcome> {
+        let facts = self.facts();
+        if self.input.paste(facts, text) == Line::Redraw {
+            self.apply_line(Line::Redraw)?;
+            return Ok(PasteOutcome::Sent);
+        }
         let bracketed = self.session.key_modes().bracketed_paste;
         match paste::judge(text, bracketed) {
             Decision::Reject(why) => Ok(PasteOutcome::Rejected(why)),
@@ -1374,6 +1614,9 @@ impl App {
 
     /// Take what the program has written. Returns the bytes handled.
     pub fn pump(&mut self) -> usize {
+        self.refresh_front();
+        let facts = self.facts_with(self.exited);
+        self.input.observe(facts);
         let bytes = self.session.pump();
         if bytes > 0 {
             self.cursor_epoch_ms = self.session.now_ms();
@@ -1414,18 +1657,22 @@ impl App {
     #[must_use]
     pub fn view(&self) -> Frame {
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let editing_box = self.input.mode(self.facts_with(self.exited)) == Mode::Editing;
         let cursor = (!self.exited).then(|| crate::raster::CursorState {
-            focused: self.desk.focused,
+            // While the box is the place to type, the grid's cursor is drawn
+            // unfocused: there is one typeable place at a time.
+            focused: self.desk.focused && !editing_box,
             blink_on: self.blink_on(self.session.now_ms()),
         });
         self.renderer
-            .render_window_full(
+            .render_window_input(
                 self.session.document(),
-                &window_for(columns, rows),
+                &window_for_box(columns, rows, self.box_rows),
                 &self.toasts(),
                 self.selection.as_ref(),
                 self.scroll,
                 (cursor, self.find_overlay().as_ref()),
+                Some(&self.input_view()),
             )
             .viewport(self.width, self.height, self.renderer.theme().background)
     }

@@ -134,7 +134,11 @@ mod on_a_pty {
 printf '\033[?1h\033=READY1\r\n'
 printf 'APP %s\r\n' "$(dd bs=1 count=12 2>/dev/null | od -An -tx1 | tr -d ' \n')"
 printf '\033[?1l\033>READY2\r\n'
-printf 'NORMAL %s\r\n' "$(dd bs=1 count=5 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+set -m
+f=$(mktemp)
+{ printf 'READY3\r\n' >&2; dd bs=1 count=5 2>/dev/null; } | od -An -tx1 | tr -d ' \n' > "$f"
+printf 'NORMAL %s\r\n' "$(cat "$f")"
+rm -f "$f"
 "#;
 
     #[test]
@@ -159,6 +163,9 @@ printf 'NORMAL %s\r\n' "$(dd bs=1 count=5 2>/dev/null | od -An -tx1 | tr -d ' \n
 
         wait_for(&mut app, "READY2");
         assert_eq!(app.session().key_modes(), lumen_term::KeyModes::default());
+        // The read is its own job; until it holds the terminal the shell is in
+        // front on a raw tty and the box would take the keys.
+        wait_for(&mut app, "READY3");
         for key in [Key::Up, Key::Keypad('5'), Key::KeypadEnter] {
             assert!(app.key(key, none).is_ok());
         }
