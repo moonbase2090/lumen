@@ -218,7 +218,7 @@ fn the_view_draws_the_trust_margin_the_producer_cannot_reach() {
         &[],
         None,
         lumen_term::scroll::Scroll::Follow,
-        None,
+        (None, None),
         Some(&ended),
     );
     let lay = lumen_term::layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);

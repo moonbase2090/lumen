@@ -76,6 +76,7 @@ pub struct Document {
     colour_queries: Vec<ColourQuery>,
     images: ImageHost,
     pending_title: Option<String>,
+    pending_bell: bool,
 }
 
 /// Most colour queries kept for the owner to answer. Later ones are not kept.
@@ -105,6 +106,7 @@ impl Document {
             colour_queries: Vec::new(),
             images,
             pending_title: None,
+            pending_bell: false,
         }
     }
 
@@ -186,9 +188,12 @@ impl Document {
         if !allowed.is_empty() {
             let grid = self.grid();
             grid.feed(&allowed);
-            if let Some(title) = grid.take_title() {
+            let title = grid.take_title();
+            let bell = grid.take_bell();
+            if let Some(title) = title {
                 self.pending_title = Some(title);
             }
+            self.pending_bell |= bell;
         }
     }
 
@@ -196,6 +201,12 @@ impl Document {
     /// is a reset. Only the program's own output sets it.
     pub fn take_title(&mut self) -> Option<String> {
         self.pending_title.take()
+    }
+
+    /// Whether the program rang the bell since the last call. The bell carries
+    /// no text: it is only that it rang.
+    pub fn take_bell(&mut self) -> bool {
+        std::mem::take(&mut self.pending_bell)
     }
 
     fn grid(&mut self) -> &mut GridBlock {

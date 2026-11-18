@@ -65,6 +65,12 @@ pub struct Palette {
     pub notice: Rgb,
     /// A toast's border.
     pub notice_border: Rgb,
+    /// The background of a find match.
+    pub find_match: Rgb,
+    /// The background of the find match the user is on.
+    pub find_current: Rgb,
+    /// Text inside a find match, on either background.
+    pub find_text: Rgb,
     /// The sixteen ANSI colours of grid blocks.
     pub ansi: [Rgb; 16],
 }
@@ -90,6 +96,9 @@ impl Palette {
             control_border: [133, 140, 154],
             notice: [255, 249, 235],
             notice_border: [205, 150, 40],
+            find_match: [255, 230, 130],
+            find_current: [255, 160, 60],
+            find_text: [17, 24, 39],
             ansi: [
                 [24, 26, 32],
                 [190, 36, 36],
@@ -131,6 +140,9 @@ impl Palette {
             control_border: [110, 118, 134],
             notice: [44, 38, 24],
             notice_border: [190, 140, 50],
+            find_match: [100, 80, 20],
+            find_current: [150, 84, 16],
+            find_text: [255, 255, 255],
             ansi: [
                 [36, 40, 48],
                 [255, 110, 110],
@@ -172,6 +184,9 @@ impl Palette {
             control_border: [0, 0, 0],
             notice: [255, 255, 255],
             notice_border: [0, 0, 0],
+            find_match: [255, 240, 120],
+            find_current: [255, 140, 0],
+            find_text: [0, 0, 0],
             ansi: [
                 [0, 0, 0],
                 [160, 0, 0],
@@ -239,6 +254,18 @@ impl Palette {
                         floors.text
                     ));
                 }
+            }
+        }
+        for (name, bg) in [
+            ("find_match", self.find_match),
+            ("find_current", self.find_current),
+        ] {
+            let ratio = contrast(self.find_text, bg);
+            if ratio < floors.text {
+                misses.push(format!(
+                    "find_text on {name} is {ratio:.2}:1, under {}:1",
+                    floors.text
+                ));
             }
         }
         if let Some(floor) = floors.ansi {
@@ -314,6 +341,9 @@ impl Palette {
             prompt: self.accent,
             toast: self.notice,
             toast_border: self.notice_border,
+            find_match: self.find_match,
+            find_current: self.find_current,
+            find_text: self.find_text,
         }
     }
 }
@@ -355,6 +385,12 @@ pub struct Theme {
     pub toast: Rgb,
     /// A toast's border.
     pub toast_border: Rgb,
+    /// The background of a find match.
+    pub find_match: Rgb,
+    /// The background of the find match the user is on.
+    pub find_current: Rgb,
+    /// Text inside a find match.
+    pub find_text: Rgb,
 }
 
 impl Theme {
@@ -395,6 +431,9 @@ impl Theme {
             prompt: [28, 28, 28],
             toast: [255, 250, 230],
             toast_border: [190, 150, 60],
+            find_match: [255, 230, 130],
+            find_current: [255, 160, 60],
+            find_text: [28, 28, 28],
         }
     }
 }

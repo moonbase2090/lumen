@@ -280,7 +280,7 @@ fn the_editor_prompt_is_drawn_in_the_accent() -> Result<(), Box<dyn std::error::
         &[],
         None,
         lumen_term::scroll::Scroll::Follow,
-        None,
+        (None, None),
         Some(&editing),
     );
     let lay = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);

@@ -675,6 +675,13 @@ impl ApplicationHandler for Host {
             if let Some(title) = run.app.take_window_title() {
                 run.window.set_title(&title);
             }
+            match run.app.attention_step() {
+                crate::attention::Step::Request => run
+                    .window
+                    .request_user_attention(Some(winit::window::UserAttentionType::Informational)),
+                crate::attention::Step::Cancel => run.window.request_user_attention(None),
+                crate::attention::Step::Idle => {}
+            }
             if run.app.has_exited() {
                 event_loop.exit();
                 return;

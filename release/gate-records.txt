@@ -14,5 +14,5 @@
 # There is no windows line on purpose: images are not supported on Windows in
 # v0, because the Windows console cannot carry the binary image frames, so a
 # Windows build stays locked and shows the alt text (see spec/v0/platforms.md).
-linux d64a119dc632b1d823691ac443e632bd86aed9b972c73103c2cf015445977118 7455f19c2497c5a710a278fd2f108d7b1367b93db61607fc697192b9743adf47 pass pass
-macos d64a119dc632b1d823691ac443e632bd86aed9b972c73103c2cf015445977118 7455f19c2497c5a710a278fd2f108d7b1367b93db61607fc697192b9743adf47 pass pass
+linux d64a119dc632b1d823691ac443e632bd86aed9b972c73103c2cf015445977118 311909b95e8b8d8bcb44cdd22da39c8cb3f6abdb07ffb4c5757fc828f1cc18c7 pass pass
+macos d64a119dc632b1d823691ac443e632bd86aed9b972c73103c2cf015445977118 311909b95e8b8d8bcb44cdd22da39c8cb3f6abdb07ffb4c5757fc828f1cc18c7 pass pass

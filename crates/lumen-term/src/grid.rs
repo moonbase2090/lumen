@@ -79,6 +79,12 @@ impl GridBlock {
         self.emulator.take_pending_title()
     }
 
+    /// Whether the output rang the bell (BEL as a control, not as the end of
+    /// a string) since the last call.
+    pub fn take_bell(&mut self) -> bool {
+        self.emulator.take_pending_bell()
+    }
+
     /// What the output this block was given did to the key modes.
     #[must_use]
     pub fn key_mode_changes(&self) -> Changes {

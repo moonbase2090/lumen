@@ -77,12 +77,18 @@ pub struct App {
     scroll: Scroll,
     /// How many times the view moved since the host last asked.
     view_moves: u32,
+    /// The find bar and its matches, while it is open.
+    find: Option<crate::search::Find>,
+    /// What was typed in the find bar when it was last closed, so reopening it,
+    /// or going to the next or previous match, searches for it again.
+    find_kept: String,
     /// When the cursor last moved the blink back to its on half: output or a key.
     cursor_epoch_ms: u64,
     /// The blink half the last frame was drawn with, so a change asks for a new frame.
     cursor_phase: bool,
     /// The program has ended: its screen has no cursor any more.
     exited: bool,
+    attention: crate::attention::Attention,
     preedit: Option<Preedit>,
     /// The input box: what the user is typing, and where keys go.
     input: InputLine,
@@ -121,6 +127,8 @@ struct Preedit {
     /// The caret or selection inside `text`, as byte offsets.
     cursor: Option<(usize, usize)>,
 }
+
+mod find;
 
 /// Rows of text one wheel step scrolls.
 pub const WHEEL_ROWS: u32 = 3;
@@ -311,9 +319,12 @@ impl App {
             selection_changed: false,
             scroll: Scroll::Follow,
             view_moves: 0,
+            find: None,
+            find_kept: String::new(),
             cursor_epoch_ms: 0,
             cursor_phase: true,
             exited: false,
+            attention: crate::attention::Attention::new(),
             preedit: None,
             input: InputLine::new(),
             box_rows: EDITOR_ROWS,
@@ -981,6 +992,7 @@ impl App {
         self.clear_selection();
         self.width = width;
         self.height = height;
+        self.refresh_find();
         Ok(())
     }
 
@@ -997,11 +1009,30 @@ impl App {
     ///
     /// Returns why the renderer could not be made or the program could not be told.
     pub fn set_scale(&mut self, scale: u32) -> Result<(), SpawnError> {
+        // A view held somewhere in the output keeps its place by its share of
+        // the flow, since the flow's height changes with the cell size and the
+        // wrap.
+        let (area, _, total) = self.content_metrics();
+        let held = match self.scroll {
+            Scroll::Pinned(_) => Some(u64::from(self.scroll.top(total, area))),
+            Scroll::Follow => None,
+        };
         self.renderer =
             Renderer::with_fonts(scale, self.renderer.theme().clone(), self.renderer.fonts())
                 .map_err(SpawnError)?;
         self.scale = scale;
-        self.resize(self.width, self.height)
+        self.resize(self.width, self.height)?;
+        if let Some(top) = held {
+            let (area, _, now) = self.content_metrics();
+            let moved = top * u64::from(now) / u64::from(total.max(1));
+            let moved = u32::try_from(moved).unwrap_or(u32::MAX);
+            self.scroll = if moved >= now.saturating_sub(area) {
+                Scroll::Follow
+            } else {
+                Scroll::Pinned(moved)
+            };
+        }
+        Ok(())
     }
 
     /// Keep the scale as given: a display's scale no longer changes it. For a
@@ -1044,6 +1075,26 @@ impl App {
     pub fn perform(&mut self, action: Action, clipboard: &dyn Clipboard) -> Outcome {
         match action {
             Action::Quit | Action::Close => Outcome::Exit,
+            Action::Find => {
+                self.find_open();
+                Outcome::Redraw
+            }
+            Action::FindNext => {
+                self.find_next();
+                Outcome::Redraw
+            }
+            Action::FindPrevious => {
+                self.find_previous();
+                Outcome::Redraw
+            }
+            Action::Paste if self.find.is_some() => {
+                // Into the bar, as one line.
+                if let Some(text) = clipboard.text() {
+                    let line = text.lines().next().unwrap_or_default().to_owned();
+                    self.find_text(&line);
+                }
+                Outcome::Redraw
+            }
             Action::Copy => match self.selected_text() {
                 Some(text) if clipboard.set_text(&text) => Outcome::Nothing,
                 Some(_) => Outcome::Refused,
@@ -1091,6 +1142,10 @@ impl App {
     /// Returns the write error.
     pub fn key(&mut self, key: Key, mods: Mods) -> std::io::Result<()> {
         if self.scroll_key(key, mods) {
+            return Ok(());
+        }
+        if self.find.is_some() {
+            self.find_key(key, mods);
             return Ok(());
         }
         let facts = self.facts();
@@ -1268,6 +1323,10 @@ impl App {
     ///
     /// Returns the write error.
     pub fn text(&mut self, text: &str) -> std::io::Result<()> {
+        if self.find.is_some() {
+            self.find_text(text);
+            return Ok(());
+        }
         if text.is_empty() {
             return Ok(());
         }
@@ -1479,6 +1538,7 @@ impl App {
         let bytes = self.session.pump();
         if bytes > 0 {
             self.cursor_epoch_ms = self.session.now_ms();
+            self.refresh_find();
         }
         let events = self.session.take_events();
         if !events.is_empty() {
@@ -1495,6 +1555,14 @@ impl App {
         self.session
             .take_title()
             .map(|t| crate::title::window_title(Some(&t)))
+    }
+
+    /// What the window should tell the system about the bell since the last
+    /// call. The bell is always taken, so it cannot pile up.
+    pub fn attention_step(&mut self) -> crate::attention::Step {
+        let rang = self.session.take_bell();
+        let now = self.session.now_ms();
+        self.attention.step(rang, now, self.desk.focused)
     }
 
     /// Whether the program has exited.
@@ -1518,7 +1586,7 @@ impl App {
                 &self.toasts(),
                 self.selection.as_ref(),
                 self.scroll,
-                cursor,
+                (cursor, self.find_overlay().as_ref()),
                 Some(&self.input_view()),
             )
             .viewport(self.width, self.height, self.renderer.theme().background)
