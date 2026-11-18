@@ -252,7 +252,8 @@ impl InputLine {
         if bytes.is_empty() {
             return Outcome::None;
         }
-        if ends_line(&bytes) {
+        let line_empty = !self.handed_off && !self.typeahead;
+        if ends_line(&bytes, line_empty) {
             self.handed_off = false;
             self.typeahead = false;
         } else {
@@ -266,7 +267,10 @@ impl InputLine {
     /// so only for a program on a cooked tty, where the kernel queues what is
     /// typed; a program reading raw (vim, less) takes its keys itself.
     fn note_raw(&mut self, facts: Facts, bytes: &[u8]) {
-        if !self.handed_off && !bytes.is_empty() && !ends_line(bytes) && facts.icanon == Some(true)
+        if !self.handed_off
+            && !bytes.is_empty()
+            && !ends_line(bytes, false)
+            && facts.icanon == Some(true)
         {
             self.typeahead = true;
         }
@@ -387,8 +391,9 @@ impl InputLine {
             let text = self.text();
             self.remember(&text);
         }
+        let line_empty = !had_text && !self.handed_off;
         self.clear();
-        if ends_line(&key_bytes) {
+        if ends_line(&key_bytes, line_empty) {
             self.handed_off = false;
         } else if had_text || starts_line_work(&key_bytes) {
             self.handed_off = true;
@@ -504,9 +509,15 @@ fn wrap(text: &str, bracketed: bool) -> Vec<u8> {
     out
 }
 
-/// A write that ends the shell's line: Enter, Ctrl+C or Ctrl+D.
-fn ends_line(bytes: &[u8]) -> bool {
-    matches!(bytes, [b'\r' | 0x03 | 0x04])
+/// A write that ends the shell's line: Enter or Ctrl+C. Ctrl+D ends it only
+/// when the line is empty (the shell exits); with text on the line the shell
+/// deletes a character or lists completions and still holds the line.
+fn ends_line(bytes: &[u8], line_empty: bool) -> bool {
+    match bytes {
+        [b'\r' | 0x03] => true,
+        [0x04] => line_empty,
+        _ => false,
+    }
 }
 
 /// A key that can change the line the shell holds, so the shell has it now.
@@ -849,12 +860,29 @@ mod tests {
         for (end, mods, bytes) in [
             (Key::Enter, NONE, &b"\r"[..]),
             (Key::Char('c'), CTRL, b"\x03"),
-            (Key::Char('d'), CTRL, b"\x04"),
         ] {
             let mut l = line.clone();
             assert_eq!(l.key(facts, end, mods), Outcome::Write(bytes.to_vec()));
             assert_eq!(l.mode(facts), Mode::Editing, "{end:?} ends the line");
         }
+    }
+
+    #[test]
+    fn control_d_keeps_a_line_with_text_handed_off() {
+        let facts = Facts::at_prompt();
+        // Text in the box: it goes to the shell with Ctrl+D, which does not end
+        // the line.
+        let mut line = InputLine::new();
+        typed(&mut line, facts, "echo");
+        line.key(facts, Key::Char('d'), CTRL);
+        assert_eq!(line.mode(facts), Mode::HandedOff);
+        // Already handed off: Ctrl+D still does not end it.
+        line.key(facts, Key::Char('d'), CTRL);
+        assert_eq!(line.mode(facts), Mode::HandedOff);
+        // With nothing on the line, Ctrl+D is the shell's exit and the box stays usable.
+        let mut empty = InputLine::new();
+        empty.key(facts, Key::Char('d'), CTRL);
+        assert_eq!(empty.mode(facts), Mode::Editing);
     }
 
     #[test]

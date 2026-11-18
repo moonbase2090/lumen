@@ -158,3 +158,35 @@ fn the_paste_chord_lands_in_the_box_and_nothing_runs() {
     );
     assert!(!grid_text(&app).contains("one"));
 }
+
+#[test]
+fn control_d_after_box_text_leaves_the_shell_holding_the_line() {
+    let mut app = zsh();
+    type_str(&mut app, "echo");
+    app.key(
+        Key::Char('d'),
+        Mods {
+            ctrl: true,
+            ..Mods::default()
+        },
+    )
+    .unwrap_or_else(|e| unreachable!("key: {e}"));
+    std::thread::sleep(Duration::from_millis(400));
+    app.pump();
+    assert_eq!(app.input_text(), "", "the box handed its text over");
+    assert_eq!(
+        app.input_mode(),
+        Mode::HandedOff,
+        "zsh still holds the prefix, so the shell owns the line"
+    );
+    // The line is finished by the shell: Ctrl+C clears it and the box is back.
+    app.key(
+        Key::Char('c'),
+        Mods {
+            ctrl: true,
+            ..Mods::default()
+        },
+    )
+    .unwrap_or_else(|e| unreachable!("key: {e}"));
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+}
