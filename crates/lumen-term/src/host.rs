@@ -553,6 +553,22 @@ impl Host {
                 let held = self.held();
                 let (x, y) = self.pointer;
                 let Some(run) = &mut self.state else { return };
+                #[cfg(any(target_os = "macos", windows))]
+                if state == ElementState::Pressed
+                    && button == MouseButton::Right
+                    && !run.app.is_selecting()
+                    && run.app.owns_context_click(x, y, held)
+                {
+                    let menu_state = crate::menu::ContextState {
+                        can_copy: run.app.has_selection(),
+                        can_paste: SystemClipboard.text().is_some(),
+                    };
+                    // A menu that cannot be built leaves the click unused.
+                    if let Ok(menu) = crate::menu::context_menu(menu_state) {
+                        crate::ffi_context_menu::show(&menu, &*run.window);
+                    }
+                    return;
+                }
                 let mut redraw = false;
                 if state == ElementState::Pressed && button == MouseButton::Left {
                     redraw = run.app.click(x, y);
@@ -680,8 +696,8 @@ impl ApplicationHandler for Host {
             event_loop.exit();
             return;
         }
-        #[cfg(target_os = "macos")]
-        for action in crate::menu::MenuBar::chosen() {
+        #[cfg(any(target_os = "macos", windows))]
+        for action in crate::menu::chosen() {
             self.act(event_loop, action);
         }
         if let Some(run) = &mut self.state {
