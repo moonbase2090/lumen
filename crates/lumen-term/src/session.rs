@@ -353,6 +353,13 @@ impl Session {
         Ok(())
     }
 
+    /// The process group in the foreground of the program's terminal, if the
+    /// system can say (see [`Pty::foreground_group`]).
+    #[must_use]
+    pub fn foreground_group(&self) -> Option<i32> {
+        self.pty.foreground_group()
+    }
+
     /// Whether the program has exited.
     pub fn has_exited(&mut self) -> bool {
         self.pty.has_exited()

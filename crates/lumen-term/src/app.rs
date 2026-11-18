@@ -74,6 +74,10 @@ pub struct App {
     selecting: bool,
     selection_changed: bool,
     scroll: Scroll,
+    /// The program's reporting modes as last seen, and the foreground process
+    /// group when they came on: reports and bracketed paste go only while the
+    /// same group is still in front.
+    reporting: Reporting,
     /// How many times the view moved since the host last asked.
     view_moves: u32,
     /// The find bar and its matches, while it is open.
@@ -111,6 +115,25 @@ pub fn display_scale(factor: f64) -> u32 {
 /// The longest preedit, in characters, the app keeps. An input method sends a
 /// few words at most; the cap keeps a misbehaving one from growing it.
 pub const PREEDIT_MAX_CHARS: usize = 256;
+
+/// Which foreground process group switched the reporting modes on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Grant {
+    /// No reporting mode is on, so there is nothing to grant.
+    #[default]
+    Unasked,
+    /// The group in front of the terminal when the modes came on.
+    Group(i32),
+    /// The system could not say which group was in front: nothing is reported.
+    Unknown,
+}
+
+/// The reporting modes (bracketed paste, mouse) as last seen, and who asked.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Reporting {
+    asked: Option<(bool, Option<crate::mouse::Modes>)>,
+    group: Grant,
+}
 
 /// Text an input method is composing and has not committed yet: it is shown to
 /// the user and sent to the program only when composition finishes.
@@ -298,6 +321,7 @@ impl App {
             selecting: false,
             selection_changed: false,
             scroll: Scroll::Follow,
+            reporting: Reporting::default(),
             view_moves: 0,
             find: None,
             find_kept: String::new(),
@@ -841,10 +865,72 @@ impl App {
         Ok(self.scroll_pixels(pixels))
     }
 
-    fn live_modes(&self) -> Option<crate::mouse::Modes> {
+    /// The mouse modes the live block has on, as the program set them.
+    fn asked_mouse_modes(&self) -> Option<crate::mouse::Modes> {
         match self.session.document().blocks().last() {
             Some(Block::Grid(g)) => Some(g.mouse_modes()),
             _ => None,
+        }
+    }
+
+    /// The mouse modes in force: those the program asked for, while the process
+    /// group that asked is still the one in front of the terminal. When the
+    /// group has changed (the program was suspended or replaced, say by a shell)
+    /// or the system cannot say, the program gets no reports.
+    fn live_modes(&self) -> Option<crate::mouse::Modes> {
+        let modes = self.asked_mouse_modes()?;
+        Some(if self.reporting_allowed() {
+            modes
+        } else {
+            crate::mouse::Modes {
+                tracking: crate::mouse::MouseTracking::Off,
+                sgr: false,
+                wheel: false,
+            }
+        })
+    }
+
+    /// Whether the program that switched its reporting modes on is still the
+    /// foreground group of its terminal (`tcgetpgrp`). Vacuously true when no
+    /// reporting mode is on or where there is no foreground group to ask.
+    fn reporting_allowed(&self) -> bool {
+        if !cfg!(unix) {
+            return true;
+        }
+        match self.reporting.group {
+            Grant::Unasked => true,
+            Grant::Group(g) => self.session.foreground_group() == Some(g),
+            Grant::Unknown => false,
+        }
+    }
+
+    /// Whether the program has switched on bracketed paste and may still have it.
+    fn bracketed_in_force(&self) -> bool {
+        self.session.key_modes().bracketed_paste && self.reporting_allowed()
+    }
+
+    /// Note a change in the reporting modes the program has on, and with it the
+    /// foreground group at that moment: the one that asked.
+    fn track_reporting(&mut self) {
+        let asked = (
+            self.session.key_modes().bracketed_paste,
+            self.asked_mouse_modes(),
+        );
+        let on = asked.0
+            || asked
+                .1
+                .is_some_and(|m| m.tracking != crate::mouse::MouseTracking::Off || m.wheel);
+        if !on {
+            self.reporting = Reporting::default();
+        } else if self.reporting.asked != Some(asked) {
+            let group = match self.session.foreground_group() {
+                Some(g) => Grant::Group(g),
+                None => Grant::Unknown,
+            };
+            self.reporting = Reporting {
+                asked: Some(asked),
+                group,
+            };
         }
     }
 
@@ -1057,7 +1143,7 @@ impl App {
                 let Some(text) = clipboard.text() else {
                     return Outcome::Nothing;
                 };
-                let bracketed = self.session.key_modes().bracketed_paste;
+                let bracketed = self.bracketed_in_force();
                 let pasted = match paste::judge(&text, bracketed) {
                     Decision::Send(p) => p,
                     Decision::Hold(h) => h.single_line,
@@ -1240,7 +1326,7 @@ impl App {
     /// Returns the write error; the user is shown the not-sent notice.
     #[cfg(feature = "links-clipboard")]
     pub fn paste(&mut self, text: &str) -> std::io::Result<PasteOutcome> {
-        let bracketed = self.session.key_modes().bracketed_paste;
+        let bracketed = self.bracketed_in_force();
         match paste::judge(text, bracketed) {
             Decision::Reject(why) => Ok(PasteOutcome::Rejected(why)),
             Decision::Hold(hold) => Ok(PasteOutcome::Held(hold)),
@@ -1258,7 +1344,7 @@ impl App {
     #[cfg(feature = "links-clipboard")]
     pub fn paste_chosen(&mut self, pasted: &Pasted) -> std::io::Result<()> {
         let mut bytes = Vec::with_capacity(pasted.text.len() + 12);
-        let bracketed = self.session.key_modes().bracketed_paste;
+        let bracketed = self.bracketed_in_force();
         if bracketed {
             bytes.extend_from_slice(b"\x1b[200~");
         }
@@ -1314,6 +1400,7 @@ impl App {
     pub fn pump(&mut self) -> usize {
         let bytes = self.session.pump();
         if bytes > 0 {
+            self.track_reporting();
             self.cursor_epoch_ms = self.session.now_ms();
             self.refresh_find();
         }

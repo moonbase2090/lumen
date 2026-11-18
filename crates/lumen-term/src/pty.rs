@@ -223,6 +223,21 @@ impl Pty {
             .map_err(|e| SpawnError(e.to_string()))
     }
 
+    /// The process group in the foreground of the program's terminal
+    /// (`tcgetpgrp`), or `None` when the system cannot say. Read-only. Off Unix
+    /// there is no such group and the answer is `None`.
+    #[must_use]
+    pub fn foreground_group(&self) -> Option<i32> {
+        #[cfg(unix)]
+        {
+            self.session.foreground_process_group()
+        }
+        #[cfg(not(unix))]
+        {
+            None
+        }
+    }
+
     /// Whether the program has exited. Once it has, this stays true: the
     /// status is read once, and asking again would find nothing to reap.
     pub fn has_exited(&mut self) -> bool {
