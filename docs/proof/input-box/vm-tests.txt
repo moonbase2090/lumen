@@ -1,16 +1,17 @@
 macOS 26.6.2 arm64, clean VM
 rustc 1.100.0 (0ef1bc386 2026-11-09)
-head 537d396ea30c627ecdce41d1d05d1cf65c8d85c1
+head 80a1cb8fbf5feb66210b07da8e7bd297680acd2a
 cargo test --workspace --features lumen-term/window --locked --no-fail-fast
 test binaries ok: 159
 test binaries failed: 0
-tests passed: 1110
+tests passed: 1112
 EXIT:0
 
-input_box (real zsh, vim, less, password read, paste chord):
+input_box (real zsh, vim, less, password read, paste chord, Ctrl-D):
 test at_a_zsh_prompt_typing_goes_into_the_box_and_enter_runs_it ... ok
 test a_control_key_is_never_swallowed_by_the_box ... ok
 test less_gets_raw_keys ... ok
-test vim_gets_raw_keys_and_the_box_stays_empty ... ok
 test a_password_read_is_hidden_and_never_drawn ... ok
+test vim_gets_raw_keys_and_the_box_stays_empty ... ok
+test control_d_after_box_text_leaves_the_shell_holding_the_line ... ok
 test the_paste_chord_lands_in_the_box_and_nothing_runs ... ok
