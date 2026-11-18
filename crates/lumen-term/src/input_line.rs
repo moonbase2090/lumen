@@ -216,6 +216,23 @@ impl InputLine {
         Outcome::Write(out)
     }
 
+    /// Put the caret at `column` characters into `line` (both counted from the
+    /// top of the box), clamped to the text.
+    pub fn set_caret_at(&mut self, line: usize, column: usize) {
+        let mut start = 0;
+        for _ in 0..line {
+            match self.text[start..].iter().position(|&c| c == '\n') {
+                Some(i) => start += i + 1,
+                None => break,
+            }
+        }
+        let end = self.text[start..]
+            .iter()
+            .position(|&c| c == '\n')
+            .map_or(self.text.len(), |i| start + i);
+        self.caret = (start + column).min(end);
+    }
+
     /// Cancel a held choice; the text stays in the box.
     pub fn cancel_held(&mut self) {
         self.held = None;

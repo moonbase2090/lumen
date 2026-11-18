@@ -461,8 +461,41 @@ impl App {
                 }
                 true
             }
-            None => false,
+            None => self.click_box(x, y),
         }
+    }
+
+    /// A press in the input box while it edits puts the caret at the cell
+    /// pressed. Returns whether the box changed.
+    fn click_box(&mut self, x: u32, y: u32) -> bool {
+        if self.input_mode() != Mode::Editing {
+            return false;
+        }
+        let (cell_w, cell_h) = self.renderer.cell();
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let win = window_for_box(columns, rows, self.box_rows);
+        let top = win.editor_row * cell_h;
+        let left = GUTTER_COLUMNS * cell_w + self.renderer.gutter_pad() + 2 * cell_w;
+        let inside = y >= top && y < (win.editor_row + win.editor_rows) * cell_h;
+        if !inside || x < left || cell_h == 0 || cell_w == 0 {
+            return false;
+        }
+        let line = ((y - top) / cell_h) as usize;
+        let column = ((x - left) / cell_w) as usize;
+        let first = self.visible_first_line();
+        self.input.set_caret_at(first + line, column);
+        true
+    }
+
+    /// The first line of the box's text that is shown: the box scrolls to keep
+    /// the caret's line in view.
+    fn visible_first_line(&self) -> usize {
+        let view = self.input_view();
+        let rows = (self.box_rows.saturating_sub(1) as usize).max(1);
+        let caret_line = view.caret.map_or(0, |c| c.0);
+        (caret_line + 1)
+            .saturating_sub(rows)
+            .min(view.lines.len().saturating_sub(rows))
     }
 
     /// The height of a cell in pixels.
@@ -1329,11 +1362,15 @@ impl App {
             .preedit
             .as_ref()
             .map_or(0, |p| p.text.chars().map(cell_columns).sum::<u32>());
+        let (line, col) = self.input_view().caret.unwrap_or((0, 0));
+        let line = u32::try_from(line.saturating_sub(self.visible_first_line())).unwrap_or(0);
+        let col = u32::try_from(col).unwrap_or(0);
         (
             GUTTER_COLUMNS
                 .saturating_mul(cell_w)
-                .saturating_add(self.renderer.gutter_pad()),
-            win.editor_row.saturating_mul(cell_h),
+                .saturating_add(self.renderer.gutter_pad())
+                .saturating_add(col.saturating_add(2).saturating_mul(cell_w)),
+            win.editor_row.saturating_add(line).saturating_mul(cell_h),
             used.max(1).saturating_mul(cell_w),
             cell_h,
         )
