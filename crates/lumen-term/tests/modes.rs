@@ -134,7 +134,11 @@ mod on_a_pty {
 printf '\033[?1h\033=READY1\r\n'
 printf 'APP %s\r\n' "$(dd bs=1 count=12 2>/dev/null | od -An -tx1 | tr -d ' \n')"
 printf '\033[?1l\033>READY2\r\n'
-printf 'NORMAL %s\r\n' "$(dd bs=1 count=5 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+set -m
+f=$(mktemp)
+dd bs=1 count=5 2>/dev/null | od -An -tx1 | tr -d ' \n' > "$f"
+printf 'NORMAL %s\r\n' "$(cat "$f")"
+rm -f "$f"
 "#;
 
     #[test]
