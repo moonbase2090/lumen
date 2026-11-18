@@ -261,20 +261,28 @@ fn the_app_draws_in_the_design_theme() -> Result<(), Box<dyn std::error::Error>>
 #[test]
 fn the_editor_prompt_is_drawn_in_the_accent() -> Result<(), Box<dyn std::error::Error>> {
     use lumen_term::app::{cells_for, window_for};
-    use lumen_term::{App, Passthrough, layout};
-    let app = App::start(
-        Box::new(Passthrough),
-        "/bin/sh",
-        &["-c", "sleep 2"],
-        1,
-        640,
-        380,
-    )?;
-    let frame = app.view();
-    let (cw, ch) = lumen_term::Renderer::new(1, design::theme())?.cell();
-    let pad = lumen_term::Renderer::new(1, design::theme())?.gutter_pad();
+    use lumen_term::layout;
+    let r = lumen_term::Renderer::new(1, design::theme())?;
+    let (cw, ch) = r.cell();
+    let pad = r.gutter_pad();
     let (cols, rows) = cells_for(640 - pad, 380, (cw, ch));
     let win = window_for(cols, rows);
+    // The box while the user can type in it: no status, nothing typed yet.
+    let editing = lumen_term::raster::InputView {
+        lines: vec![String::new()],
+        caret: Some((0, 0)),
+        focused: false,
+        status: None,
+    };
+    let frame = r.render_window_input(
+        &lumen_term::Document::new(1, 1),
+        &win,
+        &[],
+        None,
+        lumen_term::scroll::Scroll::Follow,
+        None,
+        Some(&editing),
+    );
     let lay = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
     // The mark sits in the editor's second cell of its first row.
     let (x0, y0) = ((lay.editor.x + 1) * cw + pad, lay.editor.y * ch);

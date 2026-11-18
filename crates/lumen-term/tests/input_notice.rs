@@ -49,7 +49,9 @@ fn pump_until(app: &mut App, done: impl Fn(&App) -> bool) -> bool {
 
 /// A program that puts its terminal in raw mode, says it is ready, and then
 /// never reads: what a program busy elsewhere looks like to the user typing.
-const NEVER_READS: &str = "stty raw -echo; echo READY; sleep 60";
+/// The sleep runs in a job of its own, so it holds the terminal and the keys
+/// go to it, not to the input box.
+const NEVER_READS: &str = "stty raw -echo; echo READY; set -m; sleep 60";
 
 /// Fill the program's input until the app refuses, and return how long the
 /// slowest send took.
