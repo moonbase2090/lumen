@@ -1252,7 +1252,7 @@
      "methods": 0
     }
    },
-   "prismattyc-core 0.3.52": {
+   "prismattyc-core 0.3.67": {
     "forbids_unsafe": false,
     "source": "Git",
     "unsafe_items": {
@@ -1263,7 +1263,7 @@
      "methods": 3
     }
    },
-   "prismattyc-emulator 0.3.52": {
+   "prismattyc-emulator 0.3.67": {
     "forbids_unsafe": false,
     "source": "Git",
     "unsafe_items": {
@@ -1274,7 +1274,7 @@
      "methods": 0
     }
    },
-   "prismattyc-protocol 0.3.52": {
+   "prismattyc-protocol 0.3.67": {
     "forbids_unsafe": false,
     "source": "Git",
     "unsafe_items": {
