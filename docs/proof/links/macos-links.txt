@@ -3,12 +3,13 @@ macOS proof: links in the window (clean VM)
 Machine: a fresh virtual machine from a clean, unmodified macOS install (macOS 26.6.2, arm64).
 Throwaway standard user (uid 502, not an administrator), created for the run and deleted after it. The machine was deleted afterwards.
 Binaries were built on the host from this branch and copied in; checksums matched on both sides:
-  bright (release, window feature)   fe1bf689d9ab16fe   built at c0c4ef05553183df0add8ea22022c254620b40df
-  link_window test binary            fe13dfb2e46e761f
+  bright (release, window feature)   c100bf74072513c5   built at e5d0959de3552acab172be86b5df600142f91481
+  link_window test binary            56aaefef733c6e92
 
-1. The 11 real-PTY link tests, run in the guest as the throwaway user:
-   running 11 tests
+1. The 12 real-PTY link tests, run in the guest as the throwaway user:
+   running 12 tests
    test a_link_a_program_sets_with_osc_8_has_no_effect_in_a_grid ... ok
+   test a_menu_or_shortcut_action_does_nothing_while_the_prompt_is_up ... ok
    test a_press_off_any_link_is_left_for_the_program ... ok
    test a_written_address_is_underlined_in_the_accent_colour ... ok
    test an_address_in_the_scrollback_is_underlined_and_activatable ... ok
@@ -19,7 +20,7 @@ Binaries were built on the host from this branch and copied in; checksums matche
    test the_buttons_answer_by_click_and_a_click_away_cancels ... ok
    test the_pixel_wheel_is_the_prompts_too_while_it_is_up ... ok
    test the_prompt_is_drawn_over_the_page_and_changes_only_its_box ... ok
-   test result: ok. 11 passed; 0 failed
+   test result: ok. 12 passed; 0 failed
 
 2. The real binary, snapshot mode, over a remote shell as the throwaway user, with a generic shell script as the program:
    bright --size 640x300 --wait 4000 --snapshot /tmp/proof81/snap.png -- sh say.sh
