@@ -353,7 +353,7 @@ pub struct Config {
     pub theme: crate::design::ThemeChoice,
     /// The user's fonts.
     pub fonts: crate::design::Fonts,
-    /// The shell to run when `command` is empty, or `None` for `$SHELL`.
+    /// The user's `shell` setting: what to run when `command` is empty.
     pub shell: Option<String>,
     /// Whether a shell started directly gets the prompt-mark hooks.
     pub shell_integration: bool,
@@ -618,7 +618,7 @@ impl ApplicationHandler for Host {
         let (program, arguments) = match self.config.command.split_first() {
             Some((p, a)) => (p.clone(), a.to_vec()),
             None => (
-                self.config.shell.clone().unwrap_or_else(default_shell),
+                crate::shell::default_shell(self.config.shell.as_deref()),
                 Vec::new(),
             ),
         };
@@ -710,13 +710,6 @@ pub fn appearance(theme: Option<WinitTheme>) -> Appearance {
         Some(WinitTheme::Dark) => Appearance::Dark,
         Some(WinitTheme::Light) | None => Appearance::Light,
     }
-}
-
-fn default_shell() -> String {
-    std::env::var("SHELL")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "/bin/sh".to_owned())
 }
 
 /// Open the window and run until it closes or the program exits.

@@ -53,7 +53,7 @@ fn every_setting_is_read() {
          mono_size = 16\n\
          prose_font = \"/abs/Sans.otf\"\n\
          prose_size = 18\n\
-         shell = \"/usr/bin/fish\"\n\
+         shell = \"pwsh\"\n\
          shell_integration = false\n",
     );
     assert_eq!(
@@ -64,7 +64,7 @@ fn every_setting_is_read() {
             mono_size: 16,
             prose_font: FontSetting::File(PathBuf::from("/abs/Sans.otf")),
             prose_size: 18,
-            shell: Some("/usr/bin/fish".to_owned()),
+            shell: Some("pwsh".to_owned()),
             shell_integration: false,
         })
     );
@@ -119,6 +119,7 @@ fn the_documented_examples_parse() {
     assert_eq!((docs.len(), module.len()), (1, 1));
     let want = LookSettings {
         prose_size: 16,
+        shell: Some("pwsh".to_owned()),
         ..LookSettings::default()
     };
     for example in docs.iter().chain(&module) {

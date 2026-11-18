@@ -58,6 +58,7 @@ pub mod search;
 pub mod select;
 pub mod session;
 pub mod settings;
+pub mod shell;
 pub mod shellint;
 pub mod strip;
 pub mod theme_file;

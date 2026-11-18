@@ -24,10 +24,7 @@ fn command(o: &Options, look: &Look) -> (String, Vec<String>) {
     match o.command.split_first() {
         Some((p, a)) => (p.clone(), a.to_vec()),
         None => (
-            look.shell
-                .clone()
-                .or_else(|| std::env::var("SHELL").ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| "/bin/sh".to_owned()),
+            lumen_term::shell::default_shell(look.shell.as_deref()),
             Vec::new(),
         ),
     }
@@ -113,7 +110,7 @@ fn describe_settings(settings: &Settings, look: &Look) -> String {
         look.fonts.mono_px(),
         face(&s.prose_font),
         look.fonts.prose_px(),
-        s.shell.as_deref().unwrap_or("$SHELL"),
+        s.shell.as_deref().unwrap_or("default"),
         s.shell_integration
     );
     for notice in &look.notices {
