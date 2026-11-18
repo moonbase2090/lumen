@@ -273,6 +273,7 @@ fn the_editor_prompt_is_drawn_in_the_accent() -> Result<(), Box<dyn std::error::
         caret: Some((0, 0)),
         focused: false,
         status: None,
+        hint: None,
     };
     let frame = r.render_window_input(
         &lumen_term::Document::new(1, 1),
@@ -494,5 +495,52 @@ fn the_margin_is_drawn_in_the_grid_background_with_a_divider()
             .any(|x| (0..header_bottom - 1).any(|y| f.pixel(x, y) != Some(grid)));
         assert!(inked, "{b:?} label");
     }
+    Ok(())
+}
+
+/// A held multi-line choice keeps the lines in view and puts the choice under
+/// them, inside the box, in the muted colour.
+#[cfg(unix)]
+#[test]
+fn a_held_choice_shows_the_lines_and_the_hint_under_them() -> Result<(), Box<dyn std::error::Error>>
+{
+    use lumen_term::app::{cells_for, window_for_box};
+    use lumen_term::layout;
+    let r = lumen_term::Renderer::new(1, design::theme())?;
+    let (cw, ch) = r.cell();
+    let pad = r.gutter_pad();
+    let (cols, rows) = cells_for(640 - pad, 380, (cw, ch));
+    let win = window_for_box(cols, rows, 4);
+    let lay = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
+    let view = |hint: Option<&str>| lumen_term::raster::InputView {
+        lines: vec!["ls".into(), "pwd".into()],
+        caret: Some((1, 3)),
+        focused: true,
+        status: None,
+        hint: hint.map(str::to_owned),
+    };
+    let render = |v: &lumen_term::raster::InputView| {
+        r.render_window_input(
+            &lumen_term::Document::new(1, 1),
+            &win,
+            &[],
+            None,
+            lumen_term::scroll::Scroll::Follow,
+            (None, None),
+            Some(v),
+        )
+    };
+    let with = render(&view(Some("Send as 2 commands: Enter")));
+    let without = render(&view(None));
+    // The last text row of the box differs only when the hint is there.
+    let y0 = (lay.editor.y + lay.editor.h - 1) * ch;
+    let x0 = (lay.editor.x + 3) * cw + pad;
+    let mut differs = false;
+    for y in y0..y0 + ch {
+        for x in x0..x0 + 20 * cw {
+            differs |= with.pixel(x, y) != without.pixel(x, y);
+        }
+    }
+    assert!(differs, "the hint is drawn on the last row of the box");
     Ok(())
 }

@@ -1265,10 +1265,7 @@ impl App {
             .filter(|n| !n.is_empty())
             .unwrap_or("the program");
         let status = match mode {
-            Mode::Editing => self.input.held().map(|h| {
-                let n = h.lines().count();
-                format!("Send as {n} commands: Enter. Join as one line: J. Cancel: Esc")
-            }),
+            Mode::Editing => None,
             Mode::Ended => Some("The program has ended".to_owned()),
             Mode::Hidden => Some(format!("Keys go to {name} · input not shown")),
             Mode::HandedOff => Some("Editing in the shell: Enter runs the line".to_owned()),
@@ -1285,11 +1282,19 @@ impl App {
             let col = before.rsplit('\n').next().map_or(0, |l| l.chars().count());
             Some((line, col))
         };
+        let hint = (mode == Mode::Editing)
+            .then(|| self.input.held())
+            .flatten()
+            .map(|h| {
+                let n = h.lines().count();
+                format!("Send as {n} commands: Enter. Join as one line: J. Cancel: Esc")
+            });
         InputView {
             lines,
             caret,
             focused: self.desk.focused,
             status,
+            hint,
         }
     }
 

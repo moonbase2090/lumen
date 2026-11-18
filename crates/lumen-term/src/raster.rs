@@ -87,6 +87,8 @@ pub struct InputView {
     pub focused: bool,
     /// A one-row status in place of the text: where keys go.
     pub status: Option<String>,
+    /// A line under the text, inside the box: the choice a held line waits for.
+    pub hint: Option<String>,
 }
 
 /// Most lines of text the box shows before it scrolls.
@@ -1562,6 +1564,11 @@ impl Renderer {
                 let caret = view
                     .caret
                     .filter(|&(line, _)| focused && (first..first + rows).contains(&line));
+                if let Some(hint) = &view.hint {
+                    let shown: String = hint.chars().take(room.max(1)).collect();
+                    let y = ey + eh.saturating_sub(self.cell_h + self.scale);
+                    self.text_line(frame, text_x, y, &shown, t.muted);
+                }
                 if let Some((line, col)) = caret {
                     let width: u32 = view.lines.get(line).map_or(0, |l| {
                         l.chars()
