@@ -297,8 +297,15 @@ fn a_refused_decision_on_channels_made_first_makes_no_key_and_closes_the_shells_
         !asked_for_a_key.get(),
         "no key was made for a refused layer"
     );
-    // The holder's end was dropped with the channels, so the shell's end is
-    // closed at the other side: a send fails rather than queueing for no one.
+    // The holder's end was dropped with the channels. Another test's child may
+    // hold a copy of it for the moment between its fork and its exec, so the
+    // close is not instant: wait for the kernel to report the hang-up, then
+    // check that a send fails rather than queueing for no one.
+    let hung_up = wait_with_timeout(&[shell_end.as_raw_fd()], 10_000)
+        .unwrap_or_default()
+        .first()
+        .is_some_and(|e| e.hangup);
+    assert!(hung_up, "the shell's channel was never reported closed");
     let mut file = std::fs::File::from(shell_end);
     assert!(
         std::io::Write::write_all(&mut file, &protocol::ready(1)).is_err(),
