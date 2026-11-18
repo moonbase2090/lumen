@@ -115,9 +115,12 @@ fn less_gets_raw_keys() {
     let mut app = zsh();
     type_str(&mut app, "seq 1 500 | less");
     enter(&mut app);
-    assert!(until(&mut app, |a| a.input_mode() == Mode::Raw));
+    // less has drawn its first page: it holds the terminal and reads raw.
+    let has_row = |a: &mut App, n: &str| grid_text(a).lines().any(|l| l.trim() == n);
+    assert!(until(&mut app, |a| has_row(a, "3")), "{}", grid_text(&app));
+    assert_eq!(app.input_mode(), Mode::Raw);
     type_str(&mut app, "G");
-    assert!(until(&mut app, |a| grid_text(a).contains("500")));
+    assert!(until(&mut app, |a| has_row(a, "500")));
     type_str(&mut app, "q");
     assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
 }
@@ -193,4 +196,28 @@ fn control_d_after_box_text_leaves_the_shell_holding_the_line() {
     )
     .unwrap_or_else(|e| unreachable!("key: {e}"));
     assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+}
+
+#[test]
+fn a_line_typed_at_machine_speed_right_after_enter_reaches_the_shell_whole() {
+    let mut app = zsh();
+    for round in 0..6 {
+        let word = format!("counted-{round}");
+        // An empty Enter, then the next line with no pump in between: the shell
+        // has not read the Enter when the first keys arrive.
+        enter(&mut app);
+        type_str(&mut app, &format!("echo {word}"));
+        enter(&mut app);
+        assert!(
+            until(&mut app, |a| grid_text(a).matches(&word).count() >= 2),
+            "the line ran: {}",
+            grid_text(&app)
+        );
+        let screen = grid_text(&app);
+        assert!(
+            !screen.contains("command not found"),
+            "the line was split between the box and the shell:\n{screen}"
+        );
+        assert_eq!(app.input_text(), "", "nothing was left behind in the box");
+    }
 }
