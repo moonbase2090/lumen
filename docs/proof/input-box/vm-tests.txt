@@ -1,10 +1,10 @@
 macOS 26.6.2 arm64, clean VM
 rustc 1.100.0 (0ef1bc386 2026-11-09)
-head 89085906684d711279db098a59fe7b46e15687c0
+head 695a4a7a46f2b46e2835604fa701143d74ac6657
 cargo test --workspace --features lumen-term/window --locked --no-fail-fast
-test binaries ok: 156
+test binaries ok: 159
 test binaries failed: 0
-tests passed: 1075
+tests passed: 1105
 EXIT:0
 
 input_box (real zsh, vim, less, password read):
