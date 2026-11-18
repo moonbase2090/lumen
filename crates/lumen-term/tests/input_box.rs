@@ -78,8 +78,12 @@ fn at_a_zsh_prompt_typing_goes_into_the_box_and_enter_runs_it() {
 #[test]
 fn a_control_key_is_never_swallowed_by_the_box() {
     let mut app = zsh();
-    type_str(&mut app, "sleep 30");
+    // The marker comes from the job itself, so it holds the terminal before
+    // Ctrl-C is sent (the box reads Raw earlier too, while the shell is
+    // still starting the job on a cooked tty).
+    type_str(&mut app, "sh -c 'echo job-started; exec sleep 30'");
     enter(&mut app);
+    assert!(until(&mut app, |a| grid_text(a).contains("job-started")));
     assert!(until(&mut app, |a| a.input_mode() == Mode::Raw));
     app.key(
         Key::Char('c'),
