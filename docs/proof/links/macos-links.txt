@@ -3,8 +3,8 @@ macOS proof: links in the window (clean VM)
 Machine: a fresh virtual machine from a clean, unmodified macOS install (macOS 26.6.2, arm64).
 Throwaway standard user (uid 502, not an administrator), created for the run and deleted after it. The machine was deleted afterwards.
 Binaries were built on the host from this branch and copied in; checksums matched on both sides:
-  bright (release, window feature)   569392df76ca274c   built at 94727ece3c30b45d2d9ce228ee8fb109420d7f57
-  link_window test binary            fc171d3fa5326958
+  bright (release, window feature)   4c004b9dbac3f1ba   built at 077b396291952d9b3131a8be16a1236a7208d84e
+  link_window test binary            2211205bfd0b971a
 
 1. The 12 real-PTY link tests, run in the guest as the throwaway user:
    running 12 tests
