@@ -106,6 +106,10 @@ pub struct App {
     sealed_keys: bool,
     /// Enters forwarded for the user while the shell was in front.
     forwarded_enters: u64,
+    /// On a sealed layer, the lines of one write still to go, each ending
+    /// with its Enter: each is sent only once the shell is back at a sealed
+    /// prompt and has passed the checks again.
+    queued: std::collections::VecDeque<Vec<u8>>,
 }
 
 /// The render scale for a display's scale factor: the nearest whole number,
@@ -404,6 +408,7 @@ impl App {
             boundaries: Boundaries::new(),
             sealed_keys: false,
             forwarded_enters: 0,
+            queued: std::collections::VecDeque::new(),
         };
         app.sealed_keys = app.session.has_sealed_keys();
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
@@ -515,7 +520,12 @@ impl App {
                 let seen = self.boundaries.see(*kind, body);
                 // The shell-replacement check runs at every authenticated
                 // command start too, not only at a forwarded Enter.
-                if seen == Seen::Applied && *kind == lumen_sealed::types::KIND_COMMAND_START {
+                // So does a prompt while lines are queued: the next one is due.
+                let queued_due =
+                    *kind == lumen_sealed::types::KIND_PROMPT && !self.queued.is_empty();
+                if seen == Seen::Applied
+                    && (*kind == lumen_sealed::types::KIND_COMMAND_START || queued_due)
+                {
                     self.session.recheck_seal();
                     self.sealed_keys = self.session.has_sealed_keys();
                 }
@@ -1445,7 +1455,30 @@ impl App {
     /// pass at every forwarded Enter (a shell that executed another program
     /// loses its keys here). An Enter `for_shell`, which ends a line the shell
     /// runs, is counted, and the box waits for the shell's next frame.
+    ///
+    /// On a sealed layer a write with more than one Enter for the shell
+    /// (send as commands, a paste with line breaks) goes one line at a time:
+    /// the first now, each next one when the shell is back at a sealed prompt,
+    /// checked again just before it is written. A new write while lines are
+    /// still queued puts them back into the box.
     fn forward_user_input(&mut self, bytes: &[u8], for_shell: bool) -> std::io::Result<()> {
+        if !self.queued.is_empty() {
+            self.put_back_queued();
+        }
+        if for_shell && self.sealed_keys {
+            let mut parts = crate::input_line::split_at_enters(bytes);
+            if parts.len() > 1 {
+                let first = parts.remove(0);
+                self.queued.extend(parts);
+                return self.write_user_input(&first, for_shell);
+            }
+        }
+        self.write_user_input(bytes, for_shell)
+    }
+
+    /// Write `bytes` the user typed: the checks first if it holds an Enter,
+    /// then the write, then the count.
+    fn write_user_input(&mut self, bytes: &[u8], for_shell: bool) -> std::io::Result<()> {
         let enters = crate::input_line::enters_in(bytes);
         if enters > 0 {
             self.session.recheck_seal();
@@ -1702,10 +1735,23 @@ impl App {
 
     /// Take what the program has written. Returns the bytes handled.
     pub fn pump(&mut self) -> usize {
+        self.pump_with(None)
+    }
+
+    /// [`pump`](Self::pump), waiting up to `wait` for the program's next
+    /// output when there is none yet.
+    pub fn pump_wait(&mut self, wait: std::time::Duration) -> usize {
+        self.pump_with(Some(wait))
+    }
+
+    fn pump_with(&mut self, wait: Option<std::time::Duration>) -> usize {
         self.refresh_front();
         let facts = self.facts_with(self.exited);
         self.input.observe(facts);
-        let bytes = self.session.pump();
+        let bytes = match wait {
+            Some(wait) => self.session.pump_wait(wait),
+            None => self.session.pump(),
+        };
         if bytes > 0 {
             self.cursor_epoch_ms = self.session.now_ms();
             self.refresh_find();
@@ -1717,8 +1763,43 @@ impl App {
             let facts = self.facts();
             self.input.observe(facts);
         }
+        self.send_queued();
         self.tick();
         bytes
+    }
+
+    /// Send the next queued line once the shell is back at a sealed prompt and
+    /// its line editor reads, after the checks every forwarded Enter must pass
+    /// (they also ran when the prompt arrived). If the layer has lost its
+    /// keys, or the shell's line now holds something else, the lines left go
+    /// back into the box unsent.
+    fn send_queued(&mut self) {
+        if self.queued.is_empty() {
+            return;
+        }
+        let facts = self.facts();
+        if !self.sealed_keys || self.input.line_is_held() {
+            self.put_back_queued();
+            return;
+        }
+        if facts.sealed_prompt != Some(true) || self.input.mode(facts) != Mode::Editing {
+            return;
+        }
+        self.session.recheck_seal();
+        self.sealed_keys = self.session.has_sealed_keys();
+        if !self.sealed_keys {
+            self.put_back_queued();
+            return;
+        }
+        if let Some(next) = self.queued.pop_front() {
+            let _ = self.write_user_input(&next, true);
+        }
+    }
+
+    fn put_back_queued(&mut self) {
+        let parts: Vec<Vec<u8>> = self.queued.drain(..).collect();
+        self.input.put_back(&crate::input_line::unsent_text(&parts));
+        self.sync_box();
     }
 
     /// The window title to show if the program changed it since the last call:

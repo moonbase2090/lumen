@@ -292,6 +292,30 @@ impl InputLine {
         self.caret = (start + column).min(end);
     }
 
+    /// Whether the shell's line holds something the box sent or the user
+    /// typed: a key handed to the shell, or typeahead.
+    #[must_use]
+    pub fn line_is_held(&self) -> bool {
+        self.handed_off || self.typeahead != Typeahead::None
+    }
+
+    /// Lines that were to be sent and were not go back into the box, before
+    /// whatever the box holds now, so nothing typed is lost or sent unasked.
+    pub fn put_back(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let mut chars: Vec<char> = text.chars().collect();
+        let caret = chars.len();
+        if !self.text.is_empty() {
+            chars.push('\n');
+            chars.extend(self.text.iter());
+        }
+        self.text = chars;
+        self.caret = caret;
+        self.history_at = None;
+    }
+
     /// Cancel a held choice; the text stays in the box.
     pub fn cancel_held(&mut self) {
         self.held = None;
@@ -625,6 +649,55 @@ pub fn enters_in(bytes: &[u8]) -> u32 {
         i += 1;
     }
     count
+}
+
+/// A write cut after each Enter (as [`enters_in`] counts them), so each part
+/// holds at most one, at its end. Bytes after the last Enter are the last part.
+#[must_use]
+pub fn split_at_enters(bytes: &[u8]) -> Vec<Vec<u8>> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    let mut pasting = false;
+    while i < bytes.len() {
+        let rest = &bytes[i..];
+        if rest.starts_with(PASTE_START) {
+            pasting = true;
+            i += PASTE_START.len();
+            continue;
+        }
+        if rest.starts_with(PASTE_END) {
+            pasting = false;
+            i += PASTE_END.len();
+            continue;
+        }
+        let after_escape = i > 0 && bytes[i - 1] == 0x1b;
+        if !pasting && !after_escape && matches!(bytes[i], b'\r' | b'\n') {
+            parts.push(bytes[start..=i].to_vec());
+            start = i + 1;
+        }
+        i += 1;
+    }
+    if start < bytes.len() {
+        parts.push(bytes[start..].to_vec());
+    }
+    parts
+}
+
+/// The text of lines that were to be written and were not: the paste markers
+/// and the Enter that ends each are removed, and the lines are joined.
+#[must_use]
+pub fn unsent_text(parts: &[Vec<u8>]) -> String {
+    parts
+        .iter()
+        .map(|p| {
+            let text = String::from_utf8_lossy(p)
+                .replace("\x1b[200~", "")
+                .replace("\x1b[201~", "");
+            text.trim_end_matches(['\r', '\n']).to_owned()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]
@@ -1414,5 +1487,45 @@ mod tests {
             ..Facts::at_prompt()
         };
         assert_eq!(line.mode(back), Mode::Editing);
+    }
+
+    #[test]
+    fn a_write_is_cut_after_each_enter_the_shell_would_run() {
+        assert_eq!(
+            split_at_enters(b"a\rb\rc\r"),
+            vec![b"a\r".to_vec(), b"b\r".to_vec(), b"c\r".to_vec()]
+        );
+        assert_eq!(
+            split_at_enters(b"one\ntwo"),
+            vec![b"one\n".to_vec(), b"two".to_vec()]
+        );
+        // A bracketed line is one part: its line breaks are text.
+        assert_eq!(
+            split_at_enters(b"\x1b[200~a\nb\x1b[201~\r"),
+            vec![b"\x1b[200~a\nb\x1b[201~\r".to_vec()]
+        );
+        assert_eq!(split_at_enters(b"x\x1b\ry\r"), vec![b"x\x1b\ry\r".to_vec()]);
+        assert_eq!(split_at_enters(b"ls"), vec![b"ls".to_vec()]);
+        assert_eq!(split_at_enters(b""), Vec::<Vec<u8>>::new());
+    }
+
+    #[test]
+    fn lines_not_sent_come_back_as_text() {
+        let parts = vec![b"two\r".to_vec(), b"\x1b[200~three\x1b[201~\r".to_vec()];
+        assert_eq!(unsent_text(&parts), "two\nthree");
+    }
+
+    #[test]
+    fn put_back_lines_go_before_what_the_box_holds() {
+        let mut line = InputLine::new();
+        line.put_back("two\nthree");
+        assert_eq!(line.text(), "two\nthree");
+        assert_eq!(line.caret(), 9);
+        let mut line = InputLine::new();
+        typed(&mut line, Facts::at_prompt(), "draft");
+        line.put_back("two");
+        assert_eq!(line.text(), "two\ndraft");
+        line.put_back("");
+        assert_eq!(line.text(), "two\ndraft");
     }
 }

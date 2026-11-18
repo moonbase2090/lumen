@@ -97,18 +97,23 @@ fn holder() -> PathBuf {
 }
 
 /// A home with startup files that keep the machine's own out of the test.
-fn home(name: &str) -> PathBuf {
+fn home(name: &str, rc: &str) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = std::fs::remove_dir_all(&dir);
     assert!(std::fs::create_dir_all(&dir).is_ok());
-    assert!(std::fs::write(dir.join(".zshrc"), "PS1='% '\n").is_ok());
+    assert!(std::fs::write(dir.join(".zshrc"), format!("PS1='% '\n{rc}")).is_ok());
     assert!(std::fs::write(dir.join(".zshenv"), "setopt no_global_rcs\n").is_ok());
     dir
 }
 
 fn start(name: &str) -> Option<App> {
+    start_with_rc(name, "")
+}
+
+/// [`start`] with `rc` added to the shell's own startup file.
+fn start_with_rc(name: &str, rc: &str) -> Option<App> {
     let shell = shell_or_skip()?;
-    let home = home(name);
+    let home = home(name, rc);
     let mut environment = BTreeMap::new();
     environment.insert("HOME".to_owned(), home.display().to_string());
     environment.insert("ZDOTDIR".to_owned(), home.display().to_string());
@@ -132,14 +137,16 @@ fn start(name: &str) -> Option<App> {
     Some(app)
 }
 
+/// Wait for `done`, taking the program's output as it comes: each turn blocks
+/// until the program writes (or a short wait passes with nothing written). The
+/// deadline only bounds a hung test.
 fn until(app: &mut App, done: impl Fn(&mut App) -> bool) -> bool {
     let end = Instant::now() + Duration::from_secs(30);
     while Instant::now() < end {
-        app.pump();
+        app.pump_wait(Duration::from_millis(200));
         if done(app) {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(20));
     }
     false
 }
@@ -336,4 +343,117 @@ fn lines_typed_without_waiting_for_the_prompt_are_never_split() {
     assert!(!text.contains("not found"), "no line was split: {text}");
     assert_eq!(app.input_text(), "", "nothing was left in the box");
     assert_eq!(app.forwarded_enters(), 10);
+}
+
+/// A shell that does not take bracketed paste, so a multi-line box asks how
+/// to send it. The line editor sets the parameter when it loads, so it is
+/// loaded first.
+const NO_BRACKETED_PASTE: &str = "zmodload zsh/zle\nunset zle_bracketed_paste\n";
+
+/// Type `text` as a whole into the box, press Enter (the box holds it and
+/// asks), then Enter again: send as separate commands.
+fn send_as_commands(app: &mut App, text: &str) {
+    app.text(text).unwrap_or_else(|e| unreachable!("text: {e}"));
+    key(app, Key::Enter);
+    assert!(
+        app.input_text().contains('\n'),
+        "the lines are held for the choice: box={:?} modes={:?} mode={:?}",
+        app.input_text(),
+        app.session().key_modes(),
+        app.input_mode()
+    );
+    key(app, Key::Enter);
+}
+
+#[test]
+fn send_as_commands_runs_each_line_in_turn_at_its_own_prompt() {
+    let Some(mut app) = start_with_rc("sealed-input-send-lines", NO_BRACKETED_PASTE) else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    send_as_commands(&mut app, "echo one-ran\necho two-ran\necho three-ran");
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("three-ran\n")
+            && a.input_mode() == Mode::Editing),
+        "every line ran: {}",
+        grid_text(&app)
+    );
+    let text = grid_text(&app);
+    let at = |m: &str| text.find(m).unwrap_or(usize::MAX);
+    assert!(at("one-ran\n") < at("two-ran\n") && at("two-ran\n") < at("three-ran\n"));
+    assert_eq!(app.input_text(), "", "nothing was put back");
+    assert_eq!(app.forwarded_enters(), 3);
+    assert_eq!(app.session().seal_status(), Status::Sealed);
+}
+
+/// Run in place of the shell: it keeps the shell's channel and asks the holder
+/// for a sealed prompt, as the shim would, writes it, prints a marker, then
+/// prints the first line it reads. Argument: the channel's descriptor.
+const PROMPTING_REPLACEMENT: &str = r#"zmodload zsh/system
+emulate -L zsh
+unsetopt multibyte
+printf -v msg '\x01\x03\x00\x00\x03\x84\x11'
+if syswrite -o $1 -- $msg && sysread -i $1 -t 5 -s 128 reply \
+    && [[ ${reply[1,2]} == $'\x01\x04' ]]; then
+  sealed=${reply[7,-1]}
+  n=${#sealed}
+  printf -v len '\\x%02x\\x%02x\\x%02x\\x%02x' $(( n >> 24 & 255 )) $(( n >> 16 & 255 )) $(( n >> 8 & 255 )) $(( n & 255 ))
+  printf -v len "$len"
+  printf -v tag '\x8aLUMEN\x01\xf3'
+  stty -opost
+  print -rn -- $'\e_'$tag$'\x11'$len$sealed
+  stty opost
+fi
+print replaced-ready
+read -r l
+print "got:$l"
+read -r _
+"#;
+
+#[test]
+fn a_line_after_one_that_replaces_the_shell_is_checked_and_never_sent_to_it() {
+    let name = "sealed-input-replace-then-line";
+    let Some(mut app) = start_with_rc(name, NO_BRACKETED_PASTE) else {
+        return;
+    };
+    let script = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(name)
+        .join("replace.zsh");
+    assert!(std::fs::write(&script, PROMPTING_REPLACEMENT).is_ok());
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    // The first line replaces the shell with a program that keeps its channel
+    // and gets a sealed prompt drawn; the second would go to that program.
+    send_as_commands(
+        &mut app,
+        "exec -a replaced zsh -f ~/replace.zsh $_lumen_fd\necho second-line",
+    );
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("replaced-ready\n")),
+        "the replacement ran: {}",
+        grid_text(&app)
+    );
+    assert!(
+        matches!(app.session().seal_status(), Status::GridOnly(_)),
+        "the replaced shell lost its keys: {:?}",
+        app.session().seal_status()
+    );
+    assert_eq!(
+        app.input_text(),
+        "echo second-line",
+        "the second line came back to the box unsent"
+    );
+    // What the replacement reads first is what the user types now, not the
+    // second line.
+    for c in "probe".chars() {
+        key(&mut app, Key::Char(c));
+    }
+    key(&mut app, Key::Enter);
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("got:")),
+        "the replacement read a line: {}",
+        grid_text(&app)
+    );
+    let text = grid_text(&app);
+    assert!(text.contains("got:probe\n"), "{text}");
+    assert!(!text.contains("got:echo second-line"), "{text}");
 }
