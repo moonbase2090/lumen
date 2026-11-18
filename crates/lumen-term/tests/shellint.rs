@@ -60,7 +60,10 @@ impl Home {
             }
             std::fs::write(path, text).unwrap_or_else(|e| unreachable!("file: {e}"));
         };
-        put(".zshenv", "export USER_ENV_FILE=zshenv-ran\n");
+        put(
+            ".zshenv",
+            "export USER_ENV_FILE=zshenv-ran\n# The machine's own zsh files are not what is under test.\nsetopt no_global_rcs\n",
+        );
         put(
             ".zshrc",
             &format!("HISTFILE=/dev/null\nPS1='{PROMPT}'\nalias hello='echo user-alias-works'\n"),
