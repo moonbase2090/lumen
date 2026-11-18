@@ -25,6 +25,6 @@ The hook files are written to a private directory (mode `0700`) that is removed 
 
 **The sealed layer.** On Linux a listed zsh started directly can have a sealed layer, which has a hook of its own that sends sealed frames. That shell does not also get these marks. A shell that is not sealed gets them.
 
-**What the terminal does with them.** The grid parser still removes OSC 133 and OSC 7 before the emulator sees them, so nothing in the window changes. It now notes each one (the last 256, oldest first) and the session's document gives them out as `Document::marks()`, for what reads them next and for tests.
+**What the terminal does with them.** The grid parser still removes OSC 133 and OSC 7 before the emulator sees them, so nothing in the window changes. The session also reads the program's output for them as it arrives, keeps the last 256 (oldest first) and gives them out as `Session::marks()`, for what reads them next and for tests. This is separate from the grid parser and changes nothing in the document.
 
 **What does not happen yet.** PowerShell's line editor asks the terminal where the cursor is (`ESC [ 6 n`), and the terminal does not answer that on Linux or macOS yet, so PowerShell is not usable there; on Windows the pseudo-console handles it. The marks do not depend on it.

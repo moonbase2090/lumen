@@ -10,7 +10,7 @@
 
 #![cfg(unix)]
 
-use lumen_term::isolate::Mark;
+use lumen_term::marks::Mark;
 use lumen_term::shellint::{ShellOptions, plan};
 use lumen_term::{Block, Layer, Session};
 use prismattyc_emulator::{PtySession, pty_size_with_cell_pixels};
@@ -193,7 +193,7 @@ fn run(program: &Path, home: &Home, integration: bool, lines: &[&str]) -> Seen {
     }
     let seen = Seen {
         text: text(&session),
-        marks: session.document().marks(),
+        marks: session.marks(),
     };
     session.finish();
     seen

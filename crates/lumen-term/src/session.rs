@@ -93,6 +93,8 @@ pub struct Session {
     pty: Pty,
     /// The shell's hook files, which go when the session does.
     shell_files: Option<crate::shellint::Scratch>,
+    /// The prompt marks the program has written.
+    marks: crate::marks::MarkScanner,
     clock: Instant,
     tmux_or_screen: bool,
     #[cfg(feature = "colour-replies")]
@@ -109,6 +111,7 @@ impl Session {
             layer,
             pty,
             shell_files: None,
+            marks: crate::marks::MarkScanner::new(),
             clock: Instant::now(),
             #[cfg(feature = "colour-replies")]
             replies: Replies::new(crate::design::theme()),
@@ -363,6 +366,13 @@ impl Session {
         self.layer.attach_sealed(receiver, cap_of);
     }
 
+    /// The prompt marks the shell has written (OSC 133 and OSC 7), oldest
+    /// first. They change nothing in the document.
+    #[must_use]
+    pub fn marks(&self) -> Vec<crate::marks::Mark> {
+        self.marks.marks()
+    }
+
     /// The document so far.
     #[must_use]
     pub fn document(&self) -> &Document {
@@ -423,6 +433,7 @@ impl Session {
         if bytes.is_empty() {
             return 0;
         }
+        self.marks.feed(bytes);
         let ctx = self.context();
         self.document.receive(self.layer.as_mut(), bytes, ctx);
         let queries = self.document.take_colour_queries();

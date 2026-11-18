@@ -1,7 +1,7 @@
 //! Grid parser isolation, rule by rule. The fuzzer over every introducer at
 //! every split position is in `isolation_fuzz.rs`.
 
-use lumen_term::isolate::{Isolator, MARKS_KEPT, Mark, Note, STRING_CAP, Stats};
+use lumen_term::isolate::{Isolator, Note, STRING_CAP, Stats};
 
 fn run(chunks: &[&[u8]]) -> (Vec<u8>, Vec<Note>, Stats) {
     let mut f = Isolator::new();
@@ -361,44 +361,4 @@ fn over_every_short_string_of_the_awkward_bytes_the_output_is_inert_idempotent_a
         checked += 1;
     }
     assert!(checked > 300_000, "{checked}");
-}
-
-#[test]
-fn prompt_marks_are_noted_in_order_and_still_removed() {
-    let mut f = Isolator::new();
-    let (mut out, mut notes) = (Vec::new(), Vec::new());
-    // One of them split across two reads.
-    for chunk in [
-        &b"\x1b]7;file://host/a%20b\x07\x1b]133;A\x07$ \x1b]133;B\x07"[..],
-        &b"ls\x1b]133;C\x07out\x1b]133;D;3"[..],
-        &b"\x07\x1b]133;D\x07\x1b]133;Z\x07"[..],
-    ] {
-        f.filter(chunk, &mut out, &mut notes);
-    }
-    assert_eq!(
-        f.marks(),
-        [
-            Mark::Directory("file://host/a%20b".to_owned()),
-            Mark::PromptStart,
-            Mark::PromptEnd,
-            Mark::CommandStart,
-            Mark::CommandEnd(Some(3)),
-            Mark::CommandEnd(None),
-        ],
-        "an unknown 133 sub-command is not a mark"
-    );
-    assert_eq!(out, b"$ lsout", "none of them reaches the emulator");
-}
-
-#[test]
-fn only_the_newest_marks_are_kept() {
-    let mut f = Isolator::new();
-    let (mut out, mut notes) = (Vec::new(), Vec::new());
-    for _ in 0..(MARKS_KEPT + 10) {
-        f.filter(b"\x1b]133;A\x07", &mut out, &mut notes);
-    }
-    f.filter(b"\x1b]133;D;9\x07", &mut out, &mut notes);
-    let marks = f.marks();
-    assert_eq!(marks.len(), MARKS_KEPT);
-    assert_eq!(marks.last(), Some(&Mark::CommandEnd(Some(9))));
 }

@@ -168,13 +168,6 @@ impl Document {
         self.isolator.stats()
     }
 
-    /// The prompt marks the shell has written (OSC 133 and OSC 7), oldest
-    /// first. They change nothing in the document.
-    #[must_use]
-    pub fn marks(&self) -> Vec<crate::isolate::Mark> {
-        self.isolator.marks()
-    }
-
     /// Give the emulator what grid isolation allows of `bytes`.
     fn isolate_and_feed(&mut self, bytes: &[u8]) {
         let mut allowed = Vec::with_capacity(bytes.len());
