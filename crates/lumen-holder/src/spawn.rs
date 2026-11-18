@@ -138,6 +138,8 @@ pub fn start_on(
     let (reason_read, low_write) = ffi_linux::pipe()?;
     let reason_write = ffi_linux::duplicate_above(low_write.as_raw_fd(), PIDFD_FD + 1)?;
     drop(low_write);
+    let program = on_path(program);
+    let program = program.as_path();
     let plan = ffi_linux::ExecPlan::new(program, &args, reason_write.as_raw_fd())?;
     let mut command = Command::new(program);
     command
@@ -171,6 +173,29 @@ pub fn start_on(
         spawn: spawn_terminal,
         eof_write,
     })
+}
+
+/// `program` as it will be run: a name with no `/` is looked for in `PATH`, as
+/// the standard library's `Command` does, and one that is not there stays as it
+/// is, so that the exec fails with the usual error.
+fn on_path(program: &Path) -> std::path::PathBuf {
+    if program.components().count() != 1 || program.is_absolute() {
+        return program.to_path_buf();
+    }
+    let Some(dirs) = std::env::var_os("PATH") else {
+        return program.to_path_buf();
+    };
+    for dir in std::env::split_paths(&dirs) {
+        let candidate = dir.join(program);
+        let runnable = std::fs::metadata(&candidate).is_ok_and(|m| {
+            use std::os::unix::fs::PermissionsExt as _;
+            m.is_file() && m.permissions().mode() & 0o111 != 0
+        });
+        if runnable {
+            return candidate;
+        }
+    }
+    program.to_path_buf()
 }
 
 /// Start `program` as a holder for the shell that `shell_pidfd` names. The
