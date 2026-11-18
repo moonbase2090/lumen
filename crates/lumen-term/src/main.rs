@@ -76,6 +76,7 @@ fn window(o: &Options, policy: &Policy, look: &Look) -> Result<(), String> {
         images: policy.images(),
         theme: look.theme,
         fonts: look.fonts.clone(),
+        shell: look.shell.clone(),
     })
 }
 
@@ -101,11 +102,12 @@ fn describe_settings(settings: &Settings, look: &Look) -> String {
         lumen_term::settings::ThemeSetting::File(p) => p.display().to_string(),
     };
     let mut out = format!(
-        "settings: {source}\ntheme={theme} mono_font={} mono_size={} prose_font={} prose_size={}",
+        "settings: {source}\ntheme={theme} mono_font={} mono_size={} prose_font={} prose_size={} shell={}",
         face(&s.mono_font),
         look.fonts.mono_px(),
         face(&s.prose_font),
-        look.fonts.prose_px()
+        look.fonts.prose_px(),
+        s.shell.as_deref().unwrap_or("default")
     );
     for notice in &look.notices {
         out.push('\n');
