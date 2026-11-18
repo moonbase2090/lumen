@@ -8,7 +8,7 @@
 use lumen_term::app::PasteOutcome;
 use lumen_term::mouse::{Button, Held};
 use lumen_term::{App, Block, GUTTER_COLUMNS, HEADER_ROWS, Key, Mods, Passthrough};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const NONE: Held = Held {
     shift: false,
@@ -29,16 +29,18 @@ fn text(app: &App) -> String {
         .join("\n")
 }
 
+/// Take the program's output as it arrives until `done` holds. Each wait ends
+/// when output comes; the bound only turns a program that went silent into a
+/// failure.
 fn pump_until(app: &mut App, done: impl Fn(&str) -> bool) -> bool {
-    let end = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < end {
-        app.pump();
-        if done(&text(app)) {
-            return true;
+    const SILENCE: Duration = Duration::from_secs(20);
+    app.pump();
+    while !done(&text(app)) {
+        if app.pump_wait(SILENCE) == 0 {
+            return done(&text(app));
         }
-        std::thread::sleep(Duration::from_millis(20));
     }
-    false
+    true
 }
 
 /// A job that shows every byte it is sent (escape as `^[`) and says `up`.

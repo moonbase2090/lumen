@@ -1700,10 +1700,24 @@ impl App {
 
     /// Take what the program has written. Returns the bytes handled.
     pub fn pump(&mut self) -> usize {
+        self.pump_with(None)
+    }
+
+    /// Wait up to `wait` for the program's next output, then take it as
+    /// [`pump`](Self::pump) does. Returns at once when output arrives, so a
+    /// caller waits on the program rather than on a clock. For tests.
+    pub fn pump_wait(&mut self, wait: std::time::Duration) -> usize {
+        self.pump_with(Some(wait))
+    }
+
+    fn pump_with(&mut self, wait: Option<std::time::Duration>) -> usize {
         self.refresh_front();
         let facts = self.facts_with(self.exited);
         self.input.observe(facts);
-        let bytes = self.session.pump();
+        let bytes = match wait {
+            Some(wait) => self.session.pump_wait(wait),
+            None => self.session.pump(),
+        };
         if bytes > 0 {
             self.track_reporting();
             self.cursor_epoch_ms = self.session.now_ms();
