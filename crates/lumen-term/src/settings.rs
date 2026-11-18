@@ -1,4 +1,4 @@
-//! The user's settings file: the look (theme and fonts), and nothing else yet.
+//! The user's settings file: the look (theme and fonts) and the shell.
 //!
 //! The file is `$HOME/.config/lumen/settings.toml`, beside the policy file.
 //! Its syntax is the small part of TOML the settings need: `key = value` on a
@@ -11,6 +11,7 @@
 //! prose_font = "bundled"
 //! prose_size = 16
 //! copy_on_select = true   # true or false: copy a finished mouse selection
+//! shell = "pwsh"          # the program to run when none is named; see `shell`
 //! ```
 //!
 //! A file is a value with a `/` in it: an absolute path, a path under the home
@@ -29,6 +30,7 @@
 //! visibility floor is refused.
 
 use crate::design::{Builtin, FontFile, Fonts, MAX_FONT_PX, MIN_FONT_PX, ThemeChoice};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 /// The most bytes a settings file may hold.
@@ -74,6 +76,8 @@ pub struct LookSettings {
     pub prose_size: u32,
     /// Whether a finished mouse selection is copied at once. On by default.
     pub copy_on_select: bool,
+    /// The program to run when none is named on the command line, if set.
+    pub shell: Option<String>,
 }
 
 impl Default for LookSettings {
@@ -86,6 +90,7 @@ impl Default for LookSettings {
             prose_font: FontSetting::Bundled,
             prose_size: fonts.prose_px(),
             copy_on_select: true,
+            shell: None,
         }
     }
 }
@@ -98,6 +103,8 @@ pub struct Look {
     pub theme: ThemeChoice,
     /// The fonts.
     pub fonts: Fonts,
+    /// The `shell` setting, if the file gave one.
+    pub shell: Option<String>,
     /// One line for each theme or font file left out.
     pub notices: Vec<String>,
 }
@@ -142,6 +149,7 @@ impl LookSettings {
         Look {
             theme,
             fonts,
+            shell: self.shell.clone(),
             notices,
         }
     }
@@ -302,6 +310,17 @@ pub fn parse(text: &str, dir: &Path, home: Option<&Path>) -> Result<LookSettings
                     _ => return Err((line, format!("`{key}` must be true or false"))),
                 };
             }
+            "shell" => {
+                let v = quoted()?;
+                if v.trim().is_empty() || v.chars().any(char::is_control) {
+                    return Err((
+                        line,
+                        "`shell` must be a program name or path with no control characters"
+                            .to_owned(),
+                    ));
+                }
+                look.shell = Some(v.to_owned());
+            }
             _ => return Err((line, format!("unknown setting `{key}`"))),
         }
         if seen.contains(&key) {
@@ -312,14 +331,30 @@ pub fn parse(text: &str, dir: &Path, home: Option<&Path>) -> Result<LookSettings
     Ok(look)
 }
 
-/// Load the settings from `$HOME/.config/lumen/settings.toml`, or the defaults
-/// if there is no home directory.
+/// The user's home directory: `HOME`, or on Windows, where `HOME` is not usually
+/// set, the user profile folder. An empty value counts as not set.
+#[must_use]
+pub fn home_dir(
+    home: Option<OsString>,
+    user_profile: Option<OsString>,
+    windows: bool,
+) -> Option<PathBuf> {
+    let set = |v: Option<OsString>| v.filter(|h| !h.is_empty()).map(PathBuf::from);
+    set(home).or_else(|| if windows { set(user_profile) } else { None })
+}
+
+/// Load the settings from `$HOME/.config/lumen/settings.toml` (under the user
+/// profile folder on Windows when `HOME` is not set), or the defaults if there
+/// is no home directory.
 #[must_use]
 pub fn load() -> Settings {
-    let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else {
+    let Some(home) = home_dir(
+        std::env::var_os("HOME"),
+        std::env::var_os("USERPROFILE"),
+        cfg!(windows),
+    ) else {
         return Settings::Defaults;
     };
-    let home = PathBuf::from(home);
     load_from(&home.join(RELATIVE_PATH), Some(&home))
 }
 

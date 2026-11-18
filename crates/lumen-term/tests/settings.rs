@@ -52,7 +52,8 @@ fn every_setting_is_read() {
          mono_font = \"~/fonts/Mono.ttf\"\n\
          mono_size = 16\n\
          prose_font = \"/abs/Sans.otf\"\n\
-         prose_size = 18\n",
+         prose_size = 18\n\
+         shell = \"pwsh\"\n",
     );
     assert_eq!(
         look,
@@ -63,6 +64,7 @@ fn every_setting_is_read() {
             prose_font: FontSetting::File(PathBuf::from("/abs/Sans.otf")),
             prose_size: 18,
             copy_on_select: true,
+            shell: Some("pwsh".to_owned()),
         })
     );
 }
@@ -94,6 +96,7 @@ fn the_documented_examples_parse() {
     let want = LookSettings {
         prose_size: 16,
         copy_on_select: true,
+        shell: Some("pwsh".to_owned()),
         ..LookSettings::default()
     };
     for example in docs.iter().chain(&module) {

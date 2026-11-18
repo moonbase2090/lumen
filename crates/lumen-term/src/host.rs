@@ -355,6 +355,8 @@ pub struct Config {
     pub fonts: crate::design::Fonts,
     /// Copy a finished mouse selection at once.
     pub copy_on_select: bool,
+    /// The user's `shell` setting: what to run when `command` is empty.
+    pub shell: Option<String>,
 }
 
 struct Running {
@@ -619,7 +621,10 @@ impl ApplicationHandler for Host {
             .unwrap_or_else(|| window.scale_factor().round().max(1.0) as u32);
         let (program, arguments) = match self.config.command.split_first() {
             Some((p, a)) => (p.clone(), a.to_vec()),
-            None => (default_shell(), Vec::new()),
+            None => (
+                crate::shell::default_shell(self.config.shell.as_deref()),
+                Vec::new(),
+            ),
         };
         match App::start(
             (self.config.layer)(),
@@ -707,13 +712,6 @@ pub fn appearance(theme: Option<WinitTheme>) -> Appearance {
         Some(WinitTheme::Dark) => Appearance::Dark,
         Some(WinitTheme::Light) | None => Appearance::Light,
     }
-}
-
-fn default_shell() -> String {
-    std::env::var("SHELL")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "/bin/sh".to_owned())
 }
 
 /// Open the window and run until it closes or the program exits.

@@ -77,6 +77,7 @@ fn window(o: &Options, policy: &Policy, look: &Look, copy_on_select: bool) -> Re
         theme: look.theme,
         fonts: look.fonts.clone(),
         copy_on_select,
+        shell: look.shell.clone(),
     })
 }
 
@@ -102,12 +103,13 @@ fn describe_settings(settings: &Settings, look: &Look) -> String {
         lumen_term::settings::ThemeSetting::File(p) => p.display().to_string(),
     };
     let mut out = format!(
-        "settings: {source}\ntheme={theme} mono_font={} mono_size={} prose_font={} prose_size={} copy_on_select={}",
+        "settings: {source}\ntheme={theme} mono_font={} mono_size={} prose_font={} prose_size={} copy_on_select={} shell={}",
         face(&s.mono_font),
         look.fonts.mono_px(),
         face(&s.prose_font),
         look.fonts.prose_px(),
-        s.copy_on_select
+        s.copy_on_select,
+        s.shell.as_deref().unwrap_or("default")
     );
     for notice in &look.notices {
         out.push('\n');
