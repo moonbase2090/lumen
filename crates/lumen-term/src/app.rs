@@ -5,6 +5,7 @@
 //! without a window.
 
 use crate::actions::{self, Action};
+use crate::boundary::{Boundaries, Seen};
 #[cfg(feature = "links-clipboard")]
 use crate::clipboard::Clipboard;
 use crate::design::{Appearance, Fonts, ThemeChoice};
@@ -125,6 +126,17 @@ pub struct App {
     box_rows: u32,
     /// The name of the program in front, by process group, for the status row.
     front_name: Option<(i32, String)>,
+    /// The sealed layer's boundary frames: whether the shell said, sealed,
+    /// that it is at a prompt.
+    boundaries: Boundaries,
+    /// Whether the layer had sealing keys when last asked.
+    sealed_keys: bool,
+    /// Enters forwarded for the user while the shell was in front.
+    forwarded_enters: u64,
+    /// On a sealed layer, the lines of one write still to go, each ending
+    /// with its Enter: each is sent only once the shell is back at a sealed
+    /// prompt and has passed the checks again.
+    queued: std::collections::VecDeque<Vec<u8>>,
 }
 
 /// The render scale for a display's scale factor: the nearest whole number,
@@ -405,6 +417,39 @@ impl App {
         let (block_columns, block_rows) = block_cells(columns, rows);
         let session =
             Session::start_with_shell(layer, block_columns, block_rows, program, arguments, shell)?;
+        Ok(Self::with_session(session, renderer, scale, width, height))
+    }
+
+    /// [`start`](Self::start) with the sealed layer's settings given: a listed
+    /// shell started directly gets a sealed layer if the sealing conditions
+    /// hold.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the renderer or the program could not be started.
+    #[cfg(target_os = "linux")]
+    pub fn start_with_seal<S: AsRef<std::ffi::OsStr>>(
+        layer: Box<dyn Layer + Send>,
+        program: &str,
+        arguments: &[S],
+        (scale, width, height): (u32, u32, u32),
+        config: &crate::seal::Config,
+    ) -> Result<Self, SpawnError> {
+        let renderer = Renderer::new(scale, crate::design::theme()).map_err(SpawnError)?;
+        let (columns, rows) = window_cells(width, height, &renderer);
+        let (block_columns, block_rows) = block_cells(columns, rows);
+        let session =
+            Session::start_with_seal(layer, block_columns, block_rows, program, arguments, config)?;
+        Ok(Self::with_session(session, renderer, scale, width, height))
+    }
+
+    fn with_session(
+        session: Session,
+        renderer: Renderer,
+        scale: u32,
+        width: u32,
+        height: u32,
+    ) -> Self {
         let mut app = Self {
             session,
             renderer,
@@ -442,9 +487,14 @@ impl App {
             input: InputLine::new(),
             box_rows: EDITOR_ROWS,
             front_name: None,
+            boundaries: Boundaries::new(),
+            sealed_keys: false,
+            forwarded_enters: 0,
+            queued: std::collections::VecDeque::new(),
         };
+        app.sealed_keys = app.session.has_sealed_keys();
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
-        Ok(app)
+        app
     }
 
     /// The system now shows `appearance`. With [`ThemeChoice::System`] the look
@@ -547,6 +597,22 @@ impl App {
     /// Route the document's events to the notifier, as [`pump`](Self::pump)
     /// does with what the program wrote.
     pub fn route(&mut self, events: &[Event]) {
+        for event in events {
+            if let Event::Sealed { kind, body } = event {
+                let seen = self.boundaries.see(*kind, body);
+                // The shell-replacement check runs at every authenticated
+                // command start too, not only at a forwarded Enter.
+                // So does a prompt while lines are queued: the next one is due.
+                let queued_due =
+                    *kind == lumen_sealed::types::KIND_PROMPT && !self.queued.is_empty();
+                if seen == Seen::Applied
+                    && (*kind == lumen_sealed::types::KIND_COMMAND_START || queued_due)
+                {
+                    self.session.recheck_seal();
+                    self.sealed_keys = self.session.has_sealed_keys();
+                }
+            }
+        }
         let now = self.session.now_ms();
         self.notifier.route(now, LAYER, events, self.sink.as_mut());
     }
@@ -1539,6 +1605,7 @@ impl App {
     /// What the tty and the grid say now, for the input line.
     fn facts(&mut self) -> Facts {
         let ended = self.exited || self.session.has_exited();
+        self.sealed_keys = self.session.has_sealed_keys();
         let facts = self.facts_with(ended);
         self.input.observe(facts);
         facts
@@ -1554,6 +1621,12 @@ impl App {
             alt_screen: alt,
             keys: self.session.key_modes(),
             ended,
+            sealed_prompt: if self.sealed_keys {
+                self.boundaries.at_prompt()
+            } else {
+                None
+            },
+            sealed_between_commands: self.sealed_keys && self.boundaries.between_commands(),
         }
     }
 
@@ -1564,7 +1637,8 @@ impl App {
             Line::Write(bytes) => {
                 self.follow();
                 self.cursor_epoch_ms = self.session.now_ms();
-                let sent = self.forward_user_input(&bytes);
+                let for_shell = self.input.wrote_for_shell();
+                let sent = self.forward_user_input(&bytes, for_shell);
                 self.sync_box();
                 sent
             }
@@ -1673,12 +1747,58 @@ impl App {
 
     /// The one place the window writes what the user typed to the program: the
     /// box's line and its Enter, an Enter while handed off, a raw Enter while
-    /// the shell is in front, and each line of "send as commands". Nothing else
-    /// writes a carriage return for the user.
-    fn forward_user_input(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+    /// the shell is in front, each line of "send as commands", and a paste
+    /// sent to the program. Nothing else writes a carriage return for the user.
+    ///
+    /// Each Enter in the write first runs the sealing checks the layer must
+    /// pass at every forwarded Enter (a shell that executed another program
+    /// loses its keys here). An Enter `for_shell`, which ends a line the shell
+    /// runs, is counted, and the box waits for the shell's next frame.
+    ///
+    /// On a sealed layer a write with more than one Enter for the shell
+    /// (send as commands, a paste with line breaks) goes one line at a time:
+    /// the first now, each next one when the shell is back at a sealed prompt,
+    /// checked again just before it is written. A new write while lines are
+    /// still queued puts them back into the box.
+    fn forward_user_input(&mut self, bytes: &[u8], for_shell: bool) -> std::io::Result<()> {
+        if !self.queued.is_empty() {
+            self.put_back_queued();
+        }
+        if for_shell && self.sealed_keys {
+            let mut parts = crate::input_line::split_at_enters(bytes);
+            if parts.len() > 1 {
+                let first = parts.remove(0);
+                self.queued.extend(parts);
+                return self.write_user_input(&first, for_shell);
+            }
+        }
+        self.write_user_input(bytes, for_shell)
+    }
+
+    /// Write `bytes` the user typed: the checks first if it holds an Enter,
+    /// then the write, then the count.
+    fn write_user_input(&mut self, bytes: &[u8], for_shell: bool) -> std::io::Result<()> {
+        let enters = crate::input_line::enters_in(bytes);
+        if enters > 0 {
+            self.session.recheck_seal();
+            self.sealed_keys = self.session.has_sealed_keys();
+        }
         let sent = self.send(bytes);
+        if sent.is_ok() && for_shell && enters > 0 {
+            self.forwarded_enters = self.forwarded_enters.saturating_add(u64::from(enters));
+            self.boundaries.line_sent();
+        }
         self.note_input(&sent);
         sent
+    }
+
+    /// How many Enters the window has forwarded for the user that end a line
+    /// the shell runs: one per line the box sent, per Enter for a line the
+    /// shell holds or has typeahead for, per raw Enter while the shell is in
+    /// front, and per line of "send as commands".
+    #[must_use]
+    pub fn forwarded_enters(&self) -> u64 {
+        self.forwarded_enters
     }
 
     /// Give the editor as many rows as its text has lines, up to the most the
@@ -1871,9 +1991,10 @@ impl App {
         if bracketed {
             bytes.extend_from_slice(b"\x1b[201~");
         }
-        let sent = self.send(&bytes);
-        self.note_input(&sent);
-        sent
+        // A paste the program does not take bracketed runs a line at each line
+        // break, so it goes the way every Enter does.
+        let for_shell = self.session.tty_state().shell_in_front == Some(true);
+        self.forward_user_input(&bytes, for_shell)
     }
 
     /// Write to the program, unless it has ended. Whether a write to a PTY whose
@@ -1942,9 +2063,57 @@ impl App {
         let events = self.session.take_events();
         if !events.is_empty() {
             self.route(&events);
+            // A sealed command start ends a line the shell was holding.
+            let facts = self.facts();
+            self.input.observe(facts);
         }
+        self.send_queued();
         self.tick();
         bytes
+    }
+
+    /// Send the next queued line once the shell is back at a sealed prompt and
+    /// its line editor reads, after the checks every forwarded Enter must pass
+    /// (they also ran when the prompt arrived). If the layer has lost its
+    /// keys, or the shell's line now holds something else, the lines left go
+    /// back into the box unsent.
+    fn send_queued(&mut self) {
+        if self.queued.is_empty() {
+            return;
+        }
+        let facts = self.facts();
+        if !self.sealed_keys || self.input.line_is_held() {
+            self.put_back_queued();
+            return;
+        }
+        if facts.sealed_prompt != Some(true) || self.input.mode(facts) != Mode::Editing {
+            return;
+        }
+        self.session.recheck_seal();
+        self.sealed_keys = self.session.has_sealed_keys();
+        if !self.sealed_keys {
+            self.put_back_queued();
+            return;
+        }
+        self.send_next_queued();
+    }
+
+    /// Write the next queued line. If the write fails (the program has ended
+    /// or is not reading), that line and the rest go back into the box unsent.
+    fn send_next_queued(&mut self) {
+        let Some(next) = self.queued.pop_front() else {
+            return;
+        };
+        if self.write_user_input(&next, true).is_err() {
+            self.queued.push_front(next);
+            self.put_back_queued();
+        }
+    }
+
+    fn put_back_queued(&mut self) {
+        let parts: Vec<Vec<u8>> = self.queued.drain(..).collect();
+        self.input.put_back(&crate::input_line::unsent_text(&parts));
+        self.sync_box();
     }
 
     /// The window title to show if the program changed it since the last call:
@@ -2003,5 +2172,42 @@ impl App {
             self.renderer.paint_link_prompt(&mut frame, prompt);
         }
         frame
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::App;
+    use crate::layer::Passthrough;
+
+    #[test]
+    fn a_queued_line_whose_write_fails_goes_back_to_the_box_with_the_rest() {
+        // Once the program has ended every write is refused. Its tty closing
+        // ends the output stream, which is what the wait waits for.
+        let mut app = App::start(
+            Box::new(Passthrough),
+            "/bin/sh",
+            &["-c", "exit 0"],
+            1,
+            800,
+            600,
+        )
+        .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !app.session.has_exited() {
+            let left = end.saturating_duration_since(std::time::Instant::now());
+            assert!(!left.is_zero(), "the program ended");
+            app.pump_wait(left);
+        }
+        app.queued
+            .extend([b"echo two\r".to_vec(), b"echo three\r".to_vec()]);
+        app.send_next_queued();
+        assert!(app.queued.is_empty(), "nothing is left queued");
+        assert_eq!(
+            app.input.text(),
+            "echo two\necho three",
+            "the line whose write failed and the one after it are back in the box"
+        );
+        assert_eq!(app.forwarded_enters(), 0, "no Enter was counted");
     }
 }
