@@ -24,6 +24,7 @@ pub mod boundary;
 pub mod cli;
 #[cfg(feature = "links-clipboard")]
 pub mod clipboard;
+pub mod contextmenu;
 pub mod copy;
 pub mod design;
 pub mod document;
