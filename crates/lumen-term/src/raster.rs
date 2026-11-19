@@ -1861,14 +1861,19 @@ impl Renderer {
         x < gutter.saturating_sub(self.scale) && y >= top && y < top + self.cell_h
     }
 
-    /// Paint what the mark on the row whose top is pixel `y` means, in a box
-    /// of the terminal's own, just right of the gutter on that row.
-    pub fn paint_typed_tip(&self, frame: &mut Frame, row_top: u32) {
+    /// Paint what the mark on the row whose top is pixel `row_top` means, in a
+    /// box of the terminal's own on that row, starting `after` columns into the
+    /// content (just past the typed text, so the tip does not cover it). A tip
+    /// that would run past the window's right edge ends at it instead.
+    pub fn paint_typed_tip(&self, frame: &mut Frame, row_top: u32, after: u32) {
         let theme = &self.theme;
         let chars = u32::try_from(TYPED_TIP.chars().count()).unwrap_or(0);
         let width = (chars + 2) * self.cell_w;
         let height = self.cell_h + 2 * self.scale;
-        let left = self.cell_w * GUTTER_COLUMNS + self.gutter_pad();
+        let content = self.cell_w * GUTTER_COLUMNS + self.gutter_pad();
+        let left = (content + after * self.cell_w)
+            .min(frame.width.saturating_sub(width))
+            .max(content);
         let mut tip = Frame::new(width, height, theme.toast);
         tip.fill(0, 0, width, self.scale, theme.toast_border);
         tip.fill(

@@ -2361,8 +2361,16 @@ impl App {
         for (top, _) in &marks {
             self.renderer.paint_typed_mark(&mut frame, *top);
         }
-        if let Some((top, _)) = marks.iter().find(|(_, i)| Some(*i) == self.typed_hover) {
-            self.renderer.paint_typed_tip(&mut frame, *top);
+        if let Some((top, index)) = marks.iter().find(|(_, i)| Some(*i) == self.typed_hover) {
+            let after = self
+                .typed
+                .records()
+                .get(*index)
+                .and_then(|r| self.typed_row_text(r))
+                .map_or(0, |t| {
+                    u32::try_from(t.chars().count() + 1).unwrap_or(u32::MAX)
+                });
+            self.renderer.paint_typed_tip(&mut frame, *top, after);
         }
         let mut frame = frame.viewport(self.width, self.height, self.renderer.theme().background);
         #[cfg(feature = "links-clipboard")]

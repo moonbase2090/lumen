@@ -710,8 +710,8 @@ fn a_record_points_at_the_row_its_line_was_typed_on_until_the_screen_is_cleared(
     assert_eq!(records.len(), 1);
     assert_eq!(
         app.typed_row_text(&records[0]).as_deref(),
-        Some("% echo anchor''-me"),
-        "the row with the prompt and the typed line"
+        Some("echo anchor''-me"),
+        "the row the typed line is on"
     );
     // Push it well into history.
     run(
@@ -721,7 +721,7 @@ fn a_record_points_at_the_row_its_line_was_typed_on_until_the_screen_is_cleared(
     );
     assert_eq!(
         app.typed_row_text(&records[0]).as_deref(),
-        Some("% echo anchor''-me"),
+        Some("echo anchor''-me"),
         "the same row after it scrolled into history"
     );
     // Clearing the screen and its history drops it.
@@ -779,6 +779,10 @@ fn a_typed_line_has_a_gutter_mark_that_explains_itself_and_edits_it_again() {
     assert_eq!(marks.len(), 1, "{marks:?}");
     let (top, record) = marks[0];
     assert_eq!(record, 0);
+    assert_eq!(
+        app.typed_row_text(&app.typed_records()[0]).as_deref(),
+        Some("echo mark''-me")
+    );
     let plain = app.view();
     capture(&plain, "typed-mark.png");
     assert!(
@@ -803,6 +807,14 @@ fn a_typed_line_has_a_gutter_mark_that_explains_itself_and_edits_it_again() {
     let hovered = app.view();
     capture(&hovered, "typed-mark-hover.png");
     assert_ne!(hovered, plain, "the tip is drawn");
+    // Not over the text it is about: the typed line's cells are as they were.
+    let left = cw * lumen_term::GUTTER_COLUMNS;
+    let right = left + cw * u32::try_from("echo mark''-me".len() + 1).unwrap_or(0);
+    let covered = (top..top + ch)
+        .flat_map(|y| (left..right).map(move |x| (x, y)))
+        .filter(|&(x, y)| hovered.pixel(x, y) != plain.pixel(x, y))
+        .count();
+    assert_eq!(covered, 0, "the tip leaves the typed text alone");
     assert_eq!(
         app.mouse_move(cw * 20, top + ch / 2, Held::default()).ok(),
         Some(true)
