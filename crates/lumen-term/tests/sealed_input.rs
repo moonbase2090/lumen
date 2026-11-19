@@ -10,6 +10,7 @@
 
 use lumen_seal::{FsProbe, Probe, Sealer};
 use lumen_term::input_line::Mode;
+use lumen_term::mouse::Held;
 use lumen_term::seal::{Config, LISTED, Status};
 use lumen_term::{App, Key, Layer, Mods};
 use std::collections::BTreeMap;
@@ -734,4 +735,103 @@ fn a_record_points_at_the_row_its_line_was_typed_on_until_the_screen_is_cleared(
     let records = app.typed_records();
     assert_eq!(records.len(), 3);
     assert_eq!(app.typed_row_text(&records[2]), None);
+}
+
+/// How many pixels of the gutter, on the row whose top is pixel `top`, differ
+/// from the gutter's own colour there. Text in the gutter differs; an empty
+/// gutter row has none.
+fn gutter_ink(frame: &lumen_term::Frame, top: u32) -> usize {
+    let (cw, ch) = cell();
+    let gutter = cw * lumen_term::GUTTER_COLUMNS - 2;
+    let plain = frame.pixel(1, top + ch - 1);
+    (top..top + ch)
+        .flat_map(|y| (0..gutter).map(move |x| (x, y)))
+        .filter(|&(x, y)| frame.pixel(x, y) != plain)
+        .count()
+}
+
+fn cell() -> (u32, u32) {
+    lumen_term::Renderer::light(1)
+        .unwrap_or_else(|e| unreachable!("the bundled face loads: {e}"))
+        .cell()
+}
+
+/// Write `frame` to the capture directory, when the run names one.
+fn capture(frame: &lumen_term::Frame, name: &str) {
+    let Some(dir) = std::env::var_os("LUMEN_CAPTURE_DIR") else {
+        return;
+    };
+    let png = frame
+        .to_png()
+        .unwrap_or_else(|e| unreachable!("the frame encodes: {e}"));
+    let path = std::path::Path::new(&dir).join(name);
+    assert!(std::fs::write(&path, png).is_ok(), "{}", path.display());
+}
+
+#[test]
+fn a_typed_line_has_a_gutter_mark_that_explains_itself_and_edits_it_again() {
+    let Some(mut app) = start("sealed-input-mark") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    run(&mut app, "echo mark''-me", "mark-me");
+    let marks = app.typed_marks();
+    assert_eq!(marks.len(), 1, "{marks:?}");
+    let (top, record) = marks[0];
+    assert_eq!(record, 0);
+    let plain = app.view();
+    capture(&plain, "typed-mark.png");
+    assert!(
+        gutter_ink(&plain, top) > 0,
+        "the mark is drawn in the gutter"
+    );
+    let (cw, ch) = cell();
+    assert_eq!(
+        gutter_ink(&plain, top + ch),
+        0,
+        "the next row's gutter is empty"
+    );
+
+    // Over the mark: what it means, then gone when the pointer leaves.
+    let on_mark = (cw, top + ch / 2);
+    assert_eq!(
+        app.mouse_move(on_mark.0, on_mark.1, Held::default()).ok(),
+        Some(true),
+        "the window draws again"
+    );
+    assert_eq!(app.typed_hover(), Some(0));
+    let hovered = app.view();
+    capture(&hovered, "typed-mark-hover.png");
+    assert_ne!(hovered, plain, "the tip is drawn");
+    assert_eq!(
+        app.mouse_move(cw * 20, top + ch / 2, Held::default()).ok(),
+        Some(true)
+    );
+    assert_eq!(app.typed_hover(), None);
+    assert_eq!(app.view(), plain, "the tip is gone");
+
+    // A click on the mark puts the line back in the box, and sends nothing.
+    let sent = app.forwarded_enters();
+    assert!(app.click(on_mark.0, on_mark.1));
+    assert_eq!(app.input_text(), "echo mark''-me");
+    assert_eq!(app.forwarded_enters(), sent, "nothing was sent");
+    capture(&app.view(), "typed-mark-edit-again.png");
+}
+
+#[test]
+fn a_layer_without_keys_draws_no_mark() {
+    let Some(mut app) = start_with("sealed-input-no-mark", "", 0) else {
+        return;
+    };
+    assert!(matches!(app.session().seal_status(), Status::GridOnly(_)));
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    run(&mut app, "echo no''-mark", "no-mark");
+    assert_eq!(app.typed_marks(), []);
+    let frame = app.view();
+    capture(&frame, "no-mark-grid-only.png");
+    let (_, ch) = cell();
+    let rows = frame.height / ch;
+    for row in 1..rows {
+        assert_eq!(gutter_ink(&frame, row * ch), 0, "gutter row {row}");
+    }
 }

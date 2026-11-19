@@ -56,6 +56,14 @@ pub const TOAST_MAX_LINES: usize = 3;
 /// The terminal's own text in the header strip of the trust margin.
 pub const MARGIN_LABEL: &str = "Bright";
 
+/// The terminal's mark, in the gutter, beside the last row of a line typed in
+/// the input box for a sealed command. Only the terminal draws in the gutter,
+/// so output cannot draw one.
+pub const TYPED_MARK: &str = "kbd";
+
+/// What the mark means, shown while the pointer is over it.
+pub const TYPED_TIP: &str = "typed here";
+
 pub use crate::frame::{Frame, Rgb};
 
 pub use crate::design::Theme;
@@ -1837,6 +1845,55 @@ impl Renderer {
             t.margin_text,
         );
         frame
+    }
+
+    /// Paint the typed-line mark in the gutter of a window `frame`, on the row
+    /// whose top is pixel `y`.
+    pub fn paint_typed_mark(&self, frame: &mut Frame, y: u32) {
+        self.text_line(frame, self.cell_w / 2, y, TYPED_MARK, self.theme.muted);
+    }
+
+    /// Whether pixel `(x, y)` is on the typed-line mark of the row whose top is
+    /// pixel `top`: the gutter, short of its divider, on that row.
+    #[must_use]
+    pub fn on_typed_mark(&self, top: u32, (x, y): (u32, u32)) -> bool {
+        let gutter = self.cell_w * GUTTER_COLUMNS;
+        x < gutter.saturating_sub(self.scale) && y >= top && y < top + self.cell_h
+    }
+
+    /// Paint what the mark on the row whose top is pixel `y` means, in a box
+    /// of the terminal's own, just right of the gutter on that row.
+    pub fn paint_typed_tip(&self, frame: &mut Frame, row_top: u32) {
+        let theme = &self.theme;
+        let chars = u32::try_from(TYPED_TIP.chars().count()).unwrap_or(0);
+        let width = (chars + 2) * self.cell_w;
+        let height = self.cell_h + 2 * self.scale;
+        let left = self.cell_w * GUTTER_COLUMNS + self.gutter_pad();
+        let mut tip = Frame::new(width, height, theme.toast);
+        tip.fill(0, 0, width, self.scale, theme.toast_border);
+        tip.fill(
+            0,
+            height.saturating_sub(self.scale),
+            width,
+            self.scale,
+            theme.toast_border,
+        );
+        tip.fill(0, 0, self.scale, height, theme.toast_border);
+        tip.fill(
+            width.saturating_sub(self.scale),
+            0,
+            self.scale,
+            height,
+            theme.toast_border,
+        );
+        self.text_line(
+            &mut tip,
+            self.cell_w,
+            self.scale,
+            TYPED_TIP,
+            theme.foreground,
+        );
+        Self::blit(frame, &tip, left, row_top.saturating_sub(self.scale));
     }
 
     /// The toasts that fit in a notification area `columns` cells wide and `nh`
