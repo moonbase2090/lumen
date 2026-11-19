@@ -10,6 +10,7 @@
 
 use lumen_seal::{FsProbe, Probe, Sealer};
 use lumen_term::input_line::Mode;
+use lumen_term::mouse::Held;
 use lumen_term::seal::{Config, LISTED, Status};
 use lumen_term::{App, Key, Layer, Mods};
 use std::collections::BTreeMap;
@@ -696,4 +697,316 @@ fn a_layer_without_keys_records_nothing_and_up_recalls_the_box_history() {
     assert_eq!(typed(&app), [], "no sealed frames, no records");
     key(&mut app, Key::Up);
     assert_eq!(app.input_text(), ")", "the box's own history");
+}
+
+#[test]
+fn a_record_points_at_the_row_its_line_was_typed_on_until_the_screen_is_cleared() {
+    let Some(mut app) = start("sealed-input-anchor") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    run(&mut app, "echo anchor''-me", "anchor-me");
+    let records = app.typed_records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        app.typed_row_text(&records[0]).as_deref(),
+        Some("echo anchor''-me"),
+        "the row the typed line is on"
+    );
+    // Push it well into history.
+    run(
+        &mut app,
+        "for i in {1..120}; do echo filler-$i; done; echo fill''-done",
+        "fill-done",
+    );
+    assert_eq!(
+        app.typed_row_text(&records[0]).as_deref(),
+        Some("echo anchor''-me"),
+        "the same row after it scrolled into history"
+    );
+    // Clearing the screen and its history drops it.
+    run(
+        &mut app,
+        "printf '\\033[H\\033[2J\\033[3J'; echo clear''-done",
+        "clear-done",
+    );
+    assert_eq!(app.typed_row_text(&records[0]), None);
+    // The line that cleared was anchored before it ran, so it goes too.
+    let records = app.typed_records();
+    assert_eq!(records.len(), 3);
+    assert_eq!(app.typed_row_text(&records[2]), None);
+}
+
+/// How many pixels of the gutter, on the row whose top is pixel `top`, differ
+/// from the gutter's own colour there. Text in the gutter differs; an empty
+/// gutter row has none.
+fn gutter_ink(frame: &lumen_term::Frame, top: u32) -> usize {
+    let (cw, ch) = cell();
+    let gutter = cw * lumen_term::GUTTER_COLUMNS - 2;
+    let plain = frame.pixel(1, top + ch - 1);
+    (top..top + ch)
+        .flat_map(|y| (0..gutter).map(move |x| (x, y)))
+        .filter(|&(x, y)| frame.pixel(x, y) != plain)
+        .count()
+}
+
+fn cell() -> (u32, u32) {
+    lumen_term::Renderer::light(1)
+        .unwrap_or_else(|e| unreachable!("the bundled face loads: {e}"))
+        .cell()
+}
+
+/// Write `frame` to the capture directory, when the run names one.
+fn capture(frame: &lumen_term::Frame, name: &str) {
+    let Some(dir) = std::env::var_os("LUMEN_CAPTURE_DIR") else {
+        return;
+    };
+    let png = frame
+        .to_png()
+        .unwrap_or_else(|e| unreachable!("the frame encodes: {e}"));
+    let path = std::path::Path::new(&dir).join(name);
+    assert!(std::fs::write(&path, png).is_ok(), "{}", path.display());
+}
+
+#[test]
+fn a_typed_line_has_a_gutter_mark_that_explains_itself_and_edits_it_again() {
+    let Some(mut app) = start("sealed-input-mark") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    run(&mut app, "echo mark''-me", "mark-me");
+    let marks = app.typed_marks();
+    assert_eq!(marks.len(), 1, "{marks:?}");
+    let (top, record) = marks[0];
+    assert_eq!(record, 0);
+    assert_eq!(
+        app.typed_row_text(&app.typed_records()[0]).as_deref(),
+        Some("echo mark''-me")
+    );
+    let plain = app.view();
+    capture(&plain, "typed-mark.png");
+    assert!(
+        gutter_ink(&plain, top) > 0,
+        "the mark is drawn in the gutter"
+    );
+    let (cw, ch) = cell();
+    assert_eq!(
+        gutter_ink(&plain, top + ch),
+        0,
+        "the next row's gutter is empty"
+    );
+
+    // Over the mark: what it means, then gone when the pointer leaves.
+    let on_mark = (cw, top + ch / 2);
+    assert_eq!(
+        app.mouse_move(on_mark.0, on_mark.1, Held::default()).ok(),
+        Some(true),
+        "the window draws again"
+    );
+    assert_eq!(app.typed_hover(), Some(0));
+    let hovered = app.view();
+    capture(&hovered, "typed-mark-hover.png");
+    assert_ne!(hovered, plain, "the tip is drawn");
+    // Not over the text it is about: the typed line's cells are as they were.
+    let left = cw * lumen_term::GUTTER_COLUMNS;
+    let right = left + cw * u32::try_from("echo mark''-me".len() + 1).unwrap_or(0);
+    let covered = (top..top + ch)
+        .flat_map(|y| (left..right).map(move |x| (x, y)))
+        .filter(|&(x, y)| hovered.pixel(x, y) != plain.pixel(x, y))
+        .count();
+    assert_eq!(covered, 0, "the tip leaves the typed text alone");
+    assert_eq!(
+        header_changes(&plain, &hovered),
+        0,
+        "the tip stays out of the header strip"
+    );
+    assert_eq!(
+        app.mouse_move(cw * 20, top + ch / 2, Held::default()).ok(),
+        Some(true)
+    );
+    assert_eq!(app.typed_hover(), None);
+    assert_eq!(app.view(), plain, "the tip is gone");
+
+    // A click on the mark puts the line back in the box, and sends nothing.
+    let sent = app.forwarded_enters();
+    assert!(app.click(on_mark.0, on_mark.1));
+    assert_eq!(app.input_text(), "echo mark''-me");
+    assert_eq!(app.forwarded_enters(), sent, "nothing was sent");
+    capture(&app.view(), "typed-mark-edit-again.png");
+}
+
+#[test]
+fn a_layer_without_keys_draws_no_mark() {
+    let Some(mut app) = start_with("sealed-input-no-mark", "", 0) else {
+        return;
+    };
+    assert!(matches!(app.session().seal_status(), Status::GridOnly(_)));
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    run(&mut app, "echo no''-mark", "no-mark");
+    assert_eq!(app.typed_marks(), []);
+    let frame = app.view();
+    capture(&frame, "no-mark-grid-only.png");
+    let (_, ch) = cell();
+    let rows = frame.height / ch;
+    for row in 1..rows {
+        assert_eq!(gutter_ink(&frame, row * ch), 0, "gutter row {row}");
+    }
+}
+
+#[test]
+fn a_typed_line_that_wraps_is_marked_on_its_first_row_and_its_tip_does_not_cover_it() {
+    let Some(mut app) = start("sealed-input-wrap") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    // Longer than the grid is wide, so the shell draws it over two rows.
+    let long = format!("echo {}''-end", "w".repeat(130));
+    run(&mut app, &long, "-end");
+    let records = app.typed_records();
+    assert_eq!(records.len(), 1);
+    let row = app
+        .typed_row_text(&records[0])
+        .unwrap_or_else(|| unreachable!("the record has a row: {}", grid_text(&app)));
+    assert!(
+        row.starts_with("echo www") && !row.contains("-end"),
+        "the first row of the typed line: {row:?}"
+    );
+    let marks = app.typed_marks();
+    assert_eq!(marks.len(), 1);
+    // The first row is full: the tip goes above it, not over it.
+    let (top, _) = marks[0];
+    let plain = app.view();
+    let (cw, ch) = cell();
+    assert_eq!(
+        app.mouse_move(cw, top + ch / 2, Held::default()).ok(),
+        Some(true)
+    );
+    let hovered = app.view();
+    capture(&hovered, "typed-mark-hover-wrapped.png");
+    assert_ne!(hovered, plain, "the tip is drawn");
+    let left = cw * lumen_term::GUTTER_COLUMNS;
+    let covered = (top..top + ch)
+        .flat_map(|y| (left..hovered.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| hovered.pixel(x, y) != plain.pixel(x, y))
+        .count();
+    assert_eq!(covered, 0, "the full first row is left alone");
+    assert_eq!(
+        header_changes(&plain, &hovered),
+        0,
+        "the tip stays out of the header strip"
+    );
+}
+
+/// How many pixels of the header strip differ between two frames.
+fn header_changes(a: &lumen_term::Frame, b: &lumen_term::Frame) -> usize {
+    let (_, ch) = cell();
+    let header = ch * lumen_term::HEADER_ROWS;
+    (0..header)
+        .flat_map(|y| (0..a.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| a.pixel(x, y) != b.pixel(x, y))
+        .count()
+}
+
+/// The live grid's width in columns, and the column the shell's cursor is on.
+fn grid_width_and_column(app: &App) -> (usize, usize) {
+    match app.session().document().blocks().last() {
+        Some(lumen_term::Block::Grid(g)) => (g.size().0, g.cursor().column),
+        _ => unreachable!("the live block is a grid"),
+    }
+}
+
+#[test]
+fn a_joined_emoji_near_the_edge_leaves_the_mark_on_the_row_the_line_starts_on() {
+    let Some(mut app) = start("sealed-input-zwj") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    // A family emoji: five scalars that the terminal draws as one grapheme two
+    // cells wide, while a shell's line editor may draw it some other way and
+    // wrap the line where the terminal would not. Whatever it does, the mark is
+    // on the row the line starts on: the one row the terminal knows.
+    let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    let (columns, column) = grid_width_and_column(&app);
+    let fill = columns - column - "echo ".len() - 2 - "''-zwj".len();
+    let text = format!("echo {}{family}''-zwj", "a".repeat(fill));
+    run(&mut app, &text, "-zwj");
+    let records = app.typed_records();
+    assert_eq!(records.len(), 1);
+    let row = app
+        .typed_row_text(&records[0])
+        .unwrap_or_else(|| unreachable!("the record has a row: {}", grid_text(&app)));
+    assert!(
+        row.starts_with("echo aaa"),
+        "the row the typed line starts on: {row:?}\n{}",
+        grid_text(&app)
+    );
+    assert_eq!(app.typed_marks().len(), 1);
+}
+
+#[test]
+fn the_tip_counts_wide_characters_in_cells() {
+    let Some(mut app) = start("sealed-input-wide") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    // Six characters two cells wide: the line is 24 cells, 18 characters.
+    let line = "echo \u{4E2D}\u{6587}\u{4E2D}\u{6587}\u{4E2D}\u{6587}''-wide";
+    run(&mut app, line, "-wide");
+    let marks = app.typed_marks();
+    assert_eq!(marks.len(), 1, "{marks:?}");
+    let (top, _) = marks[0];
+    let plain = app.view();
+    let (cw, ch) = cell();
+    assert_eq!(
+        app.mouse_move(cw, top + ch / 2, Held::default()).ok(),
+        Some(true)
+    );
+    let hovered = app.view();
+    capture(&hovered, "typed-mark-hover-wide.png");
+    assert_ne!(hovered, plain, "the tip is drawn");
+    let left = cw * lumen_term::GUTTER_COLUMNS;
+    let right = left + cw * 25;
+    let covered = (top..top + ch)
+        .flat_map(|y| (left..right).map(move |x| (x, y)))
+        .filter(|&(x, y)| hovered.pixel(x, y) != plain.pixel(x, y))
+        .count();
+    assert_eq!(covered, 0, "the tip leaves all 24 cells of the line alone");
+}
+
+#[test]
+fn leaving_a_mark_for_the_grid_still_reports_the_motion_to_a_program_that_asked() {
+    let Some(mut app) = start("sealed-input-motion") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    run(&mut app, "echo mark''-first", "mark-first");
+    // A program on the primary screen that asks for every motion (1003, SGR)
+    // and prints the start of the first report it reads.
+    line(
+        &mut app,
+        "printf '\\033[?1003h\\033[?1006h'; echo wait''ing; read -k 6 r; printf '\\033[?1003l\\033[?1006l'; print -r -- got-${r[2,6]}",
+    );
+    assert!(until(&mut app, |a| grid_text(a).contains("waiting\n")));
+    let marks = app.typed_marks();
+    let (top, _) = marks[0];
+    let (cw, ch) = cell();
+    assert_eq!(
+        app.mouse_move(cw, top + ch / 2, Held::default()).ok(),
+        Some(true),
+        "onto the mark: the tip"
+    );
+    assert_eq!(app.typed_hover(), Some(0));
+    // Off the mark, onto a cell of the grid: the tip goes, and the motion is
+    // reported all the same.
+    let on_grid = (cw * (lumen_term::GUTTER_COLUMNS + 6), top + ch * 3 + ch / 2);
+    assert_eq!(
+        app.mouse_move(on_grid.0, on_grid.1, Held::default()).ok(),
+        Some(true)
+    );
+    assert_eq!(app.typed_hover(), None);
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("got-[<35;")),
+        "the program read the motion report: {}",
+        grid_text(&app)
+    );
 }
