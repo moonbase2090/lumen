@@ -42,6 +42,35 @@ pub struct CursorView {
 pub struct GridBlock {
     emulator: Emulator,
     modes: ModeTracker,
+    /// Resizes that changed the size. A resize rewraps the history, so a line
+    /// number from before it means nothing after it.
+    resizes: u64,
+}
+
+/// A line of a block's primary screen, by number: rows that have left the top
+/// of the full screen so far, plus the row on the screen. The number of a line
+/// stays the same while output scrolls it up and into history. It is good only
+/// while the history has not been rewritten: [`GridBlock::row_of`] gives
+/// nothing once the screen was cleared (ED 2, ED 3, RIS) or resized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Line {
+    /// The line's number.
+    pub number: u64,
+    /// The screen's full-clear count when the number was taken.
+    clears: u64,
+    /// The block's resize count when the number was taken.
+    resizes: u64,
+}
+
+impl Line {
+    /// The line `n` above this one, or `None` above the first line.
+    #[must_use]
+    pub fn up(self, n: u64) -> Option<Self> {
+        Some(Self {
+            number: self.number.checked_sub(n)?,
+            ..self
+        })
+    }
 }
 
 impl GridBlock {
@@ -51,6 +80,7 @@ impl GridBlock {
         Self {
             emulator: Emulator::new(columns, rows, SCROLLBACK),
             modes: ModeTracker::new(),
+            resizes: 0,
         }
     }
 
@@ -93,7 +123,70 @@ impl GridBlock {
 
     /// Resize the block.
     pub fn resize(&mut self, columns: usize, rows: usize) {
+        if self.size() != (columns, rows) {
+            self.resizes += 1;
+        }
         self.emulator.resize(columns, rows);
+    }
+
+    /// The line `rows_up` rows above the cursor's, on the primary screen.
+    /// `None` on the alternate screen, whose rows have no line numbers, or
+    /// above the first line.
+    #[must_use]
+    pub fn line_above_cursor(&self, rows_up: u64) -> Option<Line> {
+        let screen = self.emulator.screen();
+        if screen.alt_active() {
+            return None;
+        }
+        let row = u64::try_from(screen.cursor().row).ok()?;
+        Some(Line {
+            number: (screen.scrolled_lines() + row).checked_sub(rows_up)?,
+            clears: screen.full_clears(),
+            resizes: self.resizes,
+        })
+    }
+
+    /// Where `line` is now, counted from the oldest history row kept: history
+    /// rows first, then the screen's (the order of [`history_row`] then
+    /// [`screen`]). `None` once the line has left the history, the history was
+    /// rewritten since it was taken, or the alternate screen is in front.
+    ///
+    /// [`history_row`]: Self::history_row
+    /// [`screen`]: Self::screen
+    #[must_use]
+    pub fn row_of(&self, line: Line) -> Option<usize> {
+        let screen = self.emulator.screen();
+        if screen.alt_active()
+            || line.clears != screen.full_clears()
+            || line.resizes != self.resizes
+        {
+            return None;
+        }
+        let history = u64::try_from(self.history_rows()).ok()?;
+        let first = screen.scrolled_lines().checked_sub(history)?;
+        let index = line.number.checked_sub(first)?;
+        let rows = u64::try_from(screen.rows()).ok()?;
+        (index < history + rows)
+            .then(|| usize::try_from(index).ok())
+            .flatten()
+    }
+
+    /// The text of row `index` in [`row_of`](Self::row_of) order, trailing
+    /// blanks removed.
+    #[must_use]
+    pub fn flow_row_text(&self, index: usize) -> Option<String> {
+        let history = self.history_rows();
+        let cells = if index < history {
+            self.history_row(index)?
+        } else {
+            self.emulator.screen().row(index - history)?
+        };
+        let text: String = cells
+            .iter()
+            .filter(|c| !c.wide_cont)
+            .map(|c| c.character)
+            .collect();
+        Some(text.trim_end().to_owned())
     }
 
     /// The text of each row, with trailing blanks removed.

@@ -213,7 +213,7 @@ fn opened(bytes: &[u8]) -> Vec<(u8, Vec<u8>)> {
     d.take_events()
         .into_iter()
         .filter_map(|e| match e {
-            Event::Sealed { kind, body } => Some((kind, body)),
+            Event::Sealed { kind, body, .. } => Some((kind, body)),
             _ => None,
         })
         .collect()

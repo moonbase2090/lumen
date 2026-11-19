@@ -456,7 +456,7 @@ impl Notifier {
                 Event::Unsigned { .. } => {
                     out.push(self.notify(now_ms, id, Source::UnsignedGrid, ""));
                 }
-                Event::Sealed { kind, body } if *kind == KIND_GRANT => {
+                Event::Sealed { kind, body, .. } if *kind == KIND_GRANT => {
                     if let Ok(Frame::Grant { grant, capability }) = parse(*kind, body)
                         && capability == CAP_NOTIFICATIONS
                         && let Some(l) = self.layers.get_mut(&id)
@@ -464,7 +464,7 @@ impl Notifier {
                         l.granted = grant;
                     }
                 }
-                Event::Sealed { kind, body } if *kind == KIND_NOTIFICATION => {
+                Event::Sealed { kind, body, .. } if *kind == KIND_NOTIFICATION => {
                     let Ok(Frame::Notification(text)) = parse(*kind, body) else {
                         continue;
                     };

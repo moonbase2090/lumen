@@ -82,7 +82,7 @@ mod writer;
 
 pub use app::App;
 pub use document::{Block, Document, Event, RichBlock};
-pub use grid::{CursorShape, CursorView, GridBlock};
+pub use grid::{CursorShape, CursorView, GridBlock, Line};
 pub use keys::{Key, Mods};
 pub use layer::{Context, Layer, Notice, Passthrough, Piece};
 pub use layout::{

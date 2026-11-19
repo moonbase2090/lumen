@@ -122,7 +122,7 @@ fn through_a_layer(bytes: &[u8]) -> Boundaries {
     d.receive(&mut layer, bytes, Context::default());
     let mut b = Boundaries::new();
     for event in d.take_events() {
-        if let Event::Sealed { kind, body } = event {
+        if let Event::Sealed { kind, body, .. } = event {
             b.see(kind, &body);
         }
     }

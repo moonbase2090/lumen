@@ -411,7 +411,11 @@ fn string(text: &str) -> Vec<u8> {
 }
 
 fn sealed_event(kind: u8, body: Vec<u8>) -> Event {
-    Event::Sealed { kind, body }
+    Event::Sealed {
+        kind,
+        body,
+        at: None,
+    }
 }
 
 #[test]

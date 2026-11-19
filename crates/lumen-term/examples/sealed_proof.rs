@@ -38,7 +38,7 @@ fn main() -> std::process::ExitCode {
         while Instant::now() < end {
             session.pump_wait(Duration::from_millis(100));
             for event in session.take_events() {
-                if let Event::Sealed { kind, body } = event {
+                if let Event::Sealed { kind, body, .. } = event {
                     frames.push((kind, body.len()));
                 }
             }

@@ -697,3 +697,41 @@ fn a_layer_without_keys_records_nothing_and_up_recalls_the_box_history() {
     key(&mut app, Key::Up);
     assert_eq!(app.input_text(), ")", "the box's own history");
 }
+
+#[test]
+fn a_record_points_at_the_row_its_line_was_typed_on_until_the_screen_is_cleared() {
+    let Some(mut app) = start("sealed-input-anchor") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    run(&mut app, "echo anchor''-me", "anchor-me");
+    let records = app.typed_records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        app.typed_row_text(&records[0]).as_deref(),
+        Some("% echo anchor''-me"),
+        "the row with the prompt and the typed line"
+    );
+    // Push it well into history.
+    run(
+        &mut app,
+        "for i in {1..120}; do echo filler-$i; done; echo fill''-done",
+        "fill-done",
+    );
+    assert_eq!(
+        app.typed_row_text(&records[0]).as_deref(),
+        Some("% echo anchor''-me"),
+        "the same row after it scrolled into history"
+    );
+    // Clearing the screen and its history drops it.
+    run(
+        &mut app,
+        "printf '\\033[H\\033[2J\\033[3J'; echo clear''-done",
+        "clear-done",
+    );
+    assert_eq!(app.typed_row_text(&records[0]), None);
+    // The line that cleared was anchored before it ran, so it goes too.
+    let records = app.typed_records();
+    assert_eq!(records.len(), 3);
+    assert_eq!(app.typed_row_text(&records[2]), None);
+}

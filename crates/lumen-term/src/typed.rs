@@ -28,6 +28,10 @@ pub struct Record {
     pub typed: String,
     /// The exit status from the sealed command end, once it has come.
     pub status: Option<i32>,
+    /// The grid line the typed text ended on: the line above the cursor's
+    /// where the command start came in the stream. `None` when there was no
+    /// such line (the alternate screen, or the top of the first screen).
+    pub line: Option<crate::grid::Line>,
 }
 
 /// Follows the box's writes and the sealed boundary frames that applied.
@@ -82,6 +86,12 @@ impl Typed {
 
     /// A sealed boundary frame that applied in order.
     pub fn see(&mut self, frame: &Frame) {
+        self.see_at(frame, None);
+    }
+
+    /// [`see`](Self::see) with the line the live grid's cursor was on where the
+    /// frame came in the stream.
+    pub fn see_at(&mut self, frame: &Frame, at: Option<crate::grid::Line>) {
         if self.stopped {
             return;
         }
@@ -99,6 +109,7 @@ impl Typed {
                         id: *id,
                         typed,
                         status: None,
+                        line: at.and_then(|l| l.up(1)),
                     });
                     self.made += 1;
                 }

@@ -580,12 +580,12 @@ impl App {
     /// does with what the program wrote.
     pub fn route(&mut self, events: &[Event]) {
         for event in events {
-            if let Event::Sealed { kind, body } = event {
+            if let Event::Sealed { kind, body, at } = event {
                 let seen = self.boundaries.see(*kind, body);
                 match seen {
                     Seen::Applied => {
                         if let Ok(frame) = lumen_sealed::types::parse(*kind, body) {
-                            self.typed.see(&frame);
+                            self.typed.see_at(&frame, *at);
                         }
                     }
                     Seen::Refused => self.typed.stop(),
@@ -1666,6 +1666,17 @@ impl App {
     #[must_use]
     pub fn typed_records(&self) -> Vec<crate::typed::Record> {
         self.typed.records().iter().cloned().collect()
+    }
+
+    /// The text of the live grid row a record's typed line ended on, while the
+    /// row is still there and the history has not been rewritten since.
+    #[must_use]
+    pub fn typed_row_text(&self, record: &crate::typed::Record) -> Option<String> {
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return None;
+        };
+        let row = live.row_of(record.line?)?;
+        live.flow_row_text(row)
     }
 
     fn facts_with(&self, ended: bool) -> Facts {
