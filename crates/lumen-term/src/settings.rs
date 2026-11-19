@@ -11,6 +11,7 @@
 //! prose_font = "bundled"
 //! prose_size = 16
 //! copy_on_select = true   # true or false: copy a finished mouse selection
+//! smooth_scroll = true    # true or false: ease the wheel's scrolling
 //! shell = "pwsh"          # the program to run when none is named; see `shell`
 //! shell_integration = true # add prompt marks to zsh, bash, fish and PowerShell
 //! ```
@@ -77,6 +78,8 @@ pub struct LookSettings {
     pub prose_size: u32,
     /// Whether a finished mouse selection is copied at once. On by default.
     pub copy_on_select: bool,
+    /// Whether a wheel step eases the view instead of jumping it. On by default.
+    pub smooth_scroll: bool,
     /// The program to run when none is named on the command line, if set.
     pub shell: Option<String>,
     /// Whether a shell started directly gets the prompt-mark hooks.
@@ -93,6 +96,7 @@ impl Default for LookSettings {
             prose_font: FontSetting::Bundled,
             prose_size: fonts.prose_px(),
             copy_on_select: true,
+            smooth_scroll: true,
             shell: None,
             shell_integration: true,
         }
@@ -313,6 +317,13 @@ pub fn parse(text: &str, dir: &Path, home: Option<&Path>) -> Result<LookSettings
             "prose_size" => look.prose_size = size()?,
             "copy_on_select" => {
                 look.copy_on_select = match value {
+                    "true" => true,
+                    "false" => false,
+                    _ => return Err((line, format!("`{key}` must be true or false"))),
+                };
+            }
+            "smooth_scroll" => {
+                look.smooth_scroll = match value {
                     "true" => true,
                     "false" => false,
                     _ => return Err((line, format!("`{key}` must be true or false"))),

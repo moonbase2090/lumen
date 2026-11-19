@@ -133,6 +133,7 @@ impl App {
             .saturating_add(hit.height / 2)
             .saturating_sub(area / 2);
         let next = Scroll::to(total, area, middle);
+        self.glide.cancel();
         if next != self.scroll {
             self.scroll = next;
         }

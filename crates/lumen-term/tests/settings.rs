@@ -65,6 +65,7 @@ fn every_setting_is_read() {
             prose_font: FontSetting::File(PathBuf::from("/abs/Sans.otf")),
             prose_size: 18,
             copy_on_select: true,
+            smooth_scroll: true,
             shell: Some("pwsh".to_owned()),
             shell_integration: false,
         })
@@ -423,4 +424,29 @@ fn copy_on_select_is_on_by_default_and_takes_only_true_or_false() {
         );
     }
     assert!(parsed("copy_on_select = true\ncopy_on_select = true").is_err());
+}
+
+#[test]
+fn smooth_scroll_is_on_by_default_and_takes_only_true_or_false() {
+    assert!(LookSettings::default().smooth_scroll);
+    assert_eq!(
+        parsed("smooth_scroll = false").map(|l| l.smooth_scroll),
+        Ok(false)
+    );
+    assert_eq!(
+        parsed("smooth_scroll = true").map(|l| l.smooth_scroll),
+        Ok(true)
+    );
+    for bad in [
+        "smooth_scroll = \"false\"",
+        "smooth_scroll = 1",
+        "smooth_scroll =",
+    ] {
+        assert_eq!(
+            parsed(bad),
+            Err((1, "`smooth_scroll` must be true or false".to_owned())),
+            "{bad:?}"
+        );
+    }
+    assert!(parsed("smooth_scroll = true\nsmooth_scroll = true").is_err());
 }
