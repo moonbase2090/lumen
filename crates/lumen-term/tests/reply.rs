@@ -283,6 +283,61 @@ fn the_document_keeps_a_bounded_number_of_unanswered_queries() {
     assert_eq!(d.take_colour_queries(), [], "taking empties the queue");
 }
 
+#[test]
+fn a_cursor_position_query_makes_a_report_of_where_the_cursor_is_when_it_asks() {
+    let mut d = Document::new(40, 6);
+    // The cursor is at row 2, column 4 when the query arrives, and the program
+    // goes on to move it before the read ends: the report is for the query.
+    d.receive(&mut Passthrough, b"ab\r\n  x\x1b[6n\x1b[5;9Hmore", at(0));
+    assert_eq!(d.take_cursor_reports(), [(2, 4)]);
+    assert_eq!(d.take_cursor_reports(), [], "taking empties the queue");
+}
+
+#[test]
+fn queries_other_than_cursor_position_make_no_report() {
+    let mut d = Document::new(40, 6);
+    // Device status, primary attributes and the size reports all have answers
+    // in the emulator; the terminal sends none of them.
+    d.receive(
+        &mut Passthrough,
+        b"\x1b[5n\x1b[c\x1b[14t\x1b[16t\x1b[18t",
+        at(0),
+    );
+    assert_eq!(d.take_cursor_reports(), []);
+}
+
+#[test]
+fn the_document_keeps_a_bounded_number_of_unanswered_cursor_queries() {
+    let mut d = Document::new(40, 4);
+    d.receive(&mut Passthrough, &b"\x1b[6n".repeat(1000), at(0));
+    assert_eq!(d.take_cursor_reports().len(), 64);
+}
+
+#[test]
+fn a_cursor_report_is_the_fixed_form_and_shares_the_reply_limits() {
+    let mut replies = light();
+    let reports: Vec<(u32, u32)> = (1..=20).map(|n| (n, n + 1)).collect();
+    let got = replies.answer_cursor(&reports, 0);
+    let want: Vec<u8> = (1..=8_u32)
+        .flat_map(|n| format!("\x1b[{n};{}R", n + 1).into_bytes())
+        .collect();
+    assert_eq!(MAX_PER_READ, 8);
+    assert_eq!(got, want, "at most eight for one read");
+    // Four more full reads fill the window (forty replies); a colour query in
+    // it then gets no answer, and one after the window has slid does.
+    for _ in 0..4 {
+        assert_eq!(replies.answer_cursor(&reports, 10).len(), want.len());
+    }
+    assert_eq!(replies.answer_cursor(&reports, 20), []);
+    assert_eq!(replies.answer(&[ColourQuery::Special(11)], 30), []);
+    assert_eq!(
+        replies
+            .answer(&[ColourQuery::Special(11)], WINDOW_MS + 30)
+            .first(),
+        Some(&0x1b)
+    );
+}
+
 #[cfg(all(unix, feature = "colour-replies"))]
 mod pty {
     use super::*;
@@ -472,5 +527,27 @@ mod pty {
             slowest < Duration::from_millis(500),
             "a typed send took {slowest:?} while the program asked and never read"
         );
+    }
+
+    #[test]
+    fn a_program_that_asks_where_the_cursor_is_is_told_on_every_layer() {
+        for (label, layer) in [
+            (
+                "passthrough",
+                Box::new(Passthrough) as Box<dyn Layer + Send>,
+            ),
+            ("arm-b", b_layer()),
+        ] {
+            let got = ask(
+                layer,
+                &format!("cursor-{label}"),
+                b"ab\r\n  x\x1b[6n\x1b[5n\x1b[c",
+            );
+            assert_eq!(
+                String::from_utf8_lossy(&got),
+                "\x1b[2;4R",
+                "{label}: only the cursor position is answered"
+            );
+        }
     }
 }

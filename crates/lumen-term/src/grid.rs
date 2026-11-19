@@ -103,6 +103,18 @@ impl GridBlock {
         self.emulator.feed(bytes);
     }
 
+    /// The cursor-position reports (`CSI 6 n`) the program asked for since the
+    /// last call, as (row, column) counts from 1. Every other reply the emulator
+    /// queued (device attributes, size reports) is dropped: the terminal answers
+    /// only this one, and only from numbers it parsed here.
+    pub fn take_cursor_reports(&mut self) -> Vec<(u32, u32)> {
+        self.emulator
+            .take_pending_replies()
+            .iter()
+            .filter_map(|reply| cursor_report(reply))
+            .collect()
+    }
+
     /// The window title the program set since the last call: `Some("")` is a
     /// reset, `None` is no change.
     pub fn take_title(&mut self) -> Option<String> {
@@ -272,4 +284,13 @@ impl GridBlock {
     pub fn alt_active(&self) -> bool {
         self.emulator.screen().alt_active()
     }
+}
+
+/// The row and column in a cursor-position report, if `reply` is exactly
+/// `ESC [ row ; column R` with plain numbers and nothing else.
+fn cursor_report(reply: &[u8]) -> Option<(u32, u32)> {
+    let body = reply.strip_prefix(b"\x1b[")?.strip_suffix(b"R")?;
+    let (row, column) = std::str::from_utf8(body).ok()?.split_once(';')?;
+    let plain = |n: &str| !n.is_empty() && n.len() <= 6 && n.bytes().all(|b| b.is_ascii_digit());
+    (plain(row) && plain(column)).then_some((row.parse().ok()?, column.parse().ok()?))
 }

@@ -102,6 +102,30 @@ impl Replies {
     /// The bytes to write to the PTY for the queries of one read, at `now_ms`:
     /// the first [`MAX_PER_READ`] of them that the window has room for.
     pub fn answer(&mut self, queries: &[ColourQuery], now_ms: u64) -> Vec<u8> {
+        let room = self.room(now_ms);
+        let mut out = Vec::new();
+        for query in queries.iter().take(MAX_PER_READ.min(room)) {
+            out.extend(format(*query, &self.theme));
+            self.sent.push_back(now_ms);
+        }
+        out
+    }
+
+    /// The bytes to write to the PTY for the cursor-position queries of one
+    /// read, at `now_ms`: `ESC [ row ; column R` for each, within the same
+    /// limits as the colour replies.
+    pub fn answer_cursor(&mut self, reports: &[(u32, u32)], now_ms: u64) -> Vec<u8> {
+        let room = self.room(now_ms);
+        let mut out = Vec::new();
+        for (row, column) in reports.iter().take(MAX_PER_READ.min(room)) {
+            out.extend(format!("\x1b[{row};{column}R").into_bytes());
+            self.sent.push_back(now_ms);
+        }
+        out
+    }
+
+    /// How many more replies the window has room for at `now_ms`.
+    fn room(&mut self, now_ms: u64) -> usize {
         while self
             .sent
             .front()
@@ -109,12 +133,6 @@ impl Replies {
         {
             self.sent.pop_front();
         }
-        let room = MAX_PER_WINDOW.saturating_sub(self.sent.len());
-        let mut out = Vec::new();
-        for query in queries.iter().take(MAX_PER_READ.min(room)) {
-            out.extend(format(*query, &self.theme));
-            self.sent.push_back(now_ms);
-        }
-        out
+        MAX_PER_WINDOW.saturating_sub(self.sent.len())
     }
 }

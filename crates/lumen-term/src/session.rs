@@ -499,6 +499,16 @@ impl Session {
         }
         #[cfg(not(feature = "colour-replies"))]
         drop(queries);
+        let reports = self.document.take_cursor_reports();
+        #[cfg(feature = "colour-replies")]
+        if !reports.is_empty() {
+            let reply = self.replies.answer_cursor(&reports, ctx.now_ms);
+            if !reply.is_empty() {
+                self.pty.send_reply(reply);
+            }
+        }
+        #[cfg(not(feature = "colour-replies"))]
+        drop(reports);
         bytes.len()
     }
 
