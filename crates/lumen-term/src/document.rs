@@ -74,7 +74,6 @@ pub struct Document {
     isolator: Isolator,
     events: Vec<Event>,
     colour_queries: Vec<ColourQuery>,
-    cursor_reports: Vec<(u32, u32)>,
     images: ImageHost,
     pending_title: Option<String>,
     pending_bell: bool,
@@ -105,7 +104,6 @@ impl Document {
             isolator: Isolator::new(),
             events: Vec::new(),
             colour_queries: Vec::new(),
-            cursor_reports: Vec::new(),
             images,
             pending_title: None,
             pending_bell: false,
@@ -164,13 +162,6 @@ impl Document {
         std::mem::take(&mut self.colour_queries)
     }
 
-    /// The cursor-position queries (`CSI 6 n`) grid output has made since the
-    /// last call, oldest first, each as the (row, column) to report. The owner
-    /// answers them with [`crate::reply::Replies`].
-    pub fn take_cursor_reports(&mut self) -> Vec<(u32, u32)> {
-        std::mem::take(&mut self.cursor_reports)
-    }
-
     /// What grid isolation has removed so far.
     #[must_use]
     pub fn isolation(&self) -> Stats {
@@ -197,10 +188,6 @@ impl Document {
         if !allowed.is_empty() {
             let grid = self.grid();
             grid.feed(&allowed);
-            let reports = grid.take_cursor_reports();
-            let room = MAX_PENDING_QUERIES.saturating_sub(self.cursor_reports.len());
-            self.cursor_reports.extend(reports.into_iter().take(room));
-            let grid = self.grid();
             let title = grid.take_title();
             let bell = grid.take_bell();
             if let Some(title) = title {

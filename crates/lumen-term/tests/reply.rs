@@ -8,6 +8,19 @@ use lumen_term::{Context, Document, Layer, Passthrough, Session, Theme};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 
+/// The cursor-position reports the grids of a document hold, as the session
+/// takes them.
+fn cursor_reports(d: &Document) -> Vec<(u32, u32)> {
+    d.blocks()
+        .iter()
+        .filter_map(|b| match b {
+            lumen_term::Block::Grid(g) => Some(g.take_cursor_reports()),
+            lumen_term::Block::Rich(_) => None,
+        })
+        .flatten()
+        .collect()
+}
+
 fn light() -> Replies {
     Replies::new(Theme::light())
 }
@@ -289,8 +302,8 @@ fn a_cursor_position_query_makes_a_report_of_where_the_cursor_is_when_it_asks() 
     // The cursor is at row 2, column 4 when the query arrives, and the program
     // goes on to move it before the read ends: the report is for the query.
     d.receive(&mut Passthrough, b"ab\r\n  x\x1b[6n\x1b[5;9Hmore", at(0));
-    assert_eq!(d.take_cursor_reports(), [(2, 4)]);
-    assert_eq!(d.take_cursor_reports(), [], "taking empties the queue");
+    assert_eq!(cursor_reports(&d), [(2, 4)]);
+    assert_eq!(cursor_reports(&d), [], "taking empties the queue");
 }
 
 #[test]
@@ -303,14 +316,14 @@ fn queries_other_than_cursor_position_make_no_report() {
         b"\x1b[5n\x1b[c\x1b[14t\x1b[16t\x1b[18t",
         at(0),
     );
-    assert_eq!(d.take_cursor_reports(), []);
+    assert_eq!(cursor_reports(&d), []);
 }
 
 #[test]
 fn the_document_keeps_a_bounded_number_of_unanswered_cursor_queries() {
     let mut d = Document::new(40, 4);
     d.receive(&mut Passthrough, &b"\x1b[6n".repeat(1000), at(0));
-    assert_eq!(d.take_cursor_reports().len(), 64);
+    assert_eq!(cursor_reports(&d).len(), 64);
 }
 
 #[test]

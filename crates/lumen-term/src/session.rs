@@ -499,7 +499,16 @@ impl Session {
         }
         #[cfg(not(feature = "colour-replies"))]
         drop(queries);
-        let reports = self.document.take_cursor_reports();
+        let reports: Vec<(u32, u32)> = self
+            .document
+            .blocks()
+            .iter()
+            .filter_map(|b| match b {
+                Block::Grid(g) => Some(g.take_cursor_reports()),
+                Block::Rich(_) => None,
+            })
+            .flatten()
+            .collect();
         #[cfg(feature = "colour-replies")]
         if !reports.is_empty() {
             let reply = self.replies.answer_cursor(&reports, ctx.now_ms);
