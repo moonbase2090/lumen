@@ -1689,21 +1689,20 @@ impl App {
         self.typed.records().iter().cloned().collect()
     }
 
-    /// The grid line `text` will end on once the shell draws it: it starts
-    /// where the shell's cursor is now, just after its prompt, and wraps the
-    /// way this terminal wraps it ([`rows_down`](crate::grid::GridBlock::rows_down)). Read when the box
-    /// sends a line whole, before the shell has run anything, so no output of
-    /// the command can have moved it.
-    fn typed_line_end(&self, text: &str) -> Option<crate::grid::Line> {
+    /// The grid line a line the box sends now starts on: the shell's cursor
+    /// row, just after its prompt. Read before the shell has run anything, so
+    /// no output of the command can have moved it. Only the start is known for
+    /// certain: how the line wraps from there is up to the shell's line editor,
+    /// which may draw a character in its own way (a zero-width joiner as
+    /// `<200d>`, say), so the terminal does not guess the last row.
+    fn typed_line_start(&self) -> Option<crate::grid::Line> {
         let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
             return None;
         };
-        let start = live.line_above_cursor(0)?;
-        let rows = crate::grid::GridBlock::rows_down(live.size().0, live.cursor().column, text);
-        Some(start.down(u64::try_from(rows).ok()?))
+        live.line_above_cursor(0)
     }
 
-    /// The text of the live grid row a record's typed line ended on, while the
+    /// The text of the live grid row a record's typed line starts on, while the
     /// row is still there and the history has not been rewritten since.
     #[must_use]
     pub fn typed_row_text(&self, record: &crate::typed::Record) -> Option<String> {
@@ -1715,7 +1714,7 @@ impl App {
     }
 
     /// The column past the last drawn cell of the row a record's typed line
-    /// ended on, while that row is still there.
+    /// starts on, while that row is still there.
     fn typed_row_end(&self, record: &crate::typed::Record) -> Option<usize> {
         let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
             return None;
@@ -1969,7 +1968,7 @@ impl App {
             // the box; anything else on the shell's line means no record.
             let line =
                 (whole && enters == 1).then(|| crate::input_line::unsent_text(&[bytes.to_vec()]));
-            let at = line.as_deref().and_then(|text| self.typed_line_end(text));
+            let at = line.as_ref().and_then(|_| self.typed_line_start());
             self.typed.wrote_at(line, at);
         }
         self.note_input(&sent);

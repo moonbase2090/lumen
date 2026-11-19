@@ -28,9 +28,9 @@ pub struct Record {
     pub typed: String,
     /// The exit status from the sealed command end, once it has come.
     pub status: Option<i32>,
-    /// The grid line the typed text ends on, worked out from where the
-    /// shell's cursor was when the box sent the line. `None` when there was
-    /// no such line (the alternate screen).
+    /// The grid line the typed text starts on: where the shell's cursor was
+    /// when the box sent the line. `None` when there was no such line (the
+    /// alternate screen).
     pub line: Option<crate::grid::Line>,
 }
 
@@ -77,7 +77,7 @@ impl Typed {
         self.wrote_at(line, None);
     }
 
-    /// [`wrote`](Self::wrote), with the grid line a whole line will end on.
+    /// [`wrote`](Self::wrote), with the grid line a whole line starts on.
     pub fn wrote_at(&mut self, line: Option<String>, at: Option<crate::grid::Line>) {
         if self.stopped || self.pending.is_some() {
             // The shell has the line already; this is for what runs next.

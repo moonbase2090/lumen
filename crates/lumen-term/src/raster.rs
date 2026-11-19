@@ -56,7 +56,7 @@ pub const TOAST_MAX_LINES: usize = 3;
 /// The terminal's own text in the header strip of the trust margin.
 pub const MARGIN_LABEL: &str = "Bright";
 
-/// The terminal's mark, in the gutter, beside the last row of a line typed in
+/// The terminal's mark, in the gutter, beside the first row of a line typed in
 /// the input box for a sealed command. Only the terminal draws in the gutter,
 /// so output cannot draw one.
 pub const TYPED_MARK: &str = "kbd";
@@ -1863,17 +1863,27 @@ impl Renderer {
 
     /// Paint what the mark on the row whose top is pixel `row_top` means, in a
     /// box of the terminal's own on that row, starting `after` columns into the
-    /// content (just past the typed text, so the tip does not cover it). A tip
-    /// that would run past the window's right edge ends at it instead.
+    /// content (just past the typed text, so the tip does not cover it). When
+    /// the row has no room left for it, the tip goes on the row above instead,
+    /// at the same place, rather than over the typed text.
     pub fn paint_typed_tip(&self, frame: &mut Frame, row_top: u32, after: u32) {
         let theme = &self.theme;
         let chars = u32::try_from(TYPED_TIP.chars().count()).unwrap_or(0);
         let width = (chars + 2) * self.cell_w;
         let height = self.cell_h + 2 * self.scale;
         let content = self.cell_w * GUTTER_COLUMNS + self.gutter_pad();
-        let left = (content + after * self.cell_w)
-            .min(frame.width.saturating_sub(width))
-            .max(content);
+        let wanted = content + after * self.cell_w;
+        let fits = wanted + width <= frame.width;
+        let left = if fits {
+            wanted
+        } else {
+            frame.width.saturating_sub(width).max(content)
+        };
+        let row_top = if fits {
+            row_top
+        } else {
+            row_top.saturating_sub(self.cell_h)
+        };
         let mut tip = Frame::new(width, height, theme.toast);
         tip.fill(0, 0, width, self.scale, theme.toast_border);
         tip.fill(

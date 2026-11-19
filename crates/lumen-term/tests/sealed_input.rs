@@ -849,7 +849,7 @@ fn a_layer_without_keys_draws_no_mark() {
 }
 
 #[test]
-fn a_typed_line_that_wraps_is_marked_on_its_last_row() {
+fn a_typed_line_that_wraps_is_marked_on_its_first_row_and_its_tip_does_not_cover_it() {
     let Some(mut app) = start("sealed-input-wrap") else {
         return;
     };
@@ -863,10 +863,28 @@ fn a_typed_line_that_wraps_is_marked_on_its_last_row() {
         .typed_row_text(&records[0])
         .unwrap_or_else(|| unreachable!("the record has a row: {}", grid_text(&app)));
     assert!(
-        row.ends_with("''-end") && !row.starts_with("echo"),
-        "the last row of the typed line: {row:?}"
+        row.starts_with("echo www") && !row.contains("-end"),
+        "the first row of the typed line: {row:?}"
     );
-    assert_eq!(app.typed_marks().len(), 1);
+    let marks = app.typed_marks();
+    assert_eq!(marks.len(), 1);
+    // The first row is full: the tip goes above it, not over it.
+    let (top, _) = marks[0];
+    let plain = app.view();
+    let (cw, ch) = cell();
+    assert_eq!(
+        app.mouse_move(cw, top + ch / 2, Held::default()).ok(),
+        Some(true)
+    );
+    let hovered = app.view();
+    capture(&hovered, "typed-mark-hover-wrapped.png");
+    assert_ne!(hovered, plain, "the tip is drawn");
+    let left = cw * lumen_term::GUTTER_COLUMNS;
+    let covered = (top..top + ch)
+        .flat_map(|y| (left..hovered.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| hovered.pixel(x, y) != plain.pixel(x, y))
+        .count();
+    assert_eq!(covered, 0, "the full first row is left alone");
 }
 
 /// The live grid's width in columns, and the column the shell's cursor is on.
@@ -878,14 +896,15 @@ fn grid_width_and_column(app: &App) -> (usize, usize) {
 }
 
 #[test]
-fn a_joined_emoji_near_the_edge_does_not_move_the_mark_to_the_next_row() {
+fn a_joined_emoji_near_the_edge_leaves_the_mark_on_the_row_the_line_starts_on() {
     let Some(mut app) = start("sealed-input-zwj") else {
         return;
     };
     assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
-    // A family emoji: five scalars, one grapheme, two cells. The line is made
-    // to end exactly at the right edge, so it fits on one row; counted a
-    // scalar at a time it would seem to run onto the next.
+    // A family emoji: five scalars that the terminal draws as one grapheme two
+    // cells wide, while a shell's line editor may draw it some other way and
+    // wrap the line where the terminal would not. Whatever it does, the mark is
+    // on the row the line starts on: the one row the terminal knows.
     let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
     let (columns, column) = grid_width_and_column(&app);
     let fill = columns - column - "echo ".len() - 2 - "''-zwj".len();
@@ -897,10 +916,11 @@ fn a_joined_emoji_near_the_edge_does_not_move_the_mark_to_the_next_row() {
         .typed_row_text(&records[0])
         .unwrap_or_else(|| unreachable!("the record has a row: {}", grid_text(&app)));
     assert!(
-        row.starts_with("echo a") && row.ends_with("''-zwj"),
-        "the whole line, on the row the mark is on: {row:?}\n{}",
+        row.starts_with("echo aaa"),
+        "the row the typed line starts on: {row:?}\n{}",
         grid_text(&app)
     );
+    assert_eq!(app.typed_marks().len(), 1);
 }
 
 #[test]
