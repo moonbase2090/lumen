@@ -84,6 +84,8 @@ pub struct App {
     sink: Box<dyn OsSink + Send>,
     desk: Desk,
     input_notice: Option<InputNotice>,
+    /// The terminal's own notice that the shell layer has no sealing keys.
+    seal_notice: Option<SealNotice>,
     /// The render scale the display asked for, and the one in use now.
     base_scale: u32,
     scale: u32,
@@ -213,6 +215,17 @@ impl InputNotice {
         };
         format!("Input not sent: {why} ({} dropped)", self.refused)
     }
+}
+
+/// The terminal's own notice that a shell layer runs without sealing keys:
+/// either it never had them, or it lost them. It is drawn as a toast, first,
+/// and stays until the user dismisses it or the program ends. Its text is
+/// fixed here and the reason is the terminal's own: the program cannot choose
+/// a word of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SealNotice {
+    text: String,
+    shown_ms: u64,
 }
 
 /// The layer id of the terminal's own toast: not the id of any layer.
@@ -414,6 +427,7 @@ impl App {
             // would be an OS one needs the window to be shown unfocused.
             desk: Desk::default(),
             input_notice: None,
+            seal_notice: None,
             base_scale: scale,
             scale,
             scale_pinned: false,
@@ -448,6 +462,12 @@ impl App {
             recalling: None,
         };
         app.sealed_keys = app.session.has_sealed_keys();
+        if let Some(why) = app.session.seal_off_reason() {
+            app.seal_notice = Some(SealNotice {
+                text: format!("Shell not sealed: {why}"),
+                shown_ms: app.session.now_ms(),
+            });
+        }
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
         app
     }
@@ -573,7 +593,7 @@ impl App {
                     && (*kind == lumen_sealed::types::KIND_COMMAND_START || queued_due)
                 {
                     self.session.recheck_seal();
-                    self.sealed_keys = self.session.has_sealed_keys();
+                    self.refresh_seal();
                 }
             }
         }
@@ -581,12 +601,21 @@ impl App {
         self.notifier.route(now, LAYER, events, self.sink.as_mut());
     }
 
-    /// The toasts that are drawn, top down: the terminal's own notice that input
-    /// was not sent, if there is one, then the notifier's. The terminal's is
-    /// first so that nothing a program does can push it out of the area.
+    /// The toasts that are drawn, top down: the terminal's own notices first
+    /// (that the shell layer has no sealing keys, then that input was not
+    /// sent), then the notifier's. The terminal's are first so that nothing a
+    /// program does can push them out of the area.
     #[must_use]
     pub fn toasts(&self) -> Vec<Toast> {
-        let mut toasts = Vec::with_capacity(self.notifier.shown().len() + 1);
+        let mut toasts = Vec::with_capacity(self.notifier.shown().len() + 2);
+        if let Some(notice) = &self.seal_notice {
+            toasts.push(Toast {
+                layer: TERMINAL_LAYER,
+                text: notice.text.clone(),
+                unsigned: false,
+                shown_ms: notice.shown_ms,
+            });
+        }
         if let Some(notice) = &self.input_notice {
             toasts.push(Toast {
                 layer: TERMINAL_LAYER,
@@ -605,14 +634,22 @@ impl App {
     /// toast before its time is up: no output from the program does.
     pub fn click(&mut self, x: u32, y: u32) -> bool {
         match self.click_would_hit(x, y) {
-            Some(index) => {
-                if self.input_notice.take().is_some() {
-                    if index > 0 {
-                        self.notifier.dismiss(index - 1);
+            Some(mut index) => {
+                if self.seal_notice.is_some() {
+                    if index == 0 {
+                        self.seal_notice = None;
+                        return true;
                     }
-                } else {
-                    self.notifier.dismiss(index);
+                    index -= 1;
                 }
+                if self.input_notice.is_some() {
+                    if index == 0 {
+                        self.input_notice = None;
+                        return true;
+                    }
+                    index -= 1;
+                }
+                self.notifier.dismiss(index);
                 true
             }
             None => self.click_box(x, y),
@@ -1247,6 +1284,9 @@ impl App {
         let now = self.session.now_ms();
         self.notifier.tick(now);
         let mut changed = self.notifier.shown().len() != before;
+        let seal_before = self.seal_notice.is_some();
+        self.refresh_seal();
+        changed |= self.seal_notice.is_some() != seal_before;
         if self
             .input_notice
             .is_some_and(|n| now.saturating_sub(n.last_ms) >= INPUT_NOTICE_MS)
@@ -1515,7 +1555,7 @@ impl App {
     /// What the tty and the grid say now, for the input line.
     fn facts(&mut self) -> Facts {
         let ended = self.exited || self.session.has_exited();
-        self.sealed_keys = self.session.has_sealed_keys();
+        self.refresh_seal();
         self.sync_recall();
         let facts = self.facts_with(ended);
         self.input.observe(facts);
@@ -1724,7 +1764,7 @@ impl App {
         let enters = crate::input_line::enters_in(bytes);
         if enters > 0 {
             self.session.recheck_seal();
-            self.sealed_keys = self.session.has_sealed_keys();
+            self.refresh_seal();
         }
         let sent = self.send(bytes);
         if sent.is_ok() && for_shell && enters > 0 {
@@ -1961,6 +2001,35 @@ impl App {
         self.session.send(bytes)
     }
 
+    /// Ask the session again whether the layer has sealing keys. A layer that
+    /// had them and has lost them gets the terminal's notice saying why. Once
+    /// the program has ended the layer is closed, and its notice goes with it.
+    fn refresh_seal(&mut self) {
+        let had = self.sealed_keys;
+        self.sealed_keys = self.session.has_sealed_keys();
+        if self.exited || self.session.has_exited() {
+            self.seal_notice = None;
+            return;
+        }
+        if had && !self.sealed_keys {
+            let why = self
+                .session
+                .seal_off_reason()
+                .unwrap_or_else(|| "the layer lost its keys".to_owned());
+            self.seal_notice = Some(SealNotice {
+                text: format!("Sealing ended: {why}"),
+                shown_ms: self.session.now_ms(),
+            });
+        }
+    }
+
+    /// The terminal's notice that the shell layer has no sealing keys, if it
+    /// is shown. For tests and the window.
+    #[must_use]
+    pub fn seal_notice(&self) -> Option<&str> {
+        self.seal_notice.as_ref().map(|n| n.text.as_str())
+    }
+
     /// Keep what the user must be told when typed input was not sent: a refusal
     /// is counted and shown as a toast, and is never silent.
     fn note_input(&mut self, sent: &std::io::Result<()>) {
@@ -2039,7 +2108,7 @@ impl App {
             return;
         }
         self.session.recheck_seal();
-        self.sealed_keys = self.session.has_sealed_keys();
+        self.refresh_seal();
         if !self.sealed_keys {
             self.put_back_queued();
             return;
