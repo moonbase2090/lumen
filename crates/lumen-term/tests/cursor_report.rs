@@ -125,3 +125,29 @@ fn colour_and_cursor_answers_come_back_in_the_order_they_were_asked() {
         }
     }
 }
+
+/// More than eight questions in one read get eight answers in all, in the order
+/// asked, however the read is cut into pieces for answering.
+#[cfg(feature = "colour-replies")]
+#[test]
+fn one_read_of_mixed_queries_gets_at_most_eight_answers() {
+    let colour: &[u8] = b"\x1b]11;?\x1b\\";
+    let cursor: &[u8] = b"\x1b[6n";
+    let mut queries = b"ab\r\n  x".to_vec();
+    // Alternate cursor and colour twenty times: forty questions, one write.
+    for _ in 0..20 {
+        queries.extend_from_slice(cursor);
+        queries.extend_from_slice(colour);
+    }
+    // The first eight answers are four of each, cursor first.
+    let len = 4 * 6 + 4 * COLOUR;
+    let got = ask(Box::new(Passthrough), "order-flood", &queries, len);
+    let mut at = 0;
+    for _ in 0..4 {
+        assert_eq!(&got[at..at + 6], b"\x1b[2;4R", "at {at}: {got:?}");
+        at += 6;
+        assert!(is_colour(&got[at..at + COLOUR]), "at {at}: {got:?}");
+        at += COLOUR;
+    }
+    assert_eq!(at, len);
+}

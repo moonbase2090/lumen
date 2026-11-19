@@ -130,12 +130,26 @@ impl Replies {
     /// The bytes to write to the PTY for the queries of one read, at `now_ms`:
     /// the first [`MAX_PER_READ`] of them that the window has room for.
     pub fn answer(&mut self, queries: &[ColourQuery], now_ms: u64) -> Vec<u8> {
-        let room = self.room(now_ms);
+        let mut left = MAX_PER_READ;
+        self.answer_within(queries, now_ms, &mut left)
+    }
+
+    /// Like [`answer`](Self::answer), for a read answered in pieces: `left` is
+    /// what the read may still have answered, and it goes down by what this
+    /// call answers, so all the pieces together stay within [`MAX_PER_READ`].
+    pub fn answer_within(
+        &mut self,
+        queries: &[ColourQuery],
+        now_ms: u64,
+        left: &mut usize,
+    ) -> Vec<u8> {
+        let room = self.room(now_ms).min(*left);
         let mut out = Vec::new();
-        for query in queries.iter().take(MAX_PER_READ.min(room)) {
+        for query in queries.iter().take(room) {
             out.extend(format(*query, &self.theme));
             self.sent.push_back(now_ms);
         }
+        *left -= queries.len().min(room);
         out
     }
 
@@ -143,12 +157,25 @@ impl Replies {
     /// read, at `now_ms`: `ESC [ row ; column R` for each, within the same
     /// limits as the colour replies.
     pub fn answer_cursor(&mut self, reports: &[(u32, u32)], now_ms: u64) -> Vec<u8> {
-        let room = self.room(now_ms);
+        let mut left = MAX_PER_READ;
+        self.answer_cursor_within(reports, now_ms, &mut left)
+    }
+
+    /// [`answer_cursor`](Self::answer_cursor) for a read answered in pieces; see
+    /// [`answer_within`](Self::answer_within).
+    pub fn answer_cursor_within(
+        &mut self,
+        reports: &[(u32, u32)],
+        now_ms: u64,
+        left: &mut usize,
+    ) -> Vec<u8> {
+        let room = self.room(now_ms).min(*left);
         let mut out = Vec::new();
-        for (row, column) in reports.iter().take(MAX_PER_READ.min(room)) {
+        for (row, column) in reports.iter().take(room) {
             out.extend(format!("\x1b[{row};{column}R").into_bytes());
             self.sent.push_back(now_ms);
         }
+        *left -= reports.len().min(room);
         out
     }
 

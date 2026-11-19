@@ -5,7 +5,7 @@ use crate::layer::{Context, Layer};
 use crate::pty::{Pty, SpawnError};
 #[cfg(feature = "colour-replies")]
 use crate::raster::Theme;
-use crate::reply::{CursorQueryEnds, MAX_SPLITS_PER_READ, Replies};
+use crate::reply::{CursorQueryEnds, MAX_PER_READ, MAX_SPLITS_PER_READ, Replies};
 use crate::shellint::ShellOptions;
 #[cfg(all(unix, feature = "multiplexer-client"))]
 use std::os::fd::OwnedFd;
@@ -484,12 +484,13 @@ impl Session {
 
     /// Give the document `piece` and answer what it asked, colour queries
     /// first (they came before the piece's closing cursor query, if it has one).
-    fn give(&mut self, piece: &[u8], ctx: Context) {
+    /// `left` is what the whole read may still have answered.
+    fn give(&mut self, piece: &[u8], ctx: Context, left: &mut usize) {
         self.document.receive(self.layer.as_mut(), piece, ctx);
         let queries = self.document.take_colour_queries();
         #[cfg(feature = "colour-replies")]
         if !queries.is_empty() {
-            let reply = self.replies.answer(&queries, ctx.now_ms);
+            let reply = self.replies.answer_within(&queries, ctx.now_ms, left);
             if !reply.is_empty() {
                 self.pty.send_reply(reply);
             }
@@ -507,7 +508,9 @@ impl Session {
             .flatten()
             .collect();
         if !reports.is_empty() {
-            let reply = self.replies.answer_cursor(&reports, ctx.now_ms);
+            let reply = self
+                .replies
+                .answer_cursor_within(&reports, ctx.now_ms, left);
             if !reply.is_empty() {
                 self.pty.send_reply(reply);
             }
@@ -525,17 +528,18 @@ impl Session {
         // out of the stream before the emulator sees it and cursor queries in
         // it, so the read is given in pieces that each end at a cursor query,
         // and each piece is answered before the next is given.
+        let mut left = MAX_PER_READ;
         let mut start = 0;
         let mut splits = 0;
         for (at, byte) in bytes.iter().enumerate() {
             if self.cursor_queries.step(*byte) && splits < MAX_SPLITS_PER_READ {
                 splits += 1;
-                self.give(&bytes[start..=at], ctx);
+                self.give(&bytes[start..=at], ctx, &mut left);
                 start = at + 1;
             }
         }
         if start < bytes.len() {
-            self.give(&bytes[start..], ctx);
+            self.give(&bytes[start..], ctx, &mut left);
         }
         bytes.len()
     }

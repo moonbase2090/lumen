@@ -352,6 +352,28 @@ fn a_cursor_report_is_the_fixed_form_and_shares_the_reply_limits() {
 }
 
 #[test]
+fn the_pieces_of_one_read_share_its_eight_answers() {
+    let mut replies = light();
+    let mut left = MAX_PER_READ;
+    let cursor: Vec<(u32, u32)> = (1..=6).map(|n| (n, n)).collect();
+    let colour = [ColourQuery::Special(11); 6];
+    let first = replies.answer_cursor_within(&cursor, 0, &mut left);
+    assert_eq!(first.len(), "\x1b[1;1R".len() * 6);
+    assert_eq!(left, 2);
+    let second = replies.answer_within(&colour, 0, &mut left);
+    assert_eq!(second.windows(2).filter(|w| w == b"\x1b]").count(), 2);
+    assert_eq!(left, 0);
+    assert_eq!(replies.answer_cursor_within(&cursor, 0, &mut left), []);
+    // The next read has its own eight.
+    let mut next = MAX_PER_READ;
+    assert!(
+        !replies
+            .answer_cursor_within(&cursor, 1, &mut next)
+            .is_empty()
+    );
+}
+
+#[test]
 fn the_end_of_a_cursor_query_is_found_across_reads_and_only_for_that_query() {
     let ends = |chunks: &[&[u8]]| {
         let mut scan = CursorQueryEnds::default();
