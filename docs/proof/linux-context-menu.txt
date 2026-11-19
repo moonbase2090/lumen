@@ -1,0 +1,19 @@
+Linux drawn right-click menu: real capture and output
+Head tested: 6caaa8da4f959c0c04b552442e4d7553699f323c
+Machine: clean Ubuntu 24.04 x86_64 VM, Xvfb 1024x768 with no window manager, lumen-term built with --features window at that head, copy_on_select=false.
+Program: an 800x600 window running a script that prints "alpha bravo charlie" and "delta echo foxtrot", then reads one line and writes got:<line> to a file.
+Driven with xdotool (pointer and keys), clipboard read with `xclip -o -selection clipboard` and written with `xclip -i`.
+The PNGs are the unaltered Xvfb root captures of the window.
+
+Steps (screenshot):
+ 0  before any click (0-before.png)
+ 1  right click: the menu (1-menu.png)
+ 2  Down, Enter = Select All, the first entry that is on (2-select-all.png)
+ 3  right click, Down, Enter = Copy; the clipboard is read back (output below)
+ 4  click to clear the selection (4a-cleared.png); `xclip -i` of "pasted-text"; right click: Paste is the first live entry and highlighted (4b-menu-paste.png); Down, Enter: pasted, the reader wrote its file (output below)
+ 5  right click (5a-open.png); the pointer moves onto Paste (5b-hover.png); a click on it pastes, a second "pasted-text" line (5c-after-click.png); right click, then a click away: the menu closes and nothing else happens (5d-away.png)
+
+Output:
+CLIPBOARD-AFTER-COPY: [alpha bravo charlie
+delta echo foxtrot]
+PASTE-FILE: [got:pasted-text]
