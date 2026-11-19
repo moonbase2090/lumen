@@ -20,6 +20,7 @@ pub const APP_NAME: &str = "Bright";
 
 pub mod app;
 pub mod attention;
+pub mod boundary;
 pub mod cli;
 #[cfg(feature = "links-clipboard")]
 pub mod clipboard;
