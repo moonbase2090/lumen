@@ -160,11 +160,44 @@ enum Grant {
     Unknown,
 }
 
-/// The reporting modes (bracketed paste, mouse) as last seen, and who asked.
+/// One reporting mode as last seen, and who asked for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Granted<T> {
+    asked: Option<T>,
+    group: Grant,
+}
+
+impl<T> Default for Granted<T> {
+    fn default() -> Self {
+        Self {
+            asked: None,
+            group: Grant::Unasked,
+        }
+    }
+}
+
+impl<T: Copy + PartialEq> Granted<T> {
+    /// Note the mode's state now (`None` when it is off). The grant is taken
+    /// from `front` only when the mode comes on or changes, so a change in one
+    /// mode never passes its group on to another.
+    fn note(&mut self, now: Option<T>, front: impl FnOnce() -> Grant) {
+        match now {
+            None => *self = Self::default(),
+            Some(v) if self.asked != Some(v) => {
+                self.asked = Some(v);
+                self.group = front();
+            }
+            Some(_) => {}
+        }
+    }
+}
+
+/// The reporting modes, each with the group that asked for it: bracketed
+/// paste and the mouse modes are tracked apart.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Reporting {
-    asked: Option<(bool, Option<crate::mouse::Modes>)>,
-    group: Grant,
+    paste: Granted<()>,
+    mouse: Granted<crate::mouse::Modes>,
 }
 
 /// Text an input method is composing and has not committed yet: it is shown to
@@ -1165,7 +1198,7 @@ impl App {
     /// or the system cannot say, the program gets no reports.
     fn live_modes(&self) -> Option<crate::mouse::Modes> {
         let modes = self.asked_mouse_modes()?;
-        Some(if self.reporting_allowed() {
+        Some(if self.reporting_allowed(self.reporting.mouse.group) {
             modes
         } else {
             crate::mouse::Modes {
@@ -1176,14 +1209,14 @@ impl App {
         })
     }
 
-    /// Whether the program that switched its reporting modes on is still the
-    /// foreground group of its terminal (`tcgetpgrp`). Vacuously true when no
-    /// reporting mode is on or where there is no foreground group to ask.
-    fn reporting_allowed(&self) -> bool {
+    /// Whether the program that switched a reporting mode on (`grant`) is
+    /// still the foreground group of its terminal (`tcgetpgrp`). Vacuously true
+    /// when the mode is off or where there is no foreground group to ask.
+    fn reporting_allowed(&self, grant: Grant) -> bool {
         if !cfg!(unix) {
             return true;
         }
-        match self.reporting.group {
+        match grant {
             Grant::Unasked => true,
             Grant::Group(g) => self.session.foreground_group() == Some(g),
             Grant::Unknown => false,
@@ -1192,32 +1225,24 @@ impl App {
 
     /// Whether the program has switched on bracketed paste and may still have it.
     fn bracketed_in_force(&self) -> bool {
-        self.session.key_modes().bracketed_paste && self.reporting_allowed()
+        self.session.key_modes().bracketed_paste
+            && self.reporting_allowed(self.reporting.paste.group)
     }
 
-    /// Note a change in the reporting modes the program has on, and with it the
-    /// foreground group at that moment: the one that asked.
+    /// Note a change in the reporting modes the program has on, and with each
+    /// the foreground group at that moment: the one that asked for it.
     fn track_reporting(&mut self) {
-        let asked = (
-            self.session.key_modes().bracketed_paste,
-            self.asked_mouse_modes(),
-        );
-        let on = asked.0
-            || asked
-                .1
-                .is_some_and(|m| m.tracking != crate::mouse::MouseTracking::Off || m.wheel);
-        if !on {
-            self.reporting = Reporting::default();
-        } else if self.reporting.asked != Some(asked) {
-            let group = match self.session.foreground_group() {
-                Some(g) => Grant::Group(g),
-                None => Grant::Unknown,
-            };
-            self.reporting = Reporting {
-                asked: Some(asked),
-                group,
-            };
-        }
+        let paste = self.session.key_modes().bracketed_paste.then_some(());
+        let mouse = self
+            .asked_mouse_modes()
+            .filter(|m| m.tracking != crate::mouse::MouseTracking::Off || m.wheel);
+        let front = || match self.session.foreground_group() {
+            Some(g) => Grant::Group(g),
+            None => Grant::Unknown,
+        };
+        let (paste_group, mouse_group) = (front(), front());
+        self.reporting.paste.note(paste, || paste_group);
+        self.reporting.mouse.note(mouse, || mouse_group);
     }
 
     fn send_report(&mut self, report: Option<Vec<u8>>) -> std::io::Result<bool> {

@@ -151,3 +151,49 @@ fn no_mouse_report_goes_to_a_group_that_did_not_ask_for_it() {
     assert!(!screen.contains("^[[<"), "{screen}");
     assert!(screen.contains('Z'));
 }
+
+/// A shell switches `first` on while it holds the terminal, then a job in its
+/// own group takes the terminal and switches `second` on.
+fn shell_then_job_sets(first: &str, second: &str) -> App {
+    let script = format!(
+        "printf '{first}'; echo waiting; read go; set -m; \
+         sh -c 'stty raw -echo; printf \"{second}\"; echo up; exec cat -v'"
+    );
+    let mut app = start(&script);
+    app.text("go\n")
+        .unwrap_or_else(|e| unreachable!("text: {e}"));
+    assert!(pump_until(&mut app, |t| t.contains("up")), "the job is up");
+    app
+}
+
+#[test]
+fn a_job_turning_on_the_mouse_does_not_take_over_the_shells_bracketed_paste() {
+    let mut app = shell_then_job_sets(PASTE_ON, MOUSE_ON);
+    // The job asked for the mouse: it gets reports.
+    let (x, y) = at(&app, 2, 3);
+    assert!(app.mouse_press(x, y, Button::Right, NONE).unwrap_or(false));
+    app.mouse_release(x, y, Button::Right, NONE).ok();
+    // The shell asked for bracketed paste: the job gets no markers.
+    assert_eq!(app.paste("abcde").ok(), Some(PasteOutcome::Sent));
+    mark(&mut app, 'Z');
+    let screen = text(&app);
+    assert!(screen.contains("^[[<2;3;4M"), "{screen}");
+    assert!(screen.contains("abcdeZ"), "{screen}");
+    assert!(!screen.contains("200~"), "{screen}");
+}
+
+#[test]
+fn a_job_turning_on_bracketed_paste_does_not_take_over_the_shells_mouse() {
+    let mut app = shell_then_job_sets(MOUSE_ON, PASTE_ON);
+    let (x, y) = at(&app, 2, 3);
+    assert!(
+        !app.mouse_press(x, y, Button::Right, NONE).unwrap_or(true),
+        "nothing was sent"
+    );
+    app.mouse_release(x, y, Button::Right, NONE).ok();
+    assert_eq!(app.paste("abcde").ok(), Some(PasteOutcome::Sent));
+    mark(&mut app, 'Z');
+    let screen = text(&app);
+    assert!(screen.contains("^[[200~abcde^[[201~Z"), "{screen}");
+    assert!(!screen.contains("^[[<"), "{screen}");
+}
