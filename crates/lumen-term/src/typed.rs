@@ -28,6 +28,10 @@ pub struct Record {
     pub typed: String,
     /// The exit status from the sealed command end, once it has come.
     pub status: Option<i32>,
+    /// The grid line the typed text starts on: where the shell's cursor was
+    /// when the box sent the line. `None` when there was no such line (the
+    /// alternate screen).
+    pub line: Option<crate::grid::Line>,
 }
 
 /// Follows the box's writes and the sealed boundary frames that applied.
@@ -38,7 +42,7 @@ pub struct Typed {
     dirty: bool,
     /// The whole line the box sent since the last prompt, waiting for the
     /// command start.
-    pending: Option<String>,
+    pending: Option<(String, Option<crate::grid::Line>)>,
     records: VecDeque<Record>,
     /// Records made so far, so a reader knows when the list has changed.
     made: u64,
@@ -70,12 +74,17 @@ impl Typed {
     /// whole, `None` for anything else (a raw key, a handed-off key, a paste
     /// that did not come through the box).
     pub fn wrote(&mut self, line: Option<String>) {
+        self.wrote_at(line, None);
+    }
+
+    /// [`wrote`](Self::wrote), with the grid line a whole line starts on.
+    pub fn wrote_at(&mut self, line: Option<String>, at: Option<crate::grid::Line>) {
         if self.stopped || self.pending.is_some() {
             // The shell has the line already; this is for what runs next.
             return;
         }
         match line {
-            Some(text) if !self.dirty => self.pending = Some(text),
+            Some(text) if !self.dirty => self.pending = Some((text, at)),
             _ => self.dirty = true,
         }
     }
@@ -91,7 +100,7 @@ impl Typed {
                 self.pending = None;
             }
             Frame::CommandStart { id } => {
-                if let Some(typed) = self.pending.take() {
+                if let Some((typed, line)) = self.pending.take() {
                     if self.records.len() == RECORDS_KEPT {
                         self.records.pop_front();
                     }
@@ -99,6 +108,7 @@ impl Typed {
                         id: *id,
                         typed,
                         status: None,
+                        line,
                     });
                     self.made += 1;
                 }

@@ -146,6 +146,8 @@ pub struct App {
     queued: std::collections::VecDeque<Vec<u8>>,
     /// The queued lines are the box's own text, sent whole.
     queued_whole: bool,
+    /// The typed-line mark the pointer is over, by record index.
+    typed_hover: Option<usize>,
     /// What the box typed for each sealed command.
     typed: crate::typed::Typed,
     /// The records the box recalls with Up, by [`Typed::made`]; `None` while
@@ -522,6 +524,7 @@ impl App {
             forwarded_enters: 0,
             queued: std::collections::VecDeque::new(),
             queued_whole: false,
+            typed_hover: None,
             typed: crate::typed::Typed::new(),
             recalling: None,
         };
@@ -693,30 +696,43 @@ impl App {
     }
 
     /// The user pressed the primary button at pixel `(x, y)`. A press on a toast
-    /// dismisses it and returns `true` (the window draws again); a press
+    /// dismisses it and returns `true` (the window draws again); a press on a
+    /// typed-line mark puts that line back in the input box, unsent; a press
     /// anywhere else does nothing here. Only the user's own action dismisses a
     /// toast before its time is up: no output from the program does.
     pub fn click(&mut self, x: u32, y: u32) -> bool {
-        match self.click_would_hit(x, y) {
-            Some(mut index) => {
-                if self.seal_notice.is_some() {
-                    if index == 0 {
-                        self.seal_notice = None;
-                        return true;
-                    }
-                    index -= 1;
-                }
-                if self.input_notice.is_some() {
-                    if index == 0 {
-                        self.input_notice = None;
-                        return true;
-                    }
-                    index -= 1;
-                }
-                self.notifier.dismiss(index);
-                true
+        let Some(mut index) = self.click_would_hit(x, y) else {
+            if let Some(record) = self.typed_mark_at(x, y) {
+                self.edit_again(record);
+                return true;
             }
-            None => self.click_box(x, y),
+            return self.click_box(x, y);
+        };
+        if self.seal_notice.is_some() {
+            if index == 0 {
+                self.seal_notice = None;
+                return true;
+            }
+            index -= 1;
+        }
+        if self.input_notice.is_some() {
+            if index == 0 {
+                self.input_notice = None;
+                return true;
+            }
+            index -= 1;
+        }
+        self.notifier.dismiss(index);
+        true
+    }
+
+    /// Edit again: put the line a record holds back in the input box, ahead of
+    /// anything the box holds now. Nothing is sent: the user sends it, or not.
+    fn edit_again(&mut self, index: usize) {
+        if let Some(record) = self.typed.records().get(index) {
+            let text = record.typed.clone();
+            self.input.put_back(&text);
+            self.sync_box();
         }
     }
 
@@ -865,6 +881,13 @@ impl App {
     #[must_use]
     pub fn cell_height(&self) -> u32 {
         self.renderer.cell().1
+    }
+
+    /// Add the terminal-owned tab strip above this tab's contents.
+    #[must_use]
+    pub fn view_with_tabs(&self, titles: &[String], active: usize, height: u32) -> Frame {
+        self.renderer
+            .with_tabs(&self.view(), titles, active, height)
     }
 
     /// The content area's height in pixels, the columns it is drawn in and the
@@ -1278,11 +1301,16 @@ impl App {
             self.extend_selection(x, y);
             return Ok(false);
         }
+        // A change of mark under the pointer asks for a redraw; a motion the
+        // program asked to be told about is still reported.
+        let hover = self.typed_mark_at(x, y);
+        let hover_changed = hover != self.typed_hover;
+        self.typed_hover = hover;
         let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes()) else {
-            return Ok(false);
+            return Ok(hover_changed);
         };
         let report = self.mouse.motion(modes, held, cell);
-        self.send_report(report)
+        Ok(self.send_report(report)? || hover_changed)
     }
 
     /// The wheel turned one step with the pointer at pixel `(x, y)`.
@@ -1638,6 +1666,7 @@ impl App {
         }
         match action {
             Action::Quit | Action::Close => Outcome::Exit,
+            Action::NewTab | Action::NextTab | Action::PreviousTab => Outcome::Nothing,
             Action::Find => {
                 self.find_open();
                 Outcome::Redraw
@@ -1777,6 +1806,91 @@ impl App {
     #[must_use]
     pub fn typed_records(&self) -> Vec<crate::typed::Record> {
         self.typed.records().iter().cloned().collect()
+    }
+
+    /// The grid line a line the box sends now starts on: the shell's cursor
+    /// row, just after its prompt. Read before the shell has run anything, so
+    /// no output of the command can have moved it. Only the start is known for
+    /// certain: how the line wraps from there is up to the shell's line editor,
+    /// which may draw a character in its own way (a zero-width joiner as
+    /// `<200d>`, say), so the terminal does not guess the last row.
+    fn typed_line_start(&self) -> Option<crate::grid::Line> {
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return None;
+        };
+        live.line_above_cursor(0)
+    }
+
+    /// The text of the live grid row a record's typed line starts on, while the
+    /// row is still there and the history has not been rewritten since.
+    #[must_use]
+    pub fn typed_row_text(&self, record: &crate::typed::Record) -> Option<String> {
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return None;
+        };
+        let row = live.row_of(record.line?)?;
+        live.flow_row_text(row)
+    }
+
+    /// The column past the last drawn cell of the row a record's typed line
+    /// starts on, while that row is still there.
+    fn typed_row_end(&self, record: &crate::typed::Record) -> Option<usize> {
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return None;
+        };
+        live.flow_row_end(live.row_of(record.line?)?)
+    }
+
+    /// The typed-line marks in view, top down: the pixel row each is drawn on
+    /// and its record. Only on a layer that has its sealing keys: a layer
+    /// without them shows none, even for lines recorded before it lost them.
+    #[must_use]
+    pub fn typed_marks(&self) -> Vec<(u32, usize)> {
+        if !self.sealed_keys {
+            return Vec::new();
+        }
+        let doc = self.session.document();
+        let Some(Block::Grid(live)) = doc.blocks().last() else {
+            return Vec::new();
+        };
+        let ch = i64::from(self.renderer.cell().1.max(1));
+        let (area, content_columns, total) = self.content_metrics();
+        let Some(screen_top) = self.renderer.live_screen_top(doc, content_columns) else {
+            return Vec::new();
+        };
+        let content_y = i64::from(HEADER_ROWS) * ch;
+        let scroll_top = i64::from(self.scroll.top(total, area));
+        let history = i64::try_from(live.history_rows()).unwrap_or(i64::MAX);
+        let bottom = content_y + i64::from(area);
+        let mut marks = Vec::new();
+        for (index, record) in self.typed.records().iter().enumerate() {
+            let Some(row) = record.line.and_then(|l| live.row_of(l)) else {
+                continue;
+            };
+            let row = i64::try_from(row).unwrap_or(i64::MAX);
+            let top = content_y + i64::from(screen_top) + (row - history) * ch - scroll_top;
+            if top >= content_y
+                && top + ch <= bottom
+                && let Ok(top) = u32::try_from(top)
+            {
+                marks.push((top, index));
+            }
+        }
+        marks
+    }
+
+    /// The record whose mark is under pixel `(x, y)`, if there is one.
+    fn typed_mark_at(&self, x: u32, y: u32) -> Option<usize> {
+        self.typed_marks()
+            .into_iter()
+            .find(|(top, _)| self.renderer.on_typed_mark(*top, (x, y)))
+            .map(|(_, index)| index)
+    }
+
+    /// The record whose mark shows what it means, while the pointer is over it.
+    #[must_use]
+    pub fn typed_hover(&self) -> Option<usize> {
+        self.typed_hover
     }
 
     fn facts_with(&self, ended: bool) -> Facts {
@@ -1973,7 +2087,8 @@ impl App {
             // the box; anything else on the shell's line means no record.
             let line =
                 (whole && enters == 1).then(|| crate::input_line::unsent_text(&[bytes.to_vec()]));
-            self.typed.wrote(line);
+            let at = line.as_ref().and_then(|_| self.typed_line_start());
+            self.typed.wrote_at(line, at);
         }
         self.note_input(&sent);
         sent
@@ -2375,18 +2490,32 @@ impl App {
             unused_mut,
             reason = "the link prompt is drawn only with links-clipboard"
         )]
-        let mut frame = self
-            .renderer
-            .render_window_input(
-                self.session.document(),
-                &window_for_box(columns, rows, self.box_rows),
-                &self.toasts(),
-                self.selection.as_ref(),
-                self.scroll,
-                (cursor, self.find_overlay().as_ref()),
-                Some(&self.input_view()),
-            )
-            .viewport(self.width, self.height, self.renderer.theme().background);
+        let mut frame = self.renderer.render_window_input(
+            self.session.document(),
+            &window_for_box(columns, rows, self.box_rows),
+            &self.toasts(),
+            self.selection.as_ref(),
+            self.scroll,
+            (cursor, self.find_overlay().as_ref()),
+            Some(&self.input_view()),
+        );
+        // The gutter is the terminal's: the marks go on after everything else.
+        let marks = self.typed_marks();
+        for (top, _) in &marks {
+            self.renderer.paint_typed_mark(&mut frame, *top);
+        }
+        if let Some((top, index)) = marks.iter().find(|(_, i)| Some(*i) == self.typed_hover) {
+            // One cell past the row's last drawn cell, counted in cells, so
+            // wide characters are counted as wide as they are drawn.
+            let after = self
+                .typed
+                .records()
+                .get(*index)
+                .and_then(|r| self.typed_row_end(r))
+                .map_or(0, |end| u32::try_from(end + 1).unwrap_or(u32::MAX));
+            self.renderer.paint_typed_tip(&mut frame, *top, after);
+        }
+        let mut frame = frame.viewport(self.width, self.height, self.renderer.theme().background);
         #[cfg(feature = "links-clipboard")]
         if let Some(prompt) = &self.links.prompt {
             // Last, over everything: a program's output cannot cover it.

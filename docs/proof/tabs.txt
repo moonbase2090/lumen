@@ -1,0 +1,29 @@
+Bright tabs proof
+
+Revision: 3c1aa6c388d14d529687406b89ea4fda3cbd348a (clean clones at the pushed feature/tabs head)
+Guests: fresh Tart clones of the upstream Cirrus Labs images, Ubuntu 24.04.5 LTS arm64 and macOS 26.6.2 arm64; both deleted after the run
+Toolchain: rustc 1.100.0 (0ef1bc386 2026-11-09)
+Build in each guest: cargo build -p lumen-term --all-features
+Focused tests in each guest: the tabs unit tests and the actions, raster, host and IME integration tests; all passed
+
+Linux native-window run
+
+The binary ran in Xvfb with the X11 backend and /bin/sh as its program. xdotool focused the real window and sent the public shortcuts.
+
+1. The window started with one shell child.
+2. Control+Shift+T added a second shell child and made its tab active.
+3. Control+Shift+[ selected the first tab. Control+Shift+W ended that original shell and left the second shell and window running.
+4. A second Control+Shift+W ended the remaining shell and the Bright process.
+
+`tabs-linux.png` is an xwd capture converted to PNG inside the guest after step 2. It shows the terminal-drawn row with two numbered Bright tabs and the second tab active. SHA-256: a6f598def846f4680a6398141628b2824d10ed4aa2d4552b45b9181cd9cf6681.
+
+macOS native-window run
+
+The binary ran in the logged-in WindowServer session with /bin/sh as its program. Core Graphics posted the public Command key events to the real process.
+
+1. The window appeared in the on-screen window list and started with one shell child.
+2. Command+T added a second shell child and made its tab active.
+3. Command+Shift+[ selected the first tab. Command+W ended that original shell and left the second shell and window running.
+4. A second Command+W ended the remaining shell and the Bright process.
+
+The guest was run headless, so no macOS capture was taken. The same strip pixels were checked by the raster test in both guests.

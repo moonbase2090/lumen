@@ -21,7 +21,7 @@ use crate::design::{FontFile, Fonts};
 use crate::document::{Block, Document, RichBlock};
 use crate::grid::{CursorShape, GridBlock};
 use crate::image_draw;
-use crate::layout::{GUTTER_COLUMNS, Rect, StripPlacement, layout, notification_area};
+use crate::layout::{GUTTER_COLUMNS, HEADER_ROWS, Rect, StripPlacement, layout, notification_area};
 use crate::notify::Toast;
 use crate::scroll::Scroll;
 use crate::search::{Mark, Overlay, SearchRow};
@@ -55,6 +55,14 @@ pub use crate::image_draw::IMAGE_MAX_ROWS;
 pub const TOAST_MAX_LINES: usize = 3;
 /// The terminal's own text in the header strip of the trust margin.
 pub const MARGIN_LABEL: &str = "Bright";
+
+/// The terminal's mark, in the gutter, beside the first row of a line typed in
+/// the input box for a sealed command. Only the terminal draws in the gutter,
+/// so output cannot draw one.
+pub const TYPED_MARK: &str = "kbd";
+
+/// What the mark means, shown while the pointer is over it.
+pub const TYPED_TIP: &str = "typed here";
 
 pub use crate::frame::{Frame, Rgb};
 
@@ -626,6 +634,80 @@ impl Renderer {
 
     fn text_line(&self, frame: &mut Frame, x: u32, y: u32, text: &str, colour: Rgb) {
         self.text_line_marked(frame, x, y, text, colour, &[]);
+    }
+
+    /// Put `content` below a terminal-owned tab strip. Each tab gets the same
+    /// share of the width; its number stays visible when its title is clipped.
+    #[must_use]
+    pub fn with_tabs(
+        &self,
+        content: &Frame,
+        titles: &[String],
+        active: usize,
+        height: u32,
+    ) -> Frame {
+        let mut frame = Frame::new(content.width, height, self.theme.background);
+        if titles.is_empty() {
+            Self::blit(&mut frame, content, 0, 0);
+            return frame;
+        }
+        let count = u32::try_from(titles.len()).unwrap_or(u32::MAX).max(1);
+        for (index, title) in titles.iter().enumerate() {
+            let index = u32::try_from(index).unwrap_or(count - 1);
+            let left = u64::from(index) * u64::from(content.width) / u64::from(count);
+            let right = u64::from(index + 1) * u64::from(content.width) / u64::from(count);
+            let (left, right) = (
+                u32::try_from(left).unwrap_or(0),
+                u32::try_from(right).unwrap_or(content.width),
+            );
+            let width = right.saturating_sub(left);
+            let chosen = usize::try_from(index).ok() == Some(active);
+            frame.fill(
+                left,
+                0,
+                width,
+                self.cell_h,
+                if chosen {
+                    self.theme.editor
+                } else {
+                    self.theme.margin
+                },
+            );
+            if right < content.width {
+                frame.fill(
+                    right.saturating_sub(1),
+                    0,
+                    1,
+                    self.cell_h,
+                    self.theme.divider,
+                );
+            }
+            let cells = width / self.cell_w;
+            if cells > 2 {
+                let label = format!("{} {title}", index + 1);
+                let shown = clip(&label, usize::try_from(cells - 2).unwrap_or(0));
+                self.text_line(
+                    &mut frame,
+                    left + self.cell_w,
+                    0,
+                    &shown,
+                    if chosen {
+                        self.theme.foreground
+                    } else {
+                        self.theme.margin_text
+                    },
+                );
+            }
+        }
+        frame.fill(
+            0,
+            self.cell_h.saturating_sub(1),
+            content.width,
+            1,
+            self.theme.divider,
+        );
+        Self::blit(&mut frame, content, 0, self.cell_h);
+        frame
     }
 
     /// As [`text_line`](Self::text_line), with the characters in `marks` drawn as
@@ -1837,6 +1919,68 @@ impl Renderer {
             t.margin_text,
         );
         frame
+    }
+
+    /// Paint the typed-line mark in the gutter of a window `frame`, on the row
+    /// whose top is pixel `y`.
+    pub fn paint_typed_mark(&self, frame: &mut Frame, y: u32) {
+        self.text_line(frame, self.cell_w / 2, y, TYPED_MARK, self.theme.muted);
+    }
+
+    /// Whether pixel `(x, y)` is on the typed-line mark of the row whose top is
+    /// pixel `top`: the gutter, short of its divider, on that row.
+    #[must_use]
+    pub fn on_typed_mark(&self, top: u32, (x, y): (u32, u32)) -> bool {
+        let gutter = self.cell_w * GUTTER_COLUMNS;
+        x < gutter.saturating_sub(self.scale) && y >= top && y < top + self.cell_h
+    }
+
+    /// Paint what the mark on the row whose top is pixel `row_top` means, in a
+    /// box of the terminal's own on that row, starting `after` columns into the
+    /// content (just past the typed text, so the tip does not cover it). When
+    /// the row has no room left for it, the tip goes wholly above the row, or
+    /// below it when there is no row above: never over the typed text's row,
+    /// and never into the header strip of the trust margin.
+    pub fn paint_typed_tip(&self, frame: &mut Frame, row_top: u32, after: u32) {
+        let theme = &self.theme;
+        let chars = u32::try_from(TYPED_TIP.chars().count()).unwrap_or(0);
+        let width = (chars + 2) * self.cell_w;
+        let height = self.cell_h + 2 * self.scale;
+        let header = self.cell_h * HEADER_ROWS;
+        let content = self.cell_w * GUTTER_COLUMNS + self.gutter_pad();
+        let wanted = content + after * self.cell_w;
+        let (left, top) = if wanted + width <= frame.width {
+            (wanted, row_top.saturating_sub(self.scale).max(header))
+        } else {
+            let left = frame.width.saturating_sub(width).max(content);
+            let above = row_top.checked_sub(height).filter(|t| *t >= header);
+            (left, above.unwrap_or(row_top + self.cell_h))
+        };
+        let mut tip = Frame::new(width, height, theme.toast);
+        tip.fill(0, 0, width, self.scale, theme.toast_border);
+        tip.fill(
+            0,
+            height.saturating_sub(self.scale),
+            width,
+            self.scale,
+            theme.toast_border,
+        );
+        tip.fill(0, 0, self.scale, height, theme.toast_border);
+        tip.fill(
+            width.saturating_sub(self.scale),
+            0,
+            self.scale,
+            height,
+            theme.toast_border,
+        );
+        self.text_line(
+            &mut tip,
+            self.cell_w,
+            self.scale,
+            TYPED_TIP,
+            theme.foreground,
+        );
+        Self::blit(frame, &tip, left, top);
     }
 
     /// The toasts that fit in a notification area `columns` cells wide and `nh`

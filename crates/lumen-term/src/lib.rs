@@ -75,6 +75,8 @@ pub mod settings;
 pub mod shell;
 pub mod shellint;
 pub mod strip;
+#[cfg(feature = "window")]
+mod tabs;
 pub mod theme_file;
 pub mod title;
 pub mod typed;
@@ -82,7 +84,7 @@ mod writer;
 
 pub use app::App;
 pub use document::{Block, Document, Event, RichBlock};
-pub use grid::{CursorShape, CursorView, GridBlock};
+pub use grid::{CursorShape, CursorView, GridBlock, Line};
 pub use keys::{Key, Mods};
 pub use layer::{Context, Layer, Notice, Passthrough, Piece};
 pub use layout::{
