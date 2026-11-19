@@ -71,6 +71,29 @@ fn a_selection_over_a_wrapped_paragraph_copies_it_as_the_one_line_it_was() {
 }
 
 #[test]
+fn select_all_does_not_copy_the_empty_rows_below_the_last_text() {
+    let doc = document("a paragraph");
+    let r = Renderer::light(1).unwrap_or_else(|e| unreachable!("renderer: {e}"));
+    let mut lines = r.flow(&doc, 60);
+    let blank = lines
+        .last()
+        .cloned()
+        .unwrap_or_else(|| unreachable!("lines"));
+    for _ in 0..5 {
+        let mut b = blank.clone();
+        b.text = String::new();
+        lines.push(b);
+    }
+    let copied = copy_selection(&lines, &whole(&lines))
+        .map(|c| c.text)
+        .unwrap_or_default();
+    assert!(
+        copied.ends_with("last row"),
+        "no trailing blank lines: {copied:?}"
+    );
+}
+
+#[test]
 fn a_word_cut_by_the_wrap_is_joined_without_a_space() {
     let word = "x".repeat(70);
     let doc = document(&word);

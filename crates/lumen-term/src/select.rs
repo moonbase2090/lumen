@@ -105,15 +105,19 @@ impl Selection {
     }
 }
 
-/// The whole flow as a selection.
+/// The whole flow as a selection. It ends at the last line that has text, so
+/// the empty rows at the bottom of the window are not copied.
 #[must_use]
 pub fn select_all(lines: &[FlowLine]) -> Option<Selection> {
-    let last = lines.last()?;
+    let end = lines
+        .iter()
+        .rposition(|l| !l.text.trim().is_empty())
+        .or(lines.len().checked_sub(1))?;
     Some(Selection {
         anchor: Pos { line: 0, col: 0 },
         head: Pos {
-            line: lines.len() - 1,
-            col: last.text.chars().count(),
+            line: end,
+            col: lines[end].text.chars().count(),
         },
     })
 }
