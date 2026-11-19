@@ -5,7 +5,7 @@ use crate::layer::{Context, Layer};
 use crate::pty::{Pty, SpawnError};
 #[cfg(feature = "colour-replies")]
 use crate::raster::Theme;
-use crate::reply::Replies;
+use crate::reply::{CursorQueryEnds, MAX_SPLITS_PER_READ, Replies};
 use crate::shellint::ShellOptions;
 #[cfg(all(unix, feature = "multiplexer-client"))]
 use std::os::fd::OwnedFd;
@@ -97,6 +97,8 @@ pub struct Session {
     clock: Instant,
     tmux_or_screen: bool,
     replies: Replies,
+    /// Where the program has got to in writing a cursor-position query.
+    cursor_queries: CursorQueryEnds,
 }
 
 impl Session {
@@ -112,6 +114,7 @@ impl Session {
             marks: crate::marks::MarkScanner::new(),
             clock: Instant::now(),
             replies: Replies::new(crate::design::theme()),
+            cursor_queries: CursorQueryEnds::default(),
             // The program inherits this environment, so these are the layer's.
             tmux_or_screen: std::env::var_os("TMUX").is_some() || std::env::var_os("STY").is_some(),
         }
@@ -479,13 +482,10 @@ impl Session {
         }
     }
 
-    fn take(&mut self, bytes: &[u8]) -> usize {
-        if bytes.is_empty() {
-            return 0;
-        }
-        self.marks.feed(bytes);
-        let ctx = self.context();
-        self.document.receive(self.layer.as_mut(), bytes, ctx);
+    /// Give the document `piece` and answer what it asked, colour queries
+    /// first (they came before the piece's closing cursor query, if it has one).
+    fn give(&mut self, piece: &[u8], ctx: Context) {
+        self.document.receive(self.layer.as_mut(), piece, ctx);
         let queries = self.document.take_colour_queries();
         #[cfg(feature = "colour-replies")]
         if !queries.is_empty() {
@@ -511,6 +511,31 @@ impl Session {
             if !reply.is_empty() {
                 self.pty.send_reply(reply);
             }
+        }
+    }
+
+    fn take(&mut self, bytes: &[u8]) -> usize {
+        if bytes.is_empty() {
+            return 0;
+        }
+        self.marks.feed(bytes);
+        let ctx = self.context();
+        // A program may ask a colour question and a cursor question in one
+        // read and expects the answers in that order. Colour queries are taken
+        // out of the stream before the emulator sees it and cursor queries in
+        // it, so the read is given in pieces that each end at a cursor query,
+        // and each piece is answered before the next is given.
+        let mut start = 0;
+        let mut splits = 0;
+        for (at, byte) in bytes.iter().enumerate() {
+            if self.cursor_queries.step(*byte) && splits < MAX_SPLITS_PER_READ {
+                splits += 1;
+                self.give(&bytes[start..=at], ctx);
+                start = at + 1;
+            }
+        }
+        if start < bytes.len() {
+            self.give(&bytes[start..], ctx);
         }
         bytes.len()
     }

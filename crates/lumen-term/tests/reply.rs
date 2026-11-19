@@ -2,7 +2,7 @@
 //! program on a PTY that asks and reads what the terminal writes back.
 
 use lumen_term::reply::{
-    ColourQuery, MAX_PER_READ, MAX_PER_WINDOW, Replies, WINDOW_MS, parse_query,
+    ColourQuery, CursorQueryEnds, MAX_PER_READ, MAX_PER_WINDOW, Replies, WINDOW_MS, parse_query,
 };
 use lumen_term::{Context, Document, Layer, Passthrough, Session, Theme};
 #[cfg(unix)]
@@ -349,6 +349,21 @@ fn a_cursor_report_is_the_fixed_form_and_shares_the_reply_limits() {
             .first(),
         Some(&0x1b)
     );
+}
+
+#[test]
+fn the_end_of_a_cursor_query_is_found_across_reads_and_only_for_that_query() {
+    let ends = |chunks: &[&[u8]]| {
+        let mut scan = CursorQueryEnds::default();
+        chunks
+            .iter()
+            .map(|c| c.iter().filter(|b| scan.step(**b)).count())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ends(&[b"x\x1b[6ny\x1b[6n"]), [2]);
+    assert_eq!(ends(&[b"\x1b[", b"6", b"n"]), [0, 0, 1]);
+    assert_eq!(ends(&[b"\x1b\x1b[6n"]), [1], "a stray ESC does not hide it");
+    assert_eq!(ends(&[b"\x1b[5n\x1b[16n\x1b[?6n\x1b[6;1n"]), [0]);
 }
 
 #[cfg(all(unix, feature = "colour-replies"))]

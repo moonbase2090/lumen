@@ -74,3 +74,54 @@ fn a_program_that_asks_where_the_cursor_is_is_told_on_every_layer() {
         );
     }
 }
+
+/// A colour reply is `ESC ] 11 ; rgb:RRRR/GGGG/BBBB ESC \`: 25 bytes.
+#[cfg(feature = "colour-replies")]
+const COLOUR: usize = 25;
+
+#[cfg(feature = "colour-replies")]
+fn is_colour(reply: &[u8]) -> bool {
+    reply.len() == COLOUR && reply.starts_with(b"\x1b]11;rgb:") && reply.ends_with(b"\x1b\\")
+}
+
+#[cfg(feature = "colour-replies")]
+#[test]
+fn colour_and_cursor_answers_come_back_in_the_order_they_were_asked() {
+    let text: &[u8] = b"ab\r\n  x";
+    let colour: &[u8] = b"\x1b]11;?\x1b\\";
+    let cursor: &[u8] = b"\x1b[6n";
+    let cases: [(&str, Vec<&[u8]>); 3] = [
+        ("cursor-colour-cursor", vec![cursor, colour, cursor]),
+        ("colour-cursor-colour", vec![colour, cursor, colour]),
+        ("colour-colour-cursor", vec![colour, colour, cursor]),
+    ];
+    for (label, order) in cases {
+        let mut queries = text.to_vec();
+        let mut want_kinds = Vec::new();
+        for q in &order {
+            queries.extend_from_slice(q);
+            want_kinds.push(*q == cursor);
+        }
+        let len: usize = want_kinds
+            .iter()
+            .map(|is_cursor| if *is_cursor { 6 } else { COLOUR })
+            .sum();
+        let got = ask(
+            Box::new(Passthrough),
+            &format!("order-{label}"),
+            &queries,
+            len,
+        );
+        assert_eq!(got.len(), len, "{label}: {got:?}");
+        let mut at = 0;
+        for is_cursor in want_kinds {
+            if is_cursor {
+                assert_eq!(&got[at..at + 6], b"\x1b[2;4R", "{label} at {at}: {got:?}");
+                at += 6;
+            } else {
+                assert!(is_colour(&got[at..at + COLOUR]), "{label} at {at}: {got:?}");
+                at += COLOUR;
+            }
+        }
+    }
+}

@@ -23,6 +23,34 @@ pub const MAX_PER_WINDOW: usize = 40;
 /// The length of the sliding window, in milliseconds.
 pub const WINDOW_MS: u64 = 1000;
 
+/// Most places one read of the PTY is split at a cursor-position query.
+pub const MAX_SPLITS_PER_READ: usize = 64;
+
+/// Finds the end of `ESC [ 6 n` in a stream, across reads, so the session can
+/// answer queries of different kinds in the order the program asked them.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CursorQueryEnds {
+    matched: u8,
+}
+
+impl CursorQueryEnds {
+    /// Whether `byte` ends a cursor-position query.
+    pub fn step(&mut self, byte: u8) -> bool {
+        const QUERY: &[u8] = b"\x1b[6n";
+        let next = usize::from(self.matched);
+        self.matched = if byte == QUERY[next] {
+            self.matched + 1
+        } else {
+            u8::from(byte == QUERY[0])
+        };
+        if usize::from(self.matched) == QUERY.len() {
+            self.matched = 0;
+            return true;
+        }
+        false
+    }
+}
+
 /// A colour a program asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColourQuery {
