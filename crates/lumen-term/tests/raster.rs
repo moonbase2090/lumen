@@ -37,6 +37,34 @@ fn the_cell_size_is_fixed_by_the_face_and_the_scale() {
 }
 
 #[test]
+fn tabs_occupy_one_row_and_leave_program_pixels_below_them() {
+    let r = renderer(1);
+    let (cw, ch) = r.cell();
+    let program = [7, 8, 9];
+    let content = Frame::new(8 * cw, 2 * ch, program);
+    let titles = vec!["one".to_owned(), "two".to_owned()];
+    let frame = r.with_tabs(&content, &titles, 0, 3 * ch);
+
+    assert_eq!((frame.width, frame.height), (8 * cw, 3 * ch));
+    assert_eq!(frame.pixel(0, 0), Some(r.theme().editor), "active tab");
+    assert_eq!(
+        frame.pixel(4 * cw, 0),
+        Some(r.theme().margin),
+        "inactive tab"
+    );
+    assert_eq!(
+        frame.pixel(0, ch - 1),
+        Some(r.theme().divider),
+        "terminal-owned boundary"
+    );
+    assert_eq!(
+        frame.pixel(0, ch),
+        Some(program),
+        "the program starts below the strip"
+    );
+}
+
+#[test]
 fn the_same_document_renders_to_the_same_pixels_every_time() {
     let r = renderer(2);
     let d = doc(b"Hello, World\r\n\x1b[31mred\x1b[0m", 20, 3);

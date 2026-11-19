@@ -10,6 +10,7 @@ use crate::keys::{Key, Mods};
 use crate::layer::Layer;
 use crate::mouse::{Button, Held, Wheel};
 use crate::raster::Frame;
+use crate::tabs::Tabs;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -257,6 +258,12 @@ impl ImeFollower {
         sink.set_area(now);
         true
     }
+
+    /// Forget the last rectangle, so a newly active tab tells the system its
+    /// own candidate position even when the numbers happen to match.
+    pub fn reset(&mut self) {
+        self.last = None;
+    }
 }
 
 /// Apply a window event that changes the app's size, focus or composition, then
@@ -303,12 +310,17 @@ pub fn perform_action(
 }
 
 /// The window as an [`ImeSink`].
-struct WindowSink<'a>(&'a Window);
+struct WindowSink<'a> {
+    window: &'a Window,
+    top: u32,
+}
 
 impl ImeSink for WindowSink<'_> {
     fn set_area(&mut self, (x, y, w, h): ImeRect) {
-        self.0
-            .set_ime_cursor_area(PhysicalPosition::new(x, y), PhysicalSize::new(w, h));
+        self.window.set_ime_cursor_area(
+            PhysicalPosition::new(x, y.saturating_add(self.top)),
+            PhysicalSize::new(w, h),
+        );
     }
 }
 
@@ -367,10 +379,15 @@ pub struct Config {
     pub shell_integration: bool,
 }
 
+struct Tab {
+    app: App,
+    title: String,
+}
+
 struct Running {
     window: Rc<Window>,
     surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
-    app: App,
+    tabs: Tabs<Tab>,
     #[cfg(target_os = "macos")]
     _menu: Option<crate::menu::MenuBar>,
 }
@@ -385,6 +402,8 @@ struct Host {
     pointer: (u32, u32),
     /// Keeps the system's candidate rectangle with the app.
     ime: ImeFollower,
+    /// Whether the operating system says this window owns the focus.
+    focused: bool,
 }
 
 impl Host {
@@ -402,6 +421,153 @@ impl Host {
         event_loop.exit();
     }
 
+    fn start_app(&self, window: &Window) -> Result<App, String> {
+        let size = window.inner_size();
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a scale factor is a small positive number"
+        )]
+        let scale = self
+            .config
+            .scale
+            .unwrap_or_else(|| window.scale_factor().round().max(1.0) as u32);
+        let (program, arguments) = match self.config.command.split_first() {
+            Some((p, a)) => (p.clone(), a.to_vec()),
+            None => (
+                crate::shell::default_shell(self.config.shell.as_deref()),
+                Vec::new(),
+            ),
+        };
+        let mut app = App::start_with_shell(
+            (self.config.layer)(),
+            &program,
+            &arguments,
+            scale,
+            size.width,
+            size.height,
+            crate::shellint::ShellOptions {
+                integration: self.config.shell_integration,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        if self.config.scale.is_some() {
+            app.pin_scale();
+        }
+        app.use_settings(self.config.notifications);
+        app.use_images(self.config.images);
+        app.set_theme_choice(self.config.theme);
+        app.set_copy_on_select(self.config.copy_on_select);
+        app.set_smooth_scroll(self.config.smooth_scroll);
+        app.set_appearance(appearance(window.theme()));
+        if let Err(e) = app.set_fonts(&self.config.fonts) {
+            eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
+        }
+        let content_height = size.height.saturating_sub(app.cell_height());
+        app.resize(size.width, content_height)
+            .map_err(|e| e.to_string())?;
+        Ok(app)
+    }
+
+    fn update_window_title(run: &Running) {
+        let Some(tab) = run.tabs.active() else { return };
+        let title = if run.tabs.len() > 1 {
+            format!(
+                "{} [{}/{}]",
+                tab.title,
+                run.tabs.active_index() + 1,
+                run.tabs.len()
+            )
+        } else {
+            tab.title.clone()
+        };
+        run.window.set_title(&title);
+    }
+
+    fn refocus(&mut self) {
+        let Some(run) = &mut self.state else { return };
+        let active = run.tabs.active_index();
+        for (index, tab) in run.tabs.iter_mut().enumerate() {
+            tab.app.set_focused(self.focused && index == active);
+            if index != active {
+                tab.app.clear_preedit();
+            }
+        }
+        self.ime.reset();
+        let Some(tab) = run.tabs.active() else { return };
+        let mut sink = WindowSink {
+            window: &run.window,
+            top: tab.app.cell_height(),
+        };
+        self.ime.follow(&tab.app, &mut sink);
+        Self::update_window_title(run);
+        run.window.request_redraw();
+    }
+
+    fn select_tab(&mut self, index: usize) {
+        let changed = self
+            .state
+            .as_mut()
+            .is_some_and(|run| run.tabs.select(index));
+        if changed {
+            self.refocus();
+        }
+    }
+
+    fn cycle_tab(&mut self, next: bool) {
+        let changed = self.state.as_mut().is_some_and(|run| {
+            if next {
+                run.tabs.next()
+            } else {
+                run.tabs.previous()
+            }
+        });
+        if changed {
+            self.refocus();
+        }
+    }
+
+    fn new_tab(&mut self) {
+        let Some(window) = self.state.as_ref().map(|run| run.window.clone()) else {
+            return;
+        };
+        let app = match self.start_app(&window) {
+            Ok(app) => app,
+            Err(e) => {
+                eprintln!("{}: new tab not opened ({e})", crate::APP_NAME);
+                return;
+            }
+        };
+        if let Some(run) = &mut self.state {
+            run.tabs.push(Tab {
+                app,
+                title: crate::title::window_title(None),
+            });
+        }
+        self.refocus();
+    }
+
+    fn close_active(&mut self, event_loop: &ActiveEventLoop) {
+        let empty = self.state.as_mut().is_none_or(|run| {
+            run.tabs.remove_active();
+            run.tabs.is_empty()
+        });
+        if empty {
+            event_loop.exit();
+        } else {
+            self.refocus();
+        }
+    }
+
+    fn resize_tabs(run: &mut Running, size: PhysicalSize<u32>) -> bool {
+        let mut changed = false;
+        for tab in run.tabs.iter_mut() {
+            let height = size.height.saturating_sub(tab.app.cell_height());
+            changed |= tab.app.resize(size.width, height).is_ok();
+        }
+        changed
+    }
+
     fn redraw(&mut self) {
         let Some(run) = &mut self.state else { return };
         let size = run.window.inner_size();
@@ -414,7 +580,11 @@ impl Host {
         if run.surface.resize(w, h).is_err() {
             return;
         }
-        let view = run.app.view();
+        let titles: Vec<String> = run.tabs.iter().map(|tab| tab.title.clone()).collect();
+        let Some(tab) = run.tabs.active() else { return };
+        let view = tab
+            .app
+            .view_with_tabs(&titles, run.tabs.active_index(), size.height);
         let Ok(mut buffer) = run.surface.buffer_mut() else {
             return;
         };
@@ -442,14 +612,19 @@ impl Host {
         let held = self.held();
         let (x, y) = self.pointer;
         let Some(run) = &mut self.state else { return };
-        let line = f64::from(run.app.cell_height());
+        let Some(tab) = run.tabs.active_mut() else {
+            return;
+        };
+        let top = tab.app.cell_height();
+        let Some(y) = y.checked_sub(top) else { return };
+        let line = f64::from(top);
         let redraw = if let MouseScrollDelta::PixelDelta(p) = delta {
-            run.app
+            tab.app
                 .wheel_pixels(x, y, wheel_pixels(p.y), held)
                 .unwrap_or(false)
         } else if let Some((step, n)) = wheel_steps(delta, line) {
             (0..n).fold(false, |moved, _| {
-                run.app.mouse_wheel_glide(x, y, step, held).unwrap_or(false) | moved
+                tab.app.mouse_wheel_glide(x, y, step, held).unwrap_or(false) | moved
             })
         } else {
             false
@@ -461,14 +636,37 @@ impl Host {
 
     /// Do one of the window's own actions, from a menu item or a shortcut.
     fn act(&mut self, event_loop: &ActiveEventLoop, action: Action) {
+        match action {
+            Action::NewTab => return self.new_tab(),
+            Action::NextTab => return self.cycle_tab(true),
+            Action::PreviousTab => return self.cycle_tab(false),
+            Action::Close => return self.close_active(event_loop),
+            Action::Quit => {
+                event_loop.exit();
+                return;
+            }
+            _ => {}
+        }
         let Some(run) = &mut self.state else { return };
+        let Some(tab) = run.tabs.active_mut() else {
+            return;
+        };
+        let top = tab.app.cell_height();
         let outcome = perform_action(
-            &mut run.app,
+            &mut tab.app,
             action,
             &SystemClipboard,
             &mut self.ime,
-            &mut WindowSink(&run.window),
+            &mut WindowSink {
+                window: &run.window,
+                top,
+            },
         );
+        if matches!(action, Action::ZoomIn | Action::ZoomOut | Action::ZoomReset) {
+            let size = run.window.inner_size();
+            let height = size.height.saturating_sub(tab.app.cell_height());
+            let _ = tab.app.resize(size.width, height);
+        }
         match outcome {
             Outcome::Exit => event_loop.exit(),
             Outcome::Redraw => run.window.request_redraw(),
@@ -482,7 +680,10 @@ impl Host {
     /// shortcuts, then the key is sent to the program.
     fn on_key(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
         let Some(run) = &mut self.state else { return };
-        if run.app.preedit().is_some() {
+        let Some(tab) = run.tabs.active_mut() else {
+            return;
+        };
+        if tab.app.preedit().is_some() {
             // The input method owns the keys while it composes.
             return;
         }
@@ -500,13 +701,13 @@ impl Host {
             self.modifiers,
             event.location,
         ) {
-            if send_input(&mut run.app, Input::Key(key, mods)) {
+            if send_input(&mut tab.app, Input::Key(key, mods)) {
                 run.window.request_redraw();
             }
         } else if let Some(text) = event.text.as_deref()
             && !self.modifiers.super_key()
             && text.chars().count() > 1
-            && send_input(&mut run.app, Input::Text(text))
+            && send_input(&mut tab.app, Input::Text(text))
         {
             run.window.request_redraw();
         }
@@ -514,6 +715,162 @@ impl Host {
 }
 
 impl Host {
+    fn on_scale(&mut self, scale_factor: f64) {
+        let Some(run) = &mut self.state else { return };
+        let size = run.window.inner_size();
+        let mut changed = false;
+        for tab in run.tabs.iter_mut() {
+            changed |= tab.app.set_display_scale(scale_factor).unwrap_or(false);
+            let height = size.height.saturating_sub(tab.app.cell_height());
+            changed |= tab.app.resize(size.width, height).is_ok();
+        }
+        self.ime.reset();
+        if let Some(tab) = run.tabs.active() {
+            let mut sink = WindowSink {
+                window: &run.window,
+                top: tab.app.cell_height(),
+            };
+            self.ime.follow(&tab.app, &mut sink);
+        }
+        if changed {
+            run.window.request_redraw();
+        }
+    }
+
+    fn on_ime(&mut self, event: &Ime) {
+        let Some(run) = &mut self.state else { return };
+        let Some(tab) = run.tabs.active_mut() else {
+            return;
+        };
+        let redraw = ime_event(&mut tab.app, event);
+        let top = tab.app.cell_height();
+        let mut sink = WindowSink {
+            window: &run.window,
+            top,
+        };
+        self.ime.follow(&tab.app, &mut sink);
+        if redraw {
+            run.window.request_redraw();
+        }
+    }
+
+    fn on_focus(&mut self, focused: bool) {
+        self.focused = focused;
+        let Some(run) = &mut self.state else { return };
+        let active = run.tabs.active_index();
+        for (index, tab) in run.tabs.iter_mut().enumerate() {
+            tab.app.set_focused(focused && index == active);
+            if !focused {
+                tab.app.clear_preedit();
+            }
+        }
+        self.ime.reset();
+        if let Some(tab) = run.tabs.active() {
+            let mut sink = WindowSink {
+                window: &run.window,
+                top: tab.app.cell_height(),
+            };
+            self.ime.follow(&tab.app, &mut sink);
+        }
+        run.window.request_redraw();
+    }
+
+    fn on_cursor(&mut self, position: PhysicalPosition<f64>) {
+        self.pointer = pointer_pixels(position.x, position.y);
+        let held = self.held();
+        let Some(run) = &mut self.state else { return };
+        let Some(tab) = run.tabs.active_mut() else {
+            return;
+        };
+        let redraw = self
+            .pointer
+            .1
+            .checked_sub(tab.app.cell_height())
+            .is_some_and(|y| tab.app.mouse_move(self.pointer.0, y, held).unwrap_or(false))
+            | tab.app.take_selection_redraw();
+        if redraw {
+            run.window.request_redraw();
+        }
+    }
+
+    fn on_mouse(&mut self, event_loop: &ActiveEventLoop, state: ElementState, button: MouseButton) {
+        let held = self.held();
+        let (x, y) = self.pointer;
+        if state == ElementState::Pressed && button == MouseButton::Left {
+            let selected = self.state.as_ref().and_then(|run| {
+                let top = run.tabs.active()?.app.cell_height();
+                (y < top)
+                    .then(|| run.tabs.hit(x, run.window.inner_size().width))
+                    .flatten()
+            });
+            if let Some(index) = selected {
+                self.select_tab(index);
+                return;
+            }
+        }
+        let Some(run) = &mut self.state else { return };
+        let Some(tab) = run.tabs.active_mut() else {
+            return;
+        };
+        let Some(y) = y.checked_sub(tab.app.cell_height()) else {
+            return;
+        };
+        #[cfg(any(target_os = "macos", windows))]
+        if state == ElementState::Pressed
+            && button == MouseButton::Right
+            && !tab.app.is_selecting()
+            && tab.app.owns_context_click(x, y, held)
+        {
+            let menu_state = crate::menu::ContextState {
+                can_copy: tab.app.has_selection(),
+                can_paste: SystemClipboard.text().is_some(),
+            };
+            if let Ok(menu) = crate::menu::context_menu(menu_state) {
+                crate::ffi_context_menu::show(&menu, &*run.window);
+            }
+            return;
+        }
+        let mut redraw = false;
+        let mut taken = false;
+        if state == ElementState::Pressed && button == MouseButton::Left {
+            redraw = tab.app.click(x, y);
+            let link_modifier = if cfg!(target_os = "macos") {
+                self.modifiers.super_key()
+            } else {
+                self.modifiers.control_key()
+            };
+            if tab.app.link_prompt().is_some() || link_modifier {
+                taken = tab.app.link_press(x, y);
+                redraw |= taken;
+            }
+        }
+        if !taken && let Some(b) = map_button(button) {
+            redraw |= match state {
+                ElementState::Pressed => tab.app.mouse_press(x, y, b, held),
+                ElementState::Released => tab.app.mouse_release(x, y, b, held),
+            }
+            .unwrap_or(false);
+        }
+        redraw |= tab.app.take_selection_redraw();
+        let copy = tab.app.take_copy_on_select();
+        if redraw {
+            run.window.request_redraw();
+        }
+        if copy {
+            self.act(event_loop, Action::Copy);
+        }
+    }
+
+    fn on_theme(&mut self, theme: WinitTheme) {
+        let Some(run) = &mut self.state else { return };
+        let changed = run.tabs.iter_mut().fold(false, |changed, tab| {
+            tab.app.set_appearance(appearance(Some(theme))) | changed
+        });
+        if changed {
+            run.window.request_redraw();
+        }
+    }
+
     /// Handle one window event.
     fn handle_window_event(
         &mut self,
@@ -524,100 +881,25 @@ impl Host {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
-            WindowEvent::Resized(_)
-            | WindowEvent::ScaleFactorChanged { .. }
-            | WindowEvent::Ime(_)
-            | WindowEvent::Focused(_) => {
+            WindowEvent::Resized(size) => {
                 if let Some(run) = &mut self.state
-                    && apply_window_event(
-                        &mut run.app,
-                        &event,
-                        &mut self.ime,
-                        &mut WindowSink(&run.window),
-                    )
+                    && Self::resize_tabs(run, size)
                 {
                     run.window.request_redraw();
                 }
             }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => self.on_scale(scale_factor),
+            WindowEvent::Ime(event) => self.on_ime(&event),
+            WindowEvent::Focused(focused) => self.on_focus(focused),
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 self.on_key(event_loop, &event);
             }
-            WindowEvent::CursorMoved { position, .. } => {
-                self.pointer = pointer_pixels(position.x, position.y);
-                let held = self.held();
-                if let Some(run) = &mut self.state
-                    && run
-                        .app
-                        .mouse_move(self.pointer.0, self.pointer.1, held)
-                        .unwrap_or(false)
-                        | run.app.take_selection_redraw()
-                {
-                    run.window.request_redraw();
-                }
-            }
+            WindowEvent::CursorMoved { position, .. } => self.on_cursor(position),
             WindowEvent::MouseInput { state, button, .. } => {
-                let held = self.held();
-                let (x, y) = self.pointer;
-                let Some(run) = &mut self.state else { return };
-                #[cfg(any(target_os = "macos", windows))]
-                if state == ElementState::Pressed
-                    && button == MouseButton::Right
-                    && !run.app.is_selecting()
-                    && run.app.owns_context_click(x, y, held)
-                {
-                    let menu_state = crate::menu::ContextState {
-                        can_copy: run.app.has_selection(),
-                        can_paste: SystemClipboard.text().is_some(),
-                    };
-                    // A menu that cannot be built leaves the click unused.
-                    if let Ok(menu) = crate::menu::context_menu(menu_state) {
-                        crate::ffi_context_menu::show(&menu, &*run.window);
-                    }
-                    return;
-                }
-                let mut redraw = false;
-                let mut taken = false;
-                if state == ElementState::Pressed && button == MouseButton::Left {
-                    redraw = run.app.click(x, y);
-                    // The link modifier with the primary button asks about the
-                    // link under the pointer, and a press on the prompt answers
-                    // it. Either way the press is not the program's.
-                    let link_modifier = if cfg!(target_os = "macos") {
-                        self.modifiers.super_key()
-                    } else {
-                        self.modifiers.control_key()
-                    };
-                    if run.app.link_prompt().is_some() || link_modifier {
-                        taken = run.app.link_press(x, y);
-                        redraw |= taken;
-                    }
-                }
-                if taken {
-                    // Nothing more: the program sees none of it.
-                } else if let Some(b) = map_button(button) {
-                    redraw |= match state {
-                        ElementState::Pressed => run.app.mouse_press(x, y, b, held),
-                        ElementState::Released => run.app.mouse_release(x, y, b, held),
-                    }
-                    .unwrap_or(false);
-                }
-                redraw |= run.app.take_selection_redraw();
-                let copy = run.app.take_copy_on_select();
-                if redraw {
-                    run.window.request_redraw();
-                }
-                if copy {
-                    self.act(event_loop, Action::Copy);
-                }
+                self.on_mouse(event_loop, state, button);
             }
             WindowEvent::MouseWheel { delta, .. } => self.wheel(&delta),
-            WindowEvent::ThemeChanged(theme) => {
-                if let Some(run) = &mut self.state
-                    && run.app.set_appearance(appearance(Some(theme)))
-                {
-                    run.window.request_redraw();
-                }
-            }
+            WindowEvent::ThemeChanged(theme) => self.on_theme(theme),
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {}
         }
@@ -648,49 +930,8 @@ impl ApplicationHandler for Host {
             Err(e) => return self.fail(event_loop, format!("no surface: {e}")),
         };
         window.set_ime_allowed(true);
-        let size = window.inner_size();
-        #[allow(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "a scale factor is a small positive number"
-        )]
-        let scale = self
-            .config
-            .scale
-            .unwrap_or_else(|| window.scale_factor().round().max(1.0) as u32);
-        let (program, arguments) = match self.config.command.split_first() {
-            Some((p, a)) => (p.clone(), a.to_vec()),
-            None => (
-                crate::shell::default_shell(self.config.shell.as_deref()),
-                Vec::new(),
-            ),
-        };
-        match App::start_with_shell(
-            (self.config.layer)(),
-            &program,
-            &arguments,
-            scale,
-            size.width,
-            size.height,
-            crate::shellint::ShellOptions {
-                integration: self.config.shell_integration,
-            },
-        ) {
-            Ok(mut app) => {
-                if self.config.scale.is_some() {
-                    app.pin_scale();
-                }
-                app.use_settings(self.config.notifications);
-                app.use_images(self.config.images);
-                // The user's look, then the system's appearance, if it says;
-                // light until it does.
-                app.set_theme_choice(self.config.theme);
-                app.set_copy_on_select(self.config.copy_on_select);
-                app.set_smooth_scroll(self.config.smooth_scroll);
-                app.set_appearance(appearance(window.theme()));
-                if let Err(e) = app.set_fonts(&self.config.fonts) {
-                    eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
-                }
+        match self.start_app(&window) {
+            Ok(app) => {
                 window.request_redraw();
                 // A menu that cannot be built leaves the shortcuts working.
                 #[cfg(target_os = "macos")]
@@ -698,12 +939,15 @@ impl ApplicationHandler for Host {
                 self.state = Some(Running {
                     window,
                     surface,
-                    app,
+                    tabs: Tabs::new(Tab {
+                        app,
+                        title: crate::title::window_title(None),
+                    }),
                     #[cfg(target_os = "macos")]
                     _menu: menu,
                 });
             }
-            Err(e) => self.fail(event_loop, e.to_string()),
+            Err(e) => self.fail(event_loop, e),
         }
     }
 
@@ -722,25 +966,52 @@ impl ApplicationHandler for Host {
         for action in crate::menu::chosen() {
             self.act(event_loop, action);
         }
+        let mut refocus = false;
         if let Some(run) = &mut self.state {
-            let expired = run.app.tick();
-            if run.app.pump() > 0 || expired {
-                run.window.request_redraw();
+            let active = run.tabs.active_index();
+            let mut redraw = false;
+            let mut exited = Vec::new();
+            let mut request_attention = false;
+            let mut cancel_attention = false;
+            for (index, tab) in run.tabs.iter_mut().enumerate() {
+                let expired = tab.app.tick();
+                if tab.app.pump() > 0 || expired {
+                    redraw |= index == active;
+                }
+                if let Some(title) = tab.app.take_window_title() {
+                    tab.title = title;
+                    redraw = true;
+                }
+                match tab.app.attention_step() {
+                    crate::attention::Step::Request => request_attention = true,
+                    crate::attention::Step::Cancel => cancel_attention = true,
+                    crate::attention::Step::Idle => {}
+                }
+                if tab.app.has_exited() {
+                    exited.push(index);
+                }
             }
-            if let Some(title) = run.app.take_window_title() {
-                run.window.set_title(&title);
+            if request_attention {
+                run.window
+                    .request_user_attention(Some(winit::window::UserAttentionType::Informational));
+            } else if cancel_attention {
+                run.window.request_user_attention(None);
             }
-            match run.app.attention_step() {
-                crate::attention::Step::Request => run
-                    .window
-                    .request_user_attention(Some(winit::window::UserAttentionType::Informational)),
-                crate::attention::Step::Cancel => run.window.request_user_attention(None),
-                crate::attention::Step::Idle => {}
+            for index in exited.into_iter().rev() {
+                run.tabs.remove(index);
+                refocus = true;
             }
-            if run.app.has_exited() {
+            if run.tabs.is_empty() {
                 event_loop.exit();
                 return;
             }
+            if redraw || refocus {
+                run.window.request_redraw();
+            }
+            Self::update_window_title(run);
+        }
+        if refocus {
+            self.refocus();
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(
             Instant::now() + Duration::from_millis(16),
@@ -772,6 +1043,7 @@ pub fn run(config: Config) -> Result<(), String> {
         error: None,
         pointer: (0, 0),
         ime: ImeFollower::default(),
+        focused: false,
     };
     event_loop
         .run_app(&mut host)

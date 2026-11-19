@@ -68,6 +68,18 @@ impl Frame {
         }
     }
 
+    /// Copy `source` into this frame at `(x, y)`, clipped at every edge.
+    pub(crate) fn copy_from(&mut self, source: &Frame, x: u32, y: u32) {
+        let rows = source.height.min(self.height.saturating_sub(y));
+        let columns = source.width.min(self.width.saturating_sub(x));
+        let bytes = columns as usize * 4;
+        for row in 0..rows {
+            let from = row as usize * source.width as usize * 4;
+            let to = ((y + row) as usize * self.width as usize + x as usize) * 4;
+            self.rgba[to..to + bytes].copy_from_slice(&source.rgba[from..from + bytes]);
+        }
+    }
+
     /// A `width` by `height` window onto this frame: when the frame is taller
     /// than the window, the bottom of it (the newest blocks), otherwise the
     /// frame at the top; the rest, and any width beyond the frame, is `colour`.
