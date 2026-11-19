@@ -10,6 +10,7 @@ use crate::boundary::{Boundaries, Seen};
 use crate::clipboard::Clipboard;
 use crate::design::{Appearance, Fonts, ThemeChoice};
 use crate::document::{Block, Event};
+use crate::glide::Glide;
 use crate::input_line::{Facts, InputLine, Mode, Outcome as Line};
 use crate::keys::{Key, Mods};
 use crate::layer::Layer;
@@ -84,6 +85,8 @@ pub struct App {
     sink: Box<dyn OsSink + Send>,
     desk: Desk,
     input_notice: Option<InputNotice>,
+    /// The terminal's own notice that the shell layer has no sealing keys.
+    seal_notice: Option<SealNotice>,
     /// The render scale the display asked for, and the one in use now.
     base_scale: u32,
     scale: u32,
@@ -102,6 +105,10 @@ pub struct App {
     /// group when they came on: reports and bracketed paste go only while the
     /// same group is still in front.
     reporting: Reporting,
+    /// What is left of a wheel's move that the view is easing through.
+    glide: Glide,
+    /// Whether a wheel step eases the view instead of jumping it.
+    smooth_scroll: bool,
     /// How many times the view moved since the host last asked.
     view_moves: u32,
     /// The find bar and its matches, while it is open.
@@ -137,6 +144,15 @@ pub struct App {
     /// with its Enter: each is sent only once the shell is back at a sealed
     /// prompt and has passed the checks again.
     queued: std::collections::VecDeque<Vec<u8>>,
+    /// The queued lines are the box's own text, sent whole.
+    queued_whole: bool,
+    /// What the box typed for each sealed command.
+    typed: crate::typed::Typed,
+    /// The records the box recalls with Up, by [`Typed::made`]; `None` while
+    /// it recalls its own history.
+    ///
+    /// [`Typed::made`]: crate::typed::Typed::made
+    recalling: Option<u64>,
 }
 
 /// The render scale for a display's scale factor: the nearest whole number,
@@ -260,6 +276,17 @@ impl InputNotice {
         };
         format!("Input not sent: {why} ({} dropped)", self.refused)
     }
+}
+
+/// The terminal's own notice that a shell layer runs without sealing keys:
+/// either it never had them, or it lost them. It is drawn as a toast, first,
+/// and stays until the user dismisses it or the program ends. Its text is
+/// fixed here and the reason is the terminal's own: the program cannot choose
+/// a word of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SealNotice {
+    text: String,
+    shown_ms: u64,
 }
 
 /// The layer id of the terminal's own toast: not the id of any layer.
@@ -461,6 +488,7 @@ impl App {
             // would be an OS one needs the window to be shown unfocused.
             desk: Desk::default(),
             input_notice: None,
+            seal_notice: None,
             base_scale: scale,
             scale,
             scale_pinned: false,
@@ -474,6 +502,8 @@ impl App {
             copy_pending: false,
             scroll: Scroll::Follow,
             reporting: Reporting::default(),
+            glide: Glide::new(),
+            smooth_scroll: true,
             view_moves: 0,
             find: None,
             find_kept: String::new(),
@@ -491,8 +521,17 @@ impl App {
             sealed_keys: false,
             forwarded_enters: 0,
             queued: std::collections::VecDeque::new(),
+            queued_whole: false,
+            typed: crate::typed::Typed::new(),
+            recalling: None,
         };
         app.sealed_keys = app.session.has_sealed_keys();
+        if let Some(why) = app.session.seal_off_reason() {
+            app.seal_notice = Some(SealNotice {
+                text: format!("Shell not sealed: {why}"),
+                shown_ms: app.session.now_ms(),
+            });
+        }
         app.configure_notifications(Settings::default(), Place::Unknown, Box::new(NoSink));
         app
     }
@@ -600,6 +639,15 @@ impl App {
         for event in events {
             if let Event::Sealed { kind, body } = event {
                 let seen = self.boundaries.see(*kind, body);
+                match seen {
+                    Seen::Applied => {
+                        if let Ok(frame) = lumen_sealed::types::parse(*kind, body) {
+                            self.typed.see(&frame);
+                        }
+                    }
+                    Seen::Refused => self.typed.stop(),
+                    Seen::Other => {}
+                }
                 // The shell-replacement check runs at every authenticated
                 // command start too, not only at a forwarded Enter.
                 // So does a prompt while lines are queued: the next one is due.
@@ -609,7 +657,7 @@ impl App {
                     && (*kind == lumen_sealed::types::KIND_COMMAND_START || queued_due)
                 {
                     self.session.recheck_seal();
-                    self.sealed_keys = self.session.has_sealed_keys();
+                    self.refresh_seal();
                 }
             }
         }
@@ -617,12 +665,21 @@ impl App {
         self.notifier.route(now, LAYER, events, self.sink.as_mut());
     }
 
-    /// The toasts that are drawn, top down: the terminal's own notice that input
-    /// was not sent, if there is one, then the notifier's. The terminal's is
-    /// first so that nothing a program does can push it out of the area.
+    /// The toasts that are drawn, top down: the terminal's own notices first
+    /// (that the shell layer has no sealing keys, then that input was not
+    /// sent), then the notifier's. The terminal's are first so that nothing a
+    /// program does can push them out of the area.
     #[must_use]
     pub fn toasts(&self) -> Vec<Toast> {
-        let mut toasts = Vec::with_capacity(self.notifier.shown().len() + 1);
+        let mut toasts = Vec::with_capacity(self.notifier.shown().len() + 2);
+        if let Some(notice) = &self.seal_notice {
+            toasts.push(Toast {
+                layer: TERMINAL_LAYER,
+                text: notice.text.clone(),
+                unsigned: false,
+                shown_ms: notice.shown_ms,
+            });
+        }
         if let Some(notice) = &self.input_notice {
             toasts.push(Toast {
                 layer: TERMINAL_LAYER,
@@ -641,14 +698,22 @@ impl App {
     /// toast before its time is up: no output from the program does.
     pub fn click(&mut self, x: u32, y: u32) -> bool {
         match self.click_would_hit(x, y) {
-            Some(index) => {
-                if self.input_notice.take().is_some() {
-                    if index > 0 {
-                        self.notifier.dismiss(index - 1);
+            Some(mut index) => {
+                if self.seal_notice.is_some() {
+                    if index == 0 {
+                        self.seal_notice = None;
+                        return true;
                     }
-                } else {
-                    self.notifier.dismiss(index);
+                    index -= 1;
                 }
+                if self.input_notice.is_some() {
+                    if index == 0 {
+                        self.input_notice = None;
+                        return true;
+                    }
+                    index -= 1;
+                }
+                self.notifier.dismiss(index);
                 true
             }
             None => self.click_box(x, y),
@@ -1067,12 +1132,46 @@ impl App {
     /// Scroll the view by `pixels`: up for a positive value, down for a negative
     /// one. Returns whether the view moved, so the window knows to draw again.
     pub fn scroll_pixels(&mut self, pixels: i64) -> bool {
+        self.glide.cancel();
+        self.move_view(pixels)
+    }
+
+    fn move_view(&mut self, pixels: i64) -> bool {
         let (area, _, total) = self.content_metrics();
         let next = self.scroll.up(total, area, pixels);
         let moved = next.top(total, area) != self.scroll.top(total, area);
         self.scroll = next;
         self.view_moves += u32::from(moved);
         moved
+    }
+
+    /// Ease the view by `pixels` over the next frames: up for a positive value.
+    /// A move toward a stop the view is already at is dropped. Returns whether
+    /// there is movement to draw, which the next [`tick`](Self::tick) gives.
+    fn glide_pixels(&mut self, pixels: i64) -> bool {
+        let (area, _, total) = self.content_metrics();
+        let blocked = (pixels > 0 && self.scroll.top(total, area) == 0)
+            || (pixels < 0 && self.scroll.at_bottom(total, area));
+        if blocked {
+            self.glide.cancel();
+            return false;
+        }
+        self.glide.add(pixels);
+        self.glide.is_moving()
+    }
+
+    /// Whether wheel steps ease the view (the default) or jump it.
+    pub fn set_smooth_scroll(&mut self, on: bool) {
+        self.smooth_scroll = on;
+        if !on {
+            self.glide.cancel();
+        }
+    }
+
+    /// Whether a wheel's move is still easing the view.
+    #[must_use]
+    pub fn is_gliding(&self) -> bool {
+        self.glide.is_moving()
     }
 
     /// Scroll the view by `rows` rows of text: up for a positive value.
@@ -1082,6 +1181,7 @@ impl App {
 
     /// Scroll the view by a page, up or down.
     pub fn scroll_page(&mut self, up: bool) -> bool {
+        self.glide.cancel();
         let (area, _, total) = self.content_metrics();
         let next = self.scroll.page(total, area, self.renderer.cell().1, up);
         let moved = next.top(total, area) != self.scroll.top(total, area);
@@ -1092,6 +1192,7 @@ impl App {
 
     /// Scroll to the oldest output (`true`) or back to the newest.
     pub fn scroll_end(&mut self, top: bool) -> bool {
+        self.glide.cancel();
         let (area, _, total) = self.content_metrics();
         let next = if top {
             Scroll::to_top(total, area)
@@ -1196,6 +1297,35 @@ impl App {
         step: Wheel,
         held: Held,
     ) -> std::io::Result<bool> {
+        self.wheel_step(x, y, step, held, false)
+    }
+
+    /// The wheel turned one step, as [`mouse_wheel`](Self::mouse_wheel), but a
+    /// step that scrolls the output eases the view there over the next frames
+    /// (see [`tick`](Self::tick)) unless smooth scrolling is off. A step the
+    /// program is told of is sent at once. Returns whether to draw now.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write error.
+    pub fn mouse_wheel_glide(
+        &mut self,
+        x: u32,
+        y: u32,
+        step: Wheel,
+        held: Held,
+    ) -> std::io::Result<bool> {
+        self.wheel_step(x, y, step, held, self.smooth_scroll)
+    }
+
+    fn wheel_step(
+        &mut self,
+        x: u32,
+        y: u32,
+        step: Wheel,
+        held: Held,
+        glide: bool,
+    ) -> std::io::Result<bool> {
         #[cfg(feature = "links-clipboard")]
         if self.links.prompt.is_some() {
             return Ok(false);
@@ -1207,11 +1337,17 @@ impl App {
         }
         // The program did not ask for this wheel: it scrolls the output.
         let rows = i32::try_from(WHEEL_ROWS).unwrap_or(3);
-        Ok(self.scroll_rows(if matches!(step, Wheel::Up) {
+        let rows = if matches!(step, Wheel::Up) {
             rows
         } else {
             -rows
-        }))
+        };
+        if glide {
+            let pixels = i64::from(rows) * i64::from(self.renderer.cell().1);
+            Ok(self.glide_pixels(pixels))
+        } else {
+            Ok(self.scroll_rows(rows))
+        }
     }
 
     /// The wheel or trackpad moved `pixels` with the pointer at pixel `(x, y)`:
@@ -1337,6 +1473,16 @@ impl App {
         let now = self.session.now_ms();
         self.notifier.tick(now);
         let mut changed = self.notifier.shown().len() != before;
+        let eased = self.glide.step(now);
+        if eased != 0 && !self.move_view(eased) {
+            // At a stop: the rest of the move has nowhere to go.
+            self.glide.cancel();
+        } else {
+            changed |= eased != 0;
+        }
+        let seal_before = self.seal_notice.is_some();
+        self.refresh_seal();
+        changed |= self.seal_notice.is_some() != seal_before;
         if self
             .input_notice
             .is_some_and(|n| now.saturating_sub(n.last_ms) >= INPUT_NOTICE_MS)
@@ -1416,6 +1562,7 @@ impl App {
     ///
     /// Returns why the renderer could not be made or the program could not be told.
     pub fn set_scale(&mut self, scale: u32) -> Result<(), SpawnError> {
+        self.glide.cancel();
         // A view held somewhere in the output keeps its place by its share of
         // the flow, since the flow's height changes with the cell size and the
         // wrap.
@@ -1605,10 +1752,31 @@ impl App {
     /// What the tty and the grid say now, for the input line.
     fn facts(&mut self) -> Facts {
         let ended = self.exited || self.session.has_exited();
-        self.sealed_keys = self.session.has_sealed_keys();
+        self.refresh_seal();
+        self.sync_recall();
         let facts = self.facts_with(ended);
         self.input.observe(facts);
         facts
+    }
+
+    /// Give the box what Up recalls: on a layer with sealing keys, the lines
+    /// recorded for its sealed commands; without keys, the box's own history.
+    /// A layer without keys records nothing more.
+    fn sync_recall(&mut self) {
+        let want = self.sealed_keys.then(|| self.typed.made());
+        if !self.sealed_keys {
+            self.typed.stop();
+        }
+        if want != self.recalling {
+            self.recalling = want;
+            self.input.set_recall(want.map(|_| self.typed.recall()));
+        }
+    }
+
+    /// What the box typed for each sealed command, oldest first.
+    #[must_use]
+    pub fn typed_records(&self) -> Vec<crate::typed::Record> {
+        self.typed.records().iter().cloned().collect()
     }
 
     fn facts_with(&self, ended: bool) -> Facts {
@@ -1638,7 +1806,8 @@ impl App {
                 self.follow();
                 self.cursor_epoch_ms = self.session.now_ms();
                 let for_shell = self.input.wrote_for_shell();
-                let sent = self.forward_user_input(&bytes, for_shell);
+                let whole = self.input.take_whole();
+                let sent = self.forward_user_input(&bytes, for_shell, whole);
                 self.sync_box();
                 sent
             }
@@ -1760,7 +1929,12 @@ impl App {
     /// the first now, each next one when the shell is back at a sealed prompt,
     /// checked again just before it is written. A new write while lines are
     /// still queued puts them back into the box.
-    fn forward_user_input(&mut self, bytes: &[u8], for_shell: bool) -> std::io::Result<()> {
+    fn forward_user_input(
+        &mut self,
+        bytes: &[u8],
+        for_shell: bool,
+        whole: bool,
+    ) -> std::io::Result<()> {
         if !self.queued.is_empty() {
             self.put_back_queued();
         }
@@ -1769,24 +1943,37 @@ impl App {
             if parts.len() > 1 {
                 let first = parts.remove(0);
                 self.queued.extend(parts);
-                return self.write_user_input(&first, for_shell);
+                self.queued_whole = whole;
+                return self.write_user_input(&first, for_shell, whole);
             }
         }
-        self.write_user_input(bytes, for_shell)
+        self.write_user_input(bytes, for_shell, whole)
     }
 
     /// Write `bytes` the user typed: the checks first if it holds an Enter,
     /// then the write, then the count.
-    fn write_user_input(&mut self, bytes: &[u8], for_shell: bool) -> std::io::Result<()> {
+    fn write_user_input(
+        &mut self,
+        bytes: &[u8],
+        for_shell: bool,
+        whole: bool,
+    ) -> std::io::Result<()> {
         let enters = crate::input_line::enters_in(bytes);
         if enters > 0 {
             self.session.recheck_seal();
-            self.sealed_keys = self.session.has_sealed_keys();
+            self.refresh_seal();
         }
         let sent = self.send(bytes);
         if sent.is_ok() && for_shell && enters > 0 {
             self.forwarded_enters = self.forwarded_enters.saturating_add(u64::from(enters));
             self.boundaries.line_sent();
+        }
+        if sent.is_ok() && for_shell {
+            // Only a write of one line, the box's own text, is a line typed in
+            // the box; anything else on the shell's line means no record.
+            let line =
+                (whole && enters == 1).then(|| crate::input_line::unsent_text(&[bytes.to_vec()]));
+            self.typed.wrote(line);
         }
         self.note_input(&sent);
         sent
@@ -1869,6 +2056,7 @@ impl App {
 
     /// Return to the newest output, as typing does.
     fn follow(&mut self) {
+        self.glide.cancel();
         if self.scroll != Scroll::Follow {
             self.scroll = Scroll::Follow;
             self.view_moves += 1;
@@ -1994,7 +2182,7 @@ impl App {
         // A paste the program does not take bracketed runs a line at each line
         // break, so it goes the way every Enter does.
         let for_shell = self.session.tty_state().shell_in_front == Some(true);
-        self.forward_user_input(&bytes, for_shell)
+        self.forward_user_input(&bytes, for_shell, false)
     }
 
     /// Write to the program, unless it has ended. Whether a write to a PTY whose
@@ -2009,6 +2197,35 @@ impl App {
             ));
         }
         self.session.send(bytes)
+    }
+
+    /// Ask the session again whether the layer has sealing keys. A layer that
+    /// had them and has lost them gets the terminal's notice saying why. Once
+    /// the program has ended the layer is closed, and its notice goes with it.
+    fn refresh_seal(&mut self) {
+        let had = self.sealed_keys;
+        self.sealed_keys = self.session.has_sealed_keys();
+        if self.exited || self.session.has_exited() {
+            self.seal_notice = None;
+            return;
+        }
+        if had && !self.sealed_keys {
+            let why = self
+                .session
+                .seal_off_reason()
+                .unwrap_or_else(|| "the layer lost its keys".to_owned());
+            self.seal_notice = Some(SealNotice {
+                text: format!("Sealing ended: {why}"),
+                shown_ms: self.session.now_ms(),
+            });
+        }
+    }
+
+    /// The terminal's notice that the shell layer has no sealing keys, if it
+    /// is shown. For tests and the window.
+    #[must_use]
+    pub fn seal_notice(&self) -> Option<&str> {
+        self.seal_notice.as_ref().map(|n| n.text.as_str())
     }
 
     /// Keep what the user must be told when typed input was not sent: a refusal
@@ -2090,7 +2307,7 @@ impl App {
             return;
         }
         self.session.recheck_seal();
-        self.sealed_keys = self.session.has_sealed_keys();
+        self.refresh_seal();
         if !self.sealed_keys {
             self.put_back_queued();
             return;
@@ -2104,13 +2321,17 @@ impl App {
         let Some(next) = self.queued.pop_front() else {
             return;
         };
-        if self.write_user_input(&next, true).is_err() {
+        if self
+            .write_user_input(&next, true, self.queued_whole)
+            .is_err()
+        {
             self.queued.push_front(next);
             self.put_back_queued();
         }
     }
 
     fn put_back_queued(&mut self) {
+        self.queued_whole = false;
         let parts: Vec<Vec<u8>> = self.queued.drain(..).collect();
         self.input.put_back(&crate::input_line::unsent_text(&parts));
         self.sync_box();

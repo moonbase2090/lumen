@@ -34,6 +34,7 @@ pub mod document;
 )]
 pub mod ffi_context_menu;
 pub mod frame;
+pub mod glide;
 pub mod grid;
 pub mod guard;
 #[cfg(feature = "window")]
@@ -76,6 +77,7 @@ pub mod shellint;
 pub mod strip;
 pub mod theme_file;
 pub mod title;
+pub mod typed;
 mod writer;
 
 pub use app::App;

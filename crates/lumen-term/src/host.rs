@@ -334,6 +334,10 @@ pub fn to_xrgb(frame: &Frame) -> Vec<u32> {
 }
 
 /// What the window needs to start the terminal.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is one independent setting the user turns on or off"
+)]
 pub struct Config {
     /// Builds the layer the program's output goes through.
     pub layer: Box<dyn Fn() -> Box<dyn Layer + Send>>,
@@ -355,6 +359,8 @@ pub struct Config {
     pub fonts: crate::design::Fonts,
     /// Copy a finished mouse selection at once.
     pub copy_on_select: bool,
+    /// Ease the wheel's scrolling instead of jumping.
+    pub smooth_scroll: bool,
     /// The user's `shell` setting: what to run when `command` is empty.
     pub shell: Option<String>,
     /// Whether a shell started directly gets the prompt-mark hooks.
@@ -443,7 +449,7 @@ impl Host {
                 .unwrap_or(false)
         } else if let Some((step, n)) = wheel_steps(delta, line) {
             (0..n).fold(false, |moved, _| {
-                run.app.mouse_wheel(x, y, step, held).unwrap_or(false) | moved
+                run.app.mouse_wheel_glide(x, y, step, held).unwrap_or(false) | moved
             })
         } else {
             false
@@ -680,6 +686,7 @@ impl ApplicationHandler for Host {
                 // light until it does.
                 app.set_theme_choice(self.config.theme);
                 app.set_copy_on_select(self.config.copy_on_select);
+                app.set_smooth_scroll(self.config.smooth_scroll);
                 app.set_appearance(appearance(window.theme()));
                 if let Err(e) = app.set_fonts(&self.config.fonts) {
                     eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
