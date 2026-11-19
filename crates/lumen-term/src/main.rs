@@ -4,6 +4,12 @@
 //! the program headless, waits, and writes a PNG of what the window would show,
 //! which is also how a frame is captured on a machine with no display.
 
+// With the window on Windows this is a program with a window and no console of
+// its own, so no black console window opens behind it. The cost is that the
+// text the command line options print (usage, --show-settings) only reaches a
+// terminal if the output is redirected.
+#![cfg_attr(all(windows, feature = "window"), windows_subsystem = "windows")]
+
 use lumen_term::App;
 use lumen_term::cli::{Options, USAGE};
 use lumen_term::policy::Policy;
