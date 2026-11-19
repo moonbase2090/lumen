@@ -42,6 +42,9 @@ pub struct Typed {
     records: VecDeque<Record>,
     /// Records made so far, so a reader knows when the list has changed.
     made: u64,
+    /// The layer lost its keys or a frame was refused: nothing is recorded
+    /// from then on, whatever comes later.
+    stopped: bool,
 }
 
 impl Default for Typed {
@@ -59,6 +62,7 @@ impl Typed {
             pending: None,
             records: VecDeque::new(),
             made: 0,
+            stopped: false,
         }
     }
 
@@ -66,7 +70,7 @@ impl Typed {
     /// whole, `None` for anything else (a raw key, a handed-off key, a paste
     /// that did not come through the box).
     pub fn wrote(&mut self, line: Option<String>) {
-        if self.pending.is_some() {
+        if self.stopped || self.pending.is_some() {
             // The shell has the line already; this is for what runs next.
             return;
         }
@@ -78,6 +82,9 @@ impl Typed {
 
     /// A sealed boundary frame that applied in order.
     pub fn see(&mut self, frame: &Frame) {
+        if self.stopped {
+            return;
+        }
         match frame {
             Frame::Prompt => {
                 self.dirty = false;
@@ -107,8 +114,10 @@ impl Typed {
     }
 
     /// The layer lost its keys, or a frame was refused: the frames say nothing
-    /// from now on, so nothing more is recorded. What was recorded stays.
+    /// from now on, so nothing more is recorded, for good. A layer does not get
+    /// its keys back, and a refusal is not undone. What was recorded stays.
     pub fn stop(&mut self) {
+        self.stopped = true;
         self.dirty = true;
         self.pending = None;
     }
@@ -228,6 +237,13 @@ mod tests {
         t.wrote(Some("echo two".to_owned()));
         t.stop();
         t.see(&start(2));
+        assert_eq!(typed_lines(&t), [(1, "echo one", None)]);
+        // Later frames and lines do not start it again, and a command end does
+        // not change what was recorded.
+        t.see(&Frame::CommandEnd { id: 1, status: 7 });
+        t.see(&Frame::Prompt);
+        t.wrote(Some("echo three".to_owned()));
+        t.see(&start(3));
         assert_eq!(typed_lines(&t), [(1, "echo one", None)]);
     }
 
