@@ -640,7 +640,7 @@ impl Renderer {
     ) -> Frame {
         let mut frame = Frame::new(content.width, height, self.theme.background);
         if titles.is_empty() {
-            frame.copy_from(content, 0, 0);
+            Self::blit(&mut frame, content, 0, 0);
             return frame;
         }
         let count = u32::try_from(titles.len()).unwrap_or(u32::MAX).max(1);
@@ -698,7 +698,7 @@ impl Renderer {
             1,
             self.theme.divider,
         );
-        frame.copy_from(content, 0, self.cell_h);
+        Self::blit(&mut frame, content, 0, self.cell_h);
         frame
     }
 

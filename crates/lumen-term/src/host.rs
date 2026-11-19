@@ -41,6 +41,14 @@ pub fn pointer_pixels(x: f64, y: f64) -> (u32, u32) {
     (whole(x), whole(y))
 }
 
+/// A pointer row in the active tab's content. A captured press keeps receiving
+/// motion and its release at the top content row while the pointer is over the
+/// terminal-owned tab strip.
+fn content_pointer_y(y: u32, strip_height: u32, captured: bool) -> Option<u32> {
+    y.checked_sub(strip_height)
+        .or_else(|| captured.then_some(0))
+}
+
 /// Most wheel steps one window event sends.
 pub const MAX_WHEEL_STEPS: u32 = 10;
 
@@ -388,6 +396,7 @@ struct Running {
     window: Rc<Window>,
     surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
     tabs: Tabs<Tab>,
+    shown_title: String,
     #[cfg(target_os = "macos")]
     _menu: Option<crate::menu::MenuBar>,
 }
@@ -404,6 +413,9 @@ struct Host {
     ime: ImeFollower,
     /// Whether the operating system says this window owns the focus.
     focused: bool,
+    /// A button whose press began in the active tab's content. Its drag and
+    /// release stay with the content when the pointer crosses the tab strip.
+    mouse_capture: Option<MouseButton>,
 }
 
 impl Host {
@@ -469,7 +481,7 @@ impl Host {
         Ok(app)
     }
 
-    fn update_window_title(run: &Running) {
+    fn update_window_title(run: &mut Running) {
         let Some(tab) = run.tabs.active() else { return };
         let title = if run.tabs.len() > 1 {
             format!(
@@ -481,7 +493,10 @@ impl Host {
         } else {
             tab.title.clone()
         };
-        run.window.set_title(&title);
+        if title != run.shown_title {
+            run.window.set_title(&title);
+            run.shown_title = title;
+        }
     }
 
     fn refocus(&mut self) {
@@ -778,14 +793,12 @@ impl Host {
     fn on_cursor(&mut self, position: PhysicalPosition<f64>) {
         self.pointer = pointer_pixels(position.x, position.y);
         let held = self.held();
+        let captured = self.mouse_capture.is_some();
         let Some(run) = &mut self.state else { return };
         let Some(tab) = run.tabs.active_mut() else {
             return;
         };
-        let redraw = self
-            .pointer
-            .1
-            .checked_sub(tab.app.cell_height())
+        let redraw = content_pointer_y(self.pointer.1, tab.app.cell_height(), captured)
             .is_some_and(|y| tab.app.mouse_move(self.pointer.0, y, held).unwrap_or(false))
             | tab.app.take_selection_redraw();
         if redraw {
@@ -812,7 +825,8 @@ impl Host {
         let Some(tab) = run.tabs.active_mut() else {
             return;
         };
-        let Some(y) = y.checked_sub(tab.app.cell_height()) else {
+        let captured = self.mouse_capture == Some(button);
+        let Some(y) = content_pointer_y(y, tab.app.cell_height(), captured) else {
             return;
         };
         #[cfg(any(target_os = "macos", windows))]
@@ -850,6 +864,11 @@ impl Host {
                 ElementState::Released => tab.app.mouse_release(x, y, b, held),
             }
             .unwrap_or(false);
+            match state {
+                ElementState::Pressed => self.mouse_capture = Some(button),
+                ElementState::Released if captured => self.mouse_capture = None,
+                ElementState::Released => {}
+            }
         }
         redraw |= tab.app.take_selection_redraw();
         let copy = tab.app.take_copy_on_select();
@@ -943,6 +962,7 @@ impl ApplicationHandler for Host {
                         app,
                         title: crate::title::window_title(None),
                     }),
+                    shown_title: crate::title::window_title(None),
                     #[cfg(target_os = "macos")]
                     _menu: menu,
                 });
@@ -1044,9 +1064,22 @@ pub fn run(config: Config) -> Result<(), String> {
         pointer: (0, 0),
         ime: ImeFollower::default(),
         focused: false,
+        mouse_capture: None,
     };
     event_loop
         .run_app(&mut host)
         .map_err(|e| format!("event loop: {e}"))?;
     host.error.map_or(Ok(()), Err)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::content_pointer_y;
+
+    #[test]
+    fn a_captured_pointer_keeps_the_top_content_row_over_the_tab_strip() {
+        assert_eq!(content_pointer_y(25, 20, false), Some(5));
+        assert_eq!(content_pointer_y(10, 20, false), None);
+        assert_eq!(content_pointer_y(10, 20, true), Some(0));
+    }
 }
