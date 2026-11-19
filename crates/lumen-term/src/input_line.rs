@@ -133,6 +133,12 @@ pub struct InputLine {
     /// The last write was for the shell's own line (see
     /// [`InputLine::wrote_for_shell`]).
     for_shell: bool,
+    /// The last write was the box's own text sent whole with its Enter (see
+    /// [`InputLine::take_whole`]).
+    whole: bool,
+    /// On a sealed layer, what Up recalls in place of the box's own history:
+    /// the lines recorded for sealed commands, oldest first.
+    recall: Option<Vec<String>>,
 }
 
 /// How long keys right after the box's own Enter go to the shell as typeahead
@@ -160,6 +166,8 @@ impl Default for InputLine {
             history: Vec::new(),
             history_at: None,
             for_shell: false,
+            whole: false,
+            recall: None,
         }
     }
 }
@@ -216,6 +224,27 @@ impl InputLine {
     #[must_use]
     pub fn wrote_for_shell(&self) -> bool {
         self.for_shell
+    }
+
+    /// Whether the write just made was the box's own text, sent whole with its
+    /// Enter: Enter on the box's text, or a held choice sent as commands or
+    /// joined. Asking clears it, so it answers for one write only.
+    pub fn take_whole(&mut self) -> bool {
+        std::mem::take(&mut self.whole)
+    }
+
+    /// Recall these lines with Up and Down in place of the box's own history,
+    /// or go back to the box's own history with `None`. A sealed layer recalls
+    /// what was recorded for its sealed commands; a layer without keys has the
+    /// box's history only. Recalling starts again from the newest line.
+    pub fn set_recall(&mut self, lines: Option<Vec<String>>) {
+        self.recall = lines;
+        self.history_at = None;
+    }
+
+    /// The lines Up and Down move through, oldest first.
+    fn recall_list(&self) -> &[String] {
+        self.recall.as_deref().unwrap_or(&self.history)
     }
 
     /// The held multi-line text, while a choice is pending.
@@ -328,6 +357,7 @@ impl InputLine {
         self.remember(&held);
         self.clear();
         self.note_enter(b"\r");
+        self.whole = true;
         Outcome::Write(out)
     }
 
@@ -343,6 +373,7 @@ impl InputLine {
         let mut out = joined.into_bytes();
         out.push(b'\r');
         self.note_enter(b"\r");
+        self.whole = true;
         Outcome::Write(out)
     }
 
@@ -541,6 +572,7 @@ impl InputLine {
         self.remember(&text);
         self.clear();
         self.note_enter(b"\r");
+        self.whole = true;
         Outcome::Write(out)
     }
 
@@ -643,8 +675,8 @@ impl InputLine {
         let at = match self.history_at {
             Some(0) => return Outcome::None,
             Some(i) => i - 1,
-            None if self.history.is_empty() => return Outcome::None,
-            None => self.history.len() - 1,
+            None if self.recall_list().is_empty() => return Outcome::None,
+            None => self.recall_list().len() - 1,
         };
         self.load(at);
         Outcome::Redraw
@@ -667,7 +699,7 @@ impl InputLine {
         }
         match self.history_at {
             None => Outcome::None,
-            Some(i) if i + 1 < self.history.len() => {
+            Some(i) if i + 1 < self.recall_list().len() => {
                 self.load(i + 1);
                 Outcome::Redraw
             }
@@ -679,7 +711,11 @@ impl InputLine {
     }
 
     fn load(&mut self, at: usize) {
-        self.text = self.history[at].chars().collect();
+        self.text = self
+            .recall_list()
+            .get(at)
+            .map(|l| l.chars().collect())
+            .unwrap_or_default();
         self.caret = self.text.len();
         self.history_at = Some(at);
     }

@@ -77,6 +77,7 @@ pub mod shellint;
 pub mod strip;
 pub mod theme_file;
 pub mod title;
+pub mod typed;
 mod writer;
 
 pub use app::App;
