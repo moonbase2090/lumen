@@ -5,7 +5,6 @@ use crate::layer::{Context, Layer};
 use crate::pty::{Pty, SpawnError};
 #[cfg(feature = "colour-replies")]
 use crate::raster::Theme;
-#[cfg(feature = "colour-replies")]
 use crate::reply::Replies;
 use crate::shellint::ShellOptions;
 #[cfg(all(unix, feature = "multiplexer-client"))]
@@ -97,7 +96,6 @@ pub struct Session {
     marks: crate::marks::MarkScanner,
     clock: Instant,
     tmux_or_screen: bool,
-    #[cfg(feature = "colour-replies")]
     replies: Replies,
 }
 
@@ -113,7 +111,6 @@ impl Session {
             shell_files: None,
             marks: crate::marks::MarkScanner::new(),
             clock: Instant::now(),
-            #[cfg(feature = "colour-replies")]
             replies: Replies::new(crate::design::theme()),
             // The program inherits this environment, so these are the layer's.
             tmux_or_screen: std::env::var_os("TMUX").is_some() || std::env::var_os("STY").is_some(),
@@ -509,15 +506,12 @@ impl Session {
             })
             .flatten()
             .collect();
-        #[cfg(feature = "colour-replies")]
         if !reports.is_empty() {
             let reply = self.replies.answer_cursor(&reports, ctx.now_ms);
             if !reply.is_empty() {
                 self.pty.send_reply(reply);
             }
         }
-        #[cfg(not(feature = "colour-replies"))]
-        drop(reports);
         bytes.len()
     }
 

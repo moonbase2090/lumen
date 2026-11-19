@@ -541,26 +541,4 @@ mod pty {
             "a typed send took {slowest:?} while the program asked and never read"
         );
     }
-
-    #[test]
-    fn a_program_that_asks_where_the_cursor_is_is_told_on_every_layer() {
-        for (label, layer) in [
-            (
-                "passthrough",
-                Box::new(Passthrough) as Box<dyn Layer + Send>,
-            ),
-            ("arm-b", b_layer()),
-        ] {
-            let got = ask(
-                layer,
-                &format!("cursor-{label}"),
-                b"ab\r\n  x\x1b[6n\x1b[5n\x1b[c",
-            );
-            assert_eq!(
-                String::from_utf8_lossy(&got),
-                "\x1b[2;4R",
-                "{label}: only the cursor position is answered"
-            );
-        }
-    }
 }

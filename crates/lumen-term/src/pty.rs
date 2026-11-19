@@ -237,7 +237,6 @@ impl Pty {
 
     /// Queue the terminal's own reply to the program. Never blocks. Returns
     /// whether it was queued; it is not when too many replies already wait.
-    #[cfg(feature = "colour-replies")]
     pub fn send_reply(&self, bytes: Vec<u8>) -> bool {
         self.input.reply(bytes)
     }
