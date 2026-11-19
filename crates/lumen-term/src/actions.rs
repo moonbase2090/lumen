@@ -10,6 +10,12 @@
 /// Something the window does for the user, apart from typing into the program.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
+    /// Open another shell in a new tab and show it.
+    NewTab,
+    /// Show the tab to the right, wrapping at the end.
+    NextTab,
+    /// Show the tab to the left, wrapping at the start.
+    PreviousTab,
     /// Copy the selected text to the system clipboard.
     Copy,
     /// Paste the system clipboard's text into the program.
@@ -84,6 +90,9 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 return None;
             }
             match (key, held.shift) {
+                ('t', false) => Some(Action::NewTab),
+                (']' | '}', true) => Some(Action::NextTab),
+                ('[' | '{', true) => Some(Action::PreviousTab),
                 ('c', false) => Some(Action::Copy),
                 ('v', false) => Some(Action::Paste),
                 ('a', false) => Some(Action::SelectAll),
@@ -103,6 +112,10 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 return None;
             }
             match key {
+                't' => Some(Action::NewTab),
+                ']' | '}' => Some(Action::NextTab),
+                '[' | '{' => Some(Action::PreviousTab),
+                'w' => Some(Action::Close),
                 'c' => Some(Action::Copy),
                 'v' => Some(Action::Paste),
                 'a' => Some(Action::SelectAll),
@@ -182,7 +195,7 @@ mod tests {
             control: true,
             ..Held::default()
         };
-        for key in ['v', 'w', 'c', 'q', '=', '-', '0', 'f', 'g'] {
+        for key in ['v', 'w', 'c', 'q', '=', '-', '0', 'f', 'g', 't', '[', ']'] {
             assert_eq!(action_for(Platform::Other, key, ctrl), None, "{key}");
         }
         assert_eq!(
@@ -198,7 +211,10 @@ mod tests {
             Some(Action::FindNext)
         );
         assert_eq!(action_for(Platform::Other, 'q', CTRL_SHIFT), None);
-        assert_eq!(action_for(Platform::Other, 'w', CTRL_SHIFT), None);
+        assert_eq!(
+            action_for(Platform::Other, 'w', CTRL_SHIFT),
+            Some(Action::Close)
+        );
     }
 
     #[test]

@@ -810,6 +810,13 @@ impl App {
         self.renderer.cell().1
     }
 
+    /// Add the terminal-owned tab strip above this tab's contents.
+    #[must_use]
+    pub fn view_with_tabs(&self, titles: &[String], active: usize, height: u32) -> Frame {
+        self.renderer
+            .with_tabs(&self.view(), titles, active, height)
+    }
+
     /// The content area's height in pixels, the columns it is drawn in and the
     /// height of the flow of blocks it shows.
     fn content_metrics(&self) -> (u32, usize, u32) {
@@ -1527,6 +1534,7 @@ impl App {
         }
         match action {
             Action::Quit | Action::Close => Outcome::Exit,
+            Action::NewTab | Action::NextTab | Action::PreviousTab => Outcome::Nothing,
             Action::Find => {
                 self.find_open();
                 Outcome::Redraw

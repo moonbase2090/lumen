@@ -75,6 +75,8 @@ pub mod settings;
 pub mod shell;
 pub mod shellint;
 pub mod strip;
+#[cfg(feature = "window")]
+mod tabs;
 pub mod theme_file;
 pub mod title;
 pub mod typed;

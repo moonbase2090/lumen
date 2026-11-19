@@ -24,6 +24,9 @@ use crate::APP_NAME;
 #[must_use]
 pub const fn id_of(action: Action) -> &'static str {
     match action {
+        Action::NewTab => "new-tab",
+        Action::NextTab => "next-tab",
+        Action::PreviousTab => "previous-tab",
         Action::Copy => "copy",
         Action::Paste => "paste",
         Action::SelectAll => "select-all",
@@ -42,6 +45,9 @@ pub const fn id_of(action: Action) -> &'static str {
 #[must_use]
 pub fn action_of(id: &str) -> Option<Action> {
     [
+        Action::NewTab,
+        Action::NextTab,
+        Action::PreviousTab,
         Action::Copy,
         Action::Paste,
         Action::SelectAll,
@@ -142,10 +148,24 @@ impl MenuBar {
             "Window",
             true,
             &[
+                &item(Action::NewTab, "New Tab", Code::KeyT),
+                &item_with(
+                    Action::PreviousTab,
+                    "Previous Tab",
+                    Modifiers::META | Modifiers::SHIFT,
+                    Code::BracketLeft,
+                ),
+                &item_with(
+                    Action::NextTab,
+                    "Next Tab",
+                    Modifiers::META | Modifiers::SHIFT,
+                    Code::BracketRight,
+                ),
+                &PredefinedMenuItem::separator(),
                 &PredefinedMenuItem::minimize(None),
                 &PredefinedMenuItem::maximize(None),
                 &PredefinedMenuItem::separator(),
-                &item(Action::Close, "Close Window", Code::KeyW),
+                &item(Action::Close, "Close Tab", Code::KeyW),
             ],
         )
         .map_err(err)?;

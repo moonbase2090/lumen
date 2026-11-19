@@ -628,6 +628,80 @@ impl Renderer {
         self.text_line_marked(frame, x, y, text, colour, &[]);
     }
 
+    /// Put `content` below a terminal-owned tab strip. Each tab gets the same
+    /// share of the width; its number stays visible when its title is clipped.
+    #[must_use]
+    pub fn with_tabs(
+        &self,
+        content: &Frame,
+        titles: &[String],
+        active: usize,
+        height: u32,
+    ) -> Frame {
+        let mut frame = Frame::new(content.width, height, self.theme.background);
+        if titles.is_empty() {
+            Self::blit(&mut frame, content, 0, 0);
+            return frame;
+        }
+        let count = u32::try_from(titles.len()).unwrap_or(u32::MAX).max(1);
+        for (index, title) in titles.iter().enumerate() {
+            let index = u32::try_from(index).unwrap_or(count - 1);
+            let left = u64::from(index) * u64::from(content.width) / u64::from(count);
+            let right = u64::from(index + 1) * u64::from(content.width) / u64::from(count);
+            let (left, right) = (
+                u32::try_from(left).unwrap_or(0),
+                u32::try_from(right).unwrap_or(content.width),
+            );
+            let width = right.saturating_sub(left);
+            let chosen = usize::try_from(index).ok() == Some(active);
+            frame.fill(
+                left,
+                0,
+                width,
+                self.cell_h,
+                if chosen {
+                    self.theme.editor
+                } else {
+                    self.theme.margin
+                },
+            );
+            if right < content.width {
+                frame.fill(
+                    right.saturating_sub(1),
+                    0,
+                    1,
+                    self.cell_h,
+                    self.theme.divider,
+                );
+            }
+            let cells = width / self.cell_w;
+            if cells > 2 {
+                let label = format!("{} {title}", index + 1);
+                let shown = clip(&label, usize::try_from(cells - 2).unwrap_or(0));
+                self.text_line(
+                    &mut frame,
+                    left + self.cell_w,
+                    0,
+                    &shown,
+                    if chosen {
+                        self.theme.foreground
+                    } else {
+                        self.theme.margin_text
+                    },
+                );
+            }
+        }
+        frame.fill(
+            0,
+            self.cell_h.saturating_sub(1),
+            content.width,
+            1,
+            self.theme.divider,
+        );
+        Self::blit(&mut frame, content, 0, self.cell_h);
+        frame
+    }
+
     /// As [`text_line`](Self::text_line), with the characters in `marks` drawn as
     /// find matches.
     fn text_line_marked(
