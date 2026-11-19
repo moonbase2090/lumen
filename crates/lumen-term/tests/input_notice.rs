@@ -35,23 +35,30 @@ fn grid_text(app: &App) -> String {
         .join("\n")
 }
 
+/// Wait for `done`, which turns true on the program's output: after each check
+/// the test blocks until the program writes again. The bound only ends a hung
+/// test; there is no polling interval.
 fn pump_until(app: &mut App, done: impl Fn(&App) -> bool) -> bool {
     let end = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < end {
-        app.pump();
+    loop {
         if done(app) {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(20));
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        app.pump_wait(left);
     }
-    false
 }
 
 /// A program that puts its terminal in raw mode, says it is ready, and then
 /// never reads: what a program busy elsewhere looks like to the user typing.
-/// The sleep runs in a job of its own, so it holds the terminal and the keys
-/// go to it, not to the input box.
-const NEVER_READS: &str = "stty raw -echo; echo READY; set -m; sleep 60";
+/// The job runs in a process group of its own, so it holds the terminal and
+/// the keys go to it, not to the input box. It says it is ready from inside
+/// that job, so once "READY" is drawn the job is already in front and nothing
+/// more changes without output.
+const NEVER_READS: &str = "stty raw -echo; set -m; sh -c 'echo READY; exec sleep 60'";
 
 /// Fill the program's input until the app refuses, and return how long the
 /// slowest send took.
