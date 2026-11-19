@@ -290,3 +290,56 @@ fn input_after_the_program_has_gone_is_not_silent_either() {
         "{text:?}"
     );
 }
+
+/// Takes OS notifications and drops them: this test is about toasts.
+struct Drop;
+
+impl lumen_term::notify::OsSink for Drop {
+    fn send(&mut self, _: &lumen_term::notify::OsNotification) {}
+}
+
+#[test]
+fn a_click_on_a_program_toast_leaves_the_input_notice() {
+    // The program asks for a notification, then stops reading.
+    let mut app = start(&format!(
+        "printf '\\033]9;from-the-program\\007'; {NEVER_READS}"
+    ));
+    app.configure_notifications(
+        Settings {
+            allow_unsigned: true,
+            ..Settings::default()
+        },
+        Place::Local,
+        Box::new(Drop),
+    );
+    assert!(pump_until(&mut app, |a| grid_text(a).contains("READY")
+        && a.notifier().shown().len() == 1));
+    type_until_refused(&mut app);
+    let texts = |a: &App| -> Vec<String> { a.toasts().iter().map(|t| t.text.clone()).collect() };
+    let shown = texts(&app);
+    assert_eq!(shown.len(), 2, "{shown:?}");
+    assert!(shown[0].starts_with("Input not sent"), "{shown:?}");
+    assert!(
+        shown[1].contains(lumen_term::app::PANE_LABEL),
+        "the program's toast: {shown:?}"
+    );
+    // A point on the program's toast, the second one down.
+    let (lay, r) = geometry();
+    let note = notification_area(&lay);
+    let (cw, ch) = r.cell();
+    let hit = (note.y * ch..(note.y + note.h) * ch)
+        .flat_map(|y| (note.x * cw..(note.x + note.w) * cw).map(move |x| (x, y)))
+        .find(|(x, y)| app.click_would_hit(*x, *y) == Some(1));
+    let Some((x, y)) = hit else {
+        unreachable!("the program's toast is drawn below the notice")
+    };
+    assert!(
+        app.click(x, y),
+        "a press on the program's toast dismisses it"
+    );
+    assert_eq!(app.notifier().shown().len(), 0, "the program's toast went");
+    assert!(app.input_refused(), "the input notice stays");
+    let left = texts(&app);
+    assert_eq!(left.len(), 1, "{left:?}");
+    assert!(left[0].starts_with("Input not sent"), "{left:?}");
+}
