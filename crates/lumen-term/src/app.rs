@@ -583,12 +583,12 @@ impl App {
     /// does with what the program wrote.
     pub fn route(&mut self, events: &[Event]) {
         for event in events {
-            if let Event::Sealed { kind, body, at } = event {
+            if let Event::Sealed { kind, body } = event {
                 let seen = self.boundaries.see(*kind, body);
                 match seen {
                     Seen::Applied => {
                         if let Ok(frame) = lumen_sealed::types::parse(*kind, body) {
-                            self.typed.see_at(&frame, *at);
+                            self.typed.see(&frame);
                         }
                     }
                     Seen::Refused => self.typed.stop(),
@@ -1689,6 +1689,28 @@ impl App {
         self.typed.records().iter().cloned().collect()
     }
 
+    /// The grid line `text` will end on once the shell draws it: it starts
+    /// where the shell's cursor is now, just after its prompt, and wraps at the
+    /// grid's width. Read when the box sends a line whole, before the shell
+    /// has run anything, so no output of the command can have moved it.
+    fn typed_line_end(&self, text: &str) -> Option<crate::grid::Line> {
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return None;
+        };
+        let start = live.line_above_cursor(0)?;
+        let columns = live.size().0.max(1);
+        let mut rows = 0usize;
+        for (i, part) in text.split('\n').enumerate() {
+            let from = if i == 0 { live.cursor().column } else { 0 };
+            let width: usize = part
+                .chars()
+                .map(|c| prismattyc_core::grapheme_display_width(c, &[]))
+                .sum();
+            rows += (from + width).max(1).div_ceil(columns);
+        }
+        Some(start.down(u64::try_from(rows.saturating_sub(1)).ok()?))
+    }
+
     /// The text of the live grid row a record's typed line ended on, while the
     /// row is still there and the history has not been rewritten since.
     #[must_use]
@@ -1946,7 +1968,8 @@ impl App {
             // the box; anything else on the shell's line means no record.
             let line =
                 (whole && enters == 1).then(|| crate::input_line::unsent_text(&[bytes.to_vec()]));
-            self.typed.wrote(line);
+            let at = line.as_deref().and_then(|text| self.typed_line_end(text));
+            self.typed.wrote_at(line, at);
         }
         self.note_input(&sent);
         sent

@@ -50,9 +50,6 @@ pub enum Event {
         kind: u8,
         /// The decrypted payload.
         body: Vec<u8>,
-        /// The line the live grid's cursor was on where the frame came in
-        /// the stream; `None` on the alternate screen.
-        at: Option<crate::grid::Line>,
     },
 }
 
@@ -308,13 +305,7 @@ impl Document {
                 Piece::Notice(n) => self.notices.push(n),
                 Piece::Sealed { kind, body } => {
                     self.sealed.push((kind, body.len()));
-                    // Only the grid block the output is going to now: after a
-                    // rich block, the next grid output starts a new block.
-                    let at = match self.blocks.last() {
-                        Some(Block::Grid(g)) => g.line_above_cursor(0),
-                        _ => None,
-                    };
-                    self.events.push(Event::Sealed { kind, body, at });
+                    self.events.push(Event::Sealed { kind, body });
                 }
             }
         }

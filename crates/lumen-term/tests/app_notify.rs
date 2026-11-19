@@ -175,7 +175,6 @@ fn grant() -> Event {
     Event::Sealed {
         kind: 0x20,
         body: vec![1, 8],
-        at: None,
     }
 }
 
@@ -183,7 +182,6 @@ fn notification(text: &str) -> Event {
     Event::Sealed {
         kind: 0x22,
         body: string(text),
-        at: None,
     }
 }
 

@@ -847,3 +847,24 @@ fn a_layer_without_keys_draws_no_mark() {
         assert_eq!(gutter_ink(&frame, row * ch), 0, "gutter row {row}");
     }
 }
+
+#[test]
+fn a_typed_line_that_wraps_is_marked_on_its_last_row() {
+    let Some(mut app) = start("sealed-input-wrap") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    // Longer than the grid is wide, so the shell draws it over two rows.
+    let long = format!("echo {}''-end", "w".repeat(130));
+    run(&mut app, &long, "-end");
+    let records = app.typed_records();
+    assert_eq!(records.len(), 1);
+    let row = app
+        .typed_row_text(&records[0])
+        .unwrap_or_else(|| unreachable!("the record has a row: {}", grid_text(&app)));
+    assert!(
+        row.ends_with("''-end") && !row.starts_with("echo"),
+        "the last row of the typed line: {row:?}"
+    );
+    assert_eq!(app.typed_marks().len(), 1);
+}

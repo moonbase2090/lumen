@@ -63,13 +63,13 @@ pub struct Line {
 }
 
 impl Line {
-    /// The line `n` above this one, or `None` above the first line.
+    /// The line `n` below this one.
     #[must_use]
-    pub fn up(self, n: u64) -> Option<Self> {
-        Some(Self {
-            number: self.number.checked_sub(n)?,
+    pub fn down(self, n: u64) -> Self {
+        Self {
+            number: self.number.saturating_add(n),
             ..self
-        })
+        }
     }
 }
 

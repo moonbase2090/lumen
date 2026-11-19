@@ -170,7 +170,7 @@ fn sealed(events: &[Event]) -> Vec<(u8, Vec<u8>)> {
     events
         .iter()
         .filter_map(|e| match e {
-            Event::Sealed { kind, body, .. } => Some((*kind, body.clone())),
+            Event::Sealed { kind, body } => Some((*kind, body.clone())),
             _ => None,
         })
         .collect()
