@@ -99,3 +99,25 @@ fn the_alternate_screen_has_no_line_numbers_and_the_primary_keeps_its_own() {
     block.feed(b"\x1b[?1049l");
     assert_eq!(text_of(&block, line).as_deref(), Some("anchored"));
 }
+
+#[test]
+fn a_line_is_measured_in_the_terminals_own_clusters() {
+    // Plain text: ends on the row it fills, wraps one character later.
+    assert_eq!(GridBlock::rows_down(10, 0, "abcdefghij"), 0);
+    assert_eq!(GridBlock::rows_down(10, 0, "abcdefghijk"), 1);
+    assert_eq!(GridBlock::rows_down(10, 2, "abcdefgh"), 0);
+    assert_eq!(GridBlock::rows_down(10, 2, "abcdefghi"), 1);
+    // A line break starts the next part at the left edge.
+    assert_eq!(GridBlock::rows_down(10, 8, "ab\ncd"), 1);
+    // One family emoji is five scalars joined by zero-width joiners: one
+    // grapheme two cells wide. It fits in the last two columns; counted a
+    // scalar at a time it would not.
+    assert_eq!(
+        GridBlock::rows_down(10, 8, "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"),
+        0
+    );
+    // A flag is two regional indicators: one grapheme, two cells.
+    assert_eq!(GridBlock::rows_down(10, 8, "\u{1F1FA}\u{1F1F8}"), 0);
+    // A wide character does not fit in the last column: it starts the next row.
+    assert_eq!(GridBlock::rows_down(10, 9, "\u{4E2D}"), 1);
+}

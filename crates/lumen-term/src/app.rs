@@ -1237,16 +1237,16 @@ impl App {
             self.extend_selection(x, y);
             return Ok(false);
         }
+        // A change of mark under the pointer asks for a redraw; a motion the
+        // program asked to be told about is still reported.
         let hover = self.typed_mark_at(x, y);
-        if hover != self.typed_hover {
-            self.typed_hover = hover;
-            return Ok(true);
-        }
+        let hover_changed = hover != self.typed_hover;
+        self.typed_hover = hover;
         let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes()) else {
-            return Ok(false);
+            return Ok(hover_changed);
         };
         let report = self.mouse.motion(modes, held, cell);
-        self.send_report(report)
+        Ok(self.send_report(report)? || hover_changed)
     }
 
     /// The wheel turned one step with the pointer at pixel `(x, y)`.
@@ -1690,25 +1690,17 @@ impl App {
     }
 
     /// The grid line `text` will end on once the shell draws it: it starts
-    /// where the shell's cursor is now, just after its prompt, and wraps at the
-    /// grid's width. Read when the box sends a line whole, before the shell
-    /// has run anything, so no output of the command can have moved it.
+    /// where the shell's cursor is now, just after its prompt, and wraps the
+    /// way this terminal wraps it ([`rows_down`](crate::grid::GridBlock::rows_down)). Read when the box
+    /// sends a line whole, before the shell has run anything, so no output of
+    /// the command can have moved it.
     fn typed_line_end(&self, text: &str) -> Option<crate::grid::Line> {
         let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
             return None;
         };
         let start = live.line_above_cursor(0)?;
-        let columns = live.size().0.max(1);
-        let mut rows = 0usize;
-        for (i, part) in text.split('\n').enumerate() {
-            let from = if i == 0 { live.cursor().column } else { 0 };
-            let width: usize = part
-                .chars()
-                .map(|c| prismattyc_core::grapheme_display_width(c, &[]))
-                .sum();
-            rows += (from + width).max(1).div_ceil(columns);
-        }
-        Some(start.down(u64::try_from(rows.saturating_sub(1)).ok()?))
+        let rows = crate::grid::GridBlock::rows_down(live.size().0, live.cursor().column, text);
+        Some(start.down(u64::try_from(rows).ok()?))
     }
 
     /// The text of the live grid row a record's typed line ended on, while the
@@ -1720,6 +1712,15 @@ impl App {
         };
         let row = live.row_of(record.line?)?;
         live.flow_row_text(row)
+    }
+
+    /// The column past the last drawn cell of the row a record's typed line
+    /// ended on, while that row is still there.
+    fn typed_row_end(&self, record: &crate::typed::Record) -> Option<usize> {
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return None;
+        };
+        live.flow_row_end(live.row_of(record.line?)?)
     }
 
     /// The typed-line marks in view, top down: the pixel row each is drawn on
@@ -2385,14 +2386,14 @@ impl App {
             self.renderer.paint_typed_mark(&mut frame, *top);
         }
         if let Some((top, index)) = marks.iter().find(|(_, i)| Some(*i) == self.typed_hover) {
+            // One cell past the row's last drawn cell, counted in cells, so
+            // wide characters are counted as wide as they are drawn.
             let after = self
                 .typed
                 .records()
                 .get(*index)
-                .and_then(|r| self.typed_row_text(r))
-                .map_or(0, |t| {
-                    u32::try_from(t.chars().count() + 1).unwrap_or(u32::MAX)
-                });
+                .and_then(|r| self.typed_row_end(r))
+                .map_or(0, |end| u32::try_from(end + 1).unwrap_or(u32::MAX));
             self.renderer.paint_typed_tip(&mut frame, *top, after);
         }
         let mut frame = frame.viewport(self.width, self.height, self.renderer.theme().background);

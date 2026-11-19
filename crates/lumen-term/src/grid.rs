@@ -171,6 +171,44 @@ impl GridBlock {
             .flatten()
     }
 
+    /// The column just past the last cell that is not blank in row `index`
+    /// ([`row_of`](Self::row_of) order): a wide character's second cell counts
+    /// as its own. 0 for a blank row, `None` past the end.
+    #[must_use]
+    pub fn flow_row_end(&self, index: usize) -> Option<usize> {
+        let history = self.history_rows();
+        let cells = if index < history {
+            self.history_row(index)?
+        } else {
+            self.emulator.screen().row(index - history)?
+        };
+        let last = cells
+            .iter()
+            .rposition(|c| c.wide_cont || c.character != ' ');
+        Some(last.map_or(0, |i| i + 1))
+    }
+
+    /// How many rows below the one it starts on `text` ends, when a screen
+    /// `columns` wide draws it from `column`, the way this terminal draws it:
+    /// the same emulator, so the same grapheme clusters and widths. A line
+    /// break in `text` starts the next part at the left edge. Text that ends
+    /// exactly at the right edge ends on that row.
+    #[must_use]
+    pub fn rows_down(columns: usize, column: usize, text: &str) -> usize {
+        let columns = columns.max(1);
+        let parts = text.split('\n').count();
+        // Room for the text at one cell per row at worst, so nothing scrolls.
+        let rows = (text.chars().count() + column)
+            .div_ceil(columns)
+            .saturating_add(parts)
+            .saturating_add(1)
+            .min(1 << 16);
+        let mut scratch = Emulator::new(columns, rows, 0);
+        scratch.feed(format!("\x1b[1;{}H", column.min(columns - 1) + 1).as_bytes());
+        scratch.feed(text.replace('\n', "\r\n").as_bytes());
+        scratch.screen().cursor().row
+    }
+
     /// The text of row `index` in [`row_of`](Self::row_of) order, trailing
     /// blanks removed.
     #[must_use]

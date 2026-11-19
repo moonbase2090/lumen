@@ -868,3 +868,105 @@ fn a_typed_line_that_wraps_is_marked_on_its_last_row() {
     );
     assert_eq!(app.typed_marks().len(), 1);
 }
+
+/// The live grid's width in columns, and the column the shell's cursor is on.
+fn grid_width_and_column(app: &App) -> (usize, usize) {
+    match app.session().document().blocks().last() {
+        Some(lumen_term::Block::Grid(g)) => (g.size().0, g.cursor().column),
+        _ => unreachable!("the live block is a grid"),
+    }
+}
+
+#[test]
+fn a_joined_emoji_near_the_edge_does_not_move_the_mark_to_the_next_row() {
+    let Some(mut app) = start("sealed-input-zwj") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    // A family emoji: five scalars, one grapheme, two cells. The line is made
+    // to end exactly at the right edge, so it fits on one row; counted a
+    // scalar at a time it would seem to run onto the next.
+    let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    let (columns, column) = grid_width_and_column(&app);
+    let fill = columns - column - "echo ".len() - 2 - "''-zwj".len();
+    let text = format!("echo {}{family}''-zwj", "a".repeat(fill));
+    run(&mut app, &text, "-zwj");
+    let records = app.typed_records();
+    assert_eq!(records.len(), 1);
+    let row = app
+        .typed_row_text(&records[0])
+        .unwrap_or_else(|| unreachable!("the record has a row: {}", grid_text(&app)));
+    assert!(
+        row.starts_with("echo a") && row.ends_with("''-zwj"),
+        "the whole line, on the row the mark is on: {row:?}\n{}",
+        grid_text(&app)
+    );
+}
+
+#[test]
+fn the_tip_counts_wide_characters_in_cells() {
+    let Some(mut app) = start("sealed-input-wide") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    // Six characters two cells wide: the line is 24 cells, 18 characters.
+    let line = "echo \u{4E2D}\u{6587}\u{4E2D}\u{6587}\u{4E2D}\u{6587}''-wide";
+    run(&mut app, line, "-wide");
+    let marks = app.typed_marks();
+    assert_eq!(marks.len(), 1, "{marks:?}");
+    let (top, _) = marks[0];
+    let plain = app.view();
+    let (cw, ch) = cell();
+    assert_eq!(
+        app.mouse_move(cw, top + ch / 2, Held::default()).ok(),
+        Some(true)
+    );
+    let hovered = app.view();
+    capture(&hovered, "typed-mark-hover-wide.png");
+    assert_ne!(hovered, plain, "the tip is drawn");
+    let left = cw * lumen_term::GUTTER_COLUMNS;
+    let right = left + cw * 25;
+    let covered = (top..top + ch)
+        .flat_map(|y| (left..right).map(move |x| (x, y)))
+        .filter(|&(x, y)| hovered.pixel(x, y) != plain.pixel(x, y))
+        .count();
+    assert_eq!(covered, 0, "the tip leaves all 24 cells of the line alone");
+}
+
+#[test]
+fn leaving_a_mark_for_the_grid_still_reports_the_motion_to_a_program_that_asked() {
+    let Some(mut app) = start("sealed-input-motion") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    run(&mut app, "echo mark''-first", "mark-first");
+    // A program on the primary screen that asks for every motion (1003, SGR)
+    // and prints the start of the first report it reads.
+    line(
+        &mut app,
+        "printf '\\033[?1003h\\033[?1006h'; echo wait''ing; read -k 6 r; printf '\\033[?1003l\\033[?1006l'; print -r -- got-${r[2,6]}",
+    );
+    assert!(until(&mut app, |a| grid_text(a).contains("waiting\n")));
+    let marks = app.typed_marks();
+    let (top, _) = marks[0];
+    let (cw, ch) = cell();
+    assert_eq!(
+        app.mouse_move(cw, top + ch / 2, Held::default()).ok(),
+        Some(true),
+        "onto the mark: the tip"
+    );
+    assert_eq!(app.typed_hover(), Some(0));
+    // Off the mark, onto a cell of the grid: the tip goes, and the motion is
+    // reported all the same.
+    let on_grid = (cw * (lumen_term::GUTTER_COLUMNS + 6), top + ch * 3 + ch / 2);
+    assert_eq!(
+        app.mouse_move(on_grid.0, on_grid.1, Held::default()).ok(),
+        Some(true)
+    );
+    assert_eq!(app.typed_hover(), None);
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("got-[<35;")),
+        "the program read the motion report: {}",
+        grid_text(&app)
+    );
+}
