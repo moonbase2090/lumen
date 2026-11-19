@@ -10,6 +10,8 @@
 //! the box's text, in one write, so a control key is never swallowed.
 //! The routing here returns the bytes to write; it neither draws nor writes.
 
+use std::time::{Duration, Instant};
+
 use crate::keys::{Key, Mods, bytes_in};
 use crate::modes::KeyModes;
 use crate::paste::{Decision, judge};
@@ -116,12 +118,15 @@ enum Typeahead {
 }
 
 /// The box's text and what it needs to route keys.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct InputLine {
     text: Vec<char>,
     caret: usize,
     handed_off: bool,
     typeahead: Typeahead,
+    /// A line was just sent with Enter and the shell may not have read it yet.
+    sent: Option<Sent>,
+    settle: Duration,
     held: Option<String>,
     history: Vec<String>,
     history_at: Option<usize>,
@@ -130,11 +135,66 @@ pub struct InputLine {
     for_shell: bool,
 }
 
+/// How long keys right after the box's own Enter go to the shell as typeahead
+/// when the tty never shows the shell leaving and coming back.
+const SETTLE: Duration = Duration::from_millis(300);
+
+/// An Enter the box sent, until the shell shows it has read the line.
+#[derive(Debug, Clone, Copy)]
+struct Sent {
+    at: Instant,
+    /// The tty showed the shell leave its line editor (it is running the line).
+    left: bool,
+}
+
+impl Default for InputLine {
+    fn default() -> Self {
+        Self {
+            text: Vec::new(),
+            caret: 0,
+            handed_off: false,
+            typeahead: Typeahead::None,
+            sent: None,
+            settle: SETTLE,
+            held: None,
+            history: Vec::new(),
+            history_at: None,
+            for_shell: false,
+        }
+    }
+}
+
 impl InputLine {
     /// An empty box.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// An empty box that waits `settle` after its own Enter, in place of the
+    /// default, before it trusts a shell that has not been seen to leave.
+    #[must_use]
+    pub fn with_settle(settle: Duration) -> Self {
+        Self {
+            settle,
+            ..Self::default()
+        }
+    }
+
+    /// The shell has not yet read the line the box sent: keys now are its
+    /// typeahead, whatever the tty says, because the tty still shows the
+    /// prompt that is about to end.
+    fn awaiting_shell(&self) -> bool {
+        self.sent
+            .is_some_and(|s| s.left || s.at.elapsed() < self.settle)
+    }
+
+    /// The line was sent and the tty has not yet shown the shell take it. Keys
+    /// now are the shell's typeahead; once the shell has left, whatever runs
+    /// takes its own keys.
+    fn before_shell_reads(&self) -> bool {
+        self.sent
+            .is_some_and(|s| !s.left && s.at.elapsed() < self.settle)
     }
 
     /// The box's text.
@@ -188,7 +248,7 @@ impl InputLine {
         if self.handed_off {
             return Mode::HandedOff;
         }
-        if self.typeahead != Typeahead::None {
+        if self.typeahead != Typeahead::None || self.awaiting_shell() {
             return Mode::Raw;
         }
         Mode::Editing
@@ -198,12 +258,21 @@ impl InputLine {
     /// command runs, the shell is reading cooked, or a sealed layer sent a
     /// command start), the line it held is over, however it was accepted.
     pub fn observe(&mut self, facts: Facts) {
-        if self.handed_off
-            && (facts.shell_in_front != Some(true)
-                || facts.icanon != Some(false)
-                || facts.sealed_prompt == Some(false))
-        {
+        let at_prompt = facts.shell_in_front == Some(true)
+            && facts.icanon == Some(false)
+            && facts.sealed_prompt != Some(false);
+        if self.handed_off && !at_prompt {
             self.handed_off = false;
+        }
+        if let Some(sent) = self.sent.as_mut() {
+            if !at_prompt {
+                sent.left = true;
+            } else if sent.left {
+                // The shell ran the line and is back at a prompt.
+                self.sent = None;
+            } else if sent.at.elapsed() >= self.settle {
+                self.sent = None;
+            }
         }
     }
 
@@ -258,6 +327,7 @@ impl InputLine {
         }
         self.remember(&held);
         self.clear();
+        self.note_enter(b"\r");
         Outcome::Write(out)
     }
 
@@ -272,6 +342,7 @@ impl InputLine {
         self.clear();
         let mut out = joined.into_bytes();
         out.push(b'\r');
+        self.note_enter(b"\r");
         Outcome::Write(out)
     }
 
@@ -331,6 +402,7 @@ impl InputLine {
         if ends_line(&bytes, line_empty) {
             self.handed_off = false;
             self.typeahead = Typeahead::None;
+            self.note_enter(&bytes);
         } else {
             self.note_raw(facts, &bytes);
         }
@@ -347,7 +419,9 @@ impl InputLine {
         if !self.handed_off
             && !bytes.is_empty()
             && !ends_line(bytes, false)
-            && (facts.icanon == Some(true) || facts.sealed_between_commands)
+            && (facts.icanon == Some(true)
+                || facts.sealed_between_commands
+                || self.before_shell_reads())
         {
             if facts.shell_in_front == Some(true) || facts.sealed_between_commands {
                 self.typeahead = Typeahead::Shell;
@@ -455,6 +529,7 @@ impl InputLine {
     fn enter(&mut self, facts: Facts) -> Outcome {
         let text = self.text();
         if text.is_empty() {
+            self.note_enter(b"\r");
             return Outcome::Write(vec![b'\r']);
         }
         if text.contains('\n') && !facts.keys.bracketed_paste {
@@ -465,7 +540,24 @@ impl InputLine {
         out.push(b'\r');
         self.remember(&text);
         self.clear();
+        self.note_enter(b"\r");
         Outcome::Write(out)
+    }
+
+    /// An Enter went to the shell: until the shell shows it read the line, keys
+    /// are its typeahead.
+    ///
+    /// Ctrl+C is the other way a line ends: the shell drops the line and stays
+    /// at its prompt, so there is nothing to wait for.
+    fn note_enter(&mut self, bytes: &[u8]) {
+        if bytes.ends_with(b"\r") {
+            self.sent = Some(Sent {
+                at: Instant::now(),
+                left: false,
+            });
+        } else if bytes == [0x03] {
+            self.sent = None;
+        }
     }
 
     /// A key the box does not edit with: the box's text first, then the key.
@@ -489,6 +581,7 @@ impl InputLine {
         self.clear();
         if ends_line(&key_bytes, line_empty) {
             self.handed_off = false;
+            self.note_enter(&key_bytes);
         } else if had_text || starts_line_work(&key_bytes) {
             self.handed_off = true;
         }
@@ -704,6 +797,25 @@ pub fn unsent_text(parts: &[Vec<u8>]) -> String {
 mod tests {
     use super::*;
 
+    /// A box for a shell that is back at its prompt as soon as Enter is sent.
+    fn settled() -> InputLine {
+        InputLine::with_settle(Duration::ZERO)
+    }
+
+    /// A box that waits for the shell after its own Enter, with no clock.
+    fn waiting() -> InputLine {
+        InputLine::with_settle(Duration::from_secs(3600))
+    }
+
+    fn running() -> Facts {
+        Facts {
+            shell_in_front: Some(false),
+            icanon: Some(true),
+            echo: Some(true),
+            ..Facts::at_prompt()
+        }
+    }
+
     const NONE: Mods = Mods {
         ctrl: false,
         alt: false,
@@ -844,7 +956,7 @@ mod tests {
 
     #[test]
     fn the_mode_follows_the_facts() {
-        let line = InputLine::new();
+        let line = settled();
         assert_eq!(line.mode(Facts::at_prompt()), Mode::Editing);
         let sealed_prompt = Facts {
             sealed_prompt: Some(true),
@@ -859,7 +971,7 @@ mod tests {
     #[test]
     fn a_raw_state_writes_exactly_the_keys_bytes_and_leaves_the_box_empty() {
         for (name, facts, _) in raw_states() {
-            let mut line = InputLine::new();
+            let mut line = settled();
             for (key, mods, want) in [
                 (Key::Char('a'), NONE, &b"a"[..]),
                 (Key::Enter, NONE, b"\r"),
@@ -893,7 +1005,7 @@ mod tests {
             },
             ..Facts::at_prompt()
         };
-        let mut line = InputLine::new();
+        let mut line = settled();
         assert_eq!(
             line.key(facts, Key::Up, NONE),
             Outcome::Write(b"\x1bOA".to_vec())
@@ -903,7 +1015,7 @@ mod tests {
     #[test]
     fn typing_at_a_prompt_edits_the_box_and_writes_nothing() {
         let facts = Facts::at_prompt();
-        let mut line = InputLine::new();
+        let mut line = settled();
         typed(&mut line, facts, "echo hi");
         assert_eq!(line.text(), "echo hi");
         assert_eq!(line.caret(), 7);
@@ -912,7 +1024,7 @@ mod tests {
     #[test]
     fn enter_sends_the_line_and_a_carriage_return_and_clears_the_box() {
         let facts = Facts::at_prompt();
-        let mut line = InputLine::new();
+        let mut line = settled();
         typed(&mut line, facts, "echo hi");
         assert_eq!(
             line.key(facts, Key::Enter, NONE),
@@ -931,7 +1043,7 @@ mod tests {
             },
             ..Facts::at_prompt()
         };
-        let mut line = InputLine::new();
+        let mut line = settled();
         typed(&mut line, facts, "ls");
         assert_eq!(
             line.key(facts, Key::Enter, NONE),
@@ -941,7 +1053,7 @@ mod tests {
 
     #[test]
     fn enter_on_an_empty_box_is_a_carriage_return() {
-        let mut line = InputLine::new();
+        let mut line = settled();
         assert_eq!(
             line.key(Facts::at_prompt(), Key::Enter, NONE),
             Outcome::Write(b"\r".to_vec())
@@ -951,7 +1063,7 @@ mod tests {
     #[test]
     fn editing_keys_move_the_caret_and_delete() {
         let facts = Facts::at_prompt();
-        let mut line = InputLine::new();
+        let mut line = settled();
         typed(&mut line, facts, "abcd");
         line.key(facts, Key::Left, NONE);
         line.key(facts, Key::Left, NONE);
@@ -1025,7 +1137,7 @@ mod tests {
         for (name, facts, mode) in states {
             for (key_name, key, mods, bytes) in hand_off_keys() {
                 for text in ["", "ls"] {
-                    let mut line = InputLine::new();
+                    let mut line = settled();
                     if mode == Mode::Editing {
                         typed(&mut line, facts, text);
                     } else if !text.is_empty() {
@@ -1049,7 +1161,7 @@ mod tests {
     #[test]
     fn a_handed_off_line_stays_with_the_shell_until_it_ends() {
         let facts = Facts::at_prompt();
-        let mut line = InputLine::new();
+        let mut line = settled();
         typed(&mut line, facts, "git ch");
         assert_eq!(
             line.key(facts, Key::Tab, NONE),
@@ -1077,7 +1189,7 @@ mod tests {
         let facts = Facts::at_prompt();
         // Text in the box: it goes to the shell with Ctrl+D, which does not end
         // the line.
-        let mut line = InputLine::new();
+        let mut line = settled();
         typed(&mut line, facts, "echo");
         line.key(facts, Key::Char('d'), CTRL);
         assert_eq!(line.mode(facts), Mode::HandedOff);
@@ -1085,7 +1197,7 @@ mod tests {
         line.key(facts, Key::Char('d'), CTRL);
         assert_eq!(line.mode(facts), Mode::HandedOff);
         // With nothing on the line, Ctrl+D is the shell's exit and the box stays usable.
-        let mut empty = InputLine::new();
+        let mut empty = settled();
         empty.key(facts, Key::Char('d'), CTRL);
         assert_eq!(empty.mode(facts), Mode::Editing);
     }
@@ -1101,7 +1213,7 @@ mod tests {
             Key::Char('w'),
         ] {
             let mods = if key == Key::Escape { NONE } else { CTRL };
-            let mut line = InputLine::new();
+            let mut line = settled();
             line.key(facts, key, mods);
             assert_eq!(
                 line.mode(facts),
@@ -1110,7 +1222,7 @@ mod tests {
             );
         }
         for (key, mods) in [(Key::Tab, NONE), (Key::Char('r'), CTRL)] {
-            let mut line = InputLine::new();
+            let mut line = settled();
             line.key(facts, key, mods);
             assert_eq!(
                 line.mode(facts),
@@ -1123,7 +1235,7 @@ mod tests {
     #[test]
     fn a_handed_off_line_ends_when_the_prompt_state_ends() {
         let facts = Facts::at_prompt();
-        let mut line = InputLine::new();
+        let mut line = settled();
         typed(&mut line, facts, "ls");
         line.key(facts, Key::Tab, NONE);
         assert_eq!(line.mode(facts), Mode::HandedOff);
@@ -1147,7 +1259,7 @@ mod tests {
             },
             ..Facts::at_prompt()
         };
-        let mut line = InputLine::new();
+        let mut line = settled();
         typed(&mut line, facts, "a");
         line.key(
             facts,
@@ -1172,11 +1284,11 @@ mod tests {
     fn keys_that_leave_the_line_alone_do_not_hand_the_line_off() {
         let facts = Facts::at_prompt();
         for key in [Key::PageUp, Key::F(5)] {
-            let mut line = InputLine::new();
+            let mut line = settled();
             line.key(facts, key, NONE);
             assert_eq!(line.mode(facts), Mode::Editing, "{key:?} on an empty box");
         }
-        let mut line = InputLine::new();
+        let mut line = settled();
         line.key(facts, Key::Char('l'), CTRL);
         assert_eq!(line.mode(facts), Mode::Editing, "Ctrl+L");
     }
@@ -1184,7 +1296,7 @@ mod tests {
     #[test]
     fn ctrl_c_with_text_sends_the_text_then_the_interrupt_and_ends_the_line() {
         let facts = Facts::at_prompt();
-        let mut line = InputLine::new();
+        let mut line = settled();
         typed(&mut line, facts, "sleep 9");
         assert_eq!(
             line.key(facts, Key::Char('c'), CTRL),
@@ -1199,7 +1311,7 @@ mod tests {
             shell_in_front: Some(false),
             ..Facts::at_prompt()
         };
-        let mut line = InputLine::new();
+        let mut line = settled();
         line.key(vim, Key::Char('x'), NONE);
         assert_eq!(line.mode(Facts::at_prompt()), Mode::Editing);
     }
@@ -1212,7 +1324,7 @@ mod tests {
             echo: Some(true),
             ..Facts::at_prompt()
         };
-        let mut line = InputLine::new();
+        let mut line = settled();
         assert_eq!(
             line.key(running, Key::Char('x'), NONE),
             Outcome::Write(b"x".to_vec())
@@ -1231,7 +1343,7 @@ mod tests {
     #[test]
     fn up_and_down_step_through_the_lines_this_window_sent() {
         let facts = Facts::at_prompt();
-        let mut line = InputLine::new();
+        let mut line = settled();
         for cmd in ["one", "two"] {
             typed(&mut line, facts, cmd);
             line.key(facts, Key::Enter, NONE);
@@ -1250,7 +1362,7 @@ mod tests {
     #[test]
     fn shift_enter_adds_a_line_and_up_down_move_between_lines() {
         let facts = Facts::at_prompt();
-        let mut line = InputLine::new();
+        let mut line = settled();
         typed(&mut line, facts, "ab");
         line.key(
             facts,
@@ -1277,7 +1389,7 @@ mod tests {
             },
             ..Facts::at_prompt()
         };
-        let mut line = InputLine::new();
+        let mut line = settled();
         assert_eq!(line.paste(facts, "a\nb"), Outcome::Redraw);
         assert_eq!(line.text(), "a\nb", "nothing runs until Enter");
         assert_eq!(
@@ -1289,7 +1401,7 @@ mod tests {
     #[test]
     fn a_multi_line_line_without_bracketed_paste_is_held_for_a_choice() {
         let facts = Facts::at_prompt();
-        let mut line = InputLine::new();
+        let mut line = settled();
         line.paste(facts, "a\nb\nc");
         assert_eq!(line.key(facts, Key::Enter, NONE), Outcome::Hold);
         assert_eq!(line.held(), Some("a\nb\nc"));
@@ -1313,10 +1425,10 @@ mod tests {
     #[test]
     fn a_paste_is_sanitised_and_a_frame_introducer_is_refused() {
         let facts = Facts::at_prompt();
-        let mut line = InputLine::new();
+        let mut line = settled();
         assert_eq!(line.paste(facts, "ls\x1b[31m\x07 -l"), Outcome::Redraw);
         assert_eq!(line.text(), "ls[31m -l", "ESC and BEL are removed");
-        let mut line = InputLine::new();
+        let mut line = settled();
         assert_eq!(line.paste(facts, "x\x1b_Gframe"), Outcome::Refused);
         assert_eq!(line.text(), "");
     }
@@ -1324,17 +1436,13 @@ mod tests {
     #[test]
     fn a_paste_while_raw_is_not_the_boxs() {
         for (name, facts, _) in raw_states() {
-            assert_eq!(
-                InputLine::new().paste(facts, "x"),
-                Outcome::NotMine,
-                "{name}"
-            );
+            assert_eq!(settled().paste(facts, "x"), Outcome::NotMine, "{name}");
         }
     }
 
     #[test]
     fn committed_text_goes_to_the_box_when_editing_and_to_the_program_when_raw() {
-        let mut line = InputLine::new();
+        let mut line = settled();
         assert_eq!(line.text_input(Facts::at_prompt(), "é"), Outcome::Redraw);
         assert_eq!(line.text(), "é");
         let raw = Facts {
@@ -1342,7 +1450,7 @@ mod tests {
             ..Facts::at_prompt()
         };
         assert_eq!(
-            InputLine::new().text_input(raw, "é"),
+            settled().text_input(raw, "é"),
             Outcome::Write("é".as_bytes().to_vec())
         );
     }
@@ -1355,7 +1463,7 @@ mod tests {
             echo: Some(false),
             ..Facts::at_prompt()
         };
-        let mut line = InputLine::new();
+        let mut line = settled();
         for c in "hunter2".chars() {
             assert_eq!(
                 line.key(facts, Key::Char(c), NONE),
@@ -1364,6 +1472,94 @@ mod tests {
         }
         assert_eq!(line.text(), "");
         assert_eq!(line.mode(facts), Mode::Hidden);
+    }
+
+    #[test]
+    fn keys_right_after_the_boxs_own_enter_are_the_shells_typeahead_not_the_boxs() {
+        let at = Facts::at_prompt();
+        let mut line = waiting();
+        typed(&mut line, at, "echo one");
+        line.key(at, Key::Enter, NONE);
+        // The tty still shows the prompt: the shell has not read the line yet.
+        for c in "echo cou".chars() {
+            assert_eq!(line.mode(at), Mode::Raw);
+            assert_eq!(
+                line.key(at, Key::Char(c), NONE),
+                Outcome::Write(c.to_string().into_bytes())
+            );
+        }
+        assert_eq!(line.text(), "", "nothing landed in the box");
+        // The shell leaves, then the tail of the line still goes to it.
+        line.observe(running());
+        assert_eq!(
+            line.key(running(), Key::Char('n'), NONE),
+            Outcome::Write(b"n".to_vec())
+        );
+        // The line the shell holds ends on Enter, and the box waits for the
+        // shell to come back.
+        assert_eq!(
+            line.key(running(), Key::Enter, NONE),
+            Outcome::Write(b"\r".to_vec())
+        );
+        assert_eq!(line.mode(at), Mode::Raw);
+        line.observe(at);
+        assert_eq!(line.mode(at), Mode::Raw, "still the first line's prompt");
+        line.observe(running());
+        line.observe(at);
+        assert_eq!(
+            line.mode(at),
+            Mode::Editing,
+            "left and back: the box is free"
+        );
+    }
+
+    #[test]
+    fn an_empty_enter_waits_for_the_shell_too() {
+        let at = Facts::at_prompt();
+        let mut line = waiting();
+        assert_eq!(
+            line.key(at, Key::Enter, NONE),
+            Outcome::Write(b"\r".to_vec())
+        );
+        assert_eq!(line.mode(at), Mode::Raw);
+    }
+
+    #[test]
+    fn an_enter_the_box_hands_to_a_program_waits_for_the_shell_too() {
+        let at = Facts::at_prompt();
+        let mut line = waiting();
+        typed(&mut line, at, "ls");
+        line.key(at, Key::Tab, NONE);
+        line.key(at, Key::Enter, NONE);
+        assert_eq!(line.mode(at), Mode::Raw);
+    }
+
+    #[test]
+    fn control_c_after_enter_ends_the_wait_at_once() {
+        let at = Facts::at_prompt();
+        let mut line = waiting();
+        line.key(at, Key::Enter, NONE);
+        assert_eq!(line.mode(at), Mode::Raw, "waiting for the shell");
+        assert_eq!(
+            line.key(at, Key::Char('c'), CTRL),
+            Outcome::Write(vec![0x03])
+        );
+        assert_eq!(
+            line.mode(at),
+            Mode::Editing,
+            "the shell dropped the line and stayed at its prompt"
+        );
+    }
+
+    #[test]
+    fn deleting_the_wait_would_fail_these_tests() {
+        // The state under test is real: with it, the first key after Enter is
+        // the shell's; without a send, the same key edits the box.
+        let at = Facts::at_prompt();
+        let mut fresh = waiting();
+        assert_eq!(fresh.mode(at), Mode::Editing);
+        fresh.key(at, Key::Enter, NONE);
+        assert_eq!(fresh.mode(at), Mode::Raw);
     }
 
     #[test]
@@ -1401,7 +1597,7 @@ mod tests {
 
     #[test]
     fn send_as_commands_writes_one_enter_per_line_and_joining_writes_one() {
-        let mut line = InputLine::new();
+        let mut line = settled();
         line.text_input(Facts::at_prompt(), "one\ntwo\nthree");
         assert_eq!(
             line.key(Facts::at_prompt(), Key::Enter, NONE),
@@ -1449,7 +1645,7 @@ mod tests {
             sealed_between_commands: true,
             ..Facts::at_prompt()
         };
-        let mut line = InputLine::new();
+        let mut line = settled();
         assert_eq!(line.mode(waiting), Mode::Raw);
         assert_eq!(
             line.key(waiting, Key::Char('l'), NONE),
