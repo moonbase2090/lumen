@@ -13,6 +13,7 @@ use lumen_term::input_line::Mode;
 use lumen_term::seal::{Config, LISTED, Status};
 use lumen_term::{App, Key, Layer, Mods};
 use std::collections::BTreeMap;
+use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -20,6 +21,7 @@ use std::time::{Duration, Instant};
 /// Fakes `yama`, `perf_event_paranoid` and `legacy_tiocsti`; reads the rest.
 struct Sysctls {
     real: FsProbe,
+    yama: u32,
 }
 
 impl Probe for Sysctls {
@@ -27,7 +29,7 @@ impl Probe for Sysctls {
         self.real.is_linux()
     }
     fn yama_scope(&self) -> Option<u32> {
-        Some(1)
+        Some(self.yama)
     }
     fn legacy_tiocsti(&self) -> Option<u32> {
         Some(0)
@@ -112,6 +114,13 @@ fn start(name: &str) -> Option<App> {
 
 /// [`start`] with `rc` added to the shell's own startup file.
 fn start_with_rc(name: &str, rc: &str) -> Option<App> {
+    let app = start_with(name, rc, 1)?;
+    assert_eq!(app.session().seal_status(), Status::Sealed);
+    Some(app)
+}
+
+/// Start the shell with Yama's `ptrace_scope` read as `yama`.
+fn start_with(name: &str, rc: &str, yama: u32) -> Option<App> {
     let shell = shell_or_skip()?;
     let home = home(name, rc);
     let mut environment = BTreeMap::new();
@@ -123,6 +132,7 @@ fn start_with_rc(name: &str, rc: &str) -> Option<App> {
         listed: LISTED.iter().map(|s| (*s).to_owned()).collect(),
         probe: Arc::new(Sysctls {
             real: FsProbe::default(),
+            yama,
         }),
         sealer: Arc::new(Sealer::new()),
         environment,
@@ -133,7 +143,6 @@ fn start_with_rc(name: &str, rc: &str) -> Option<App> {
     }));
     let app = App::start_with_seal(layer, &shell, &[] as &[&str], (1, 800, 600), &config)
         .unwrap_or_else(|e| unreachable!("the shell starts: {e}"));
-    assert_eq!(app.session().seal_status(), Status::Sealed);
     Some(app)
 }
 
@@ -291,6 +300,15 @@ fn a_program_the_shell_executes_in_place_loses_the_keys_at_its_command_start() {
         app.session().seal_status()
     );
     assert_eq!(app.session().holder_pid(), None, "the holder has ended");
+    assert_eq!(
+        app.seal_notice(),
+        Some("Sealing ended: the shell executed another program"),
+        "the user is told the layer lost its keys, and why"
+    );
+    assert_eq!(
+        app.toasts()[0].text,
+        "Sealing ended: the shell executed another program"
+    );
 }
 
 #[test]
@@ -321,7 +339,13 @@ fn a_shell_that_executes_another_program_loses_its_keys_at_the_next_enter() {
         Status::Sealed,
         "nothing has checked the shell since it executed sh"
     );
+    assert_eq!(app.seal_notice(), None, "no notice while the keys are held");
     key(&mut app, Key::Enter);
+    assert_eq!(
+        app.seal_notice(),
+        Some("Sealing ended: the running program is not the listed shell"),
+        "the notice comes with the Enter that found the change"
+    );
     assert!(
         matches!(app.session().seal_status(), Status::GridOnly(_)),
         "the replaced shell lost its keys at the Enter: {:?}",
@@ -471,4 +495,76 @@ fn a_line_after_one_that_replaces_the_shell_is_checked_and_never_sent_to_it() {
     let text = grid_text(&app);
     assert!(text.contains("got:probe\n"), "{text}");
     assert!(!text.contains("got:echo second-line"), "{text}");
+}
+
+/// The pixel of the first toast, found by asking the window what a press at
+/// each pixel would hit.
+fn first_toast_pixel(app: &App) -> Option<(u32, u32)> {
+    (0..600u32)
+        .flat_map(|y| (0..800u32).map(move |x| (x, y)))
+        .find(|&(x, y)| app.click_would_hit(x, y) == Some(0))
+}
+
+#[test]
+fn a_shell_started_without_keys_says_why_until_the_user_dismisses_it() {
+    let Some(mut app) = start_with("sealed-input-grid-only", "", 0) else {
+        return;
+    };
+    assert_eq!(
+        app.session().seal_status(),
+        Status::GridOnly("ptrace_scope is 0, below 1".to_owned())
+    );
+    assert_eq!(
+        app.seal_notice(),
+        Some("Shell not sealed: ptrace_scope is 0, below 1")
+    );
+    // Without keys the box follows the kernel's signals alone, and takes keys
+    // once the shell is at its prompt.
+    assert!(
+        until(&mut app, |a| a.input_mode() == Mode::Editing),
+        "the shell runs: {}",
+        grid_text(&app)
+    );
+    // Quoted in two parts, so the command line drawn in the grid does not hold
+    // the marker.
+    line(&mut app, "echo still''-here");
+    assert!(until(&mut app, |a| grid_text(a).contains("still-here\n")));
+    assert!(!app.tick());
+    assert_eq!(
+        app.seal_notice(),
+        Some("Shell not sealed: ptrace_scope is 0, below 1"),
+        "it stays: it has no time limit and output does not remove it"
+    );
+    let Some((x, y)) = first_toast_pixel(&app) else {
+        unreachable!("the notice is drawn: {:?}", app.toasts())
+    };
+    assert!(app.click(x, y), "a press on the notice dismisses it");
+    assert_eq!(app.seal_notice(), None);
+    assert_eq!(app.toasts(), []);
+}
+
+#[test]
+fn a_shell_that_exits_leaves_no_sealing_notice() {
+    let Some(mut app) = start("sealed-input-exit") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    let holder = app
+        .session()
+        .holder_pid()
+        .unwrap_or_else(|| unreachable!("a sealed layer has a holder"));
+    let holder = lumen_holder::ffi_linux::pidfd_open(holder)
+        .unwrap_or_else(|e| unreachable!("a pidfd for the holder: {e}"));
+    line(&mut app, "exit");
+    // The holder ends when the shell does, so the layer has no keys. It has
+    // closed, too, and a closed layer has no notice. Wait for both ends.
+    // The pidfd turns readable when the holder exits; the limit only bounds a
+    // hung test.
+    let ended = lumen_holder::ffi_linux::wait_with_timeout(&[holder.as_raw_fd()], 30_000)
+        .is_ok_and(|e| e.first().is_some_and(|e| e.readable));
+    assert!(ended, "the holder ended");
+    assert!(until(&mut app, App::has_exited), "the shell exited");
+    app.tick();
+    assert_eq!(app.seal_notice(), None);
+    assert_eq!(app.toasts(), []);
 }
