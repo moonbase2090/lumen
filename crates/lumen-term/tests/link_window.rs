@@ -1,6 +1,7 @@
 //! Links: a web address written in a program's output can be activated, the
 //! terminal asks first and shows the whole target, and nothing opens until the
-//! user says yes. A link a program sets with OSC 8 has no effect in a grid. A real program runs behind a real PTY; the
+//! user says yes. A link a program sets with OSC 8 is one too, and the
+//! question shows the real target beside the text it covers. A real program runs behind a real PTY; the
 //! system opener is replaced by one that records what it was given.
 
 #![cfg(all(unix, feature = "links-clipboard"))]
@@ -209,20 +210,122 @@ fn a_press_off_any_link_is_left_for_the_program() {
     assert!(app.link_prompt().is_none());
 }
 
+/// A shell command that prints `text` as an OSC 8 link to `target`, closed,
+/// then `AFTER`, and waits.
+fn osc8(target: &str, text: &str) -> String {
+    format!("printf '\\033]8;;{target}\\033\\\\{text}\\033]8;;\\033\\\\ AFTER\\n'; sleep 30")
+}
+
 #[test]
-fn a_link_a_program_sets_with_osc_8_has_no_effect_in_a_grid() {
-    let (mut app, opened) = start(
-        "printf '\\033]8;;https://evil.example/login\\033\\\\https://bank.example/login\\033]8;;\\033\\\\ and BETWEEN\\n'; sleep 30",
-    );
-    assert!(pump_until(&mut app, |a| shows(a, "BETWEEN")));
-    // The text is a written address, so it is found as what it says; the
-    // target the program set is not read.
+fn a_link_a_program_sets_shows_its_real_target_and_the_text_it_covers_and_opens_only_on_yes() {
+    let (mut app, opened) = start(&osc8("https://real.example/docs?a=1", "read the docs"));
+    assert!(pump_until(&mut app, |a| shows(a, "AFTER")));
+    let (x, y) = pixel_of(&app, "read the docs", 5);
+    assert!(app.link_press(x, y), "the press is the terminal's");
+    let prompt = lines(&app);
+    assert!(prompt.contains("https://real.example/docs?a=1"), "{prompt}");
+    assert!(prompt.contains("Set by the program"), "{prompt}");
+    assert!(prompt.contains("Text shown: read the docs"), "{prompt}");
+    assert!(prompt.contains("Host: real.example"), "{prompt}");
+    assert!(opened.all().is_empty(), "nothing opens before the answer");
+    enter(&mut app);
+    assert_eq!(opened.all(), vec!["https://real.example/docs?a=1"]);
+}
+
+#[test]
+fn a_program_link_whose_text_is_another_address_warns_and_opens_what_it_shows() {
+    let (mut app, opened) = start(&osc8(
+        "https://evil.example/login",
+        "https://bank.example/login",
+    ));
+    assert!(pump_until(&mut app, |a| shows(a, "AFTER")));
     let (x, y) = pixel_of(&app, "https://bank.example/login", 3);
     assert!(app.link_press(x, y));
-    assert!(lines(&app).contains("https://bank.example/login"));
-    assert!(!lines(&app).contains("evil.example"));
+    let prompt = lines(&app);
+    assert!(prompt.contains("https://evil.example/login"), "{prompt}");
+    assert!(
+        prompt.contains("Warning: the text shown looks like"),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains("Text shown: https://bank.example/login"),
+        "{prompt}"
+    );
     enter(&mut app);
-    assert_eq!(opened.all(), vec!["https://bank.example/login"]);
+    assert_eq!(opened.all(), vec!["https://evil.example/login"]);
+}
+
+#[test]
+fn cancelling_a_program_link_opens_nothing() {
+    let (mut app, opened) = start(&osc8("https://real.example/", "go"));
+    assert!(pump_until(&mut app, |a| shows(a, "AFTER")));
+    let (x, y) = pixel_of(&app, "go", 0);
+    assert!(app.link_press(x, y));
+    app.key(Key::Escape, lumen_term::Mods::default())
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(app.link_prompt().is_none());
+    assert_eq!(opened.count(), 0);
+}
+
+#[test]
+fn a_program_link_to_a_scheme_that_is_not_opened_says_so_and_opens_nothing() {
+    for target in [
+        "javascript:alert(1)",
+        "ftp://real.example/",
+        "file:///etc/hosts",
+    ] {
+        let (mut app, opened) = start(&osc8(target, "click"));
+        assert!(pump_until(&mut app, |a| shows(a, "AFTER")));
+        let (x, y) = pixel_of(&app, "click", 1);
+        assert!(app.link_press(x, y), "{target} still asks, to explain");
+        enter(&mut app);
+        assert!(opened.all().is_empty(), "{target} opened");
+    }
+}
+
+#[test]
+fn text_after_a_program_link_ends_is_not_part_of_it() {
+    let (mut app, _) = start(&osc8("https://real.example/", "inside"));
+    assert!(pump_until(&mut app, |a| shows(a, "AFTER")));
+    let (x, y) = pixel_of(&app, "AFTER", 1);
+    assert!(
+        !app.link_press(x, y),
+        "the text after the link is not a link"
+    );
+    assert!(app.link_prompt().is_none());
+}
+
+#[test]
+fn a_program_link_over_the_limits_is_not_a_link_and_does_not_keep_an_earlier_one() {
+    // The first link is closed by the over-long one, which is not passed on.
+    let long = "x".repeat(2100);
+    let (mut app, _) = start(&format!(
+        "printf '\\033]8;;https://first.example/\\033\\\\one \\033]8;;https://real.example/{long}\\033\\\\two\\033]8;;\\033\\\\ AFTER\\n'; sleep 30"
+    ));
+    assert!(pump_until(&mut app, |a| shows(a, "AFTER")));
+    let (x, y) = pixel_of(&app, "one", 1);
+    assert!(app.link_press(x, y), "the first link is a link");
+    assert!(lines(&app).contains("https://first.example/"));
+    assert!(app.answer_link(false).is_ok());
+    let (x, y) = pixel_of(&app, "two", 1);
+    assert!(
+        !app.link_press(x, y),
+        "the over-long link is not one, and the first has ended"
+    );
+}
+
+#[test]
+fn a_program_link_is_underlined_in_the_accent_colour() {
+    let (mut app, _) = start(&osc8("https://real.example/", "underlined text"));
+    assert!(pump_until(&mut app, |a| shows(a, "AFTER")));
+    let (x, y) = pixel_of(&app, "underlined text", 3);
+    let ch = app.cell_height();
+    let cell_bottom = y - y % ch + ch;
+    let accent = lumen_term::design::theme().prompt;
+    let frame = app.view();
+    let found =
+        (cell_bottom.saturating_sub(4)..cell_bottom).any(|row| frame.pixel(x, row) == Some(accent));
+    assert!(found, "an accent underline under the program's link");
 }
 
 #[test]
@@ -391,6 +494,46 @@ fn an_address_in_the_scrollback_is_underlined_and_activatable() {
     assert_eq!(opened.count(), 0);
     enter(&mut app);
     assert_eq!(opened.all(), vec!["https://example.com/old"]);
+}
+
+/// A pixel over the link whose target is `target`, wherever the view shows it.
+fn pixel_of_link(app: &App, target: &str) -> (u32, u32) {
+    (0..SIZE.1)
+        .step_by(2)
+        .flat_map(|y| (0..SIZE.0).step_by(2).map(move |x| (x, y)))
+        .find(|&(x, y)| app.link_at(x, y).is_some_and(|h| h.target == target))
+        .unwrap_or_else(|| unreachable!("no link to {target} in view"))
+}
+
+#[test]
+fn a_program_link_in_the_scrollback_is_underlined_and_activatable() {
+    let (mut app, opened) = start(
+        "printf '\\033]8;;https://old.example/\\033\\\\first\\033]8;;\\033\\\\ and \\033]8;;https://second.example/\\033\\\\second\\033]8;;\\033\\\\\\n'; seq 1 200; echo tail; sleep 30",
+    );
+    assert!(pump_until(&mut app, |a| shows(a, "tail")));
+    assert!(!shows(&app, "first"), "it has scrolled off");
+    assert!(app.scroll_end(true), "scrolled to the top");
+    let (x, y) = pixel_of_link(&app, "https://old.example/");
+    let accent = lumen_term::design::theme().prompt;
+    let frame = app.view();
+    let ch = app.cell_height();
+    let bottom = y - y % ch + ch;
+    assert!(
+        (bottom.saturating_sub(4)..bottom).any(|row| frame.pixel(x, row) == Some(accent)),
+        "an accent underline under the program's link in the history"
+    );
+    assert!(app.link_press(x, y));
+    assert!(lines(&app).contains("https://old.example/"));
+    assert!(lines(&app).contains("Set by the program"));
+    enter(&mut app);
+    // The second link on the same line is its own target.
+    let (x, y) = pixel_of_link(&app, "https://second.example/");
+    assert!(app.link_press(x, y));
+    enter(&mut app);
+    assert_eq!(
+        opened.all(),
+        vec!["https://old.example/", "https://second.example/"]
+    );
 }
 
 struct Clip(&'static str);
