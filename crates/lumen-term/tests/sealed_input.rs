@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 /// Fakes `yama`, `perf_event_paranoid` and `legacy_tiocsti`; reads the rest.
 struct Sysctls {
     real: FsProbe,
+    yama: u32,
 }
 
 impl Probe for Sysctls {
@@ -27,7 +28,7 @@ impl Probe for Sysctls {
         self.real.is_linux()
     }
     fn yama_scope(&self) -> Option<u32> {
-        Some(1)
+        Some(self.yama)
     }
     fn legacy_tiocsti(&self) -> Option<u32> {
         Some(0)
@@ -112,6 +113,13 @@ fn start(name: &str) -> Option<App> {
 
 /// [`start`] with `rc` added to the shell's own startup file.
 fn start_with_rc(name: &str, rc: &str) -> Option<App> {
+    let app = start_with(name, rc, 1)?;
+    assert_eq!(app.session().seal_status(), Status::Sealed);
+    Some(app)
+}
+
+/// Start the shell with Yama's `ptrace_scope` read as `yama`.
+fn start_with(name: &str, rc: &str, yama: u32) -> Option<App> {
     let shell = shell_or_skip()?;
     let home = home(name, rc);
     let mut environment = BTreeMap::new();
@@ -123,6 +131,7 @@ fn start_with_rc(name: &str, rc: &str) -> Option<App> {
         listed: LISTED.iter().map(|s| (*s).to_owned()).collect(),
         probe: Arc::new(Sysctls {
             real: FsProbe::default(),
+            yama,
         }),
         sealer: Arc::new(Sealer::new()),
         environment,
@@ -133,7 +142,6 @@ fn start_with_rc(name: &str, rc: &str) -> Option<App> {
     }));
     let app = App::start_with_seal(layer, &shell, &[] as &[&str], (1, 800, 600), &config)
         .unwrap_or_else(|e| unreachable!("the shell starts: {e}"));
-    assert_eq!(app.session().seal_status(), Status::Sealed);
     Some(app)
 }
 
@@ -177,6 +185,14 @@ fn line(app: &mut App, s: &str) {
         key(app, Key::Char(c));
     }
     key(app, Key::Enter);
+}
+
+/// What the box typed for each sealed command, with its status.
+fn typed(app: &App) -> Vec<(String, Option<i32>)> {
+    app.typed_records()
+        .into_iter()
+        .map(|r| (r.typed, r.status))
+        .collect()
 }
 
 /// The kernel facts alone say the shell is at a prompt: it is in front and
@@ -228,6 +244,14 @@ fn a_builtin_reading_keys_gets_them_and_the_box_waits_for_the_sealed_prompt() {
     assert!(
         until(&mut app, |a| a.input_mode() == Mode::Editing),
         "the box takes keys again at the next sealed prompt"
+    );
+    assert_eq!(
+        typed(&app),
+        [(
+            "stty -icanon -echo; echo reading; read -k k; stty sane; echo got-$k-done".to_owned(),
+            Some(0)
+        )],
+        "the line is recorded; the key read -k took is not"
     );
 }
 
@@ -399,6 +423,15 @@ fn send_as_commands_runs_each_line_in_turn_at_its_own_prompt() {
     assert_eq!(app.input_text(), "", "nothing was put back");
     assert_eq!(app.forwarded_enters(), 3);
     assert_eq!(app.session().seal_status(), Status::Sealed);
+    assert_eq!(
+        typed(&app),
+        [
+            ("echo one-ran".to_owned(), Some(0)),
+            ("echo two-ran".to_owned(), Some(0)),
+            ("echo three-ran".to_owned(), Some(0)),
+        ],
+        "each line is recorded for its own command"
+    );
 }
 
 /// Run in place of the shell: it keeps the shell's channel and asks the holder
@@ -471,4 +504,108 @@ fn a_line_after_one_that_replaces_the_shell_is_checked_and_never_sent_to_it() {
     let text = grid_text(&app);
     assert!(text.contains("got:probe\n"), "{text}");
     assert!(!text.contains("got:echo second-line"), "{text}");
+}
+
+/// Type `s` and Enter, then wait until the shell is back at its prompt and the
+/// box takes keys again, and `marker` (written in two parts in `s`) is drawn.
+fn run(app: &mut App, s: &str, marker: &str) {
+    line(app, s);
+    assert!(
+        until(app, |a| grid_text(a).contains(&format!("{marker}\n"))
+            && a.input_mode() == Mode::Editing),
+        "{s:?} ran: {}",
+        grid_text(app)
+    );
+}
+
+#[test]
+fn a_line_sent_from_the_box_is_recorded_with_its_sealed_status() {
+    let Some(mut app) = start("sealed-input-typed") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    run(&mut app, "echo typed''-one", "typed-one");
+    run(&mut app, "echo typed''-two; false", "typed-two");
+    let records = app.typed_records();
+    assert_eq!(
+        typed(&app),
+        [
+            ("echo typed''-one".to_owned(), Some(0)),
+            ("echo typed''-two; false".to_owned(), Some(1)),
+        ]
+    );
+    assert!(
+        records[0].id > 0 && records[1].id == records[0].id + 1,
+        "the ids are the sealed command ids: {records:?}"
+    );
+}
+
+#[test]
+fn a_line_handed_to_the_shell_is_not_recorded() {
+    let Some(mut app) = start("sealed-input-handed") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    // Tab hands the box's text to the shell's own line editor; the Enter after
+    // it is the shell's, and the line is the shell's too.
+    for c in "echo handed''-off".chars() {
+        key(&mut app, Key::Char(c));
+    }
+    key(&mut app, Key::Tab);
+    assert_eq!(app.input_mode(), Mode::HandedOff);
+    key(&mut app, Key::Enter);
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("handed-off\n")
+            && a.input_mode() == Mode::Editing),
+        "the line ran: {}",
+        grid_text(&app)
+    );
+    assert_eq!(typed(&app), [], "nothing typed in the box whole");
+    run(&mut app, "echo after''-it", "after-it");
+    assert_eq!(typed(&app), [("echo after''-it".to_owned(), Some(0))]);
+}
+
+#[test]
+fn up_recalls_only_lines_that_started_a_sealed_command() {
+    let Some(mut app) = start("sealed-input-recall") else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    run(&mut app, "echo recall''-me", "recall-me");
+    // A line the shell will not parse: no command starts, and the shell is
+    // back at its prompt. The box's own history has it.
+    line(&mut app, ")");
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("parse error")
+            && a.input_mode() == Mode::Editing),
+        "the shell refused the line: {}",
+        grid_text(&app)
+    );
+    assert_eq!(typed(&app), [("echo recall''-me".to_owned(), Some(0))]);
+    key(&mut app, Key::Up);
+    assert_eq!(app.input_text(), "echo recall''-me", "Edit again");
+    key(&mut app, Key::Up);
+    assert_eq!(app.input_text(), "echo recall''-me", "nothing older");
+    key(&mut app, Key::Down);
+    assert_eq!(app.input_text(), "", "Down past the newest empties the box");
+}
+
+#[test]
+fn a_layer_without_keys_records_nothing_and_up_recalls_the_box_history() {
+    let Some(mut app) = start_with("sealed-input-recall-grid", "", 0) else {
+        return;
+    };
+    assert!(matches!(app.session().seal_status(), Status::GridOnly(_)));
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    run(&mut app, "echo grid''-only", "grid-only");
+    line(&mut app, ")");
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("parse error")
+            && a.input_mode() == Mode::Editing),
+        "the shell refused the line: {}",
+        grid_text(&app)
+    );
+    assert_eq!(typed(&app), [], "no sealed frames, no records");
+    key(&mut app, Key::Up);
+    assert_eq!(app.input_text(), ")", "the box's own history");
 }
