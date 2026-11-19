@@ -366,10 +366,9 @@ fn the_pieces_of_one_read_share_its_eight_answers() {
     assert_eq!(replies.answer_cursor_within(&cursor, 0, &mut left), []);
     // The next read has its own eight.
     let mut next = MAX_PER_READ;
-    assert!(
-        !replies
-            .answer_cursor_within(&cursor, 1, &mut next)
-            .is_empty()
+    assert_eq!(
+        replies.answer_cursor_within(&cursor, 1, &mut next).len(),
+        "\x1b[1;1R".len() * 6
     );
 }
 
