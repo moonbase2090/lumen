@@ -816,6 +816,11 @@ fn a_typed_line_has_a_gutter_mark_that_explains_itself_and_edits_it_again() {
         .count();
     assert_eq!(covered, 0, "the tip leaves the typed text alone");
     assert_eq!(
+        header_changes(&plain, &hovered),
+        0,
+        "the tip stays out of the header strip"
+    );
+    assert_eq!(
         app.mouse_move(cw * 20, top + ch / 2, Held::default()).ok(),
         Some(true)
     );
@@ -885,6 +890,21 @@ fn a_typed_line_that_wraps_is_marked_on_its_first_row_and_its_tip_does_not_cover
         .filter(|&(x, y)| hovered.pixel(x, y) != plain.pixel(x, y))
         .count();
     assert_eq!(covered, 0, "the full first row is left alone");
+    assert_eq!(
+        header_changes(&plain, &hovered),
+        0,
+        "the tip stays out of the header strip"
+    );
+}
+
+/// How many pixels of the header strip differ between two frames.
+fn header_changes(a: &lumen_term::Frame, b: &lumen_term::Frame) -> usize {
+    let (_, ch) = cell();
+    let header = ch * lumen_term::HEADER_ROWS;
+    (0..header)
+        .flat_map(|y| (0..a.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| a.pixel(x, y) != b.pixel(x, y))
+        .count()
 }
 
 /// The live grid's width in columns, and the column the shell's cursor is on.

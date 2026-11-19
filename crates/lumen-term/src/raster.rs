@@ -21,7 +21,7 @@ use crate::design::{FontFile, Fonts};
 use crate::document::{Block, Document, RichBlock};
 use crate::grid::{CursorShape, GridBlock};
 use crate::image_draw;
-use crate::layout::{GUTTER_COLUMNS, Rect, StripPlacement, layout, notification_area};
+use crate::layout::{GUTTER_COLUMNS, HEADER_ROWS, Rect, StripPlacement, layout, notification_area};
 use crate::notify::Toast;
 use crate::scroll::Scroll;
 use crate::search::{Mark, Overlay, SearchRow};
@@ -1864,25 +1864,23 @@ impl Renderer {
     /// Paint what the mark on the row whose top is pixel `row_top` means, in a
     /// box of the terminal's own on that row, starting `after` columns into the
     /// content (just past the typed text, so the tip does not cover it). When
-    /// the row has no room left for it, the tip goes on the row above instead,
-    /// at the same place, rather than over the typed text.
+    /// the row has no room left for it, the tip goes wholly above the row, or
+    /// below it when there is no row above: never over the typed text's row,
+    /// and never into the header strip of the trust margin.
     pub fn paint_typed_tip(&self, frame: &mut Frame, row_top: u32, after: u32) {
         let theme = &self.theme;
         let chars = u32::try_from(TYPED_TIP.chars().count()).unwrap_or(0);
         let width = (chars + 2) * self.cell_w;
         let height = self.cell_h + 2 * self.scale;
+        let header = self.cell_h * HEADER_ROWS;
         let content = self.cell_w * GUTTER_COLUMNS + self.gutter_pad();
         let wanted = content + after * self.cell_w;
-        let fits = wanted + width <= frame.width;
-        let left = if fits {
-            wanted
+        let (left, top) = if wanted + width <= frame.width {
+            (wanted, row_top.saturating_sub(self.scale).max(header))
         } else {
-            frame.width.saturating_sub(width).max(content)
-        };
-        let row_top = if fits {
-            row_top
-        } else {
-            row_top.saturating_sub(self.cell_h)
+            let left = frame.width.saturating_sub(width).max(content);
+            let above = row_top.checked_sub(height).filter(|t| *t >= header);
+            (left, above.unwrap_or(row_top + self.cell_h))
         };
         let mut tip = Frame::new(width, height, theme.toast);
         tip.fill(0, 0, width, self.scale, theme.toast_border);
@@ -1908,7 +1906,7 @@ impl Renderer {
             TYPED_TIP,
             theme.foreground,
         );
-        Self::blit(frame, &tip, left, row_top.saturating_sub(self.scale));
+        Self::blit(frame, &tip, left, top);
     }
 
     /// The toasts that fit in a notification area `columns` cells wide and `nh`
