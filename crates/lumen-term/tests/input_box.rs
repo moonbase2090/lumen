@@ -208,3 +208,73 @@ fn control_d_after_box_text_leaves_the_shell_holding_the_line() {
     .unwrap_or_else(|e| unreachable!("key: {e}"));
     assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
 }
+
+/// The prompts the shell has drawn: `zsh -f` ends its prompt with `%`, or
+/// with `#` for root.
+fn prompts(app: &App) -> usize {
+    grid_text(app)
+        .lines()
+        .filter(|l| l.trim_end().ends_with(['%', '#']) || l.contains("% ") || l.contains("# "))
+        .count()
+}
+
+/// Press Enter and wait for the shell's next prompt, so that no key is typed
+/// while the shell is between prompts.
+fn enter_and_wait(app: &mut App) {
+    let before = prompts(app);
+    enter(app);
+    assert!(
+        until(app, |a| prompts(a) > before
+            && a.input_mode() == Mode::Editing),
+        "the shell drew its next prompt: {}",
+        grid_text(app)
+    );
+}
+
+#[test]
+fn every_enter_the_shell_takes_is_counted_and_one_a_program_takes_is_not() {
+    let mut app = zsh();
+    // The box can take keys before the first prompt is drawn.
+    assert!(until(&mut app, |a| prompts(a) >= 1));
+    assert_eq!(app.forwarded_enters(), 0);
+    type_str(&mut app, "echo counted-one");
+    enter_and_wait(&mut app);
+    assert!(
+        grid_text(&app).contains("counted-one\n"),
+        "{}",
+        grid_text(&app)
+    );
+    assert_eq!(app.forwarded_enters(), 1, "the box's line");
+    enter_and_wait(&mut app);
+    assert_eq!(app.forwarded_enters(), 2, "an empty Enter");
+    // cat is in front: its Enters are its own.
+    type_str(&mut app, "cat");
+    enter(&mut app);
+    assert!(
+        until(&mut app, |a| a.session().tty_state().shell_in_front
+            == Some(false)
+            && a.input_mode() == Mode::Raw),
+        "cat is in front: {}",
+        grid_text(&app)
+    );
+    assert_eq!(app.forwarded_enters(), 3);
+    type_str(&mut app, "to-cat");
+    enter(&mut app);
+    assert!(until(&mut app, |a| grid_text(a).matches("to-cat").count() >= 2));
+    assert_eq!(
+        app.forwarded_enters(),
+        3,
+        "an Enter cat read is not counted"
+    );
+    app.key(
+        Key::Char('d'),
+        Mods {
+            ctrl: true,
+            alt: false,
+            shift: false,
+        },
+    )
+    .unwrap_or_else(|e| unreachable!("ctrl-d: {e}"));
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    assert_eq!(app.forwarded_enters(), 3, "Ctrl+D is not an Enter");
+}

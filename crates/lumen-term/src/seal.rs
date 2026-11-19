@@ -80,7 +80,7 @@ pub struct Config {
     /// The listed shells, by absolute path.
     pub listed: Vec<String>,
     /// The system facts the conditions read.
-    pub probe: Box<dyn Probe + Send + Sync>,
+    pub probe: Arc<dyn Probe + Send + Sync>,
     /// The terminal-wide state of the checks, which holds the latch. The
     /// shipped terminal has one; a test gives each case its own.
     pub sealer: Arc<Sealer>,
@@ -93,7 +93,7 @@ impl Default for Config {
         Self {
             holder: holder_path(),
             listed: LISTED.iter().map(|s| (*s).to_owned()).collect(),
-            probe: Box::new(FsProbe::default()),
+            probe: Arc::new(FsProbe::default()),
             sealer: Arc::clone(sealer()),
             environment: BTreeMap::new(),
         }
@@ -203,9 +203,13 @@ fn wait_for_exec(pid: u32, path: &str) {
 pub struct Sealing {
     running: Option<Running>,
     // Held for the holder's lifetime: the terminal's own pidfd for the shell.
-    _pidfd: OwnedFd,
+    pidfd: OwnedFd,
     _shim: ShimDir,
     status: Status,
+    pid: u32,
+    path: String,
+    probe: Arc<dyn Probe + Send + Sync>,
+    sealer: Arc<Sealer>,
 }
 
 impl Sealing {
@@ -220,17 +224,62 @@ impl Sealing {
     pub fn holder_pid(&self) -> Option<u32> {
         self.running.as_ref().map(|r| r.child.id())
     }
+
+    /// Whether the layer still has its keys: it was sealed, nothing since has
+    /// made it grid-only, and the holder is still running.
+    pub fn has_keys(&mut self) -> bool {
+        if self.status != Status::Sealed {
+            return false;
+        }
+        let alive = self
+            .running
+            .as_mut()
+            .is_some_and(|r| matches!(r.child.try_wait(), Ok(None)));
+        if !alive {
+            self.lose_keys("the holder ended".to_owned());
+        }
+        alive
+    }
+
+    /// The checks the conditions require at every Enter the terminal forwards
+    /// for the user: the latch, the system settings, and that the shell is
+    /// still the process that was sealed (it has not executed another
+    /// program). If any fails the layer loses its keys for good: the holder is
+    /// ended, so nothing more can be sealed, and the status says why.
+    pub fn recheck(&mut self) {
+        if self.status != Status::Sealed {
+            return;
+        }
+        let shell = Shell {
+            pid: self.pid,
+            pidfd: Some(self.pidfd.as_raw_fd()),
+            path: &self.path,
+            direct: true,
+        };
+        if let Decision::GridOnly(reason) = self.sealer.recheck(self.probe.as_ref(), &shell) {
+            self.lose_keys(reason.to_string());
+        }
+    }
+
+    fn lose_keys(&mut self, why: String) {
+        self.status = Status::GridOnly(why);
+        end_holder(self.running.take());
+    }
+}
+
+/// End the holder: closing the EOF pipe ends it; the kill is for one that is
+/// busy. Reap it so it does not stay a zombie.
+fn end_holder(running: Option<Running>) {
+    if let Some(mut running) = running {
+        drop(running.eof_write);
+        let _ = running.child.kill();
+        let _ = running.child.wait();
+    }
 }
 
 impl Drop for Sealing {
     fn drop(&mut self) {
-        if let Some(mut running) = self.running.take() {
-            // Closing the EOF pipe ends the holder; the kill is for one that
-            // is busy. Reap it so it does not stay a zombie.
-            drop(running.eof_write);
-            let _ = running.child.kill();
-            let _ = running.child.wait();
-        }
+        end_holder(self.running.take());
     }
 }
 
@@ -340,9 +389,13 @@ pub fn start(
         pty,
         sealing: Sealing {
             running,
-            _pidfd: pidfd,
+            pidfd,
             _shim: shim,
             status,
+            pid,
+            path: program.to_owned(),
+            probe: Arc::clone(&config.probe),
+            sealer: Arc::clone(&config.sealer),
         },
         receiver,
     })
