@@ -82,7 +82,7 @@ pub fn legacy(code: u32, cell: Cell) -> Option<Vec<u8>> {
     if column > LEGACY_LIMIT || row > LEGACY_LIMIT {
         return None;
     }
-    let byte = |n: u32| u8::try_from(32 + n).ok();
+    let byte = |n: u32| u8::try_from(n.checked_add(32)?).ok();
     Some(vec![
         0x1b,
         b'[',
@@ -169,6 +169,10 @@ impl Reporter {
         if self.last == Some(cell) {
             return None;
         }
+        // In the default encoding two cells past the limit are the same cell.
+        if !modes.sgr && self.last.is_some_and(|last| clamped(last) == clamped(cell)) {
+            return None;
+        }
         let code = match self.held {
             Some((b, true)) if modes.tracking.reports_drag() => button_code(b),
             None if modes.tracking.reports_motion() => 3,
@@ -179,7 +183,9 @@ impl Reporter {
         if modes.sgr {
             Some(sgr(code, cell, false))
         } else {
-            legacy(code, cell)
+            // A move past what the default encoding can name is reported at the
+            // last cell it can, like a release.
+            legacy(code, clamped(cell))
         }
     }
 

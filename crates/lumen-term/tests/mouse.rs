@@ -24,15 +24,19 @@ fn text(app: &App) -> String {
 }
 
 fn pump_until(app: &mut App, done: impl Fn(&str) -> bool) -> bool {
+    // Block on the program's output; the deadline only bounds a hang.
     let end = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < end {
+    loop {
         app.pump();
         if done(&text(app)) {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(20));
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        app.pump_wait(left);
     }
-    false
 }
 
 /// A program that switches on `modes`, prints READY, then shows every byte it
@@ -409,6 +413,48 @@ fn a_drag_that_ends_past_column_223_still_ends_at_the_last_cell_it_can_name() {
         text(&app).contains("1b 5b 4d 20 25 22 1b 5b 4d 23 ff 22 5a"),
         "{}",
         text(&app)
+    );
+}
+
+#[test]
+fn a_drag_past_column_223_is_reported_at_the_last_cell_it_can_name_once() {
+    let mut app = hex_reader();
+    let (x, y) = at(&app, 4, 1);
+    let (far, _) = at(&app, 260, 1);
+    let (farther, _) = at(&app, 270, 1);
+    assert!(
+        app.mouse_press(x, y, Button::Left, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    assert!(
+        app.mouse_move(far, y, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    // A second cell out there is the same cell to this encoding: nothing more is sent.
+    let _ = app.mouse_move(farther, y, NONE);
+    assert!(
+        app.mouse_release(farther, y, Button::Left, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    mark_hex(&mut app);
+    // Press at column 5, the drag clamped to column 223 (255) once, then the release.
+    assert!(
+        text(&app).contains("1b 5b 4d 20 25 22 1b 5b 4d 40 ff 22 1b 5b 4d 23 ff 22 5a"),
+        "{}",
+        text(&app)
+    );
+}
+
+#[test]
+fn the_default_encoding_is_none_for_a_value_no_byte_can_hold() {
+    use lumen_term::mouse::legacy;
+    assert_eq!(legacy(u32::MAX, (0, 0)), None);
+    assert_eq!(legacy(0, (u32::MAX, 0)), None);
+    assert_eq!(legacy(0, (0, u32::MAX)), None);
+    assert_eq!(legacy(224, (0, 0)), None);
+    assert_eq!(
+        legacy(223, (222, 222)),
+        Some(vec![0x1b, b'[', b'M', 255, 255, 255])
     );
 }
 
