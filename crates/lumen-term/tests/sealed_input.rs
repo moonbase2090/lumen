@@ -447,7 +447,12 @@ fn send_as_commands_runs_each_line_in_turn_at_its_own_prompt() {
             ("echo two-ran".to_owned(), Some(0)),
             ("echo three-ran".to_owned(), Some(0)),
         ],
-        "each line is recorded for its own command"
+        "each line is recorded for its own command; rows: {:?}\n{}",
+        app.typed_records()
+            .iter()
+            .map(|r| app.typed_row_text(r))
+            .collect::<Vec<_>>(),
+        grid_text(&app)
     );
 }
 
