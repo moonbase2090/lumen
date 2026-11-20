@@ -12,6 +12,16 @@
 //! Keys typed after the line's Enter do not change it, because the shell has
 //! already taken the line by then. In every other case nothing is recorded.
 //! Nothing here ever comes from the program's output.
+//!
+//! Lines typed ahead. A line typed while a command runs waits in the kernel
+//! for the shell, and if the box sends a line before the shell has read it,
+//! the next command to start is the queued line, not the box's. So when a
+//! command starts, the terminal looks at the line the box's line was sent on,
+//! that row and the rows the terminal wrapped it on to: the shell draws the
+//! line it runs there. If that line does not show the box's whole line
+//! ([`row_shows`]), the record is left out. The look can only leave a
+//! record out; a record is still only ever made from the box's own text and a
+//! sealed command start.
 
 use lumen_sealed::types::Frame;
 use std::collections::VecDeque;
@@ -91,6 +101,14 @@ impl Typed {
 
     /// A sealed boundary frame that applied in order.
     pub fn see(&mut self, frame: &Frame) {
+        self.see_checked(frame, |_| true);
+    }
+
+    /// [`see`](Self::see), where a record a command start would make is kept
+    /// only if `shown` says the grid shows its line. A record left out takes
+    /// nothing with it: the oldest record goes to make room only for one that
+    /// is kept.
+    pub fn see_checked(&mut self, frame: &Frame, shown: impl FnOnce(&Record) -> bool) {
         if self.stopped {
             return;
         }
@@ -101,16 +119,19 @@ impl Typed {
             }
             Frame::CommandStart { id } => {
                 if let Some((typed, line)) = self.pending.take() {
-                    if self.records.len() == RECORDS_KEPT {
-                        self.records.pop_front();
-                    }
-                    self.records.push_back(Record {
+                    let record = Record {
                         id: *id,
                         typed,
                         status: None,
                         line,
-                    });
-                    self.made += 1;
+                    };
+                    if shown(&record) {
+                        if self.records.len() == RECORDS_KEPT {
+                            self.records.pop_front();
+                        }
+                        self.records.push_back(record);
+                        self.made += 1;
+                    }
                 }
                 self.dirty = true;
             }
@@ -156,6 +177,26 @@ impl Typed {
     pub fn records(&self) -> &VecDeque<Record> {
         &self.records
     }
+}
+
+/// Whether `shown`, one logical line of the grid as the shell drew it (a row
+/// and the rows the terminal wrapped it on to), shows the whole of the line
+/// `typed`: it ends with the line's first line, and that text is either the
+/// whole of `shown` or follows a space, where a prompt ends. So a short line
+/// cannot match the tail of another, and a line that only shares its start
+/// with the one drawn does not match at all. A shell that drew the line some
+/// other way (a character as `<200d>`, or its own line break where it wraps),
+/// or a prompt that does not end in a space, fails this, and the record is left
+/// out. What it cannot catch: a box line that is word for word the end of the
+/// line that ran instead (`hi` after `echo hi`).
+#[must_use]
+pub fn row_shows(shown: &str, typed: &str) -> bool {
+    let first = typed.lines().next().unwrap_or("").trim_end();
+    !first.is_empty()
+        && shown
+            .trim_end()
+            .strip_suffix(first)
+            .is_some_and(|before| before.is_empty() || before.ends_with(' '))
 }
 
 #[cfg(test)]
@@ -255,6 +296,45 @@ mod tests {
         t.wrote(Some("echo three".to_owned()));
         t.see(&start(3));
         assert_eq!(typed_lines(&t), [(1, "echo one", None)]);
+    }
+
+    #[test]
+    fn a_row_shows_the_whole_line_the_shell_drew_there() {
+        assert!(row_shows("% echo hi", "echo hi"));
+        assert!(row_shows("echo hi", "echo hi"), "no prompt drawn");
+        // A line typed ahead ran there, not the box's line.
+        assert!(!row_shows("% ls", "rm x"));
+        assert!(!row_shows("% echo queued-x", "echo box-y"));
+        // A short line that happens to end another is not enough.
+        assert!(!row_shows("% ls", "s"));
+        // Sharing only the start is not enough, however long it is.
+        assert!(!row_shows("% echo same-other", "echo same-box"));
+        assert!(!row_shows("% echo same", "echo same-box"));
+        // The first line of a line sent with line breaks.
+        assert!(row_shows(
+            "% for i in 1 2; do",
+            "for i in 1 2; do\necho $i\ndone"
+        ));
+        assert!(!row_shows("% anything", ""));
+    }
+
+    #[test]
+    fn a_record_left_out_at_the_limit_takes_no_other_record_with_it() {
+        let mut t = Typed::new();
+        let kept = u32::try_from(RECORDS_KEPT).unwrap_or(u32::MAX);
+        for id in 1..=kept {
+            t.see(&Frame::Prompt);
+            t.wrote(Some(format!("echo {id}")));
+            t.see(&start(id));
+        }
+        assert_eq!(t.records().len(), RECORDS_KEPT);
+        let made = t.made();
+        t.see(&Frame::Prompt);
+        t.wrote(Some("echo left-out".to_owned()));
+        t.see_checked(&start(kept + 1), |_| false);
+        assert_eq!(t.records().len(), RECORDS_KEPT, "nothing was evicted");
+        assert_eq!(t.records().front().map(|r| r.id), Some(1));
+        assert_eq!(t.made(), made, "no change to recall");
     }
 
     #[test]

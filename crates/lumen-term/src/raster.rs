@@ -1235,10 +1235,23 @@ impl Renderer {
                             g.screen().row(k - hist)
                         };
                         let Some(cells) = cells else { continue };
+                        #[cfg(feature = "links-clipboard")]
+                        let hits = if k < hist {
+                            crate::linkhit::history_links(g.screen(), k)
+                        } else {
+                            crate::linkhit::row_links(g.screen(), k - hist)
+                        };
                         let y = i64::from(p.top)
                             + i64::try_from(k).unwrap_or(0) * i64::from(self.cell_h)
                             - i64::from(view_top);
-                        self.paint_row_at(region, y, cells, Marks::of(overlay, p.index).row(k));
+                        self.paint_row_at(
+                            region,
+                            y,
+                            cells,
+                            #[cfg(feature = "links-clipboard")]
+                            &hits,
+                            Marks::of(overlay, p.index).row(k),
+                        );
                     }
                     if let (Some(state), Some(l)) = (cursor, live)
                         && std::ptr::eq(l, g)
@@ -1279,11 +1292,18 @@ impl Renderer {
 
     /// Paint one row of cells at pixel row `y` of `region`, which may be partly
     /// above or below it: a row that is not wholly in view is cut.
-    fn paint_row_at(&self, region: &mut Frame, y: i64, cells: &[Cell], marks: &[Mark]) {
+    fn paint_row_at(
+        &self,
+        region: &mut Frame,
+        y: i64,
+        cells: &[Cell],
+        #[cfg(feature = "links-clipboard")] hits: &[crate::linkhit::Hit],
+        marks: &[Mark],
+    ) {
         let mut line = Frame::new(region.width, self.cell_h, self.theme.background);
         self.paint_cells(&mut line, 0, 0, cells, marks);
         #[cfg(feature = "links-clipboard")]
-        self.paint_link_marks(&mut line, 0, 0, &crate::linkhit::cell_links(cells));
+        self.paint_link_marks(&mut line, 0, 0, hits);
         Self::blit_clipped(region, &line, y);
     }
 
