@@ -682,9 +682,12 @@ impl Host {
             let height = size.height.saturating_sub(tab.app.cell_height());
             let _ = tab.app.resize(size.width, height);
         }
+        // An open context menu was closed by the action: draw without it.
+        let menu_closed = tab.app.take_view_changed();
         match outcome {
             Outcome::Exit => event_loop.exit(),
             Outcome::Redraw => run.window.request_redraw(),
+            Outcome::Nothing | Outcome::Refused if menu_closed => run.window.request_redraw(),
             Outcome::Nothing | Outcome::Refused => {}
         }
     }
@@ -718,6 +721,9 @@ impl Host {
         ) {
             if send_input(&mut tab.app, Input::Key(key, mods)) {
                 run.window.request_redraw();
+            }
+            if let Some(action) = tab.app.take_menu_choice() {
+                self.act(event_loop, action);
             }
         } else if let Some(text) = event.text.as_deref()
             && !self.modifiers.super_key()
@@ -844,6 +850,21 @@ impl Host {
             }
             return;
         }
+        #[cfg(not(any(target_os = "macos", windows)))]
+        if state == ElementState::Pressed
+            && button == MouseButton::Right
+            && !tab.app.is_selecting()
+            && tab.app.owns_context_click(x, y, held)
+        {
+            // There is no system menu here: the terminal draws its own.
+            if tab
+                .app
+                .open_context_menu(x, y, SystemClipboard.text().is_some())
+            {
+                run.window.request_redraw();
+            }
+            return;
+        }
         let mut redraw = false;
         let mut taken = false;
         if state == ElementState::Pressed && button == MouseButton::Left {
@@ -853,7 +874,9 @@ impl Host {
             } else {
                 self.modifiers.control_key()
             };
-            if tab.app.link_prompt().is_some() || link_modifier {
+            if tab.app.link_prompt().is_some()
+                || (link_modifier && tab.app.context_menu().is_none())
+            {
                 taken = tab.app.link_press(x, y);
                 redraw |= taken;
             }
@@ -872,11 +895,15 @@ impl Host {
         }
         redraw |= tab.app.take_selection_redraw();
         let copy = tab.app.take_copy_on_select();
+        let choice = tab.app.take_menu_choice();
         if redraw {
             run.window.request_redraw();
         }
         if copy {
             self.act(event_loop, Action::Copy);
+        }
+        if let Some(action) = choice {
+            self.act(event_loop, action);
         }
     }
 
