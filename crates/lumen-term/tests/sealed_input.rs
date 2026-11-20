@@ -178,18 +178,34 @@ fn grid_text(app: &App) -> String {
 }
 
 /// The live grid's text, history first, one logical line per line: a row the
-/// terminal wrapped on to the next is joined to it, so text that only wrapped
-/// is not taken for two lines. A real line break is still a line break.
+/// terminal wrapped on to the next is joined to it whole, blanks in its last
+/// cells included, so text that only wrapped is not taken for two lines and a
+/// real space at the wrap is kept. Only the end of a logical line is trimmed.
+/// A real line break is still a line break.
 fn logical_text(app: &App) -> String {
     let Some(lumen_term::Block::Grid(g)) = app.session().document().blocks().last() else {
         return String::new();
     };
-    let rows = g.history_rows() + g.size().1;
+    let history = g.history_rows();
     let mut out = String::new();
-    for index in 0..rows {
-        out.push_str(&g.flow_row_text(index).unwrap_or_default());
+    let mut line = String::new();
+    for index in 0..history + g.size().1 {
+        let cells = if index < history {
+            g.history_row(index)
+        } else {
+            g.screen().row(index - history)
+        };
+        line.extend(
+            cells
+                .unwrap_or_default()
+                .iter()
+                .filter(|c| !c.wide_cont)
+                .map(|c| c.character),
+        );
         if !g.screen().history_line_wrapped(index) {
+            out.push_str(line.trim_end());
             out.push('\n');
+            line.clear();
         }
     }
     out
