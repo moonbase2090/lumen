@@ -120,6 +120,35 @@ fn composing_text_is_drawn_in_the_box_underlined_where_the_candidate_window_is()
 }
 
 #[test]
+fn the_candidate_window_follows_the_drawn_caret_after_wide_text() {
+    let theme = renderer().theme().clone();
+    let mut app = zsh();
+    let (start, y, cw, h) = app.ime_area();
+    assert!(app.commit("日本語x").is_ok());
+    let caret = start + 7 * cw;
+    assert_eq!(app.view().pixel(caret, y + 1), Some(theme.prompt));
+
+    app.set_preedit("かな", None);
+    assert_eq!(app.ime_area(), (caret, y, 4 * cw, h));
+    assert!(row_is(
+        &app.view(),
+        (caret, y + h - 1, 4 * cw),
+        theme.prompt
+    ));
+}
+
+#[test]
+fn clicking_after_a_wide_character_inserts_at_that_boundary() {
+    let mut app = zsh();
+    let (start, y, cw, h) = app.ime_area();
+    assert!(app.commit("日本語x").is_ok());
+
+    assert!(app.click(start + 2 * cw, y + h / 2));
+    type_str(&mut app, "Q");
+    assert_eq!(app.input_text(), "日Q本語x");
+}
+
+#[test]
 fn composing_letters_are_inked_in_the_text_colour_on_the_editor_background() {
     let theme = renderer().theme().clone();
     let mut app = zsh();

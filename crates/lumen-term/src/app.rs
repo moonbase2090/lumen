@@ -349,17 +349,6 @@ pub fn cells_for(width: u32, height: u32, cell: (u32, u32)) -> (usize, usize) {
     (columns as usize, rows as usize)
 }
 
-/// Columns a character takes in the editor: 2 for the East Asian wide and
-/// fullwidth blocks and emoji, else 1. It only sizes the candidate window's
-/// anchor, so the blocks are the common ones, not the full width table.
-fn cell_columns(c: char) -> u32 {
-    let wide = matches!(c as u32,
-        0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF
-        | 0xFE30..=0xFE6F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6
-        | 0x1F300..=0x1F64F | 0x1F900..=0x1F9FF | 0x20000..=0x3FFFD);
-    if wide { 2 } else { 1 }
-}
-
 /// Rows of the input editor.
 pub const EDITOR_ROWS: u32 = 2;
 
@@ -992,22 +981,14 @@ impl App {
         if !inside || x < left || cell_h == 0 || cell_w == 0 {
             return false;
         }
-        let line = ((y - top) / cell_h) as usize;
+        let row = ((y - top) / cell_h) as usize;
         let column = ((x - left) / cell_w) as usize;
-        let first = self.visible_first_line();
-        self.input.set_caret_at(first + line, column);
-        true
-    }
-
-    /// The first line of the box's text that is shown: the box scrolls to keep
-    /// the caret's line in view.
-    fn visible_first_line(&self) -> usize {
         let view = self.input_view();
-        let rows = (self.box_rows.saturating_sub(1) as usize).max(1);
-        let caret_line = view.caret.map_or(0, |c| c.0);
-        (caret_line + 1)
-            .saturating_sub(rows)
-            .min(view.lines.len().saturating_sub(rows))
+        let first = view.visible_first_line((self.box_rows.saturating_sub(1) as usize).max(1));
+        let line = (first + row).min(view.lines.len().saturating_sub(1));
+        self.input
+            .set_caret_at(line, view.character_at_cell(line, column));
+        true
     }
 
     /// The height of a cell in pixels.
@@ -2449,14 +2430,15 @@ impl App {
         let used = self
             .preedit
             .as_ref()
-            .map_or(0, |p| p.text.chars().map(cell_columns).sum::<u32>());
+            .map_or(0, |p| Renderer::preedit_columns(&p.text));
         let editing = self.input.mode(self.facts_with(self.exited)) == Mode::Editing;
         if let (false, Some((x, y, _))) = (editing, self.live_cursor_pixel()) {
             return (x, y, used.max(1).saturating_mul(cell_w), cell_h);
         }
-        let (line, col) = self.input_view().caret.unwrap_or((0, 0));
-        let line = u32::try_from(line.saturating_sub(self.visible_first_line())).unwrap_or(0);
-        let col = u32::try_from(col).unwrap_or(0);
+        let view = self.input_view();
+        let (line, col) = view.caret_cell().unwrap_or((0, 0));
+        let first = view.visible_first_line((self.box_rows.saturating_sub(1) as usize).max(1));
+        let line = u32::try_from(line.saturating_sub(first)).unwrap_or(0);
         (
             GUTTER_COLUMNS
                 .saturating_mul(cell_w)
