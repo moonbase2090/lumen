@@ -20,7 +20,7 @@ use crate::notify::{Desk, Notifier, OsSink, Place, Settings, Toast};
 #[cfg(feature = "links-clipboard")]
 use crate::paste::{self, Decision, Hold, Pasted, Rejection};
 use crate::pty::SpawnError;
-use crate::raster::{Frame, INPUT_MAX_LINES, InputView, Renderer, Window};
+use crate::raster::{Frame, INPUT_MAX_LINES, InputView, PreeditView, Renderer, Window};
 use crate::scroll::Scroll;
 use crate::select::{self, Pos, Selection};
 use crate::session::{MAX_COLUMNS, MAX_ROWS, Session};
@@ -69,6 +69,15 @@ impl Default for Links {
             press_down: false,
         }
     }
+}
+
+/// The live grid's history as it was before output arrived while the view was
+/// held: how many blocks there were, where the grid starts in the flow, and a
+/// fingerprint of each history row.
+struct HistoryBefore {
+    blocks: usize,
+    top: u32,
+    prints: Vec<u64>,
 }
 
 /// The context menu the terminal draws itself: the one open now, the choice
@@ -2177,7 +2186,52 @@ impl App {
             focused: self.desk.focused,
             status,
             hint,
+            preedit: (mode == Mode::Editing)
+                .then(|| self.preedit_view())
+                .flatten(),
         }
+    }
+
+    /// The composing text as the renderer draws it.
+    fn preedit_view(&self) -> Option<PreeditView> {
+        self.preedit.as_ref().map(|p| PreeditView {
+            text: p.text.clone(),
+            cursor: p.cursor,
+        })
+    }
+
+    /// Where the program's cursor is in the window, in pixels: its cell's top left, and the
+    /// right edge of the content area. `None` when the live grid is not on screen, or its
+    /// cursor row is scrolled out of the content area.
+    fn live_cursor_pixel(&self) -> Option<(u32, u32, u32)> {
+        let (cw, ch) = self.renderer.cell();
+        let doc = self.session.document();
+        let Some(Block::Grid(live)) = doc.blocks().last() else {
+            return None;
+        };
+        let (area, content_columns, total) = self.content_metrics();
+        let screen_top = self.renderer.live_screen_top(doc, content_columns)?;
+        let view = live.cursor();
+        let (columns, rows) = live.size();
+        if columns == 0 || view.row >= rows {
+            return None;
+        }
+        let col = u32::try_from(view.column.min(columns - 1)).ok()?;
+        let in_flow = i64::from(screen_top) + i64::try_from(view.row).ok()? * i64::from(ch);
+        let top = u32::try_from(in_flow - i64::from(self.scroll.top(total, area))).ok()?;
+        if top.saturating_add(ch) > area {
+            return None;
+        }
+        let content_x = GUTTER_COLUMNS
+            .saturating_mul(cw)
+            .saturating_add(self.renderer.gutter_pad());
+        let right =
+            content_x.saturating_add(u32::try_from(content_columns).ok()?.saturating_mul(cw));
+        Some((
+            content_x.saturating_add(col.saturating_mul(cw)),
+            HEADER_ROWS.saturating_mul(ch).saturating_add(top),
+            right,
+        ))
     }
 
     /// The text in the input box.
@@ -2393,8 +2447,9 @@ impl App {
     }
 
     /// Where the input method's candidate window goes, in pixels: `(x, y, width,
-    /// height)`, the editor's first row after the gutter and its padding, as wide as the text
-    /// being composed. The terminal keeps no cursor cell of its own.
+    /// height)`, as wide as the text being composed. It is where the composing text is
+    /// drawn: at the caret of the input box while the box takes the keys, else at the
+    /// program's cursor.
     #[must_use]
     pub fn ime_area(&self) -> (u32, u32, u32, u32) {
         let (cell_w, cell_h) = self.renderer.cell();
@@ -2404,6 +2459,10 @@ impl App {
             .preedit
             .as_ref()
             .map_or(0, |p| p.text.chars().map(cell_columns).sum::<u32>());
+        let editing = self.input.mode(self.facts_with(self.exited)) == Mode::Editing;
+        if let (false, Some((x, y, _))) = (editing, self.live_cursor_pixel()) {
+            return (x, y, used.max(1).saturating_mul(cell_w), cell_h);
+        }
         let (line, col) = self.input_view().caret.unwrap_or((0, 0));
         let line = u32::try_from(line.saturating_sub(self.visible_first_line())).unwrap_or(0);
         let col = u32::try_from(col).unwrap_or(0);
@@ -2546,15 +2605,66 @@ impl App {
         self.pump_taking(Some(wait))
     }
 
+    /// What the live grid's history is before output arrives, when the view is
+    /// held somewhere in it: output can drop its oldest rows, which would slide
+    /// the held place if it were left as a pixel offset.
+    fn history_before_output(&self) -> Option<HistoryBefore> {
+        if !matches!(self.scroll, Scroll::Pinned(_)) {
+            return None;
+        }
+        let doc = self.session.document();
+        let Some(Block::Grid(live)) = doc.blocks().last() else {
+            return None;
+        };
+        let rows = live.history_rows();
+        if rows == 0 {
+            return None;
+        }
+        let (_, columns, _) = self.content_metrics();
+        let screen_top = self.renderer.live_screen_top(doc, columns)?;
+        let ch = self.renderer.cell().1;
+        Some(HistoryBefore {
+            blocks: doc.blocks().len(),
+            top: screen_top.saturating_sub(u32::try_from(rows).unwrap_or(u32::MAX) * ch),
+            prints: live.history_prints(),
+        })
+    }
+
+    /// Move a held view up by the rows of the live grid's history that output
+    /// dropped, so it keeps showing the same text; once those are gone it holds
+    /// at the oldest output left.
+    fn hold_view_through_eviction(&mut self, before: Option<HistoryBefore>) {
+        let Some(before) = before else {
+            return;
+        };
+        let doc = self.session.document();
+        let Some(Block::Grid(live)) = doc.blocks().last() else {
+            return;
+        };
+        if doc.blocks().len() != before.blocks {
+            return;
+        }
+        let gone = Scroll::rows_evicted(&before.prints, &live.history_prints());
+        if gone == 0 {
+            return;
+        }
+        let pixels = u32::try_from(gone)
+            .unwrap_or(u32::MAX)
+            .saturating_mul(self.renderer.cell().1);
+        self.scroll = self.scroll.after_eviction(before.top, pixels);
+    }
+
     fn pump_taking(&mut self, wait: Option<std::time::Duration>) -> usize {
         self.refresh_front();
         let facts = self.facts_with(self.exited);
         self.input.observe(facts);
+        let history = self.history_before_output();
         let bytes = match wait {
             Some(wait) => self.session.pump_wait(wait),
             None => self.session.pump(),
         };
         if bytes > 0 {
+            self.hold_view_through_eviction(history);
             self.track_reporting();
             self.cursor_epoch_ms = self.session.now_ms();
             self.refresh_find();
@@ -2681,6 +2791,13 @@ impl App {
                 .and_then(|r| self.typed_row_end(r))
                 .map_or(0, |end| u32::try_from(end + 1).unwrap_or(u32::MAX));
             self.renderer.paint_typed_tip(&mut frame, *top, after);
+        }
+        if let (false, Some(preedit)) = (editing_box, self.preedit_view())
+            && !self.exited
+            && let Some((x, y, right)) = self.live_cursor_pixel()
+        {
+            self.renderer
+                .paint_preedit(&mut frame, (x, y), right, &preedit, self.desk.focused);
         }
         let mut frame = frame.viewport(self.width, self.height, self.renderer.theme().background);
         #[cfg(feature = "links-clipboard")]
