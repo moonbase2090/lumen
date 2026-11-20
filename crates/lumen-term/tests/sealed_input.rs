@@ -380,8 +380,11 @@ fn lines_typed_without_waiting_for_the_prompt_are_never_split() {
     // At machine speed: each line is typed the moment the last was sent,
     // before the shell has read it. Every key after an Enter is the shell's
     // until it says, sealed, that it is at a prompt again.
+    // The marker is quoted in two parts. The kernel echoes lines typed ahead
+    // while a command runs, so an unquoted marker would be on screen before
+    // its line ran, and the wait below could end early.
     for n in 1..=10 {
-        line(&mut app, &format!("echo fast-{n}-done"));
+        line(&mut app, &format!("echo fast-{n}''-done"));
     }
     assert!(
         until(&mut app, |a| grid_text(a).contains("fast-10-done\n")
