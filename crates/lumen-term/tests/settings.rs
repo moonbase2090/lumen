@@ -3,7 +3,7 @@
 
 use lumen_term::design::{Builtin, FontFile, Palette, ThemeChoice};
 use lumen_term::settings::{
-    FontSetting, LookSettings, MAX_BYTES, Settings, ThemeSetting, load_from, parse,
+    FontSetting, LookSettings, MAX_BYTES, Settings, ThemeSetting, Watcher, load_from, parse,
 };
 use std::path::{Path, PathBuf};
 
@@ -287,6 +287,34 @@ fn a_file_that_cannot_be_used_is_ignored_with_a_notice() -> Result<(), Box<dyn s
     let s = load_from(&good, None);
     assert_eq!(s.notice(), None);
     assert_eq!(s.look().theme, ThemeSetting::Builtin(Builtin::HighContrast));
+    Ok(())
+}
+
+#[test]
+fn a_watcher_reports_each_parsed_change_once() -> Result<(), Box<dyn std::error::Error>> {
+    let d = dir("watcher");
+    let path = d.join("settings.toml");
+    let mut watcher = Watcher::from_path(path.clone(), Some(d.clone()));
+    assert_eq!(watcher.current(), &Settings::Defaults);
+    assert_eq!(watcher.take_change(), None);
+
+    std::fs::write(&path, "theme = \"dark\"\nmono_size = 14\n")?;
+    let changed = watcher.take_change().map(Settings::look);
+    assert_eq!(
+        changed.map(|look| look.theme),
+        Some(ThemeSetting::Builtin(Builtin::Dark))
+    );
+    assert_eq!(watcher.take_change(), None);
+
+    // These values have the same length, so this also guards against a
+    // watcher that trusts only the file's size.
+    std::fs::write(&path, "theme = \"dark\"\nmono_size = 28\n")?;
+    let changed = watcher.take_change().map(Settings::look);
+    assert_eq!(changed.map(|look| look.mono_size), Some(28));
+
+    std::fs::remove_file(path)?;
+    assert_eq!(watcher.take_change(), Some(&Settings::Defaults));
+    assert_eq!(watcher.take_change(), None);
     Ok(())
 }
 

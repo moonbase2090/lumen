@@ -45,4 +45,4 @@ A path is a value with a `/` in it: absolute (`"/Library/Fonts/Mine.otf"`), unde
 
 **Checking it.** `bright --show-settings` prints the file that was read, the settings that apply and a notice for anything left out, and exits. A normal run prints the same notices on standard error.
 
-**What is not here yet.** Changes to the file take effect at the next start; a change to the system's appearance takes effect at once. There is no in-app picker yet.
+**Applying changes.** Theme, font, copy-on-select and smooth-scrolling changes apply to every open tab within a quarter second. A changed shell or shell-integration setting applies to tabs opened afterwards; Bright does not restart a program that is already running. A change to the system's appearance also takes effect at once. There is no in-app picker yet.
