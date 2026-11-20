@@ -71,6 +71,15 @@ impl Default for Links {
     }
 }
 
+/// The live grid's history as it was before output arrived while the view was
+/// held: how many blocks there were, where the grid starts in the flow, and a
+/// fingerprint of each history row.
+struct HistoryBefore {
+    blocks: usize,
+    top: u32,
+    prints: Vec<u64>,
+}
+
 /// The context menu the terminal draws itself: the one open now, the choice
 /// made and not yet carried out, and whether the press that took the menu is
 /// still down.
@@ -2546,15 +2555,66 @@ impl App {
         self.pump_taking(Some(wait))
     }
 
+    /// What the live grid's history is before output arrives, when the view is
+    /// held somewhere in it: output can drop its oldest rows, which would slide
+    /// the held place if it were left as a pixel offset.
+    fn history_before_output(&self) -> Option<HistoryBefore> {
+        if !matches!(self.scroll, Scroll::Pinned(_)) {
+            return None;
+        }
+        let doc = self.session.document();
+        let Some(Block::Grid(live)) = doc.blocks().last() else {
+            return None;
+        };
+        let rows = live.history_rows();
+        if rows == 0 {
+            return None;
+        }
+        let (_, columns, _) = self.content_metrics();
+        let screen_top = self.renderer.live_screen_top(doc, columns)?;
+        let ch = self.renderer.cell().1;
+        Some(HistoryBefore {
+            blocks: doc.blocks().len(),
+            top: screen_top.saturating_sub(u32::try_from(rows).unwrap_or(u32::MAX) * ch),
+            prints: live.history_prints(),
+        })
+    }
+
+    /// Move a held view up by the rows of the live grid's history that output
+    /// dropped, so it keeps showing the same text; once those are gone it holds
+    /// at the oldest output left.
+    fn hold_view_through_eviction(&mut self, before: Option<HistoryBefore>) {
+        let Some(before) = before else {
+            return;
+        };
+        let doc = self.session.document();
+        let Some(Block::Grid(live)) = doc.blocks().last() else {
+            return;
+        };
+        if doc.blocks().len() != before.blocks {
+            return;
+        }
+        let gone = Scroll::rows_evicted(&before.prints, &live.history_prints());
+        if gone == 0 {
+            return;
+        }
+        let pixels = u32::try_from(gone)
+            .unwrap_or(u32::MAX)
+            .saturating_mul(self.renderer.cell().1);
+        self.scroll = self.scroll.after_eviction(before.top, pixels);
+    }
+
     fn pump_taking(&mut self, wait: Option<std::time::Duration>) -> usize {
         self.refresh_front();
         let facts = self.facts_with(self.exited);
         self.input.observe(facts);
+        let history = self.history_before_output();
         let bytes = match wait {
             Some(wait) => self.session.pump_wait(wait),
             None => self.session.pump(),
         };
         if bytes > 0 {
+            self.hold_view_through_eviction(history);
             self.track_reporting();
             self.cursor_epoch_ms = self.session.now_ms();
             self.refresh_find();
