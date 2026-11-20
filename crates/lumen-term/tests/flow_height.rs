@@ -167,3 +167,50 @@ fn a_program_that_draws_on_the_bottom_row_keeps_the_whole_screen() {
         "the bottom row is in the flow and in view: {shown:?}"
     );
 }
+
+/// The rows the live grid block takes in the flow, and its screen's height.
+fn live_rows(app: &App) -> (usize, usize) {
+    let renderer = Renderer::light(1).unwrap_or_else(|e| unreachable!("face: {e}"));
+    let doc = app.session().document();
+    let last = doc.blocks().len() - 1;
+    let Some(lumen_term::Block::Grid(g)) = doc.blocks().last() else {
+        unreachable!("the live block is a grid")
+    };
+    let rows = renderer
+        .flow(doc, doc.columns())
+        .iter()
+        .filter(|l| l.block == last)
+        .count();
+    (rows, g.size().1)
+}
+
+fn live_cursor_row(app: &App) -> Option<usize> {
+    match app.session().document().blocks().last() {
+        Some(lumen_term::Block::Grid(g)) => Some(g.cursor().row),
+        _ => None,
+    }
+}
+
+#[test]
+fn the_alternate_screen_takes_the_whole_screen_however_little_is_drawn() {
+    // A full-screen program that has drawn only its top row, with the cursor
+    // back at the top: its screen is still all of it.
+    let mut app = start(
+        "printf '\\033[?1049h\\033[Hfull''-screen\\033[H'; sleep 60",
+        "full-screen",
+    );
+    assert!(until(&mut app, |a| live_cursor_row(a) == Some(0)));
+    let (rows, screen) = live_rows(&app);
+    assert_eq!(rows, screen, "the whole alternate screen is in the flow");
+}
+
+#[test]
+fn the_live_block_reaches_down_to_the_cursor_below_its_last_drawn_row() {
+    // One drawn row, then three line feeds: the cursor is on row 3 with nothing
+    // drawn below row 0, where the next output will go.
+    let mut app = start("printf 'top''-row\\n\\n\\n'; sleep 60", "top-row");
+    assert!(until(&mut app, |a| live_cursor_row(a) == Some(3)));
+    let (rows, screen) = live_rows(&app);
+    assert!(screen > 4, "a screen taller than the rows used: {screen}");
+    assert_eq!(rows, 4, "down to the cursor's row, and no further");
+}
