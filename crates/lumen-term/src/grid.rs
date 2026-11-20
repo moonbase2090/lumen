@@ -3,6 +3,7 @@
 use crate::modes::{Changes, ModeTracker};
 pub use prismattyc_emulator::CursorShape;
 use prismattyc_emulator::Emulator;
+use std::cell::Cell;
 
 /// Scrollback lines kept per block.
 pub const SCROLLBACK: usize = 1000;
@@ -45,12 +46,19 @@ pub struct GridBlock {
     /// Resizes that changed the width. A new width rewraps the history, so a
     /// line number from before it means nothing after it.
     resizes: u64,
+    /// Cursor-position reports the program has asked for and the owner has not
+    /// taken. Behind a `Cell` so the owner can take them through the shared
+    /// reference a [`Document`](crate::Document) hands out.
+    cursor_reports: Cell<Vec<(u32, u32)>>,
     /// Added to the core's count of rows that left the top of the screen, to
     /// number lines. A resize that keeps the width moves rows between the
     /// screen and history without that count changing; this keeps the numbers
     /// steady across it.
     shift: i64,
 }
+
+/// Most cursor-position reports a block holds before the owner takes them.
+const MAX_PENDING_REPORTS: usize = 64;
 
 /// A line of a block's primary screen, by number: rows that have left the top
 /// of the full screen so far, plus the row on the screen. The number of a line
@@ -87,6 +95,7 @@ impl GridBlock {
             emulator: Emulator::new(columns, rows, SCROLLBACK),
             modes: ModeTracker::new(),
             resizes: 0,
+            cursor_reports: Cell::new(Vec::new()),
             shift: 0,
         }
     }
@@ -108,6 +117,30 @@ impl GridBlock {
     pub fn feed(&mut self, bytes: &[u8]) {
         self.modes.feed(bytes);
         self.emulator.feed(bytes);
+        let asked = self.drain_cursor_reports();
+        if !asked.is_empty() {
+            let mut held = self.cursor_reports.take();
+            let room = MAX_PENDING_REPORTS.saturating_sub(held.len());
+            held.extend(asked.into_iter().take(room));
+            self.cursor_reports.set(held);
+        }
+    }
+
+    /// The cursor-position reports (`CSI 6 n`) the program asked for since the
+    /// last call, as (row, column) counts from 1. Every other reply the emulator
+    /// queued (device attributes, size reports) is dropped: the terminal answers
+    /// only this one, and only from numbers it parsed here.
+    #[must_use]
+    pub fn take_cursor_reports(&self) -> Vec<(u32, u32)> {
+        self.cursor_reports.take()
+    }
+
+    fn drain_cursor_reports(&mut self) -> Vec<(u32, u32)> {
+        self.emulator
+            .take_pending_replies()
+            .iter()
+            .filter_map(|reply| cursor_report(reply))
+            .collect()
     }
 
     /// The window title the program set since the last call: `Some("")` is a
@@ -329,6 +362,28 @@ impl GridBlock {
         self.emulator.screen().max_view_scroll()
     }
 
+    /// A fingerprint of each line of history, oldest first: the text and the
+    /// attributes that change how it looks. Two lines with the same print look
+    /// the same, which is all [`crate::scroll::Scroll::rows_evicted`] needs to
+    /// find where an older history starts in a newer one.
+    #[must_use]
+    pub fn history_prints(&self) -> Vec<u64> {
+        (0..self.history_rows())
+            .filter_map(|i| self.history_row(i))
+            .map(|cells| {
+                cells.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, c| {
+                    let attrs = u64::from(c.style.bold)
+                        | u64::from(c.style.italic) << 1
+                        | u64::from(c.style.underline) << 2
+                        | u64::from(c.style.inverse) << 3
+                        | u64::from(c.wide_cont) << 4;
+                    let h = (h ^ u64::from(u32::from(c.character))).wrapping_mul(0x0100_0000_01b3);
+                    (h ^ attrs).wrapping_mul(0x0100_0000_01b3)
+                })
+            })
+            .collect()
+    }
+
     /// The cells of history line `index`, oldest first, or `None` past the end.
     #[must_use]
     pub fn history_row(&self, index: usize) -> Option<&[prismattyc_core::Cell]> {
@@ -347,4 +402,13 @@ impl GridBlock {
     pub fn alt_active(&self) -> bool {
         self.emulator.screen().alt_active()
     }
+}
+
+/// The row and column in a cursor-position report, if `reply` is exactly
+/// `ESC [ row ; column R` with plain numbers and nothing else.
+fn cursor_report(reply: &[u8]) -> Option<(u32, u32)> {
+    let body = reply.strip_prefix(b"\x1b[")?.strip_suffix(b"R")?;
+    let (row, column) = std::str::from_utf8(body).ok()?.split_once(';')?;
+    let plain = |n: &str| !n.is_empty() && n.len() <= 6 && n.bytes().all(|b| b.is_ascii_digit());
+    (plain(row) && plain(column)).then_some((row.parse().ok()?, column.parse().ok()?))
 }
