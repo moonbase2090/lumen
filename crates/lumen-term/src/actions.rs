@@ -34,6 +34,8 @@ pub enum Action {
     FindNext,
     /// Go to the previous match of the find.
     FindPrevious,
+    /// Open the settings file.
+    Settings,
     /// Close the window and end the session.
     Close,
     /// Quit the application.
@@ -102,6 +104,7 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 ('f', false) => Some(Action::Find),
                 ('g', false) => Some(Action::FindNext),
                 ('g', true) => Some(Action::FindPrevious),
+                (',', false) => Some(Action::Settings),
                 ('w', false) => Some(Action::Close),
                 ('q', false) => Some(Action::Quit),
                 _ => None,
@@ -181,6 +184,7 @@ mod tests {
         assert_eq!(action_for(Platform::Mac, '=', CMD), Some(Action::ZoomIn));
         assert_eq!(action_for(Platform::Mac, '-', CMD), Some(Action::ZoomOut));
         assert_eq!(action_for(Platform::Mac, '0', CMD), Some(Action::ZoomReset));
+        assert_eq!(action_for(Platform::Mac, ',', CMD), Some(Action::Settings));
         let with_control = Held {
             control: true,
             ..CMD

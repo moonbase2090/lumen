@@ -36,6 +36,7 @@ pub const fn id_of(action: Action) -> &'static str {
         Action::Find => "find",
         Action::FindNext => "find-next",
         Action::FindPrevious => "find-previous",
+        Action::Settings => "settings",
         Action::Close => "close",
         Action::Quit => "quit",
     }
@@ -57,6 +58,7 @@ pub fn action_of(id: &str) -> Option<Action> {
         Action::Find,
         Action::FindNext,
         Action::FindPrevious,
+        Action::Settings,
         Action::Close,
         Action::Quit,
     ]
@@ -102,6 +104,7 @@ impl MenuBar {
             true,
             &[
                 &PredefinedMenuItem::about(None, None),
+                &item(Action::Settings, "Settings…", Code::Comma),
                 &PredefinedMenuItem::separator(),
                 &PredefinedMenuItem::services(None),
                 &PredefinedMenuItem::separator(),

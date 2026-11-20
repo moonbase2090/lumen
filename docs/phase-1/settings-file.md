@@ -43,6 +43,8 @@ A path is a value with a `/` in it: absolute (`"/Library/Fonts/Mine.otf"`), unde
 
 **Not policy.** The look settings change how things look and never what a program may do, and the shell is the user's own choice of what to run, not something a program can set, so unlike the policy file they have no owner or mode checks. A theme cannot make text unreadable: a theme whose text falls under the spec's 3:1 visibility floor is refused.
 
+**Opening it.** On macOS, Settings in the Bright menu, or Command+comma, opens the file with its default app. If the file does not exist, Bright creates it with the default values first. An existing file is never replaced.
+
 **Checking it.** `bright --show-settings` prints the file that was read, the settings that apply and a notice for anything left out, and exits. A normal run prints the same notices on standard error.
 
 **What is not here yet.** Changes to the file take effect at the next start; a change to the system's appearance takes effect at once. There is no in-app picker yet.
