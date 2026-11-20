@@ -71,6 +71,16 @@ impl Default for Links {
     }
 }
 
+/// The context menu the terminal draws itself: the one open now, the choice
+/// made and not yet carried out, and whether the press that took the menu is
+/// still down.
+#[derive(Default)]
+struct MenuState {
+    open: Option<crate::contextmenu::ContextMenu>,
+    choice: Option<Action>,
+    press_down: bool,
+}
+
 /// A terminal in a window of `width` by `height` pixels.
 #[allow(
     clippy::struct_excessive_bools,
@@ -101,6 +111,10 @@ pub struct App {
     copy_on_select: bool,
     copy_pending: bool,
     scroll: Scroll,
+    /// The program's reporting modes as last seen, and the foreground process
+    /// group when they came on: reports and bracketed paste go only while the
+    /// same group is still in front.
+    reporting: Reporting,
     /// What is left of a wheel's move that the view is easing through.
     glide: Glide,
     /// Whether a wheel step eases the view instead of jumping it.
@@ -123,6 +137,7 @@ pub struct App {
     /// What the terminal is asking about a link, and how it opens one.
     #[cfg(feature = "links-clipboard")]
     links: Links,
+    menu: MenuState,
     /// The input box: what the user is typing, and where keys go.
     input: InputLine,
     /// Rows the editor has now: its border and one row per line of its text.
@@ -173,6 +188,58 @@ pub fn display_scale(factor: f64) -> u32 {
 /// The longest preedit, in characters, the app keeps. An input method sends a
 /// few words at most; the cap keeps a misbehaving one from growing it.
 pub const PREEDIT_MAX_CHARS: usize = 256;
+
+/// Which foreground process group switched the reporting modes on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Grant {
+    /// No reporting mode is on, so there is nothing to grant.
+    #[default]
+    Unasked,
+    /// The group in front of the terminal when the modes came on.
+    Group(i32),
+    /// The system could not say which group was in front: nothing is reported.
+    Unknown,
+}
+
+/// One reporting mode as last seen, and who asked for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Granted<T> {
+    asked: Option<T>,
+    group: Grant,
+}
+
+impl<T> Default for Granted<T> {
+    fn default() -> Self {
+        Self {
+            asked: None,
+            group: Grant::Unasked,
+        }
+    }
+}
+
+impl<T: Copy + PartialEq> Granted<T> {
+    /// Note the mode's state now (`None` when it is off). The grant is taken
+    /// from `front` only when the mode comes on or changes, so a change in one
+    /// mode never passes its group on to another.
+    fn note(&mut self, now: Option<T>, front: impl FnOnce() -> Grant) {
+        match now {
+            None => *self = Self::default(),
+            Some(v) if self.asked != Some(v) => {
+                self.asked = Some(v);
+                self.group = front();
+            }
+            Some(_) => {}
+        }
+    }
+}
+
+/// The reporting modes, each with the group that asked for it: bracketed
+/// paste and the mouse modes are tracked apart.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Reporting {
+    paste: Granted<()>,
+    mouse: Granted<crate::mouse::Modes>,
+}
 
 /// Text an input method is composing and has not committed yet: it is shown to
 /// the user and sent to the program only when composition finishes.
@@ -447,6 +514,7 @@ impl App {
             copy_on_select: true,
             copy_pending: false,
             scroll: Scroll::Follow,
+            reporting: Reporting::default(),
             glide: Glide::new(),
             smooth_scroll: true,
             view_moves: 0,
@@ -459,6 +527,7 @@ impl App {
             preedit: None,
             #[cfg(feature = "links-clipboard")]
             links: Links::default(),
+            menu: MenuState::default(),
             input: InputLine::new(),
             box_rows: EDITOR_ROWS,
             front_name: None,
@@ -588,7 +657,9 @@ impl App {
                 match seen {
                     Seen::Applied => {
                         if let Ok(frame) = lumen_sealed::types::parse(*kind, body) {
-                            self.typed.see(&frame);
+                            let session = &self.session;
+                            self.typed
+                                .see_checked(&frame, |record| record_shown(session, record));
                         }
                     }
                     Seen::Refused => self.typed.stop(),
@@ -644,6 +715,9 @@ impl App {
     /// anywhere else does nothing here. Only the user's own action dismisses a
     /// toast before its time is up: no output from the program does.
     pub fn click(&mut self, x: u32, y: u32) -> bool {
+        if self.menu.open.is_some() {
+            return false;
+        }
         let Some(mut index) = self.click_would_hit(x, y) else {
             if let Some(record) = self.typed_mark_at(x, y) {
                 self.edit_again(record);
@@ -717,7 +791,7 @@ impl App {
             let back = live
                 .history_rows()
                 .checked_sub(usize::try_from(row.unsigned_abs()).ok()?)?;
-            crate::linkhit::cell_links(live.history_row(back)?)
+            crate::linkhit::history_links(live.screen(), back)
         } else {
             crate::linkhit::row_links(live.screen(), usize::try_from(row).ok()?)
         };
@@ -785,6 +859,122 @@ impl App {
             (true, Some(target)) => self.links.opener.open(target).map(|()| true),
             _ => Ok(false),
         }
+    }
+
+    /// Open the context menu at pixel `(x, y)`, turned on for what is true now
+    /// (Copy needs a selection, Paste needs `can_paste`). Returns whether it
+    /// opened: it does not while a link question is on screen, which owns the
+    /// input. A menu already open moves to the new point.
+    pub fn open_context_menu(&mut self, x: u32, y: u32, can_paste: bool) -> bool {
+        #[cfg(feature = "links-clipboard")]
+        if self.links.prompt.is_some() {
+            return false;
+        }
+        let state = crate::contextmenu::ContextState {
+            can_copy: self.has_selection(),
+            can_paste,
+        };
+        self.menu.open = Some(crate::contextmenu::ContextMenu::new((x, y), state));
+        self.menu.press_down = true;
+        self.view_moves = self.view_moves.wrapping_add(1);
+        true
+    }
+
+    /// The context menu the terminal is drawing, if one is open.
+    #[must_use]
+    pub fn context_menu(&self) -> Option<&crate::contextmenu::ContextMenu> {
+        self.menu.open.as_ref()
+    }
+
+    /// Where the context menu is drawn and each entry's rectangle, if it is open.
+    #[must_use]
+    pub fn context_menu_box(&self) -> Option<crate::raster::MenuBox> {
+        let menu = self.menu.open.as_ref()?;
+        Some(
+            self.renderer
+                .context_menu_box(self.width, self.height, menu),
+        )
+    }
+
+    /// The action the user chose from the context menu, once, for the window to
+    /// carry out. The menu is closed by then.
+    pub fn take_menu_choice(&mut self) -> Option<Action> {
+        self.menu.choice.take()
+    }
+
+    /// A press at pixel `(x, y)` while the context menu is open. A press on an
+    /// entry that is on chooses it; on one that is off, on a separator or on the
+    /// border it does nothing; anywhere else it closes the menu and goes no
+    /// further. Returns whether the press was the menu's (it always is while the
+    /// menu is open).
+    pub fn menu_click(&mut self, x: u32, y: u32) -> bool {
+        use crate::raster::MenuHit;
+        let Some(menu) = &self.menu.open else {
+            return false;
+        };
+        self.menu.press_down = true;
+        match self
+            .renderer
+            .context_menu_at(self.width, self.height, menu, x, y)
+        {
+            MenuHit::Item(i) => {
+                if let Some(action) = menu.action_at(i) {
+                    self.menu.choice = Some(action);
+                    self.menu.open = None;
+                }
+            }
+            MenuHit::Box => {}
+            MenuHit::Outside => self.menu.open = None,
+        }
+        self.view_moves = self.view_moves.wrapping_add(1);
+        true
+    }
+
+    /// Close the context menu without choosing. Returns whether one was open.
+    pub fn close_context_menu(&mut self) -> bool {
+        let was = self.menu.open.take().is_some();
+        if was {
+            self.view_moves = self.view_moves.wrapping_add(1);
+        }
+        was
+    }
+
+    /// The pointer moved to `(x, y)` while the context menu is open: the entry
+    /// under it is highlighted. Returns whether the highlight changed.
+    fn menu_hover(&mut self, x: u32, y: u32) -> bool {
+        use crate::raster::MenuHit;
+        let Some(menu) = &mut self.menu.open else {
+            return false;
+        };
+        let at = match self
+            .renderer
+            .context_menu_at(self.width, self.height, menu, x, y)
+        {
+            MenuHit::Item(i) => Some(i),
+            MenuHit::Box | MenuHit::Outside => None,
+        };
+        menu.set_hover(at)
+    }
+
+    /// A key while the context menu is open: Up and Down move the highlight,
+    /// Enter chooses it, Escape closes the menu, and nothing reaches the program.
+    fn menu_key(&mut self, key: Key) {
+        let Some(menu) = &mut self.menu.open else {
+            return;
+        };
+        match key {
+            Key::Up => menu.step(false),
+            Key::Down | Key::Tab => menu.step(true),
+            Key::Enter | Key::KeypadEnter => {
+                if let Some(action) = menu.chosen() {
+                    self.menu.choice = Some(action);
+                    self.menu.open = None;
+                }
+            }
+            Key::Escape => self.menu.open = None,
+            _ => {}
+        }
+        self.view_moves = self.view_moves.wrapping_add(1);
     }
 
     /// A press in the input box while it edits puts the caret at the cell
@@ -1179,6 +1369,13 @@ impl App {
     ///
     /// Returns the write error.
     pub fn mouse_press(&mut self, x: u32, y: u32, b: Button, held: Held) -> std::io::Result<bool> {
+        if self.menu.open.is_some() {
+            // The menu owns the press: it picks an entry or closes, and the
+            // program hears nothing of it.
+            let _ = self.menu_click(x, y);
+            return Ok(true);
+        }
+        self.menu.press_down = false;
         #[cfg(feature = "links-clipboard")]
         {
             if self.links.prompt.is_some() {
@@ -1211,6 +1408,10 @@ impl App {
         b: Button,
         held: Held,
     ) -> std::io::Result<bool> {
+        if std::mem::take(&mut self.menu.press_down) {
+            // The release of a press the menu took.
+            return Ok(false);
+        }
         #[cfg(feature = "links-clipboard")]
         if std::mem::take(&mut self.links.press_down) {
             // The release of a press the link prompt took.
@@ -1236,6 +1437,9 @@ impl App {
     ///
     /// Returns the write error.
     pub fn mouse_move(&mut self, x: u32, y: u32, held: Held) -> std::io::Result<bool> {
+        if self.menu.open.is_some() {
+            return Ok(self.menu_hover(x, y));
+        }
         #[cfg(feature = "links-clipboard")]
         if self.links.prompt.is_some() {
             return Ok(false);
@@ -1268,6 +1472,9 @@ impl App {
         step: Wheel,
         held: Held,
     ) -> std::io::Result<bool> {
+        if self.menu.open.is_some() {
+            return Ok(false);
+        }
         self.wheel_step(x, y, step, held, false)
     }
 
@@ -1286,6 +1493,9 @@ impl App {
         step: Wheel,
         held: Held,
     ) -> std::io::Result<bool> {
+        if self.menu.open.is_some() {
+            return Ok(false);
+        }
         self.wheel_step(x, y, step, held, self.smooth_scroll)
     }
 
@@ -1336,6 +1546,9 @@ impl App {
         pixels: i64,
         held: Held,
     ) -> std::io::Result<bool> {
+        if self.menu.open.is_some() {
+            return Ok(false);
+        }
         if pixels == 0 {
             return Ok(false);
         }
@@ -1357,11 +1570,65 @@ impl App {
         Ok(self.scroll_pixels(pixels))
     }
 
-    fn live_modes(&self) -> Option<crate::mouse::Modes> {
+    /// The mouse modes the live block has on, as the program set them.
+    fn asked_mouse_modes(&self) -> Option<crate::mouse::Modes> {
         match self.session.document().blocks().last() {
             Some(Block::Grid(g)) => Some(g.mouse_modes()),
             _ => None,
         }
+    }
+
+    /// The mouse modes in force: those the program asked for, while the process
+    /// group that asked is still the one in front of the terminal. When the
+    /// group has changed (the program was suspended or replaced, say by a shell)
+    /// or the system cannot say, the program gets no reports.
+    fn live_modes(&self) -> Option<crate::mouse::Modes> {
+        let modes = self.asked_mouse_modes()?;
+        Some(if self.reporting_allowed(self.reporting.mouse.group) {
+            modes
+        } else {
+            crate::mouse::Modes {
+                tracking: crate::mouse::MouseTracking::Off,
+                sgr: false,
+                wheel: false,
+            }
+        })
+    }
+
+    /// Whether the program that switched a reporting mode on (`grant`) is
+    /// still the foreground group of its terminal (`tcgetpgrp`). Vacuously true
+    /// when the mode is off or where there is no foreground group to ask.
+    fn reporting_allowed(&self, grant: Grant) -> bool {
+        if !cfg!(unix) {
+            return true;
+        }
+        match grant {
+            Grant::Unasked => true,
+            Grant::Group(g) => self.session.foreground_group() == Some(g),
+            Grant::Unknown => false,
+        }
+    }
+
+    /// Whether the program has switched on bracketed paste and may still have it.
+    fn bracketed_in_force(&self) -> bool {
+        self.session.key_modes().bracketed_paste
+            && self.reporting_allowed(self.reporting.paste.group)
+    }
+
+    /// Note a change in the reporting modes the program has on, and with each
+    /// the foreground group at that moment: the one that asked for it.
+    fn track_reporting(&mut self) {
+        let paste = self.session.key_modes().bracketed_paste.then_some(());
+        let mouse = self
+            .asked_mouse_modes()
+            .filter(|m| m.tracking != crate::mouse::MouseTracking::Off || m.wheel);
+        let front = || match self.session.foreground_group() {
+            Some(g) => Grant::Group(g),
+            None => Grant::Unknown,
+        };
+        let (paste_group, mouse_group) = (front(), front());
+        self.reporting.paste.note(paste, || paste_group);
+        self.reporting.mouse.note(mouse, || mouse_group);
     }
 
     fn send_report(&mut self, report: Option<Vec<u8>>) -> std::io::Result<bool> {
@@ -1544,6 +1811,8 @@ impl App {
     /// a frame introducer is not pasted at all.
     #[cfg(feature = "links-clipboard")]
     pub fn perform(&mut self, action: Action, clipboard: &dyn Clipboard) -> Outcome {
+        // Whatever is done, an open context menu has had its say.
+        self.menu.open = None;
         #[cfg(feature = "links-clipboard")]
         if self.links.prompt.is_some()
             && !matches!(action, Action::Quit | Action::Close | Action::Copy)
@@ -1605,7 +1874,7 @@ impl App {
                     Line::Refused => return Outcome::Refused,
                     _ => {}
                 }
-                let bracketed = self.session.key_modes().bracketed_paste;
+                let bracketed = self.bracketed_in_force();
                 let pasted = match paste::judge(&text, bracketed) {
                     Decision::Send(p) => p,
                     Decision::Hold(h) => h.single_line,
@@ -1633,6 +1902,12 @@ impl App {
     ///
     /// Returns the write error.
     pub fn key(&mut self, key: Key, mods: Mods) -> std::io::Result<()> {
+        if self.menu.open.is_some() {
+            // The menu owns the keys: nothing reaches the program until it is
+            // answered.
+            self.menu_key(key);
+            return Ok(());
+        }
         #[cfg(feature = "links-clipboard")]
         if self.links.prompt.is_some() {
             // The prompt owns the keys: Enter opens, Escape closes, and nothing
@@ -2013,6 +2288,9 @@ impl App {
     ///
     /// Returns the write error.
     pub fn text(&mut self, text: &str) -> std::io::Result<()> {
+        if self.menu.open.is_some() {
+            return Ok(());
+        }
         #[cfg(feature = "links-clipboard")]
         if self.links.prompt.is_some() {
             return Ok(());
@@ -2157,7 +2435,7 @@ impl App {
             self.apply_line(Line::Redraw)?;
             return Ok(PasteOutcome::Sent);
         }
-        let bracketed = self.session.key_modes().bracketed_paste;
+        let bracketed = self.bracketed_in_force();
         match paste::judge(text, bracketed) {
             Decision::Reject(why) => Ok(PasteOutcome::Rejected(why)),
             Decision::Hold(hold) => Ok(PasteOutcome::Held(hold)),
@@ -2175,7 +2453,7 @@ impl App {
     #[cfg(feature = "links-clipboard")]
     pub fn paste_chosen(&mut self, pasted: &Pasted) -> std::io::Result<()> {
         let mut bytes = Vec::with_capacity(pasted.text.len() + 12);
-        let bracketed = self.session.key_modes().bracketed_paste;
+        let bracketed = self.bracketed_in_force();
         if bracketed {
             bytes.extend_from_slice(b"\x1b[200~");
         }
@@ -2277,6 +2555,7 @@ impl App {
             None => self.session.pump(),
         };
         if bytes > 0 {
+            self.track_reporting();
             self.cursor_epoch_ms = self.session.now_ms();
             self.refresh_find();
         }
@@ -2409,8 +2688,27 @@ impl App {
             // Last, over everything: a program's output cannot cover it.
             self.renderer.paint_link_prompt(&mut frame, prompt);
         }
+        if let Some(menu) = &self.menu.open {
+            // Also last, over everything: a program's output cannot cover it.
+            self.renderer.paint_context_menu(&mut frame, menu);
+        }
         frame
     }
+}
+
+/// Whether the grid shows a record's line where the box sent it, now that a
+/// sealed command has started for it: the logical line that starts on the
+/// record's row must show the whole of it. When a line typed ahead ran first,
+/// the shell drew that line there instead.
+fn record_shown(session: &Session, record: &crate::typed::Record) -> bool {
+    let Some(Block::Grid(live)) = session.document().blocks().last() else {
+        return false;
+    };
+    record
+        .line
+        .and_then(|l| live.row_of(l))
+        .and_then(|row| live.logical_line_from(row))
+        .is_some_and(|shown| crate::typed::row_shows(&shown, &record.typed))
 }
 
 #[cfg(all(test, unix))]

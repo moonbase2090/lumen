@@ -146,7 +146,29 @@ fn shell_or_skip() -> Option<String> {
         );
         eprintln!("skipped: no listed zsh on this machine");
     }
+    // A process that may trace others (root with its full capabilities) is
+    // refused a seal by design, so these tests have nothing to show for it.
+    if found.is_some() && may_ptrace() {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "this CI job holds CAP_SYS_PTRACE, so the shell can never be sealed"
+        );
+        eprintln!("skipped: this process holds CAP_SYS_PTRACE; run as an ordinary user");
+        return None;
+    }
     found
+}
+
+/// Whether this process holds `CAP_SYS_PTRACE` (bit 19 of its permitted set).
+fn may_ptrace() -> bool {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|t| {
+            t.lines()
+                .find_map(|l| l.strip_prefix("CapPrm:"))
+                .and_then(|v| u64::from_str_radix(v.trim(), 16).ok())
+        })
+        .is_some_and(|caps| caps & (1 << 19) != 0)
 }
 
 /// Pump the session until `done` or the time is up, keeping the events.

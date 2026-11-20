@@ -196,30 +196,7 @@ pub fn chosen() -> Vec<Action> {
     out
 }
 
-/// What the context menu offers: an item is turned off when its action would
-/// do nothing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ContextState {
-    /// Some text is selected, so Copy has something to copy.
-    pub can_copy: bool,
-    /// The clipboard holds text, so Paste has something to paste.
-    pub can_paste: bool,
-}
-
-/// The items of the context menu, in order: the id of the action, its label,
-/// and whether it is on. A separator is `None`.
-#[must_use]
-pub fn context_items(state: ContextState) -> Vec<Option<(Action, &'static str, bool)>> {
-    vec![
-        Some((Action::Copy, "Copy", state.can_copy)),
-        Some((Action::Paste, "Paste", state.can_paste)),
-        Some((Action::SelectAll, "Select All", true)),
-        None,
-        Some((Action::ZoomIn, "Zoom In", true)),
-        Some((Action::ZoomOut, "Zoom Out", true)),
-        Some((Action::ZoomReset, "Actual Size", true)),
-    ]
-}
+pub use crate::contextmenu::{ContextState, context_items};
 
 /// Build the context menu for `state`. A new one is built for each right click,
 /// so what is turned off is always what is true now.

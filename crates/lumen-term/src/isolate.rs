@@ -10,8 +10,12 @@
 //!   UTF-8 form of U+0080 to U+009F (C2 80 to C2 9F) goes too. A byte in that
 //!   range that continues a UTF-8 sequence is text and stays;
 //! - invalid UTF-8, so the filter and the emulator agree on what a code point is;
-//! - OSC other than the allowlist: title (0, 1, 2) and colours (4, 10 to 19,
-//!   104, 110 to 119). OSC 8, 52 and 133 have no protocol effect here.
+//! - OSC other than the allowlist: title (0, 1, 2), colours (4, 10 to 19,
+//!   104, 110 to 119) and the hyperlink (8). OSC 52 and 133 have no protocol
+//!   effect here. A hyperlink only marks cells; it does nothing until the user
+//!   asks to follow it and confirms the target the terminal shows. One that is
+//!   malformed or over the limits is replaced by the sequence that ends a
+//!   link, so the cells after it never keep an earlier link.
 //!
 //! The only string terminator is `ESC \`, and BEL for an allowlisted OSC. The
 //! 8-bit ST, CAN and SUB do not end a string. A string is read up to 4 KiB; at
@@ -82,6 +86,33 @@ impl Default for Isolator {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// The longest parameter field of a hyperlink, in bytes.
+const LINK_PARAMS_MAX: usize = 256;
+/// The longest target of a hyperlink, in bytes. The same limit the terminal's
+/// link check and the emulator hold.
+const LINK_URI_MAX: usize = 2048;
+
+/// Whether `body` is an OSC 8 hyperlink sequence, well formed or not.
+fn is_hyperlink(body: &[u8]) -> bool {
+    body == b"8" || body.starts_with(b"8;")
+}
+
+/// Whether the OSC 8 `body` is `8;params;target` within the limits, with
+/// parameters of `key=value` pairs in plain printable ASCII and no control in
+/// the body (the caller has already refused a body with one).
+fn well_formed_hyperlink(body: &[u8]) -> bool {
+    let Some(rest) = body.strip_prefix(b"8;") else {
+        return false;
+    };
+    let Some(split) = rest.iter().position(|b| *b == b';') else {
+        return false;
+    };
+    let (params, uri) = (&rest[..split], &rest[split + 1..]);
+    params.len() <= LINK_PARAMS_MAX
+        && params.iter().all(|b| (0x21..0x7f).contains(b))
+        && uri.len() <= LINK_URI_MAX
 }
 
 fn allowed_osc(body: &[u8]) -> bool {
@@ -223,7 +254,20 @@ impl Isolator {
             None
         };
         if let Some(end) = terminator {
-            if allowed_osc(&body) {
+            if is_hyperlink(&body) {
+                let clean = !body.iter().any(|b| *b < 0x20 || *b == 0x7f);
+                if clean && well_formed_hyperlink(&body) {
+                    out.extend_from_slice(&[ESC, b']']);
+                    out.extend_from_slice(&body);
+                } else {
+                    // Not passed on; ending the link keeps the cells after it
+                    // from carrying an earlier link's target.
+                    self.stats.osc += 1;
+                    out.extend_from_slice(&[ESC, b']']);
+                    out.extend_from_slice(b"8;;");
+                }
+                out.extend_from_slice(end);
+            } else if allowed_osc(&body) {
                 if let Some(query) = crate::reply::parse_query(&body) {
                     notes.push(Note::ColourQuery(query));
                 }
@@ -248,6 +292,12 @@ impl Isolator {
         if body.len() > STRING_CAP {
             self.stats.truncated += 1;
             notes.push(Note::StringTruncated);
+            if is_hyperlink(&body) {
+                // The rest of this link is discarded: end any earlier one.
+                out.extend_from_slice(&[ESC, b']']);
+                out.extend_from_slice(b"8;;");
+                out.extend_from_slice(&[ESC, b'\\']);
+            }
             self.state = State::Skip {
                 esc: b == ESC,
                 read: body.len(),

@@ -111,6 +111,26 @@ pub enum PromptHit {
     Outside,
 }
 
+/// Where a context menu is drawn: its box and each entry's rectangle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuBox {
+    /// The box: x, y, width and height in pixels.
+    pub rect: (u32, u32, u32, u32),
+    /// Each entry's rectangle, in the menu's order (a separator too).
+    pub rows: Vec<(u32, u32, u32, u32)>,
+}
+
+/// What a point on a context menu is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuHit {
+    /// The entry at this index of the menu's items (it may be turned off).
+    Item(usize),
+    /// The box, away from an entry (a separator or the border).
+    Box,
+    /// Outside the box.
+    Outside,
+}
+
 /// Thickness of a bar or underline cursor, in pixels at scale 1.
 const CURSOR_LINE_PX: u32 = 2;
 
@@ -1235,10 +1255,23 @@ impl Renderer {
                             g.screen().row(k - hist)
                         };
                         let Some(cells) = cells else { continue };
+                        #[cfg(feature = "links-clipboard")]
+                        let hits = if k < hist {
+                            crate::linkhit::history_links(g.screen(), k)
+                        } else {
+                            crate::linkhit::row_links(g.screen(), k - hist)
+                        };
                         let y = i64::from(p.top)
                             + i64::try_from(k).unwrap_or(0) * i64::from(self.cell_h)
                             - i64::from(view_top);
-                        self.paint_row_at(region, y, cells, Marks::of(overlay, p.index).row(k));
+                        self.paint_row_at(
+                            region,
+                            y,
+                            cells,
+                            #[cfg(feature = "links-clipboard")]
+                            &hits,
+                            Marks::of(overlay, p.index).row(k),
+                        );
                     }
                     if let (Some(state), Some(l)) = (cursor, live)
                         && std::ptr::eq(l, g)
@@ -1279,11 +1312,18 @@ impl Renderer {
 
     /// Paint one row of cells at pixel row `y` of `region`, which may be partly
     /// above or below it: a row that is not wholly in view is cut.
-    fn paint_row_at(&self, region: &mut Frame, y: i64, cells: &[Cell], marks: &[Mark]) {
+    fn paint_row_at(
+        &self,
+        region: &mut Frame,
+        y: i64,
+        cells: &[Cell],
+        #[cfg(feature = "links-clipboard")] hits: &[crate::linkhit::Hit],
+        marks: &[Mark],
+    ) {
         let mut line = Frame::new(region.width, self.cell_h, self.theme.background);
         self.paint_cells(&mut line, 0, 0, cells, marks);
         #[cfg(feature = "links-clipboard")]
-        self.paint_link_marks(&mut line, 0, 0, &crate::linkhit::cell_links(cells));
+        self.paint_link_marks(&mut line, 0, 0, hits);
         Self::blit_clipped(region, &line, y);
     }
 
@@ -2190,6 +2230,111 @@ impl Renderer {
             PromptHit::Box
         } else {
             PromptHit::Outside
+        }
+    }
+
+    /// Where a context menu sits in a window frame of `width` by `height`
+    /// pixels: it opens at the point it was asked for and is moved back inside
+    /// the window if it would run past an edge. Painting and hit testing both
+    /// use this, so a click lands on what was drawn.
+    #[must_use]
+    pub fn context_menu_box(
+        &self,
+        width: u32,
+        height: u32,
+        menu: &crate::contextmenu::ContextMenu,
+    ) -> MenuBox {
+        let cw = self.cell_w.max(1);
+        let edge = 2 * self.scale;
+        let entry_h = self.cell_h + 2 * self.scale;
+        let rule_h = self.cell_h / 2 + self.scale;
+        let labels = menu
+            .items()
+            .iter()
+            .flatten()
+            .map(|(_, label, _)| u32::try_from(label.chars().count()).unwrap_or(0))
+            .max()
+            .unwrap_or(0);
+        let box_w = (labels + 4) * cw + 2 * edge;
+        let inner_h: u32 = menu
+            .items()
+            .iter()
+            .map(|e| if e.is_some() { entry_h } else { rule_h })
+            .sum();
+        let box_h = inner_h + 2 * edge;
+        let x = menu.at.0.min(width.saturating_sub(box_w));
+        let y = menu.at.1.min(height.saturating_sub(box_h));
+        let mut top = y + edge;
+        let mut rows = Vec::new();
+        for entry in menu.items() {
+            let h = if entry.is_some() { entry_h } else { rule_h };
+            rows.push((x + edge, top, box_w - 2 * edge, h));
+            top += h;
+        }
+        MenuBox {
+            rect: (x, y, box_w, box_h),
+            rows,
+        }
+    }
+
+    /// Draw a context menu over `frame`, the whole window. It is painted after
+    /// everything else, so nothing a program drew can cover it or pass for it.
+    pub fn paint_context_menu(&self, frame: &mut Frame, menu: &crate::contextmenu::ContextMenu) {
+        let theme = &self.theme;
+        let placed = self.context_menu_box(frame.width, frame.height, menu);
+        let (left, top, width, height) = placed.rect;
+        frame.fill(left, top, width, height, theme.toast_border);
+        let edge = 2 * self.scale;
+        frame.fill(
+            left + edge,
+            top + edge,
+            width.saturating_sub(2 * edge),
+            height.saturating_sub(2 * edge),
+            theme.toast,
+        );
+        for (i, (entry, (rx, ry, rw, rh))) in menu.items().iter().zip(&placed.rows).enumerate() {
+            if let Some((_, label, on)) = entry {
+                if menu.hover() == Some(i) {
+                    frame.fill(*rx, *ry, *rw, *rh, theme.toast_border);
+                }
+                let colour = if *on { theme.foreground } else { theme.muted };
+                self.text_line(frame, rx + 2 * self.cell_w, ry + self.scale, label, colour);
+            } else {
+                let line = (*rh / 2).max(1);
+                frame.fill(
+                    rx + self.cell_w,
+                    ry + line,
+                    rw.saturating_sub(2 * self.cell_w),
+                    self.scale.max(1),
+                    theme.toast_border,
+                );
+            }
+        }
+    }
+
+    /// What is at pixel `(px, py)` of a context menu drawn over a window frame
+    /// of `width` by `height`.
+    #[must_use]
+    pub fn context_menu_at(
+        &self,
+        width: u32,
+        height: u32,
+        menu: &crate::contextmenu::ContextMenu,
+        px: u32,
+        py: u32,
+    ) -> MenuHit {
+        let b = self.context_menu_box(width, height, menu);
+        let inside =
+            |(x, y, w, h): (u32, u32, u32, u32)| px >= x && px < x + w && py >= y && py < y + h;
+        for (i, (entry, rect)) in menu.items().iter().zip(&b.rows).enumerate() {
+            if entry.is_some() && inside(*rect) {
+                return MenuHit::Item(i);
+            }
+        }
+        if inside(b.rect) {
+            MenuHit::Box
+        } else {
+            MenuHit::Outside
         }
     }
 
