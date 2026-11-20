@@ -34,6 +34,11 @@ pub struct Hit {
 /// The longest address the scan takes, in characters. A longer run is not a link.
 const MAX_DETECTED: usize = 2048;
 
+#[cfg(test)]
+thread_local! {
+    static SCAN_WORK: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
 /// Every link on `row` of `screen`, left to right. A program's OSC 8 link
 /// covers its cells; a written address is found only where no OSC 8 link is.
 #[must_use]
@@ -64,11 +69,19 @@ pub fn history_links(screen: &Screen, back: usize) -> Vec<Hit> {
 
 fn flow_row(screen: &Screen, row: usize) -> Option<&[Cell]> {
     let history = screen.max_view_scroll();
-    if row < history {
+    let cells = if row < history {
         screen.scrollback().get(row).map(Vec::as_slice)
     } else {
         screen.row(row - history)
+    };
+    #[cfg(test)]
+    if let Some(cells) = cells {
+        SCAN_WORK.with(|work| {
+            let (rows, count) = work.get();
+            work.set((rows + 1, count + cells.len()));
+        });
     }
+    cells
 }
 
 fn logical_links(screen: &Screen, row: usize) -> Vec<Hit> {
@@ -78,12 +91,18 @@ fn logical_links(screen: &Screen, row: usize) -> Vec<Hit> {
     // apply them to unrelated alternate-screen cells.
     let wrapped = |at| !screen.alt_active() && screen.history_line_wrapped(at);
     let mut first = row;
-    while first > 0 && wrapped(first - 1) {
+    let mut before = 0;
+    // More than one maximum-length address on either side keeps a clipped
+    // context from truncating a valid detected link that touches this row.
+    while first > 0 && before <= MAX_DETECTED && wrapped(first - 1) {
         first -= 1;
+        before += flow_characters(screen, first);
     }
     let mut last = row;
-    while last + 1 < total && wrapped(last) {
+    let mut after = 0;
+    while last + 1 < total && after <= MAX_DETECTED && wrapped(last) {
         last += 1;
+        after += flow_characters(screen, last);
     }
     let mut cells = Vec::new();
     let mut offsets = Vec::new();
@@ -118,6 +137,15 @@ fn logical_links(screen: &Screen, row: usize) -> Vec<Hit> {
             Some(hit)
         })
         .collect()
+}
+
+fn flow_characters(screen: &Screen, row: usize) -> usize {
+    flow_row(screen, row)
+        .unwrap_or_default()
+        .iter()
+        .filter(|cell| !cell.wide_cont)
+        .count()
+        .max(1)
 }
 
 /// The link under column `col` of `row`, if there is one.
@@ -365,6 +393,38 @@ mod tests {
         block.feed(address.as_bytes());
         assert_eq!(row_links(block.screen(), 0).len(), 0);
         assert_eq!(row_links(block.screen(), 20).len(), 0);
+    }
+
+    #[test]
+    fn a_million_character_wrapped_line_has_bounded_scan_work() {
+        let mut emulator = prismattyc_emulator::Emulator::new(80, 24, 20_000);
+        emulator.feed(&vec![b'x'; 1_000_000]);
+        let screen = emulator.screen();
+        assert!(screen.max_view_scroll() > 10_000);
+        for (history, row) in [(false, 0), (false, 12), (false, 23), (true, 6_000)] {
+            SCAN_WORK.with(|work| work.set((0, 0)));
+            let links = if history {
+                history_links(screen, row)
+            } else {
+                row_links(screen, row)
+            };
+            assert_eq!(links.len(), 0);
+            let (rows, cells) = SCAN_WORK.with(std::cell::Cell::get);
+            assert!(rows <= 256, "visited {rows} rows for one visible row");
+            assert!(cells <= 20_000, "visited {cells} cells for one visible row");
+        }
+    }
+
+    #[test]
+    fn a_maximum_length_wrapped_address_is_whole_near_both_context_edges() {
+        let address = format!("https://e.org/{}", "a".repeat(2034));
+        let mut block = GridBlock::new(31, 70);
+        block.feed(address.as_bytes());
+        for row in [0, 30, 60, 66] {
+            let links = row_links(block.screen(), row);
+            assert_eq!(links.len(), 1);
+            assert_eq!(links[0].target, address);
+        }
     }
 
     #[test]
