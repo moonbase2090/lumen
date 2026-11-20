@@ -1,6 +1,7 @@
 //! A line of a grid block keeps its number while output scrolls it up and into
 //! history, and the number is dropped once the history is rewritten: a clear,
-//! a reset or a resize. A real emulator, fed real bytes.
+//! a reset or a change of width. A change of height alone keeps it. A real
+//! emulator, fed real bytes.
 
 use lumen_term::GridBlock;
 
@@ -57,7 +58,7 @@ fn a_scroll_inside_a_margin_region_does_not_move_line_numbers() {
 }
 
 #[test]
-fn a_clear_a_reset_or_a_resize_drops_the_line() {
+fn a_clear_a_reset_or_a_new_width_drops_the_line() {
     for rewrite in [&b"\x1b[2J"[..], b"\x1b[3J", b"\x1bc"] {
         let mut block = GridBlock::new(20, 5);
         block.feed(b"anchored\r\n");
@@ -130,4 +131,32 @@ fn the_alternate_screen_has_no_line_numbers_and_the_primary_keeps_its_own() {
     }
     block.feed(b"\x1b[?1049l");
     assert_eq!(text_of(&block, line).as_deref(), Some("anchored"));
+}
+
+#[test]
+fn a_logical_line_is_a_row_and_the_rows_it_wrapped_on_to() {
+    let mut block = GridBlock::new(12, 6);
+    // 28 characters at 12 columns: three rows. Then a line that fits, and the
+    // cursor on the row after it: the long line starts four rows up.
+    block.feed(b"% echo same-other-and-more-x\r\n% short\r\n");
+    let first = block
+        .line_above_cursor(4)
+        .unwrap_or_else(|| unreachable!("the primary screen has line numbers"));
+    let row = block
+        .row_of(first)
+        .unwrap_or_else(|| unreachable!("the line is on screen"));
+    let shown = block.logical_line_from(row);
+    // A real line break ends it: the next line is not part of it.
+    assert_eq!(shown.as_deref(), Some("% echo same-other-and-more-x"));
+    // The whole line must be there: a box line that only shares its start, or
+    // all of its first row, is not shown by it.
+    let matches = |typed: &str| {
+        shown
+            .as_deref()
+            .is_some_and(|s| lumen_term::typed::row_shows(s, typed))
+    };
+    assert!(matches("echo same-other-and-more-x"));
+    assert!(!matches("echo same-box"));
+    assert!(!matches("echo same-o"));
+    assert!(!matches("echo same-other-and-more-y"));
 }
