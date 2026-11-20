@@ -177,6 +177,40 @@ fn grid_text(app: &App) -> String {
         .join("\n")
 }
 
+/// The live grid's text, history first, one logical line per line: a row the
+/// terminal wrapped on to the next is joined to it whole, blanks in its last
+/// cells included, so text that only wrapped is not taken for two lines and a
+/// real space at the wrap is kept. Only the end of a logical line is trimmed.
+/// A real line break is still a line break.
+fn logical_text(app: &App) -> String {
+    let Some(lumen_term::Block::Grid(g)) = app.session().document().blocks().last() else {
+        return String::new();
+    };
+    let history = g.history_rows();
+    let mut out = String::new();
+    let mut line = String::new();
+    for index in 0..history + g.size().1 {
+        let cells = if index < history {
+            g.history_row(index)
+        } else {
+            g.screen().row(index - history)
+        };
+        line.extend(
+            cells
+                .unwrap_or_default()
+                .iter()
+                .filter(|c| !c.wide_cont)
+                .map(|c| c.character),
+        );
+        if !g.screen().history_line_wrapped(index) {
+            out.push_str(line.trim_end());
+            out.push('\n');
+            line.clear();
+        }
+    }
+    out
+}
+
 fn key(app: &mut App, key: Key) {
     app.key(key, Mods::default())
         .unwrap_or_else(|e| unreachable!("key: {e}"));
@@ -380,16 +414,22 @@ fn lines_typed_without_waiting_for_the_prompt_are_never_split() {
     // At machine speed: each line is typed the moment the last was sent,
     // before the shell has read it. Every key after an Enter is the shell's
     // until it says, sealed, that it is at a prompt again.
+    // The marker is quoted in two parts. The kernel echoes lines typed ahead
+    // while a command runs, so an unquoted marker would be on screen before
+    // its line ran, and the wait below could end early.
     for n in 1..=10 {
-        line(&mut app, &format!("echo fast-{n}-done"));
+        line(&mut app, &format!("echo fast-{n}''-done"));
     }
+    // Output can start mid-row, after the kernel's echo of lines typed ahead,
+    // and wrap: the text is read as logical lines, so a line that only wrapped
+    // is not taken for one that is missing.
     assert!(
-        until(&mut app, |a| grid_text(a).contains("fast-10-done\n")
+        until(&mut app, |a| logical_text(a).contains("fast-10-done\n")
             && a.input_mode() == Mode::Editing),
         "every line ran: {}",
-        grid_text(&app)
+        logical_text(&app)
     );
-    let text = grid_text(&app);
+    let text = logical_text(&app);
     for n in 1..=10 {
         assert!(
             text.contains(&format!("fast-{n}-done\n")),
@@ -447,7 +487,12 @@ fn send_as_commands_runs_each_line_in_turn_at_its_own_prompt() {
             ("echo two-ran".to_owned(), Some(0)),
             ("echo three-ran".to_owned(), Some(0)),
         ],
-        "each line is recorded for its own command"
+        "each line is recorded for its own command; rows: {:?}\n{}",
+        app.typed_records()
+            .iter()
+            .map(|r| app.typed_row_text(r))
+            .collect::<Vec<_>>(),
+        grid_text(&app)
     );
 }
 
@@ -930,17 +975,21 @@ fn a_joined_emoji_near_the_edge_leaves_the_mark_on_the_row_the_line_starts_on() 
     let fill = columns - column - "echo ".len() - 2 - "''-zwj".len();
     let text = format!("echo {}{family}''-zwj", "a".repeat(fill));
     run(&mut app, &text, "-zwj");
+    // The record stays only if the row shows the line as typed. A shell that
+    // drew the joiner its own way leaves it out: no mark rather than a wrong one.
     let records = app.typed_records();
-    assert_eq!(records.len(), 1);
-    let row = app
-        .typed_row_text(&records[0])
-        .unwrap_or_else(|| unreachable!("the record has a row: {}", grid_text(&app)));
-    assert!(
-        row.starts_with("echo aaa"),
-        "the row the typed line starts on: {row:?}\n{}",
-        grid_text(&app)
-    );
-    assert_eq!(app.typed_marks().len(), 1);
+    assert!(records.len() <= 1, "{records:?}");
+    for record in &records {
+        let row = app
+            .typed_row_text(record)
+            .unwrap_or_else(|| unreachable!("the record has a row: {}", grid_text(&app)));
+        assert!(
+            row.starts_with("echo aaa"),
+            "the row the typed line starts on: {row:?}\n{}",
+            grid_text(&app)
+        );
+    }
+    assert_eq!(app.typed_marks().len(), records.len());
 }
 
 #[test]
@@ -1009,4 +1058,77 @@ fn leaving_a_mark_for_the_grid_still_reports_the_motion_to_a_program_that_asked(
         "the program read the motion report: {}",
         grid_text(&app)
     );
+}
+
+/// Holds the shell at its next prompt, before its line editor reads anything,
+/// until `~/gate2` is written, once `~/hold` exists.
+const HOLD_AT_PROMPT: &str = "zle-line-init() {\n  if [[ -e ~/hold ]]; then rm -f ~/hold; read -r _ < ~/gate2; fi\n}\nzle -N zle-line-init\n";
+
+fn mkfifo(path: &std::path::Path) {
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(path)
+            .status()
+            .is_ok_and(|s| s.success()),
+        "a fifo at {}",
+        path.display()
+    );
+}
+
+#[test]
+fn a_box_line_queued_behind_a_line_typed_ahead_is_not_recorded_for_it() {
+    let Some(mut app) = start_with_rc("sealed-input-queued", HOLD_AT_PROMPT) else {
+        return;
+    };
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("sealed-input-queued");
+    mkfifo(&dir.join("gate"));
+    mkfifo(&dir.join("gate2"));
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    // A command that waits on the gate; its record says it has started.
+    line(&mut app, "cat ~/gate; echo gate''-open");
+    assert!(until(&mut app, |a| a.typed_records().len() == 1));
+    // The shell will hold at its next prompt before it reads anything.
+    assert!(std::fs::write(dir.join("hold"), "").is_ok());
+    // Typed ahead while the command waits: queued for the shell's next line.
+    line(&mut app, "echo queued''-x");
+    assert_eq!(app.input_mode(), Mode::Raw, "a command is running");
+    assert!(
+        std::fs::write(dir.join("gate"), "x\n").is_ok(),
+        "the gate opens"
+    );
+    // The command is over and the shell has sent its sealed prompt, but has
+    // not read the queued line yet: the box takes keys.
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("gate-open\n")
+            && a.input_mode() == Mode::Editing),
+        "the shell is held at its prompt: {}",
+        grid_text(&app)
+    );
+    // The box's line goes in behind the queued one.
+    line(&mut app, "echo box''-y");
+    // Let the shell go on. The write waits for the hook to open the fifo, so
+    // it runs on its own thread; the wait below bounds it.
+    let gate2 = dir.join("gate2");
+    let opener = std::thread::spawn(move || std::fs::write(gate2, "x\n").is_ok());
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("box-y\n")
+            && a.input_mode() == Mode::Editing),
+        "both lines ran: {}",
+        grid_text(&app)
+    );
+    assert!(opener.join().unwrap_or(false), "the hook read the gate");
+    let text = grid_text(&app);
+    let at = |m: &str| text.find(m).unwrap_or(usize::MAX);
+    assert!(
+        at("queued-x\n") < at("box-y\n"),
+        "the line typed ahead ran first: {text}"
+    );
+    // The command that started after the box sent its line was the queued
+    // one: the box's text is not recorded for it, and no mark is drawn.
+    assert_eq!(
+        typed(&app),
+        [("cat ~/gate; echo gate''-open".to_owned(), Some(0))],
+        "{text}"
+    );
+    assert_eq!(app.typed_marks().len(), 1);
 }
