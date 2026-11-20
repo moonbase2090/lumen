@@ -1,0 +1,1 @@
+{"rustc":17356518491003051113,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[10458266412597608147,"build_script_build",false,2760659549942538691]],"local":[{"RerunIfChanged":{"output":"release/build/prismattyc-core-8b7e4b7dfdd253c0/output","paths":["../../.git/HEAD","../../.git/refs/heads"]}}],"rustflags":[],"config":0,"compile_kind":0}

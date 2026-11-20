@@ -1,0 +1,11 @@
+/Users/brandan/Projects/Moonbase2090/lumen-wt-ime-main/../lumen-wt-ime/target-main/release/deps/zeroize-56629bce2b9b99a4.d: /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/lib.rs /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/aarch64.rs /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/barrier.rs /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/stack.rs /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/../README.md
+
+/Users/brandan/Projects/Moonbase2090/lumen-wt-ime-main/../lumen-wt-ime/target-main/release/deps/libzeroize-56629bce2b9b99a4.rlib: /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/lib.rs /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/aarch64.rs /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/barrier.rs /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/stack.rs /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/../README.md
+
+/Users/brandan/Projects/Moonbase2090/lumen-wt-ime-main/../lumen-wt-ime/target-main/release/deps/libzeroize-56629bce2b9b99a4.rmeta: /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/lib.rs /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/aarch64.rs /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/barrier.rs /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/stack.rs /Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/../README.md
+
+/Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/lib.rs:
+/Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/aarch64.rs:
+/Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/barrier.rs:
+/Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/stack.rs:
+/Users/brandan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zeroize-1.9.1/src/../README.md:

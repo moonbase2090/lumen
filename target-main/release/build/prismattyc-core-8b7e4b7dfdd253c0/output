@@ -1,0 +1,3 @@
+cargo:rerun-if-changed=/Users/brandan/.cargo/git/checkouts/prismattyc-4606e77ccf067b52/641103c/crates/prismattyc-core/../../.git/HEAD
+cargo:rerun-if-changed=/Users/brandan/.cargo/git/checkouts/prismattyc-4606e77ccf067b52/641103c/crates/prismattyc-core/../../.git/refs/heads
+cargo:rustc-env=PRISMATTYC_GIT_HASH=641103cb41fb
