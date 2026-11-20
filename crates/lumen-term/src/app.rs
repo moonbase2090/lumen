@@ -588,7 +588,9 @@ impl App {
                 match seen {
                     Seen::Applied => {
                         if let Ok(frame) = lumen_sealed::types::parse(*kind, body) {
-                            self.typed.see(&frame);
+                            let session = &self.session;
+                            self.typed
+                                .see_checked(&frame, |record| record_shown(session, record));
                         }
                     }
                     Seen::Refused => self.typed.stop(),
@@ -2411,6 +2413,21 @@ impl App {
         }
         frame
     }
+}
+
+/// Whether the grid shows a record's line where the box sent it, now that a
+/// sealed command has started for it: the logical line that starts on the
+/// record's row must show the whole of it. When a line typed ahead ran first,
+/// the shell drew that line there instead.
+fn record_shown(session: &Session, record: &crate::typed::Record) -> bool {
+    let Some(Block::Grid(live)) = session.document().blocks().last() else {
+        return false;
+    };
+    record
+        .line
+        .and_then(|l| live.row_of(l))
+        .and_then(|row| live.logical_line_from(row))
+        .is_some_and(|shown| crate::typed::row_shows(&shown, &record.typed))
 }
 
 #[cfg(all(test, unix))]
