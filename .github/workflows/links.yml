@@ -17,3 +17,12 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: moonbase2090/.github/actions/package-links@0f192a5bb8fa198ab154fb4f721bdd8ca0813946
+        with:
+          # domterm.org answers some GitHub-hosted runners at once and others
+          # not at all: failed runs time out on it through every retry (2m20s)
+          # while a run minutes earlier or later on the same branch passes in
+          # about a second. A required check must not depend on which runner it
+          # gets, so the host is checked only by link-check-external in ci.yml,
+          # which scans spec/**/*.md and does not block a merge.
+          link-excludes: >-
+            --exclude '^https?://domterm\.org/'
