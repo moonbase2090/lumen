@@ -1,7 +1,0 @@
-cargo:rerun-if-changed=/Users/brandan/Projects/Moonbase2090/lumen-wt-ime-main/crates/lumen-term/../../release/gate-records.txt
-cargo:rerun-if-changed=build.rs
-cargo:rerun-if-changed=build_support/gate.rs
-cargo:rerun-if-env-changed=CARGO_CFG_TARGET_OS
-cargo:rustc-env=LUMEN_DECODER_BUILD=d64a119dc632b1d823691ac443e632bd86aed9b972c73103c2cf015445977118
-cargo:rustc-env=LUMEN_IMAGE_PATH_BUILD=133d6a689a910ec5bdd12b0ba9683f61d13f394dd2a9f00c901295c9914060dd
-cargo:rustc-env=LUMEN_GATE_RECORDS=linux d64a119dc632b1d823691ac443e632bd86aed9b972c73103c2cf015445977118 133d6a689a910ec5bdd12b0ba9683f61d13f394dd2a9f00c901295c9914060dd pass pass;macos d64a119dc632b1d823691ac443e632bd86aed9b972c73103c2cf015445977118 133d6a689a910ec5bdd12b0ba9683f61d13f394dd2a9f00c901295c9914060dd pass pass
