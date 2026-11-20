@@ -362,6 +362,28 @@ impl GridBlock {
         self.emulator.screen().max_view_scroll()
     }
 
+    /// A fingerprint of each line of history, oldest first: the text and the
+    /// attributes that change how it looks. Two lines with the same print look
+    /// the same, which is all [`crate::scroll::Scroll::rows_evicted`] needs to
+    /// find where an older history starts in a newer one.
+    #[must_use]
+    pub fn history_prints(&self) -> Vec<u64> {
+        (0..self.history_rows())
+            .filter_map(|i| self.history_row(i))
+            .map(|cells| {
+                cells.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, c| {
+                    let attrs = u64::from(c.style.bold)
+                        | u64::from(c.style.italic) << 1
+                        | u64::from(c.style.underline) << 2
+                        | u64::from(c.style.inverse) << 3
+                        | u64::from(c.wide_cont) << 4;
+                    let h = (h ^ u64::from(u32::from(c.character))).wrapping_mul(0x0100_0000_01b3);
+                    (h ^ attrs).wrapping_mul(0x0100_0000_01b3)
+                })
+            })
+            .collect()
+    }
+
     /// The cells of history line `index`, oldest first, or `None` past the end.
     #[must_use]
     pub fn history_row(&self, index: usize) -> Option<&[prismattyc_core::Cell]> {
