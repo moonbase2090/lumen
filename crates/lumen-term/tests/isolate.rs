@@ -84,14 +84,7 @@ fn invalid_utf8_is_dropped() {
 
 #[test]
 fn osc_outside_the_allowlist_is_dropped_and_the_allowlist_passes() {
-    for n in [
-        "8;;http://x",
-        "52;c;c2VjcmV0",
-        "133;A",
-        "7;file:///",
-        "9;note",
-        "1337;x",
-    ] {
+    for n in ["52;c;c2VjcmV0", "133;A", "7;file:///", "9;note", "1337;x"] {
         let s = format!("a\x1b]{n}\x07b");
         assert_eq!(once(s.as_bytes()), b"ab", "{n}");
     }
@@ -105,6 +98,9 @@ fn osc_outside_the_allowlist_is_dropped_and_the_allowlist_passes() {
         "104",
         "110;?",
         "119",
+        "8;;http://x",
+        "8;id=a:b=c;https://example.com/p?q=1;2",
+        "8;;",
     ] {
         let s = format!("a\x1b]{n}\x07b");
         assert_eq!(once(s.as_bytes()), s.as_bytes(), "{n}");
@@ -361,4 +357,45 @@ fn over_every_short_string_of_the_awkward_bytes_the_output_is_inert_idempotent_a
         checked += 1;
     }
     assert!(checked > 300_000, "{checked}");
+}
+
+const CLOSE: &[u8] = b"\x1b]8;;\x07";
+
+#[test]
+fn a_hyperlink_that_is_malformed_or_over_the_limits_is_replaced_by_the_one_that_ends_a_link() {
+    let long_uri = format!("a\x1b]8;;https://example.com/{}\x07b", "x".repeat(2100));
+    let long_params = format!("a\x1b]8;{};https://example.com/\x07b", "k".repeat(300));
+    let mut want = b"a".to_vec();
+    want.extend_from_slice(CLOSE);
+    want.push(b'b');
+    for s in [
+        "a\x1b]8\x07b".to_owned(),
+        "a\x1b]8;only-one-field\x07b".to_owned(),
+        "a\x1b]8;sp ace;https://example.com/\x07b".to_owned(),
+        "a\x1b]8;;https://example.com/\x01\x07b".to_owned(),
+        long_uri,
+        long_params,
+    ] {
+        assert_eq!(once(s.as_bytes()), want, "{s:?}");
+    }
+}
+
+#[test]
+fn a_hyperlink_over_the_string_cap_ends_the_link_and_the_rest_is_discarded() {
+    let mut s = b"a\x1b]8;;https://example.com/".to_vec();
+    s.extend(std::iter::repeat_n(b'x', 5000));
+    s.extend_from_slice(b"\x1b\\b");
+    let (out, notes, _) = run(&[&s]);
+    assert_eq!(out, b"a\x1b]8;;\x1b\\b");
+    assert_eq!(notes, vec![Note::StringTruncated]);
+}
+
+#[test]
+fn a_hyperlink_split_at_every_position_is_treated_as_if_it_came_whole() {
+    let s = b"a\x1b]8;id=1;https://example.com/\x1b\\text\x1b]8;;\x1b\\b";
+    let whole = run(&[s]);
+    assert_eq!(whole.0, s);
+    for i in 0..=s.len() {
+        assert_eq!(run(&[&s[..i], &s[i..]]), whole, "split at {i}");
+    }
 }

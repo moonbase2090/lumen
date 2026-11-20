@@ -46,11 +46,29 @@ pub fn row_links(screen: &Screen, row: usize) -> Vec<Hit> {
 }
 
 /// Every written address in `cells`, a row of scrollback or of the screen,
-/// left to right. Scrollback keeps no program links, and the grid drops them
-/// before they reach it, so only written addresses are found.
+/// left to right. The cells alone carry no program link: for a row of
+/// scrollback use [`history_links`].
 #[must_use]
 pub fn cell_links(cells: &[Cell]) -> Vec<Hit> {
     links_in(cells, &|_| None)
+}
+
+/// Every link on line `back` of `screen`'s scrollback (0 is the oldest),
+/// left to right, the program's as well as written addresses.
+#[must_use]
+pub fn history_links(screen: &Screen, back: usize) -> Vec<Hit> {
+    let hist = screen.max_view_scroll();
+    let Some(cells) = screen.scrollback().get(back).filter(|_| back < hist) else {
+        return Vec::new();
+    };
+    // A view scrolled `hist - back` lines shows that line as its first row.
+    let offset = hist - back;
+    let uri = |col: usize| {
+        screen
+            .hyperlink_uri_at_view(offset, 0, col)
+            .map(str::to_owned)
+    };
+    links_in(cells, &uri)
 }
 
 /// The link under column `col` of `row`, if there is one.
@@ -298,5 +316,26 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].producer, Producer::Program);
         assert_eq!(hits[0].target, "https://other.test/");
+    }
+
+    #[test]
+    fn a_program_link_that_has_scrolled_into_the_history_is_found_on_its_own_line() {
+        let mut block = GridBlock::new(30, 3);
+        for n in 0..5 {
+            block.feed(
+                format!("\x1b]8;;https://t{n}.test/\x07line{n}\x1b]8;;\x07 plain\r\n").as_bytes(),
+            );
+        }
+        let hist = block.history_rows();
+        assert!(hist >= 3, "the first lines have scrolled off: {hist}");
+        for back in 0..hist {
+            let hits = history_links(block.screen(), back);
+            assert_eq!(hits.len(), 1, "line {back}: {hits:?}");
+            assert_eq!(hits[0].producer, Producer::Program);
+            assert_eq!(hits[0].target, format!("https://t{back}.test/"));
+            assert_eq!(hits[0].visible, format!("line{back}"));
+            assert_eq!(hits[0].columns, 0..5);
+        }
+        assert_eq!(history_links(block.screen(), hist).len(), 0);
     }
 }

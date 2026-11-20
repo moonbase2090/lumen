@@ -717,7 +717,7 @@ impl App {
             let back = live
                 .history_rows()
                 .checked_sub(usize::try_from(row.unsigned_abs()).ok()?)?;
-            crate::linkhit::cell_links(live.history_row(back)?)
+            crate::linkhit::history_links(live.screen(), back)
         } else {
             crate::linkhit::row_links(live.screen(), usize::try_from(row).ok()?)
         };
