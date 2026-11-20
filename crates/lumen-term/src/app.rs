@@ -111,6 +111,10 @@ pub struct App {
     copy_on_select: bool,
     copy_pending: bool,
     scroll: Scroll,
+    /// The program's reporting modes as last seen, and the foreground process
+    /// group when they came on: reports and bracketed paste go only while the
+    /// same group is still in front.
+    reporting: Reporting,
     /// What is left of a wheel's move that the view is easing through.
     glide: Glide,
     /// Whether a wheel step eases the view instead of jumping it.
@@ -184,6 +188,58 @@ pub fn display_scale(factor: f64) -> u32 {
 /// The longest preedit, in characters, the app keeps. An input method sends a
 /// few words at most; the cap keeps a misbehaving one from growing it.
 pub const PREEDIT_MAX_CHARS: usize = 256;
+
+/// Which foreground process group switched the reporting modes on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Grant {
+    /// No reporting mode is on, so there is nothing to grant.
+    #[default]
+    Unasked,
+    /// The group in front of the terminal when the modes came on.
+    Group(i32),
+    /// The system could not say which group was in front: nothing is reported.
+    Unknown,
+}
+
+/// One reporting mode as last seen, and who asked for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Granted<T> {
+    asked: Option<T>,
+    group: Grant,
+}
+
+impl<T> Default for Granted<T> {
+    fn default() -> Self {
+        Self {
+            asked: None,
+            group: Grant::Unasked,
+        }
+    }
+}
+
+impl<T: Copy + PartialEq> Granted<T> {
+    /// Note the mode's state now (`None` when it is off). The grant is taken
+    /// from `front` only when the mode comes on or changes, so a change in one
+    /// mode never passes its group on to another.
+    fn note(&mut self, now: Option<T>, front: impl FnOnce() -> Grant) {
+        match now {
+            None => *self = Self::default(),
+            Some(v) if self.asked != Some(v) => {
+                self.asked = Some(v);
+                self.group = front();
+            }
+            Some(_) => {}
+        }
+    }
+}
+
+/// The reporting modes, each with the group that asked for it: bracketed
+/// paste and the mouse modes are tracked apart.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Reporting {
+    paste: Granted<()>,
+    mouse: Granted<crate::mouse::Modes>,
+}
 
 /// Text an input method is composing and has not committed yet: it is shown to
 /// the user and sent to the program only when composition finishes.
@@ -458,6 +514,7 @@ impl App {
             copy_on_select: true,
             copy_pending: false,
             scroll: Scroll::Follow,
+            reporting: Reporting::default(),
             glide: Glide::new(),
             smooth_scroll: true,
             view_moves: 0,
@@ -1513,11 +1570,65 @@ impl App {
         Ok(self.scroll_pixels(pixels))
     }
 
-    fn live_modes(&self) -> Option<crate::mouse::Modes> {
+    /// The mouse modes the live block has on, as the program set them.
+    fn asked_mouse_modes(&self) -> Option<crate::mouse::Modes> {
         match self.session.document().blocks().last() {
             Some(Block::Grid(g)) => Some(g.mouse_modes()),
             _ => None,
         }
+    }
+
+    /// The mouse modes in force: those the program asked for, while the process
+    /// group that asked is still the one in front of the terminal. When the
+    /// group has changed (the program was suspended or replaced, say by a shell)
+    /// or the system cannot say, the program gets no reports.
+    fn live_modes(&self) -> Option<crate::mouse::Modes> {
+        let modes = self.asked_mouse_modes()?;
+        Some(if self.reporting_allowed(self.reporting.mouse.group) {
+            modes
+        } else {
+            crate::mouse::Modes {
+                tracking: crate::mouse::MouseTracking::Off,
+                sgr: false,
+                wheel: false,
+            }
+        })
+    }
+
+    /// Whether the program that switched a reporting mode on (`grant`) is
+    /// still the foreground group of its terminal (`tcgetpgrp`). Vacuously true
+    /// when the mode is off or where there is no foreground group to ask.
+    fn reporting_allowed(&self, grant: Grant) -> bool {
+        if !cfg!(unix) {
+            return true;
+        }
+        match grant {
+            Grant::Unasked => true,
+            Grant::Group(g) => self.session.foreground_group() == Some(g),
+            Grant::Unknown => false,
+        }
+    }
+
+    /// Whether the program has switched on bracketed paste and may still have it.
+    fn bracketed_in_force(&self) -> bool {
+        self.session.key_modes().bracketed_paste
+            && self.reporting_allowed(self.reporting.paste.group)
+    }
+
+    /// Note a change in the reporting modes the program has on, and with each
+    /// the foreground group at that moment: the one that asked for it.
+    fn track_reporting(&mut self) {
+        let paste = self.session.key_modes().bracketed_paste.then_some(());
+        let mouse = self
+            .asked_mouse_modes()
+            .filter(|m| m.tracking != crate::mouse::MouseTracking::Off || m.wheel);
+        let front = || match self.session.foreground_group() {
+            Some(g) => Grant::Group(g),
+            None => Grant::Unknown,
+        };
+        let (paste_group, mouse_group) = (front(), front());
+        self.reporting.paste.note(paste, || paste_group);
+        self.reporting.mouse.note(mouse, || mouse_group);
     }
 
     fn send_report(&mut self, report: Option<Vec<u8>>) -> std::io::Result<bool> {
@@ -1763,7 +1874,7 @@ impl App {
                     Line::Refused => return Outcome::Refused,
                     _ => {}
                 }
-                let bracketed = self.session.key_modes().bracketed_paste;
+                let bracketed = self.bracketed_in_force();
                 let pasted = match paste::judge(&text, bracketed) {
                     Decision::Send(p) => p,
                     Decision::Hold(h) => h.single_line,
@@ -2324,7 +2435,7 @@ impl App {
             self.apply_line(Line::Redraw)?;
             return Ok(PasteOutcome::Sent);
         }
-        let bracketed = self.session.key_modes().bracketed_paste;
+        let bracketed = self.bracketed_in_force();
         match paste::judge(text, bracketed) {
             Decision::Reject(why) => Ok(PasteOutcome::Rejected(why)),
             Decision::Hold(hold) => Ok(PasteOutcome::Held(hold)),
@@ -2342,7 +2453,7 @@ impl App {
     #[cfg(feature = "links-clipboard")]
     pub fn paste_chosen(&mut self, pasted: &Pasted) -> std::io::Result<()> {
         let mut bytes = Vec::with_capacity(pasted.text.len() + 12);
-        let bracketed = self.session.key_modes().bracketed_paste;
+        let bracketed = self.bracketed_in_force();
         if bracketed {
             bytes.extend_from_slice(b"\x1b[200~");
         }
@@ -2444,6 +2555,7 @@ impl App {
             None => self.session.pump(),
         };
         if bytes > 0 {
+            self.track_reporting();
             self.cursor_epoch_ms = self.session.now_ms();
             self.refresh_find();
         }

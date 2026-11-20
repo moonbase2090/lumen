@@ -79,8 +79,8 @@ fn a_multi_line_paste_reaches_the_program_as_one_line_and_runs_nothing() {
 #[test]
 fn a_paste_action_is_bracketed_and_keeps_its_lines_when_the_program_asked_for_that() {
     let mut app = start(
-        "stty raw -echo; printf '\\033[?2004h'; echo ready; set -m; \
-         dd bs=1 count=16 2>/dev/null | od -An -v -tx1 | tr -d ' \\n'; echo; echo done",
+        "set -m; sh -c \"stty raw -echo; printf '\\\\033[?2004h'; echo ready; \
+         dd bs=1 count=16 2>/dev/null | od -An -v -tx1 | tr -d ' \\\\n'; echo; echo done\"",
         1,
     );
     assert!(pump_until(&mut app, |a| text(a).contains("ready")));
