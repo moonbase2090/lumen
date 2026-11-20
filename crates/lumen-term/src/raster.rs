@@ -1184,6 +1184,7 @@ impl Renderer {
                             .filter(|c| !c.wide_cont)
                             .map(|c| c.character)
                             .collect();
+                        let wraps = g.row_wraps(k);
                         out.push(SearchRow {
                             block: p.index,
                             row: k,
@@ -1193,7 +1194,12 @@ impl Renderer {
                                     .saturating_mul(self.cell_h),
                             ),
                             height: self.cell_h,
-                            text: text.trim_end().to_owned(),
+                            text: if wraps {
+                                text
+                            } else {
+                                text.trim_end().to_owned()
+                            },
+                            wraps,
                         });
                     }
                 }
@@ -1211,6 +1217,7 @@ impl Renderer {
                             ),
                             height: self.cell_h,
                             text,
+                            wraps: false,
                         });
                     }
                 }

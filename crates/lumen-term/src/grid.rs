@@ -263,6 +263,13 @@ impl GridBlock {
         Some(line.trim_end().to_owned())
     }
 
+    /// Whether the terminal wrapped row `index` ([`row_of`](Self::row_of) order)
+    /// on to the next, so the next row continues its line.
+    #[must_use]
+    pub fn row_wraps(&self, index: usize) -> bool {
+        self.emulator.screen().history_line_wrapped(index)
+    }
+
     /// The text of row `index` in [`row_of`](Self::row_of) order, trailing
     /// blanks removed.
     #[must_use]
