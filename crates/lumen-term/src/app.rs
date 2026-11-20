@@ -1383,6 +1383,16 @@ impl App {
             }
             self.links.press_down = false;
         }
+        if held.shift {
+            // Shift is the terminal's: it selects, as in other terminals, and
+            // the program is told nothing of the press. The reporter is not
+            // given it either, so it holds no button and no release is sent
+            // for it later.
+            if b == Button::Left {
+                self.begin_selection(x, y);
+            }
+            return Ok(false);
+        }
         if b == Button::Left && self.pointer_selects(x, y, held) {
             self.begin_selection(x, y);
         }

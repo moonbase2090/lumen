@@ -23,16 +23,22 @@ fn text(app: &App) -> String {
         .join("\n")
 }
 
+/// Take the program's output as it arrives until `done`. Each wait blocks on
+/// the program's output for as long as the hang bound has left; nothing wakes
+/// on a clock.
 fn pump_until(app: &mut App, done: impl Fn(&str) -> bool) -> bool {
     let end = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < end {
+    loop {
         app.pump();
         if done(&text(app)) {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(20));
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        app.pump_wait(left);
     }
-    false
 }
 
 /// A program that switches on `modes`, prints READY, then shows every byte it
@@ -283,4 +289,65 @@ fn a_release_is_not_sent_for_a_press_that_was_not() {
     );
     mark(&mut app, 'Z');
     assert!(!text(&app).contains("^[[<"), "{}", text(&app));
+}
+
+const SHIFT: Held = Held {
+    shift: true,
+    alt: false,
+    ctrl: false,
+};
+
+#[test]
+fn a_press_with_shift_held_is_the_terminals_and_the_program_gets_neither_it_nor_a_release() {
+    let mut app = start("1002;1006");
+    let (x, y) = at(&app, 0, 0);
+    let (x2, y2) = at(&app, 4, 0);
+    // The terminal selects; the program is told nothing.
+    assert!(
+        !app.mouse_press(x, y, Button::Left, SHIFT)
+            .unwrap_or_else(|e| unreachable!("write: {e}")),
+        "nothing was sent for the press"
+    );
+    assert!(app.is_selecting(), "the selection began");
+    app.mouse_move(x2, y2, SHIFT)
+        .unwrap_or_else(|e| unreachable!("write: {e}"));
+    assert!(
+        !app.mouse_release(x2, y2, Button::Left, SHIFT)
+            .unwrap_or_else(|e| unreachable!("write: {e}")),
+        "nothing was sent for the release"
+    );
+    assert_eq!(app.selected_text().as_deref(), Some("READ"));
+    // Other buttons with Shift are not the program's either.
+    for b in [Button::Middle, Button::Right] {
+        assert!(
+            !app.mouse_press(x, y, b, SHIFT)
+                .unwrap_or_else(|e| unreachable!("write: {e}"))
+        );
+        assert!(
+            !app.mouse_release(x, y, b, SHIFT)
+                .unwrap_or_else(|e| unreachable!("write: {e}"))
+        );
+    }
+    // The program sees its input in order, so once the mark is on screen
+    // anything the pointer had sent would be before it.
+    mark(&mut app, 'Z');
+    assert!(!text(&app).contains("^[[<"), "{}", text(&app));
+}
+
+#[test]
+fn a_press_the_program_got_still_gets_its_release_when_shift_is_down_by_then() {
+    let mut app = start("1002;1006");
+    let (x, y) = at(&app, 4, 2);
+    assert!(
+        app.mouse_press(x, y, Button::Left, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    assert!(
+        app.mouse_release(x, y, Button::Left, SHIFT)
+            .unwrap_or_else(|e| unreachable!("write: {e}")),
+        "the program must not be left thinking the button is down"
+    );
+    mark(&mut app, 'Z');
+    let seen = text(&app);
+    assert!(seen.contains("READY^[[<0;5;3M^[[<4;5;3mZ"), "{seen}");
 }
