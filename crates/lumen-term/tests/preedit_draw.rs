@@ -4,6 +4,7 @@
 
 #![cfg(unix)]
 
+use lumen_term::app::EDITOR_ROWS;
 use lumen_term::input_line::Mode;
 use lumen_term::raster::GUTTER_PAD_PX;
 use lumen_term::{App, Block, Frame, Key, Mods, Passthrough, Renderer};
@@ -197,6 +198,7 @@ fn the_rest_of_the_line_moves_right_to_make_room() {
 #[test]
 fn clearing_or_committing_removes_the_composing_text() {
     let mut app = zsh();
+    let (_, box_top, _, cell_h) = app.ime_area();
     let empty = app.view();
     app.set_preedit("かな", Some((0, 0)));
     assert_ne!(app.view(), empty);
@@ -209,14 +211,17 @@ fn clearing_or_committing_removes_the_composing_text() {
     assert_eq!(app.input_text(), "かな", "the committed text is in the box");
     let committed = app.view();
     let mut fresh = zsh();
-    fresh
-        .commit("かな")
-        .unwrap_or_else(|e| unreachable!("the box takes it: {e}"));
-    assert_eq!(
-        committed,
-        fresh.view(),
-        "committed, it looks as if it had been typed"
-    );
+    type_str(&mut fresh, "かな");
+    let typed = fresh.view();
+    for y in box_top..box_top + EDITOR_ROWS * cell_h {
+        for x in 0..WIDTH {
+            assert_eq!(
+                committed.pixel(x, y),
+                typed.pixel(x, y),
+                "committing and typing draw the same input box at ({x}, {y})"
+            );
+        }
+    }
 }
 
 #[test]
