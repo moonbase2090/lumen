@@ -177,6 +177,24 @@ fn grid_text(app: &App) -> String {
         .join("\n")
 }
 
+/// The live grid's text, history first, one logical line per line: a row the
+/// terminal wrapped on to the next is joined to it, so text that only wrapped
+/// is not taken for two lines. A real line break is still a line break.
+fn logical_text(app: &App) -> String {
+    let Some(lumen_term::Block::Grid(g)) = app.session().document().blocks().last() else {
+        return String::new();
+    };
+    let rows = g.history_rows() + g.size().1;
+    let mut out = String::new();
+    for index in 0..rows {
+        out.push_str(&g.flow_row_text(index).unwrap_or_default());
+        if !g.screen().history_line_wrapped(index) {
+            out.push('\n');
+        }
+    }
+    out
+}
+
 fn key(app: &mut App, key: Key) {
     app.key(key, Mods::default())
         .unwrap_or_else(|e| unreachable!("key: {e}"));
@@ -386,13 +404,16 @@ fn lines_typed_without_waiting_for_the_prompt_are_never_split() {
     for n in 1..=10 {
         line(&mut app, &format!("echo fast-{n}''-done"));
     }
+    // Output can start mid-row, after the kernel's echo of lines typed ahead,
+    // and wrap: the text is read as logical lines, so a line that only wrapped
+    // is not taken for one that is missing.
     assert!(
-        until(&mut app, |a| grid_text(a).contains("fast-10-done\n")
+        until(&mut app, |a| logical_text(a).contains("fast-10-done\n")
             && a.input_mode() == Mode::Editing),
         "every line ran: {}",
-        grid_text(&app)
+        logical_text(&app)
     );
-    let text = grid_text(&app);
+    let text = logical_text(&app);
     for n in 1..=10 {
         assert!(
             text.contains(&format!("fast-{n}-done\n")),
