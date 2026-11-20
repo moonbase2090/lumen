@@ -1,0 +1,26 @@
+macOS composing-text proof (real input method)
+
+Revision: d1c8c8e3c686e25af9de7154b75994510e6c1b6c (the code head the binary was built from; later commits only add proof files)
+Host: fresh virtual machine cloned from a clean macOS image, macOS 26.6.2 arm64, logged-in desktop session, deleted after the run
+Build: cargo build --release -p lumen-term --features window on the host at that revision; binary SHA-256 prefix 77ff36b587a6c57e, checked after copying it into the guest. The baseline is the same build of main before this change (prefix 291bb7f98e0d6197).
+Input method: the system's own Japanese (Romaji) input source, selected through the system's text input source API in the guest, and the U.S. layout for the dead key. The monospace face was set to a system font with Japanese glyphs in the guest's settings file (the bundled face has none).
+Program in the window: a short perl script that puts the terminal in raw mode and logs every byte it receives; for the second window it also turns on application cursor keys so the window gives it the keys instead of the input box.
+Driving: real key events over the guest's screen sharing (n i h o n, Space, Return, Return; Option+e then e for the dead key), each step followed by a pause and a screen capture, cropped here to the window.
+
+Files:
+  before-box-japanese.png      main before this change: the system's candidate window lists the word, the box shows nothing
+  box-japanese-kana.png        this change, input box: "にほn" drawn at the caret, underlined, caret at its end; the candidate window sits on it
+  box-japanese-conversion.png  this change, input box: after Space the selected clause is underlined more heavily
+  box-dead-key.png             this change, input box: the pending dead key (Option+e) is drawn, underlined
+  grid-japanese-kana.png       this change, the program has the keys: the text is drawn at the program's cursor
+  grid-japanese-conversion.png this change, the program has the keys: the selected clause, candidate window below it
+  grid-after-commit.png        this change, the program has the keys: after the commit the text is gone from the screen and the program's cursor is back
+
+What the program received (bytes, hex):
+  main, box, Japanese:            e6 97 a5 e6 9c ac 0d   (the word chosen by the input method at that run, then Enter)
+  this change, box, Japanese:     e3 81 ab e3 81 bb e3 82 93 0d   (the kana, then Enter)
+  this change, box, dead key:     c3 a9 0d   (the composed letter, then Enter)
+  this change, program has keys:  e3 81 ab e3 81 bb e3 82 93 0d   (the kana, then Enter)
+The committed text differs between the first two lines only because the input method offered a different first choice in each run; the window sends what it is given.
+
+What is not shown: Chinese (Pinyin) input and a Linux input method with the preedit drawn. The Linux window frame is covered by the tests in the repository.

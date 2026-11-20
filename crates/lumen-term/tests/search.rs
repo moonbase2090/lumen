@@ -341,3 +341,94 @@ fn reopening_the_bar_shows_the_last_query_with_its_matches() {
     assert_eq!(empty.find_query(), "");
     assert_eq!(empty.find_count(), 0);
 }
+
+/// A program that prints `x` to three cells short of the last column and then
+/// `needle`, so the terminal wraps the word across two rows, then `tail`. Two
+/// blank lines come first, so the word is not under the find bar at the top.
+fn wrapped_needle(tail: &str) -> App {
+    let script = format!(
+        "echo; echo; c=$(stty size | cut -d' ' -f2); n=$((c-3)); i=0; while [ $i -lt $n ]; do printf x; i=$((i+1)); done; \
+         printf needle; echo; echo done; {tail}"
+    );
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", &script],
+        1,
+        420,
+        300,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    assert!(
+        pump_until(&mut app, |a| a.visible_text().iter().any(|l| l == "done")),
+        "the program's output arrives"
+    );
+    app
+}
+
+#[test]
+fn a_match_the_terminal_wrapped_across_two_rows_is_found() {
+    let mut app = wrapped_needle("sleep 30");
+    assert!(
+        app.visible_text().iter().any(|l| l.ends_with("nee")),
+        "the word wraps: {:?}",
+        app.visible_text()
+    );
+    app.find_open();
+    type_in(&mut app, "needle");
+    assert_eq!(app.find_count(), 1, "found once over the wrap");
+    assert_eq!(app.find_position(), Some(0));
+    let first = app.find_current_line().unwrap_or_default();
+    assert!(
+        first.ends_with("nee"),
+        "it starts on the first row: {first}"
+    );
+    // Next and previous walk to it, not away.
+    assert!(app.find_next());
+    assert_eq!(app.find_position(), Some(0));
+    assert!(app.find_previous());
+    assert_eq!(app.find_position(), Some(0));
+}
+
+#[test]
+fn the_wrapped_match_is_drawn_over_both_rows() {
+    let mut app = wrapped_needle("sleep 30");
+    app.find_open();
+    type_in(&mut app, "needle");
+    let frame = app.view();
+    let (_, ch) = (0, app.cell_height());
+    let (mut n, mut first, mut last) = (0, u32::MAX, 0);
+    for p in [Palette::light(), Palette::dark()] {
+        let (count, f, l) = pixels_of(&frame, p.find_current);
+        if count > 0 {
+            n += count;
+            first = first.min(f);
+            last = last.max(l);
+        }
+    }
+    assert!(n > 0, "the current match is drawn");
+    assert!(
+        last - first >= ch,
+        "its tint is on two rows: {first}..{last} with rows {ch} high"
+    );
+}
+
+#[test]
+fn a_real_line_break_still_separates_a_match() {
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", "echo nee; echo dle; echo done; sleep 30"],
+        1,
+        420,
+        300,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    assert!(pump_until(&mut app, |a| a
+        .visible_text()
+        .iter()
+        .any(|l| l == "done")));
+    app.find_open();
+    type_in(&mut app, "needle");
+    assert_eq!(app.find_count(), 0);
+}
