@@ -281,6 +281,36 @@ impl GridBlock {
         Some(text.trim_end().to_owned())
     }
 
+    /// How many rows of the screen the block shows in the flow of the window.
+    ///
+    /// While nothing has scrolled into history, the rows below the last drawn
+    /// cell are rows the program has not used yet, so the flow stops at the
+    /// last drawn row, or, for the `live` block (the one output goes to), at
+    /// the cursor's row if that is lower. Otherwise every row: once output has
+    /// scrolled the screen is full, or was cleared on purpose and must show
+    /// blank; and the alternate screen is always shown whole.
+    #[must_use]
+    pub fn used_rows(&self, live: bool) -> usize {
+        let screen = self.emulator.screen();
+        let rows = screen.rows();
+        if self.alt_active() || self.history_rows() > 0 {
+            return rows;
+        }
+        let drawn = (0..rows)
+            .rev()
+            .find(|&r| {
+                screen.row(r).is_some_and(|cells| {
+                    cells.iter().any(|c| *c != prismattyc_core::Cell::default())
+                })
+            })
+            .map_or(0, |r| r + 1);
+        if live {
+            drawn.max(screen.cursor().row + 1).min(rows)
+        } else {
+            drawn
+        }
+    }
+
     /// The text of each row, with trailing blanks removed.
     #[must_use]
     pub fn text_rows(&self) -> Vec<String> {
