@@ -39,11 +39,14 @@ fn ensure(path: &Path) -> Result<(), String> {
 pub(crate) fn open() -> Result<(), String> {
     let path = path()?;
     ensure(&path)?;
-    std::process::Command::new("/usr/bin/open")
+    let status = std::process::Command::new("/usr/bin/open")
         .arg(path)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+        .status()
+        .map_err(|e| e.to_string())?;
+    status
+        .success()
+        .then_some(())
+        .ok_or_else(|| format!("/usr/bin/open exited with {status}"))
 }
 
 #[cfg(test)]
