@@ -42,9 +42,14 @@ pub struct CursorView {
 pub struct GridBlock {
     emulator: Emulator,
     modes: ModeTracker,
-    /// Resizes that changed the size. A resize rewraps the history, so a line
-    /// number from before it means nothing after it.
+    /// Resizes that changed the width. A new width rewraps the history, so a
+    /// line number from before it means nothing after it.
     resizes: u64,
+    /// Added to the core's count of rows that left the top of the screen, to
+    /// number lines. A resize that keeps the width moves rows between the
+    /// screen and history without that count changing; this keeps the numbers
+    /// steady across it.
+    shift: i64,
 }
 
 /// A line of a block's primary screen, by number: rows that have left the top
@@ -81,6 +86,7 @@ impl GridBlock {
             emulator: Emulator::new(columns, rows, SCROLLBACK),
             modes: ModeTracker::new(),
             resizes: 0,
+            shift: 0,
         }
     }
 
@@ -123,10 +129,43 @@ impl GridBlock {
 
     /// Resize the block.
     pub fn resize(&mut self, columns: usize, rows: usize) {
-        if self.size() != (columns, rows) {
-            self.resizes += 1;
+        let (old_columns, old_rows) = self.size();
+        if (old_columns, old_rows) == (columns, rows) {
+            self.emulator.resize(columns, rows);
+            return;
         }
+        if old_columns != columns || self.alt_active() {
+            // Rewrapped, or the primary's rows are not in front to follow.
+            self.resizes += 1;
+            self.emulator.resize(columns, rows);
+            return;
+        }
+        // Only the height changes: the lines keep their wrapping and order,
+        // and the cursor stays on its line. Its line keeps its number.
+        let before = self.cursor_number();
         self.emulator.resize(columns, rows);
+        let after = self.cursor_number();
+        self.shift = self.shift.saturating_add(before.saturating_sub(after));
+    }
+
+    /// The cursor's line number before [`shift`](Self) is added.
+    fn cursor_number(&self) -> i64 {
+        let screen = self.emulator.screen();
+        let row = i64::try_from(screen.cursor().row).unwrap_or(i64::MAX);
+        i64::try_from(screen.scrolled_lines())
+            .unwrap_or(i64::MAX)
+            .saturating_add(row)
+    }
+
+    /// The number of the first history row kept, if numbers can be had.
+    fn first_number(&self) -> Option<u64> {
+        let screen = self.emulator.screen();
+        let history = i64::try_from(self.history_rows()).ok()?;
+        let first = i64::try_from(screen.scrolled_lines())
+            .ok()?
+            .checked_add(self.shift)?
+            .checked_sub(history)?;
+        u64::try_from(first).ok()
     }
 
     /// The line `rows_up` rows above the cursor's, on the primary screen.
@@ -138,9 +177,12 @@ impl GridBlock {
         if screen.alt_active() {
             return None;
         }
-        let row = u64::try_from(screen.cursor().row).ok()?;
+        let number = self
+            .cursor_number()
+            .checked_add(self.shift)
+            .and_then(|n| u64::try_from(n).ok())?;
         Some(Line {
-            number: (screen.scrolled_lines() + row).checked_sub(rows_up)?,
+            number: number.checked_sub(rows_up)?,
             clears: screen.full_clears(),
             resizes: self.resizes,
         })
@@ -163,7 +205,7 @@ impl GridBlock {
             return None;
         }
         let history = u64::try_from(self.history_rows()).ok()?;
-        let first = screen.scrolled_lines().checked_sub(history)?;
+        let first = self.first_number()?;
         let index = line.number.checked_sub(first)?;
         let rows = u64::try_from(screen.rows()).ok()?;
         (index < history + rows)

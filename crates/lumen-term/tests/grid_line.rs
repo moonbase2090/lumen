@@ -84,6 +84,38 @@ fn a_clear_a_reset_or_a_resize_drops_the_line() {
 }
 
 #[test]
+fn a_change_of_height_alone_keeps_every_line_where_it_is() {
+    // (rows before, rows after, lines written before the anchor and after it)
+    for (before, after, count) in [(10, 6, 3), (10, 6, 12), (6, 10, 12), (10, 4, 8)] {
+        let mut block = GridBlock::new(20, before);
+        lines_and_anchor(&mut block, count);
+        let line = block
+            .line_above_cursor(1)
+            .unwrap_or_else(|| unreachable!("the primary screen has line numbers"));
+        let earlier = block
+            .line_above_cursor(3)
+            .unwrap_or_else(|| unreachable!("there are lines above"));
+        assert_eq!(text_of(&block, line).as_deref(), Some("anchored"));
+        let earlier_text = text_of(&block, earlier);
+        block.resize(20, after);
+        let case = format!("{before} to {after} rows, {count} lines");
+        assert_eq!(text_of(&block, line).as_deref(), Some("anchored"), "{case}");
+        assert_eq!(text_of(&block, earlier), earlier_text, "{case}");
+        // Numbers given after the resize agree with the ones from before it.
+        assert_eq!(block.line_above_cursor(1), Some(line), "{case}");
+        // And still follow output as it scrolls on.
+        lines(&mut block, 0, 30);
+        assert_eq!(text_of(&block, line).as_deref(), Some("anchored"), "{case}");
+    }
+}
+
+/// `count` numbered lines, then one that reads "anchored".
+fn lines_and_anchor(block: &mut GridBlock, count: usize) {
+    lines(block, 0, count);
+    block.feed(b"anchored\r\n");
+}
+
+#[test]
 fn the_alternate_screen_has_no_line_numbers_and_the_primary_keeps_its_own() {
     let mut block = GridBlock::new(20, 5);
     block.feed(b"anchored\r\n");
