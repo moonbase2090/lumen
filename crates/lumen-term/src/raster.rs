@@ -1723,12 +1723,13 @@ impl Renderer {
         frame: &mut Frame,
         (x, y): (u32, u32),
         room: usize,
-        (preedit, focused): (&PreeditView, bool),
+        (preedit, focused, inset): (&PreeditView, bool, u32),
     ) -> usize {
         let t = &self.theme;
         let (shown, used) = Self::clip_cells(&preedit.text, room);
         let width = u32::try_from(used).unwrap_or(0) * self.cell_w;
-        frame.fill(x, y, width, self.cell_h, t.editor);
+        let top = inset.min(self.cell_h / 2);
+        frame.fill(x, y + top, width, self.cell_h - top, t.editor);
         self.text_line(frame, x, y, &shown, t.foreground);
         let line = if focused { t.prompt } else { t.muted };
         let thin = self.scale.max(1).min(self.cell_h);
@@ -1788,7 +1789,7 @@ impl Renderer {
                 y,
             ),
             room - before_cells,
-            preedit,
+            (preedit.0, preedit.1, self.scale),
         );
         let left = before_cells + used;
         let (after, _) = Self::clip_cells(after, room - left);
@@ -1815,7 +1816,7 @@ impl Renderer {
         if room == 0 {
             return;
         }
-        self.paint_preedit_run(frame, (x, y), room, (preedit, focused));
+        self.paint_preedit_run(frame, (x, y), room, (preedit, focused, 0));
     }
 
     /// How wide `text` is drawn, in columns.

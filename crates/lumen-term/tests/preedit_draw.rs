@@ -109,6 +109,13 @@ fn composing_text_is_drawn_in_the_box_underlined_where_the_candidate_window_is()
         Some(theme.prompt),
         "and stops where the text stops"
     );
+    for col in 0..w {
+        assert_eq!(
+            composing.pixel(x + col, y),
+            plain.pixel(x + col, y),
+            "the box's top border runs on over the composing text"
+        );
+    }
     assert_eq!(app.input_text(), "ab", "the box's own text is untouched");
 }
 
