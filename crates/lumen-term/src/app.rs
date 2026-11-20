@@ -1089,7 +1089,7 @@ impl App {
         }
         let reporting = self
             .live_modes()
-            .is_some_and(|m| m.tracking != crate::mouse::MouseTracking::Off && m.sgr);
+            .is_some_and(|m| m.tracking != crate::mouse::MouseTracking::Off);
         !(reporting && self.live_cell(x, y).is_some())
     }
 

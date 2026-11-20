@@ -168,7 +168,7 @@ fn level_1000_reports_no_drag_and_level_1003_reports_bare_motion() {
 }
 
 #[test]
-fn nothing_is_sent_off_the_block_or_without_the_encoding() {
+fn nothing_is_sent_off_the_block() {
     let mut app = start("1002;1006");
     // Over the gutter and over the header: the terminal's own margin.
     assert!(
@@ -186,22 +186,6 @@ fn nothing_is_sent_off_the_block_or_without_the_encoding() {
     );
     mark(&mut app, 'Z');
     assert!(!text(&app).contains("^[[<"), "{}", text(&app));
-
-    // Tracking on, but the program did not ask for SGR: no other encoding.
-    let mut plain = start("1002");
-    let (x, y) = at(&plain, 3, 3);
-    assert!(
-        !plain
-            .mouse_press(x, y, Button::Left, NONE)
-            .unwrap_or_else(|e| unreachable!("write: {e}"))
-    );
-    assert!(
-        !plain
-            .mouse_wheel(x, y, Wheel::Up, NONE)
-            .unwrap_or_else(|e| unreachable!("write: {e}"))
-    );
-    mark(&mut plain, 'Z');
-    assert!(!text(&plain).contains("^[[<"), "{}", text(&plain));
 }
 
 #[test]
@@ -283,4 +267,169 @@ fn a_release_is_not_sent_for_a_press_that_was_not() {
     );
     mark(&mut app, 'Z');
     assert!(!text(&app).contains("^[[<"), "{}", text(&app));
+}
+
+#[test]
+fn tracking_without_sgr_reports_in_the_default_encoding() {
+    let mut app = start("1002");
+    let (x, y) = at(&app, 4, 2);
+    assert!(
+        app.mouse_press(x, y, Button::Left, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    let (x2, y2) = at(&app, 9, 3);
+    assert!(
+        app.mouse_move(x2, y2, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    assert!(
+        app.mouse_release(x2, y2, Button::Left, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    assert!(
+        app.mouse_wheel(x, y, Wheel::Up, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    assert!(
+        app.mouse_wheel(x, y, Wheel::Down, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    mark(&mut app, 'Z');
+    let seen = text(&app);
+    // Code, column and row are each one byte, 32 plus the value; a release names no button.
+    assert!(
+        seen.contains("READY^[[M %#^[[M@*$^[[M#*$^[[M`%#^[[Ma%#Z"),
+        "reports: {seen}"
+    );
+    assert!(!seen.contains("^[[<"), "{seen}");
+}
+
+#[test]
+fn the_default_encoding_carries_the_modifiers_and_other_buttons() {
+    let mut app = start("1000");
+    let (x, y) = at(&app, 0, 0);
+    let ctrl = Held { ctrl: true, ..NONE };
+    assert!(
+        app.mouse_press(x, y, Button::Right, ctrl)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    assert!(
+        app.mouse_release(x, y, Button::Right, ctrl)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    assert!(
+        app.mouse_press(x, y, Button::Middle, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    mark(&mut app, 'Z');
+    // Right is 2 and Control adds 16: 50 is '2'; a release with Control is 3 + 16: 51 is '3'; middle is 1: 33 is '!'.
+    assert!(
+        text(&app).contains("READY^[[M2!!^[[M3!!^[[M!!!Z"),
+        "{}",
+        text(&app)
+    );
+}
+
+/// Type `Z`, which the hex reader shows as 5a after everything sent before it.
+fn mark_hex(app: &mut App) {
+    app.key(Key::Char('Z'), Mods::default())
+        .unwrap_or_else(|e| unreachable!("key: {e}"));
+    assert!(pump_until(app, |t| t.contains("5a")), "mark echoed");
+}
+
+/// A program that switches tracking 1002 on in a window of `columns` columns, then
+/// shows each byte it is sent as two hex digits, which a byte of 255 needs.
+fn hex_reader() -> App {
+    let script = "printf '\\033[?1002h'; stty raw -echo; printf READY; \
+        python3 -u -c 'import os\nwhile True:\n b=os.read(0,1)\n if not b: break\n print(\"%02x\"%b[0], end=\" \", flush=True)'";
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", &job(script)],
+        1,
+        2400,
+        HEIGHT,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    assert!(pump_until(&mut app, |t| t.contains("READY")), "program up");
+    app
+}
+
+#[test]
+fn a_press_past_column_223_is_not_sent_and_neither_is_the_rest_of_that_click() {
+    // Column 223 counting from 1 is the last one a byte can name: 255.
+    let mut app = hex_reader();
+    let (x, y) = at(&app, 222, 1);
+    assert!(
+        app.mouse_press(x, y, Button::Left, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    assert!(
+        app.mouse_release(x, y, Button::Left, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    mark_hex(&mut app);
+    assert!(
+        text(&app).contains("READY1b 5b 4d 20 ff 22 1b 5b 4d 23 ff 22 5a"),
+        "{}",
+        text(&app)
+    );
+    // One column further cannot be named: nothing of the click is sent.
+    let mut app = hex_reader();
+    let (x, y) = at(&app, 223, 1);
+    assert!(
+        !app.mouse_press(x, y, Button::Left, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    assert!(
+        !app.mouse_release(x, y, Button::Left, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    mark_hex(&mut app);
+    assert!(text(&app).contains("READY5a"), "{}", text(&app));
+    assert!(!text(&app).contains("1b 5b 4d"), "{}", text(&app));
+}
+
+#[test]
+fn a_drag_that_ends_past_column_223_still_ends_at_the_last_cell_it_can_name() {
+    let mut app = hex_reader();
+    let (x, y) = at(&app, 4, 1);
+    let (far, _) = at(&app, 260, 1);
+    assert!(
+        app.mouse_press(x, y, Button::Left, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    assert!(
+        app.mouse_release(far, y, Button::Left, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    mark_hex(&mut app);
+    // The release is clamped to column 223 (255), so the program does not see a button left down.
+    assert!(
+        text(&app).contains("1b 5b 4d 20 25 22 1b 5b 4d 23 ff 22 5a"),
+        "{}",
+        text(&app)
+    );
+}
+
+#[test]
+fn a_program_that_asked_for_tracking_without_sgr_owns_the_pointer_and_shift_still_selects() {
+    let mut app = start("1000");
+    let (x, y) = at(&app, 4, 2);
+    assert!(
+        app.mouse_press(x, y, Button::Left, NONE)
+            .unwrap_or_else(|e| unreachable!("write: {e}"))
+    );
+    assert!(!app.is_selecting(), "the program has the press");
+    let _ = app.mouse_release(x, y, Button::Left, NONE);
+    let _ = app.mouse_press(
+        x,
+        y,
+        Button::Left,
+        Held {
+            shift: true,
+            ..NONE
+        },
+    );
+    assert!(app.is_selecting(), "Shift gives the press to the terminal");
 }
