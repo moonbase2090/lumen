@@ -177,6 +177,40 @@ fn grid_text(app: &App) -> String {
         .join("\n")
 }
 
+/// The live grid's text, history first, one logical line per line: a row the
+/// terminal wrapped on to the next is joined to it whole, blanks in its last
+/// cells included, so text that only wrapped is not taken for two lines and a
+/// real space at the wrap is kept. Only the end of a logical line is trimmed.
+/// A real line break is still a line break.
+fn logical_text(app: &App) -> String {
+    let Some(lumen_term::Block::Grid(g)) = app.session().document().blocks().last() else {
+        return String::new();
+    };
+    let history = g.history_rows();
+    let mut out = String::new();
+    let mut line = String::new();
+    for index in 0..history + g.size().1 {
+        let cells = if index < history {
+            g.history_row(index)
+        } else {
+            g.screen().row(index - history)
+        };
+        line.extend(
+            cells
+                .unwrap_or_default()
+                .iter()
+                .filter(|c| !c.wide_cont)
+                .map(|c| c.character),
+        );
+        if !g.screen().history_line_wrapped(index) {
+            out.push_str(line.trim_end());
+            out.push('\n');
+            line.clear();
+        }
+    }
+    out
+}
+
 fn key(app: &mut App, key: Key) {
     app.key(key, Mods::default())
         .unwrap_or_else(|e| unreachable!("key: {e}"));
@@ -380,16 +414,22 @@ fn lines_typed_without_waiting_for_the_prompt_are_never_split() {
     // At machine speed: each line is typed the moment the last was sent,
     // before the shell has read it. Every key after an Enter is the shell's
     // until it says, sealed, that it is at a prompt again.
+    // The marker is quoted in two parts. The kernel echoes lines typed ahead
+    // while a command runs, so an unquoted marker would be on screen before
+    // its line ran, and the wait below could end early.
     for n in 1..=10 {
-        line(&mut app, &format!("echo fast-{n}-done"));
+        line(&mut app, &format!("echo fast-{n}''-done"));
     }
+    // Output can start mid-row, after the kernel's echo of lines typed ahead,
+    // and wrap: the text is read as logical lines, so a line that only wrapped
+    // is not taken for one that is missing.
     assert!(
-        until(&mut app, |a| grid_text(a).contains("fast-10-done\n")
+        until(&mut app, |a| logical_text(a).contains("fast-10-done\n")
             && a.input_mode() == Mode::Editing),
         "every line ran: {}",
-        grid_text(&app)
+        logical_text(&app)
     );
-    let text = grid_text(&app);
+    let text = logical_text(&app);
     for n in 1..=10 {
         assert!(
             text.contains(&format!("fast-{n}-done\n")),
