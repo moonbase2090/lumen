@@ -588,7 +588,11 @@ impl App {
                 match seen {
                     Seen::Applied => {
                         if let Ok(frame) = lumen_sealed::types::parse(*kind, body) {
+                            let made = self.typed.made();
                             self.typed.see(&frame);
+                            if self.typed.made() != made && !self.newest_record_shown() {
+                                self.typed.drop_newest();
+                            }
                         }
                     }
                     Seen::Refused => self.typed.stop(),
@@ -1719,6 +1723,25 @@ impl App {
         };
         let row = live.row_of(record.line?)?;
         live.flow_row_text(row)
+    }
+
+    /// Whether the row the newest record's line was sent on shows that line,
+    /// now that a sealed command has started for it. When a line typed ahead
+    /// ran first, the shell drew that line there instead.
+    fn newest_record_shown(&self) -> bool {
+        let Some(record) = self.typed.records().back() else {
+            return false;
+        };
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return false;
+        };
+        let Some(row) = record.line.and_then(|l| live.row_of(l)) else {
+            return false;
+        };
+        let (Some(text), Some(end)) = (live.flow_row_text(row), live.flow_row_end(row)) else {
+            return false;
+        };
+        crate::typed::row_shows(&text, &record.typed, end >= live.size().0)
     }
 
     /// The column past the last drawn cell of the row a record's typed line

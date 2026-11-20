@@ -12,6 +12,15 @@
 //! Keys typed after the line's Enter do not change it, because the shell has
 //! already taken the line by then. In every other case nothing is recorded.
 //! Nothing here ever comes from the program's output.
+//!
+//! Lines typed ahead. A line typed while a command runs waits in the kernel
+//! for the shell, and if the box sends a line before the shell has read it,
+//! the next command to start is the queued line, not the box's. So when a
+//! command starts, the terminal looks at the row the box's line was sent on:
+//! the shell draws the line it runs there. If that row does not show the box's
+//! line ([`row_shows`]), the record is left out. The look can only leave a
+//! record out; a record is still only ever made from the box's own text and a
+//! sealed command start.
 
 use lumen_sealed::types::Frame;
 use std::collections::VecDeque;
@@ -151,11 +160,51 @@ impl Typed {
         lines
     }
 
+    /// Leave out the newest record: its command turned out not to be the line
+    /// the box sent.
+    pub fn drop_newest(&mut self) {
+        if self.records.pop_back().is_some() {
+            self.made += 1;
+        }
+    }
+
     /// The records, oldest first.
     #[must_use]
     pub fn records(&self) -> &VecDeque<Record> {
         &self.records
     }
+}
+
+/// The least of the box's line a row that wraps on must end with.
+const LEAST_SHOWN: usize = 8;
+
+/// Whether a grid `row`, as the shell drew it, shows the start of the line
+/// `typed`. The row ends with the line's first line, or, when the row is
+/// `full` (the line wraps on to the next row), with the part of it that fits,
+/// at least [`LEAST_SHOWN`] characters of it. Either way that text is the whole
+/// row, or follows a space (where a prompt ends), so a short line cannot match
+/// the tail of another. A shell that drew the line some other way (a character
+/// as `<200d>`, say), or a prompt that does not end in a space, fails this,
+/// and the record is left out. What it cannot catch: a box line that is word
+/// for word the end of the line that ran instead (`hi` after `echo hi`).
+#[must_use]
+pub fn row_shows(row: &str, typed: &str, full: bool) -> bool {
+    let first = typed.lines().next().unwrap_or("").trim_end();
+    if first.is_empty() {
+        return false;
+    }
+    let ends_with_word = |part: &str| {
+        row.strip_suffix(part)
+            .is_some_and(|before| before.is_empty() || before.ends_with(' '))
+    };
+    if ends_with_word(first) {
+        return true;
+    }
+    full && first
+        .char_indices()
+        .skip(LEAST_SHOWN - 1)
+        .map(|(i, c)| i + c.len_utf8())
+        .any(|end| ends_with_word(&first[..end]))
 }
 
 #[cfg(test)]
@@ -255,6 +304,53 @@ mod tests {
         t.wrote(Some("echo three".to_owned()));
         t.see(&start(3));
         assert_eq!(typed_lines(&t), [(1, "echo one", None)]);
+    }
+
+    #[test]
+    fn a_row_shows_the_line_the_shell_drew_there() {
+        assert!(row_shows("% echo hi", "echo hi", false));
+        assert!(row_shows("echo hi", "echo hi", false), "no prompt drawn");
+        // A line typed ahead ran on that row, not the box's line.
+        assert!(!row_shows("% ls", "rm x", false));
+        assert!(!row_shows("% echo queued-x", "echo box-y", false));
+        // A short line that happens to end another is not enough.
+        assert!(!row_shows("% ls", "s", true));
+        assert!(!row_shows("% ls", "s", false));
+        // Only the start of a long line fits on a full row.
+        assert!(row_shows(
+            "% echo wwwwwwwwww",
+            "echo wwwwwwwwwwwwwwwwww''-end",
+            true
+        ));
+        assert!(!row_shows(
+            "% echo wwwwwwwwww",
+            "echo wwwwwwwwwwwwwwwwww''-end",
+            false
+        ));
+        assert!(!row_shows(
+            "% echo w",
+            "echo wwwwwwwwwwwwwwwwww''-end",
+            true
+        ));
+        // The first line of a line sent with line breaks.
+        assert!(row_shows(
+            "% for i in 1 2; do",
+            "for i in 1 2; do\necho $i\ndone",
+            false
+        ));
+        assert!(!row_shows("% anything", "", false));
+    }
+
+    #[test]
+    fn dropping_the_newest_record_is_seen_as_a_change() {
+        let mut t = Typed::new();
+        t.see(&Frame::Prompt);
+        t.wrote(Some("echo one".to_owned()));
+        t.see(&start(1));
+        let made = t.made();
+        t.drop_newest();
+        assert!(t.records().is_empty());
+        assert_ne!(t.made(), made);
     }
 
     #[test]
