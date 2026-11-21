@@ -569,3 +569,27 @@ fn a_view_whose_rows_were_dropped_holds_at_the_oldest_output() {
     );
     let _ = std::fs::remove_file(&pipe);
 }
+
+#[test]
+fn when_the_system_asks_for_less_motion_a_wheel_step_jumps_even_with_smooth_scrolling_on() {
+    let mut app = run(&format!("{COUNT} sleep 30"));
+    app.set_smooth_scroll(true);
+    let (x, y) = pointer(&app);
+    app.set_reduce_motion(true);
+    assert!(
+        app.mouse_wheel_glide(x, y, Wheel::Up, NONE)
+            .unwrap_or(false)
+    );
+    assert!(!app.is_gliding(), "no easing");
+    assert!(!app.following(), "the view moved at once");
+    // Going back to full motion eases again.
+    let mut app = run(&format!("{COUNT} sleep 30"));
+    let (x, y) = pointer(&app);
+    app.set_reduce_motion(true);
+    app.set_reduce_motion(false);
+    assert!(
+        app.mouse_wheel_glide(x, y, Wheel::Up, NONE)
+            .unwrap_or(false)
+    );
+    assert!(app.is_gliding(), "easing is back");
+}

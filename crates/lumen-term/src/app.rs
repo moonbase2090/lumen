@@ -128,6 +128,8 @@ pub struct App {
     glide: Glide,
     /// Whether a wheel step eases the view instead of jumping it.
     smooth_scroll: bool,
+    /// The system asks for less motion: the wheel jumps and the cursor does not blink.
+    reduce_motion: bool,
     /// How many times the view moved since the host last asked.
     view_moves: u32,
     /// The find bar and its matches, while it is open.
@@ -270,6 +272,97 @@ pub const INPUT_NOTICE_MS: u64 = 4000;
 /// How long a blinking cursor stays on, and then off, in milliseconds. A key or output from the
 /// program starts a new cycle with the cursor on.
 pub const CURSOR_BLINK_MS: u64 = 530;
+
+/// Whether a blinking cursor is in its on half at `now`, its cycle having
+/// restarted at `epoch`. With less motion asked for it is always on.
+fn cursor_on(now: u64, epoch: u64, reduce_motion: bool) -> bool {
+    reduce_motion || (now.saturating_sub(epoch) / CURSOR_BLINK_MS).is_multiple_of(2)
+}
+
+#[cfg(test)]
+mod motion_tests {
+    #[cfg(unix)]
+    use super::App;
+    use super::{CURSOR_BLINK_MS, cursor_on};
+    #[cfg(unix)]
+    use crate::{Block, Passthrough};
+    #[cfg(unix)]
+    use std::time::{Duration, Instant};
+
+    #[cfg(unix)]
+    fn blinking_app() -> App {
+        let mut app = App::start(
+            Box::new(Passthrough),
+            "/bin/sh",
+            &["-c", "printf 'hi\\033[1 q'; sleep 30"],
+            1,
+            640,
+            400,
+        )
+        .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+        let end = Instant::now() + Duration::from_secs(20);
+        loop {
+            app.pump();
+            let up = app.session().document().blocks().iter().any(|b| match b {
+                Block::Grid(g) => g.cursor().blink && g.text_rows().iter().any(|r| r == "hi"),
+                Block::Rich(_) => false,
+            });
+            if up {
+                break;
+            }
+            let left = end.saturating_duration_since(Instant::now());
+            assert!(!left.is_zero(), "the program set a blinking cursor");
+            app.pump_wait(left);
+        }
+        app.set_focused(true);
+        app
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn less_motion_brings_a_cursor_caught_in_its_off_half_back_on_and_asks_for_a_frame() {
+        let mut app = blinking_app();
+        app.cursor_phase = false;
+        assert!(app.set_reduce_motion(true), "a frame is needed");
+        assert!(app.cursor_phase, "the cursor is on");
+        assert!(
+            !app.set_reduce_motion(true),
+            "the same setting again changes nothing"
+        );
+        // And it no longer blinks, so a later tick takes it for steady.
+        assert!(!app.cursor_blinks());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn less_motion_asks_for_no_frame_when_the_cursor_is_already_on() {
+        let mut app = blinking_app();
+        app.cursor_phase = true;
+        assert!(!app.set_reduce_motion(true));
+        assert!(app.cursor_phase);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn turning_less_motion_off_again_lets_the_cursor_blink() {
+        let mut app = blinking_app();
+        let _ = app.set_reduce_motion(true);
+        assert!(!app.cursor_blinks());
+        let _ = app.set_reduce_motion(false);
+        assert!(app.cursor_blinks());
+    }
+
+    #[test]
+    fn a_cursor_blinks_through_its_cycle_unless_less_motion_is_asked_for() {
+        let half = CURSOR_BLINK_MS;
+        assert!(cursor_on(0, 0, false));
+        assert!(!cursor_on(half, 0, false));
+        assert!(cursor_on(2 * half, 0, false));
+        for t in [0, half, 2 * half, 7 * half + 1] {
+            assert!(cursor_on(t, 0, true), "steady at {t}");
+        }
+    }
+}
 
 /// Why input could not be sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -515,6 +608,7 @@ impl App {
             reporting: Reporting::default(),
             glide: Glide::new(),
             smooth_scroll: true,
+            reduce_motion: false,
             view_moves: 0,
             find: None,
             find_kept: String::new(),
@@ -1313,9 +1407,26 @@ impl App {
     /// Whether wheel steps ease the view (the default) or jump it.
     pub fn set_smooth_scroll(&mut self, on: bool) {
         self.smooth_scroll = on;
-        if !on {
+        if !on || self.reduce_motion {
             self.glide.cancel();
         }
+    }
+
+    /// Whether the system asks for less motion. While it does, the wheel jumps
+    /// whatever `smooth_scroll` says and a blinking cursor stays on. Returns
+    /// whether a frame needs drawing.
+    pub fn set_reduce_motion(&mut self, on: bool) -> bool {
+        if self.reduce_motion == on {
+            return false;
+        }
+        // A blinking cursor caught in its off half comes back on: that needs a frame.
+        let redraw = on && !self.cursor_phase && self.cursor_blinks();
+        self.reduce_motion = on;
+        if on {
+            self.glide.cancel();
+            self.cursor_phase = true;
+        }
+        redraw
     }
 
     /// Whether a wheel's move is still easing the view.
@@ -1500,7 +1611,7 @@ impl App {
         if self.menu.open.is_some() {
             return Ok(false);
         }
-        self.wheel_step(x, y, step, held, self.smooth_scroll)
+        self.wheel_step(x, y, step, held, self.smooth_scroll && !self.reduce_motion)
     }
 
     fn wheel_step(
@@ -1689,6 +1800,7 @@ impl App {
     /// Whether the live grid has a cursor that blinks in a focused window.
     fn cursor_blinks(&self) -> bool {
         self.desk.focused
+            && !self.reduce_motion
             && !self.exited
             && self
                 .session
@@ -1705,7 +1817,7 @@ impl App {
 
     /// The on half of the blink cycle at `now`.
     fn blink_on(&self, now: u64) -> bool {
-        (now.saturating_sub(self.cursor_epoch_ms) / CURSOR_BLINK_MS).is_multiple_of(2)
+        cursor_on(now, self.cursor_epoch_ms, self.reduce_motion)
     }
 
     /// The notifier, for reading what is shown and counted.

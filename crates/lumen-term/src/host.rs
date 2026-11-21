@@ -404,6 +404,10 @@ struct Host {
     ime: ImeFollower,
     /// Whether the operating system says this window owns the focus.
     focused: bool,
+    /// The last answer the system gave about reduced motion, read when the window
+    /// opens and when it gains focus, and kept when a later read gives none. Every
+    /// tab, old or new, takes this one value.
+    reduce_motion: std::cell::Cell<bool>,
     /// A button whose press began in the active tab's content. Its drag and
     /// release stay with the content when the pointer crosses the tab strip.
     mouse_capture: Option<MouseButton>,
@@ -466,6 +470,9 @@ impl Host {
         app.set_theme_choice(look.theme);
         app.set_copy_on_select(raw.copy_on_select);
         app.set_smooth_scroll(raw.smooth_scroll);
+        // The window reads the system's answer when it opens and when it gains
+        // focus; a new tab only takes what the window knows.
+        app.set_reduce_motion(self.reduce_motion.get());
         app.set_appearance(appearance(window.theme()));
         if let Err(e) = app.set_fonts(&look.fonts) {
             eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
@@ -811,9 +818,15 @@ impl Host {
 
     fn on_focus(&mut self, focused: bool) {
         self.focused = focused;
+        // The system setting can change while another window has the focus.
+        if focused && let Some(reduce) = crate::motion::system_reduces_motion() {
+            self.reduce_motion.set(reduce);
+        }
+        let reduce = self.reduce_motion.get();
         let Some(run) = &mut self.state else { return };
         let active = run.tabs.active_index();
         for (index, tab) in run.tabs.iter_mut().enumerate() {
+            tab.app.set_reduce_motion(reduce);
             tab.app.set_focused(focused && index == active);
             if !focused {
                 tab.app.clear_preedit();
@@ -1010,6 +1023,9 @@ impl ApplicationHandler for Host {
             Err(e) => return self.fail(event_loop, format!("no surface: {e}")),
         };
         window.set_ime_allowed(true);
+        if let Some(reduce) = crate::motion::system_reduces_motion() {
+            self.reduce_motion.set(reduce);
+        }
         match self.start_app(&window) {
             Ok(app) => {
                 window.request_redraw();
@@ -1130,6 +1146,7 @@ pub fn run(config: Config) -> Result<(), String> {
         pointer: (0, 0),
         ime: ImeFollower::default(),
         focused: false,
+        reduce_motion: std::cell::Cell::new(false),
         mouse_capture: None,
         next_settings_check: Instant::now(),
     };
