@@ -123,10 +123,10 @@ fn colours_come_from_the_theme_and_from_truecolor() {
 fn a_glyph_the_face_lacks_is_skipped_and_its_cells_keep_their_background() {
     let r = renderer(2);
     let (cw, ch) = r.cell();
-    let f = r.render(&doc("\u{6f22}".as_bytes(), 4, 1));
+    let f = r.render(&doc("\u{e000}".as_bytes(), 4, 1));
     assert!(
-        (0..2 * cw).all(|x| (0..ch).all(|y| f.pixel(x, y) == Some(WHITE))),
-        "no ink for a character the face does not have"
+        (0..cw).all(|x| (0..ch).all(|y| f.pixel(x, y) == Some(WHITE))),
+        "no ink for a character no bundled face has"
     );
 }
 

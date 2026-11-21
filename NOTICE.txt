@@ -17,3 +17,15 @@ IBM Plex Sans Regular
   File: crates/lumen-term/assets/fonts/IBMPlexSans-Regular.ttf, unmodified
   SHA-256: 975dcda37d80f038dcd143c22e33ca2d97a0cc5a929aace1c749153b0fe1afa5
   Use: the proportional face for paragraph and heading text in rich blocks.
+
+Noto Sans CJK SC Regular (subset)
+  Copyright 2014-2021 Adobe (http://www.adobe.com/). Noto is a trademark of Google Inc.
+  Licensed under the SIL Open Font License, Version 1.1. The license text is
+  in crates/lumen-term/assets/fonts/OFL-NotoSansCJK.txt.
+  Source: https://github.com/notofonts/noto-cjk, revision 165c01b46ea533872e002e0785ff17e44f6d97d8,
+  file Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf (SHA-256
+  2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b)
+  File: crates/lumen-term/assets/fonts/NotoSansCJK-Subset-Regular.otf, reduced to 13,457
+  characters and unhinted by scripts/subset-cjk-font.py; no other change.
+  SHA-256: bdbdf882cee25de38f930f0f474e1441244fd408572cf83e68f7a527e3334d38
+  Use: the fallback for Chinese, Japanese and Korean characters the monospace face lacks.
