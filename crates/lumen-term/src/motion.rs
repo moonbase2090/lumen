@@ -24,38 +24,65 @@ const GNOME_READ: (&str, [&str; 3]) = (
     ["get", "org.gnome.desktop.interface", "enable-animations"],
 );
 
-/// Whether `defaults read com.apple.universalaccess reduceMotion` said Reduce
-/// motion is on. A missing key makes `defaults` fail, which is off.
+/// What `defaults read com.apple.universalaccess reduceMotion` said. `1` is on
+/// and `0` is off. The key is absent until Reduce motion has been turned on
+/// once, and then `defaults` fails saying the pair does not exist: that is
+/// off. Any other failure, or text that is not `0` or `1`, is no answer.
 #[must_use]
-pub fn parse_macos(output: &str) -> bool {
-    output.trim() == "1"
+pub fn macos_answer(succeeded: bool, stdout: &str, stderr: &str) -> Option<bool> {
+    if succeeded {
+        match stdout.trim() {
+            "1" => Some(true),
+            "0" => Some(false),
+            _ => None,
+        }
+    } else {
+        stderr.contains("does not exist").then_some(false)
+    }
 }
 
-/// Whether `gsettings get ... enable-animations` said animations are off.
+/// What `gsettings get ... enable-animations` said: `false` means animations
+/// are off, which is reduced motion. Anything else but `true` is no answer.
 #[must_use]
-pub fn parse_gnome(output: &str) -> bool {
-    output.trim() == "false"
+pub fn gnome_answer(succeeded: bool, stdout: &str) -> Option<bool> {
+    if !succeeded {
+        return None;
+    }
+    match stdout.trim() {
+        "false" => Some(true),
+        "true" => Some(false),
+        _ => None,
+    }
 }
 
-fn run((program, args): (&str, [&str; 3])) -> Option<String> {
+fn run((program, args): (&str, [&str; 3])) -> Option<(bool, String, String)> {
     let out = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
-        .stderr(Stdio::null())
         .output()
         .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    Some((
+        out.status.success(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    ))
 }
 
-/// Whether the system is set to reduce motion right now.
+/// Whether the system is set to reduce motion right now, or `None` when it
+/// cannot be told (a failed read, a program that is missing, a system with no
+/// answer here). A caller keeps what it last knew on `None`.
 #[must_use]
-pub fn system_reduces_motion() -> bool {
+pub fn system_reduces_motion() -> Option<bool> {
     match std::env::consts::OS {
-        "macos" => run(MACOS_READ).is_some_and(|o| parse_macos(&o)),
-        "linux" => run(GNOME_READ).is_some_and(|o| parse_gnome(&o)),
-        _ => false,
+        "macos" => {
+            let (ok, out, err) = run(MACOS_READ)?;
+            macos_answer(ok, &out, &err)
+        }
+        "linux" => {
+            let (ok, out, _) = run(GNOME_READ)?;
+            gnome_answer(ok, &out)
+        }
+        _ => None,
     }
 }
 
@@ -64,18 +91,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn macos_one_is_reduced_and_anything_else_is_not() {
-        assert!(parse_macos("1\n"));
-        assert!(!parse_macos("0\n"));
-        assert!(!parse_macos(""));
-        assert!(!parse_macos("Error: key not found"));
+    fn macos_one_is_on_zero_is_off_and_an_absent_key_is_off() {
+        assert_eq!(macos_answer(true, "1\n", ""), Some(true));
+        assert_eq!(macos_answer(true, "0\n", ""), Some(false));
+        let absent =
+            "The domain/default pair of (com.apple.universalaccess, reduceMotion) does not exist\n";
+        assert_eq!(macos_answer(false, "", absent), Some(false));
     }
 
     #[test]
-    fn gnome_false_is_reduced_and_anything_else_is_not() {
-        assert!(parse_gnome("false\n"));
-        assert!(!parse_gnome("true\n"));
-        assert!(!parse_gnome(""));
-        assert!(!parse_gnome("No such schema"));
+    fn a_macos_read_that_failed_another_way_or_said_something_else_is_no_answer() {
+        assert_eq!(macos_answer(false, "", "Operation not permitted"), None);
+        assert_eq!(macos_answer(false, "", ""), None);
+        assert_eq!(macos_answer(true, "", ""), None);
+        assert_eq!(macos_answer(true, "2\n", ""), None);
+        assert_eq!(macos_answer(true, "Error: key not found", ""), None);
+    }
+
+    #[test]
+    fn gnome_false_is_reduced_true_is_not_and_the_rest_is_no_answer() {
+        assert_eq!(gnome_answer(true, "false\n"), Some(true));
+        assert_eq!(gnome_answer(true, "true\n"), Some(false));
+        assert_eq!(gnome_answer(true, ""), None);
+        assert_eq!(gnome_answer(true, "No such schema"), None);
+        assert_eq!(gnome_answer(false, "false\n"), None);
     }
 }

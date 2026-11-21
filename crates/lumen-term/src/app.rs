@@ -281,7 +281,68 @@ fn cursor_on(now: u64, epoch: u64, reduce_motion: bool) -> bool {
 
 #[cfg(test)]
 mod motion_tests {
-    use super::{CURSOR_BLINK_MS, cursor_on};
+    use super::{App, CURSOR_BLINK_MS, cursor_on};
+    use crate::{Block, Passthrough};
+    use std::time::{Duration, Instant};
+
+    fn blinking_app() -> App {
+        let mut app = App::start(
+            Box::new(Passthrough),
+            "/bin/sh",
+            &["-c", "printf 'hi\\033[1 q'; sleep 30"],
+            1,
+            640,
+            400,
+        )
+        .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+        let end = Instant::now() + Duration::from_secs(20);
+        loop {
+            app.pump();
+            let up = app.session().document().blocks().iter().any(|b| match b {
+                Block::Grid(g) => g.cursor().blink && g.text_rows().iter().any(|r| r == "hi"),
+                Block::Rich(_) => false,
+            });
+            if up {
+                break;
+            }
+            let left = end.saturating_duration_since(Instant::now());
+            assert!(!left.is_zero(), "the program set a blinking cursor");
+            app.pump_wait(left);
+        }
+        app.set_focused(true);
+        app
+    }
+
+    #[test]
+    fn less_motion_brings_a_cursor_caught_in_its_off_half_back_on_and_asks_for_a_frame() {
+        let mut app = blinking_app();
+        app.cursor_phase = false;
+        assert!(app.set_reduce_motion(true), "a frame is needed");
+        assert!(app.cursor_phase, "the cursor is on");
+        assert!(
+            !app.set_reduce_motion(true),
+            "the same setting again changes nothing"
+        );
+        // And it no longer blinks, so a later tick takes it for steady.
+        assert!(!app.cursor_blinks());
+    }
+
+    #[test]
+    fn less_motion_asks_for_no_frame_when_the_cursor_is_already_on() {
+        let mut app = blinking_app();
+        app.cursor_phase = true;
+        assert!(!app.set_reduce_motion(true));
+        assert!(app.cursor_phase);
+    }
+
+    #[test]
+    fn turning_less_motion_off_again_lets_the_cursor_blink() {
+        let mut app = blinking_app();
+        let _ = app.set_reduce_motion(true);
+        assert!(!app.cursor_blinks());
+        let _ = app.set_reduce_motion(false);
+        assert!(app.cursor_blinks());
+    }
 
     #[test]
     fn a_cursor_blinks_through_its_cycle_unless_less_motion_is_asked_for() {
@@ -1346,14 +1407,14 @@ impl App {
         if self.reduce_motion == on {
             return false;
         }
+        // A blinking cursor caught in its off half comes back on: that needs a frame.
+        let redraw = on && !self.cursor_phase && self.cursor_blinks();
         self.reduce_motion = on;
         if on {
             self.glide.cancel();
+            self.cursor_phase = true;
         }
-        // A cursor caught in its off half comes back on.
-        let was_off = !self.cursor_phase;
-        self.cursor_phase = true;
-        was_off && on
+        redraw
     }
 
     /// Whether a wheel's move is still easing the view.

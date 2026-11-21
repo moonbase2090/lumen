@@ -124,18 +124,3 @@ fn composed_or_pasted_text_brings_a_blinking_cursor_back_on() {
         .unwrap_or_else(|e| unreachable!("sh reads: {e}"));
     assert_eq!(app.view(), on, "text restarts the cycle at its on half");
 }
-
-#[test]
-fn less_motion_brings_a_cursor_caught_off_back_on_and_says_so_once() {
-    let mut app = start("printf 'hi\\033[1 q'; sleep 8");
-    assert!(pump_until(&mut app, blinking));
-    let on = app.view();
-    assert!(
-        !app.set_reduce_motion(false),
-        "nothing changes when the setting stays as it was"
-    );
-    // Whatever half the cycle is in, asking for less motion leaves the cursor drawn as it is when on.
-    let _ = app.set_reduce_motion(true);
-    assert_eq!(app.view(), on);
-    assert!(!app.set_reduce_motion(true), "asking again changes nothing");
-}
