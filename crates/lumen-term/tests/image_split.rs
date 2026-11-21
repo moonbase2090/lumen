@@ -251,7 +251,6 @@ fn the_document_is_the_same_however_the_bytes_are_split() {
 /// identity, so the gate has to be redone for the fix: it is the gate owner's
 /// call. Remove the ignore with the fix.
 #[test]
-#[ignore = "known: a rejected header split across reads is shown in pieces"]
 fn a_rejected_header_is_shown_the_same_however_the_bytes_are_split() {
     check(&[streams().1]);
 }

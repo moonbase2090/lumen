@@ -234,6 +234,9 @@ impl HeaderCheck for Gate {
 #[derive(Debug)]
 pub struct Layer {
     detector: Detector,
+    /// Escaped bytes of a rejected header that is not complete yet: shown as
+    /// one piece when the header ends, whatever reads it arrived in.
+    escaped: Vec<u8>,
     gate: Gate,
     config: Config,
     state: LayerState,
@@ -252,6 +255,7 @@ impl Layer {
     pub fn new(config: Config, state: LayerState) -> Self {
         Self {
             detector: Detector::default(),
+            escaped: Vec::new(),
             gate: Gate::default(),
             config,
             state,
@@ -338,13 +342,16 @@ impl Layer {
     fn items(&mut self, events: Vec<Event>, ctx: Context) -> Vec<Item> {
         let mut items = Vec::new();
         for event in events {
+            if !matches!(event, Event::Escaped(_)) {
+                self.flush_escaped(&mut items);
+            }
             match event {
                 Event::Output(bytes) => items.push(Item::Output(bytes)),
                 Event::Escaped(bytes) => {
                     // The header of a rejected candidate: visible text, charged
                     // to the unauthenticated budget, never output.
                     self.charge_bytes(bytes.len(), &mut items);
-                    items.push(text(&bytes));
+                    self.escaped.extend_from_slice(&bytes);
                 }
                 Event::Frame { kind, payload } => {
                     self.gate.stats.frames_seen += 1;
@@ -377,8 +384,20 @@ impl Layer {
                 }
             }
         }
+        // The detector says whether more of the header is still to come.
+        if self.detector.escaped_pending() == 0 {
+            self.flush_escaped(&mut items);
+        }
         self.tally(&items);
         items
+    }
+
+    /// Show the escaped bytes collected so far as one piece of text.
+    fn flush_escaped(&mut self, items: &mut Vec<Item>) {
+        if !self.escaped.is_empty() {
+            let bytes = std::mem::take(&mut self.escaped);
+            items.push(text(&bytes));
+        }
     }
 
     /// Count the items a read produced.

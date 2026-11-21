@@ -360,3 +360,43 @@ fn a_pinned_layer_shows_sealed_frames_as_text() {
     let items = l.feed(&sealed(1, 0x01, b"x"), at(20));
     assert!(is_text(&items), "{items:?}");
 }
+
+/// The text a layer shows for a stream fed in the pieces `cuts` ends.
+fn texts(stream: &[u8], cuts: &[usize], mut l: Layer) -> Vec<String> {
+    let mut items = Vec::new();
+    let mut from = 0;
+    for &cut in cuts.iter().chain(std::iter::once(&stream.len())) {
+        items.extend(l.feed(&stream[from..cut], Context::default()));
+        from = cut;
+    }
+    items.extend(l.finish());
+    items
+        .into_iter()
+        .filter_map(|i| match i {
+            Item::Text(t) => Some(t),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_rejected_header_is_one_piece_of_text_wherever_the_reads_end() {
+    // An introducer with a tag that is not ours, then more bytes than one header.
+    let mut stream = b"ab\x1b_NOTTHETAG-and-then-some-more-text\r\n".to_vec();
+    stream.extend(b"tail");
+    let whole = texts(&stream, &[], layer(LayerState::Unsealed));
+    assert_eq!(whole.len(), 1, "{whole:?}");
+    for cut in 1..stream.len() {
+        assert_eq!(
+            texts(&stream, &[cut], layer(LayerState::Unsealed)),
+            whole,
+            "cut at {cut}"
+        );
+    }
+    let every: Vec<usize> = (1..stream.len()).collect();
+    assert_eq!(
+        texts(&stream, &every, layer(LayerState::Unsealed)),
+        whole,
+        "one byte at a time"
+    );
+}

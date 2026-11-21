@@ -510,6 +510,17 @@ impl Detector {
         Pass::Done
     }
 
+    /// How many more bytes of ordinary input the detector will still report as
+    /// [`Event::Escaped`] for the header it last refused. While this is not zero,
+    /// the escaped text so far is not complete: a caller that shows it joins what
+    /// it has with what the next read adds, so the text does not depend on where
+    /// reads end. It is zero once the header has been shown, a new frame candidate
+    /// begins, or the stream ends.
+    #[must_use]
+    pub fn escaped_pending(&self) -> usize {
+        self.shown
+    }
+
     /// Signal the end of the stream. A frame whose header was read is reported
     /// as truncated. A partial introducer or header is released as ordinary
     /// output.
