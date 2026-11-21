@@ -8,6 +8,7 @@
 
 use lumen_term::app::{INPUT_NOTICE_MS, cells_for, window_for};
 use lumen_term::host::{Input, send_input};
+use lumen_term::input_line::Mode;
 use lumen_term::notify::{Place, Settings};
 use lumen_term::{
     App, Block, Frame, Key, Mods, Passthrough, Rect, Renderer, layout, notification_area,
@@ -20,6 +21,18 @@ const H: u32 = 600;
 fn start(script: &str) -> App {
     App::start(Box::new(Passthrough), "/bin/sh", &["-c", script], 1, W, H)
         .unwrap_or_else(|e| unreachable!("sh starts: {e}"))
+}
+
+fn start_job(script: &str) -> App {
+    App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", "set -m; /bin/sh -c \"$1\"", "fixture", script],
+        1,
+        W,
+        H,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts a foreground job: {e}"))
 }
 
 fn grid_text(app: &App) -> String {
@@ -223,7 +236,7 @@ fn the_notice_goes_away_by_itself_and_the_window_is_told() {
 fn a_program_that_floods_notifications_cannot_push_the_notice_out() {
     let script = "stty raw -echo; echo READY; i=0; \
                   while [ $i -lt 400 ]; do printf '\\033]9;hi\\007'; sleep 0.1; i=$((i+1)); done";
-    let mut app = start(script);
+    let mut app = start_job(script);
     // A layer shown local, so that the program's own toasts are drawn too.
     app.configure_notifications(
         Settings {
@@ -234,6 +247,7 @@ fn a_program_that_floods_notifications_cannot_push_the_notice_out() {
         Box::new(lumen_term::app::NoSink),
     );
     assert!(pump_until(&mut app, |a| !a.notifier().shown().is_empty()));
+    assert_eq!(app.input_mode(), Mode::Raw);
     type_until_refused(&mut app);
     let toasts = app.toasts();
     assert!(toasts.len() >= 2, "the program's toast is there too");
@@ -261,8 +275,9 @@ fn a_program_that_floods_notifications_cannot_push_the_notice_out() {
 
 #[test]
 fn input_that_is_sent_asks_for_no_redraw_and_leaves_no_notice() {
-    let mut app = start("stty raw -echo; echo READY; cat >/dev/null");
+    let mut app = start_job("stty raw -echo; echo READY; cat >/dev/null");
     assert!(pump_until(&mut app, |a| grid_text(a).contains("READY")));
+    assert_eq!(app.input_mode(), Mode::Raw);
     assert!(!send_input(
         &mut app,
         Input::Key(Key::Char('a'), Mods::default())
