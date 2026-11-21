@@ -170,6 +170,7 @@ fn the_shortcut_for_each_action_is_the_one_the_platform_uses() {
         ('=', Action::ZoomIn),
         ('-', Action::ZoomOut),
         ('0', Action::ZoomReset),
+        (',', Action::Settings),
         ('w', Action::Close),
         ('q', Action::Quit),
     ] {
@@ -219,6 +220,7 @@ fn every_macos_menu_item_stands_for_one_action_and_back() {
         Action::ZoomIn,
         Action::ZoomOut,
         Action::ZoomReset,
+        Action::Settings,
         Action::Close,
         Action::Quit,
     ] {
