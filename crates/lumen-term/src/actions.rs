@@ -36,6 +36,10 @@ pub enum Action {
     FindNext,
     /// Go to the previous match of the find.
     FindPrevious,
+    /// Move the focus to the next link on the screen.
+    NextLink,
+    /// Move the focus to the previous link on the screen.
+    PreviousLink,
     /// Open the settings file.
     Settings,
     /// Close the window and end the session.
@@ -107,6 +111,8 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 ('f', false) => Some(Action::Find),
                 ('g', false) => Some(Action::FindNext),
                 ('g', true) => Some(Action::FindPrevious),
+                ('l', false) => Some(Action::NextLink),
+                ('l', true) => Some(Action::PreviousLink),
                 (',', false) => Some(Action::Settings),
                 ('w', false) => Some(Action::Close),
                 ('q', false) => Some(Action::Quit),
@@ -131,6 +137,9 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 '0' | ')' => Some(Action::ZoomReset),
                 'f' => Some(Action::Find),
                 'g' => Some(Action::FindNext),
+                'p' => Some(Action::FindPrevious),
+                'l' => Some(Action::NextLink),
+                'k' => Some(Action::PreviousLink),
                 _ => None,
             }
         }
