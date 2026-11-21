@@ -767,18 +767,20 @@ impl Host {
     fn access_snapshot(run: &Running) -> Option<crate::access::Snapshot> {
         let tab = run.tabs.active()?;
         let app = &tab.app;
-        let links = app.screen_links();
+        let view_links = app.view_links();
+        let focused_link = view_links.iter().position(|l| l.focused);
+        let links = view_links
+            .iter()
+            .map(|l| crate::access::Link {
+                target: l.target().to_owned(),
+                text: l.text().to_owned(),
+            })
+            .collect();
         Some(crate::access::Snapshot {
             title: run.shown_title.clone(),
             rows: app.visible_text(),
-            links: links
-                .into_iter()
-                .map(|l| crate::access::Link {
-                    target: l.target,
-                    text: l.text,
-                })
-                .collect(),
-            focused_link: app.focused_link_place(),
+            links,
+            focused_link,
             question: app
                 .link_prompt()
                 .map(|p| crate::access::Question { lines: p.lines() }),
@@ -829,10 +831,10 @@ impl Host {
                 };
                 match (request.action, target) {
                     (Action::Click, Target::Link(n)) => {
-                        tab.app.ask_about_link_place(n);
+                        tab.app.ask_about_view_link(n);
                     }
                     (Action::Focus, Target::Link(n)) => {
-                        tab.app.focus_link_place(n);
+                        tab.app.focus_view_link(n);
                     }
                     (Action::Click, Target::Open) => {
                         let _ = tab.app.answer_link(true);

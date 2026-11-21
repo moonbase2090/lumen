@@ -8,8 +8,10 @@
 //!
 //! The tree is a window holding the tab list (with more than one tab), a
 //! terminal whose children are the rows of the screen as text and the links on
-//! it, and the question about a link while one is up. Output is announced
-//! politely: a reader reads what changed, not the whole screen again.
+//! it, and the question about a link while one is up. The terminal is marked as
+//! a polite live region. What a platform reader then announces when the rows
+//! change (and in particular when the screen scrolls and rows move) has not
+//! been checked, so nothing here promises that only new output is read.
 
 use accesskit::{Action, Live, Node, NodeId, Role, TreeId, TreeInfo, TreeUpdate};
 

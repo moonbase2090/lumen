@@ -68,7 +68,7 @@ fn the_window_holds_a_terminal_whose_children_are_the_rows_and_the_links() {
 }
 
 #[test]
-fn the_terminal_is_a_polite_live_region_so_new_output_is_read_without_the_whole_screen() {
+fn the_terminal_is_marked_as_a_polite_live_region() {
     let update = build(&snapshot());
     assert_eq!(
         roles(&update, Role::Terminal)[0].live(),
@@ -150,32 +150,44 @@ fn pump_until(app: &mut App, done: impl Fn(&App) -> bool) -> bool {
     }
 }
 
-#[test]
-fn a_reader_acting_on_a_link_node_asks_the_same_question_a_press_asks_and_opens_nothing() {
-    let mut app = App::start(
+fn start(script: &str) -> App {
+    App::start(
         Box::new(Passthrough),
         "/bin/sh",
-        &[
-            "-c",
-            "echo 'see https://example.com/a and https://example.com/b'; sleep 30",
-        ],
+        &["-c", script],
         1,
         800,
         480,
     )
-    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
-    assert!(pump_until(&mut app, |a| a
-        .visible_text()
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"))
+}
+
+fn shows(app: &App, text: &str) -> bool {
+    app.visible_text().iter().any(|r| r.contains(text))
+}
+
+fn targets(app: &App) -> Vec<String> {
+    app.view_links()
         .iter()
-        .any(|r| r.contains("example.com/b"))));
-    let links = app.screen_links();
+        .map(|l| l.target().to_owned())
+        .collect()
+}
+
+#[test]
+fn a_reader_acting_on_a_link_node_asks_the_same_question_a_press_asks_and_opens_nothing() {
+    let mut app = start("echo 'see https://example.com/a and https://example.com/b'; sleep 30");
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/b")));
     assert_eq!(
-        links.iter().map(|l| l.target.as_str()).collect::<Vec<_>>(),
+        targets(&app),
         ["https://example.com/a", "https://example.com/b"]
     );
-    assert!(app.focus_link_place(1));
-    assert_eq!(app.focused_link_place(), Some(1));
-    assert!(app.ask_about_link_place(0));
+    assert!(app.focus_view_link(1));
+    assert_eq!(
+        app.view_links().iter().position(|l| l.focused),
+        Some(1),
+        "the keyboard's focus is the link the reader focused"
+    );
+    assert!(app.ask_about_view_link(0));
     let question = app
         .link_prompt()
         .unwrap_or_else(|| unreachable!("the question is up"));
@@ -185,5 +197,47 @@ fn a_reader_acting_on_a_link_node_asks_the_same_question_a_press_asks_and_opens_
             .join("\n")
             .contains("https://example.com/a")
     );
-    assert!(!app.ask_about_link_place(9), "no such link");
+    assert!(!app.ask_about_view_link(9), "no such link");
+}
+
+#[test]
+fn the_links_a_reader_gets_are_those_of_the_rows_it_gets_when_the_view_is_scrolled_back() {
+    // An old address scrolls off into the history; a new one is on the live
+    // screen. With the view scrolled back to the old one, the rows show the old
+    // address, so the links, and what acting on one asks about, are the old one.
+    let script = "echo 'old https://example.com/old'; i=0; while [ $i -lt 120 ]; do echo filler $i; i=$((i+1)); done; echo 'new https://example.com/new'; sleep 30";
+    let mut app = start(script);
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/new")));
+    assert_eq!(
+        targets(&app),
+        ["https://example.com/new"],
+        "following: the live screen"
+    );
+    let mut tries = 0;
+    while !shows(&app, "example.com/old") && tries < 200 {
+        app.key(lumen_term::Key::PageUp, lumen_term::Mods::default())
+            .unwrap_or_else(|e| unreachable!("{e}"));
+        tries += 1;
+    }
+    assert!(
+        shows(&app, "example.com/old"),
+        "scrolled back to the old address"
+    );
+    assert!(!shows(&app, "example.com/new"));
+    assert_eq!(
+        targets(&app),
+        ["https://example.com/old"],
+        "the links are the view's"
+    );
+    assert!(app.ask_about_view_link(0));
+    let question = app
+        .link_prompt()
+        .unwrap_or_else(|| unreachable!("the question is up"));
+    let text = question.lines().join("\n");
+    assert!(text.contains("https://example.com/old"), "{text}");
+    assert!(!text.contains("example.com/new"), "{text}");
+    assert!(
+        !app.focus_view_link(0),
+        "a link in the scrollback is not a keyboard stop"
+    );
 }

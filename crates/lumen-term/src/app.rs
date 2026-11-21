@@ -62,16 +62,34 @@ struct Links {
     focus: Option<LinkStop>,
 }
 
-/// A link on the live screen, as a screen reader hears of it.
+/// A link in the rows the window shows now (the scrolled view, not the live
+/// screen), as a screen reader hears of it.
 #[cfg(feature = "links-clipboard")]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScreenLink {
+pub struct ViewLink {
+    /// What the link is: its target, its text and where it sits.
+    hit: crate::linkhit::Hit,
+    /// The row of the view it starts on, from the top.
+    pub view_row: usize,
+    /// Its line in the live grid (negative in the scrollback) and its columns.
+    live_row: i64,
+    /// Whether the keyboard has it focused.
+    pub focused: bool,
+}
+
+#[cfg(feature = "links-clipboard")]
+impl ViewLink {
     /// Where it goes, as the program wrote it or as the text reads.
-    pub target: String,
+    #[must_use]
+    pub fn target(&self) -> &str {
+        &self.hit.target
+    }
+
     /// The text on the screen.
-    pub text: String,
-    /// The screen row it starts on.
-    pub row: usize,
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.hit.visible
+    }
 }
 
 /// One place the keyboard can stop on: a link, with the screen rows and columns
@@ -908,20 +926,31 @@ impl App {
     #[must_use]
     pub fn link_at(&self, x: u32, y: u32) -> Option<crate::linkhit::Hit> {
         let (col, row) = self.live_point(x, y)?;
-        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
-            return None;
-        };
         let col = usize::try_from(col).ok()?;
-        let hits = if row < 0 {
-            // A line of the scrollback, counted up from the screen's top.
-            let back = live
-                .history_rows()
-                .checked_sub(usize::try_from(row.unsigned_abs()).ok()?)?;
-            crate::linkhit::history_links(live.screen(), back)
-        } else {
-            crate::linkhit::row_links(live.screen(), usize::try_from(row).ok()?)
+        self.hits_in_live_row(row)
+            .into_iter()
+            .find(|hit| hit.columns.contains(&col))
+    }
+
+    /// The links on line `row` of the live grid, left to right; a negative line
+    /// is scrollback, counted up from the screen's top.
+    #[cfg(feature = "links-clipboard")]
+    fn hits_in_live_row(&self, row: i64) -> Vec<crate::linkhit::Hit> {
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return Vec::new();
         };
-        hits.into_iter().find(|hit| hit.columns.contains(&col))
+        if row < 0 {
+            let back = usize::try_from(row.unsigned_abs())
+                .ok()
+                .and_then(|up| live.history_rows().checked_sub(up));
+            return back.map_or_else(Vec::new, |back| {
+                crate::linkhit::history_links(live.screen(), back)
+            });
+        }
+        usize::try_from(row).map_or_else(
+            |_| Vec::new(),
+            |row| crate::linkhit::row_links(live.screen(), row),
+        )
     }
 
     /// The top left pixel of cell `(col, row)` of the live screen, if it is in view.
@@ -1032,53 +1061,104 @@ impl App {
         }
     }
 
-    /// The links on the live screen in reading order, each a soft-wrapped link
-    /// once, for what a screen reader is told.
+    /// The links in the rows the window shows now, top down, a soft-wrapped link
+    /// once: the same viewport the rows come from, so what a reader is told and
+    /// what it can act on are what is on the screen, scrolled back or not.
     #[cfg(feature = "links-clipboard")]
     #[must_use]
-    pub fn screen_links(&self) -> Vec<ScreenLink> {
-        self.link_stops()
-            .into_iter()
-            .map(|stop| ScreenLink {
-                target: stop.hit.target,
-                text: stop.hit.visible,
-                row: stop.first.0,
-            })
-            .collect()
+    pub fn view_links(&self) -> Vec<ViewLink> {
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return Vec::new();
+        };
+        let (cw, ch) = self.renderer.cell();
+        let (ch, cw) = (ch.max(1), cw.max(1));
+        let (area, _, _) = self.content_metrics();
+        let x = GUTTER_COLUMNS
+            .saturating_mul(cw)
+            .saturating_add(self.renderer.gutter_pad())
+            .saturating_add(1);
+        let columns = live.size().0;
+        let focus = self.links.focus.as_ref();
+        let mut out: Vec<ViewLink> = Vec::new();
+        let mut i = 0usize;
+        while let Some(offset) = u32::try_from(i)
+            .ok()
+            .and_then(|n| n.checked_mul(ch))
+            .map(|n| n.saturating_add(ch / 2))
+            .filter(|n| *n < area)
+        {
+            let y = HEADER_ROWS.saturating_mul(ch).saturating_add(offset);
+            if let Some((_, row)) = self.live_point(x, y) {
+                for hit in self.hits_in_live_row(row) {
+                    let continues = out.last().is_some_and(|prev| {
+                        prev.view_row + 1 == i
+                            && prev.live_row + 1 == row
+                            && hit.columns.start == 0
+                            && prev.hit.columns.end == columns
+                            && prev.hit.target == hit.target
+                            && prev.hit.visible == hit.visible
+                    });
+                    if continues {
+                        if let Some(prev) = out.last_mut() {
+                            prev.live_row = row;
+                            prev.hit.columns = hit.columns;
+                        }
+                        continue;
+                    }
+                    let focused = focus.is_some_and(|f| {
+                        i64::try_from(f.first.0).is_ok_and(|r| r == row)
+                            && f.first.1 == hit.columns.start
+                    });
+                    out.push(ViewLink {
+                        view_row: i,
+                        live_row: row,
+                        hit,
+                        focused,
+                    });
+                }
+            }
+            i += 1;
+        }
+        out
     }
 
-    /// The place in [`App::screen_links`] of the focused link, if one is focused.
+    /// Ask about the `place`th link of [`App::view_links`], as a press or Enter
+    /// on it does: the terminal's question comes up and nothing opens. Returns
+    /// whether there is one.
     #[cfg(feature = "links-clipboard")]
-    #[must_use]
-    pub fn focused_link_place(&self) -> Option<usize> {
-        let focus = self.links.focus.as_ref()?;
-        self.link_stops().iter().position(|stop| stop == focus)
-    }
-
-    /// Focus the `place`th link of [`App::screen_links`], as Next Link would.
-    /// Returns whether there is one.
-    #[cfg(feature = "links-clipboard")]
-    pub fn focus_link_place(&mut self, place: usize) -> bool {
-        self.follow();
-        let Some(stop) = self.link_stops().into_iter().nth(place) else {
+    pub fn ask_about_view_link(&mut self, place: usize) -> bool {
+        let Some(link) = self.view_links().into_iter().nth(place) else {
             return false;
         };
-        self.select_cells(stop.first, stop.last);
-        self.links.focus = Some(stop);
+        self.clear_link_focus();
+        self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&link.hit));
         self.view_moves = self.view_moves.wrapping_add(1);
         true
     }
 
-    /// Ask about the `place`th link of [`App::screen_links`], as a press or
-    /// Enter on it does: the terminal's question comes up and nothing opens.
-    /// Returns whether there is one.
+    /// Focus the `place`th link of [`App::view_links`] with the keyboard, as Next
+    /// Link would, when it is a link of the live screen. Returns whether it is.
     #[cfg(feature = "links-clipboard")]
-    pub fn ask_about_link_place(&mut self, place: usize) -> bool {
-        let Some(stop) = self.link_stops().into_iter().nth(place) else {
+    pub fn focus_view_link(&mut self, place: usize) -> bool {
+        let Some(link) = self.view_links().into_iter().nth(place) else {
             return false;
         };
-        self.clear_link_focus();
-        self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&stop.hit));
+        let Ok(row) = usize::try_from(link.live_row) else {
+            return false;
+        };
+        let Some(at) = self
+            .link_stops()
+            .iter()
+            .position(|stop| stop.first == (row, link.hit.columns.start))
+        else {
+            return false;
+        };
+        self.follow();
+        let Some(stop) = self.link_stops().into_iter().nth(at) else {
+            return false;
+        };
+        self.select_cells(stop.first, stop.last);
+        self.links.focus = Some(stop);
         self.view_moves = self.view_moves.wrapping_add(1);
         true
     }
