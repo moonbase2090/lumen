@@ -1172,8 +1172,10 @@ impl Renderer {
     }
 
     /// The rows of text in the flow that can be searched, top down: every row
-    /// of a grid block (its history and its screen) with trailing blanks
-    /// removed, and every line of a rich block as it is drawn. A strip's label is
+    /// of a grid block (its history and its screen), and every line of a rich
+    /// block as it is drawn. A grid row has its trailing blanks removed, except a
+    /// row the terminal wrapped, which keeps them so the next row joins on at the
+    /// right column. A strip's label is
     /// the terminal's own text and an image has no text, so neither is a row.
     #[must_use]
     pub fn search_rows(&self, doc: &Document, columns: usize) -> Vec<SearchRow> {
