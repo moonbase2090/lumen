@@ -998,10 +998,11 @@ impl Renderer {
         let mut out = Vec::new();
         let mut y = 0u32;
         let mut placed: Vec<u32> = Vec::new();
+        let live = doc.blocks().len().checked_sub(1);
         for (index, b) in doc.blocks().iter().enumerate() {
             match b {
                 Block::Grid(g) => {
-                    let rows = g.history_rows() + g.size().1;
+                    let rows = g.history_rows() + g.used_rows(Some(index) == live);
                     let h = u32::try_from(rows)
                         .unwrap_or(u32::MAX)
                         .saturating_mul(self.cell_h);
@@ -1051,6 +1052,11 @@ impl Renderer {
         out
     }
 
+    /// The rows a grid block takes in the flow, from its placement.
+    fn placed_rows(&self, p: &Placed<'_>) -> usize {
+        usize::try_from(p.height / self.cell_h.max(1)).unwrap_or(usize::MAX)
+    }
+
     /// The height in pixels of the whole flow of foreground blocks, `columns`
     /// cells wide: what a view of the content area scrolls over.
     #[must_use]
@@ -1082,8 +1088,7 @@ impl Renderer {
         for p in self.placement(doc, columns, &strips, newest) {
             let Part::Grid(g) = p.part else { continue };
             let hist = g.history_rows();
-            let rows = hist + g.size().1;
-            for k in 0..rows {
+            for k in 0..self.placed_rows(&p) {
                 let y = p.top.saturating_add(
                     u32::try_from(k)
                         .unwrap_or(u32::MAX)
@@ -1225,7 +1230,7 @@ impl Renderer {
             match p.part {
                 Part::Grid(g) => {
                     let hist = g.history_rows();
-                    for k in 0..hist + g.size().1 {
+                    for k in 0..self.placed_rows(&p) {
                         let cells = if k < hist {
                             g.history_row(k)
                         } else {
@@ -1306,7 +1311,7 @@ impl Renderer {
                     let hist = g.history_rows();
                     let first = (view_top.saturating_sub(p.top)) / self.cell_h;
                     let last = (view_end - p.top).div_ceil(self.cell_h);
-                    let rows = hist + g.size().1;
+                    let rows = self.placed_rows(&p);
                     for k in first..last.min(u32::try_from(rows).unwrap_or(u32::MAX)) {
                         let k = k as usize;
                         let cells = if k < hist {
@@ -1419,7 +1424,7 @@ impl Renderer {
             match p.part {
                 Part::Grid(g) => {
                     let hist = g.history_rows();
-                    for k in 0..hist + g.size().1 {
+                    for k in 0..self.placed_rows(&p) {
                         let cells = if k < hist {
                             g.history_row(k)
                         } else {

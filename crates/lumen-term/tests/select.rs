@@ -462,3 +462,46 @@ fn a_finished_drag_asks_for_a_copy_unless_the_setting_is_off_and_a_click_or_sele
     assert!(app.has_selection());
     assert!(!app.take_copy_on_select());
 }
+
+/// Wait for `done`, which turns true on the program's output: after each check
+/// the test blocks until the program writes again. The bound only ends a hung
+/// test.
+fn until(app: &mut App, done: impl Fn(&App) -> bool) -> bool {
+    let end = Instant::now() + Duration::from_secs(20);
+    loop {
+        app.pump();
+        if done(app) {
+            return true;
+        }
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        app.pump_wait(left);
+    }
+}
+
+#[test]
+fn a_press_below_the_newest_output_and_a_drag_up_select_it() {
+    // Two rows of output and the cursor at the end of the second: the screen's
+    // rows below it are not in the flow, but the area under them still starts
+    // a selection, on the last line.
+    let mut app = start("echo hello world; printf 'second'' line'; sleep 30");
+    assert!(until(&mut app, |a| {
+        a.visible_text().iter().any(|l| l == "second line")
+    }));
+    let held = Held::default();
+    let (below_x, below_y) = at(6, 12);
+    let (top_x, top_y) = at(6, 0);
+    assert!(
+        !app.mouse_press(below_x, below_y, Button::Left, held)
+            .unwrap_or(true)
+    );
+    assert!(
+        app.is_selecting(),
+        "a press under the output starts a selection"
+    );
+    assert!(!app.mouse_move(top_x, top_y, held).unwrap_or(true));
+    app.mouse_release(top_x, top_y, Button::Left, held).ok();
+    assert_eq!(app.selected_text().as_deref(), Some("world\nsecond"));
+}
