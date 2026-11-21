@@ -4,6 +4,7 @@
 
 #![cfg(unix)]
 
+use lumen_term::app::EDITOR_ROWS;
 use lumen_term::input_line::Mode;
 use lumen_term::raster::GUTTER_PAD_PX;
 use lumen_term::{App, Block, Frame, Key, Mods, Passthrough, Renderer};
@@ -120,6 +121,35 @@ fn composing_text_is_drawn_in_the_box_underlined_where_the_candidate_window_is()
 }
 
 #[test]
+fn the_candidate_window_follows_the_drawn_caret_after_wide_text() {
+    let theme = renderer().theme().clone();
+    let mut app = zsh();
+    let (start, y, cw, h) = app.ime_area();
+    assert!(app.commit("日本語x").is_ok());
+    let caret = start + 7 * cw;
+    assert_eq!(app.view().pixel(caret, y + 1), Some(theme.prompt));
+
+    app.set_preedit("かな", None);
+    assert_eq!(app.ime_area(), (caret, y, 4 * cw, h));
+    assert!(row_is(
+        &app.view(),
+        (caret, y + h - 1, 4 * cw),
+        theme.prompt
+    ));
+}
+
+#[test]
+fn clicking_after_a_wide_character_inserts_at_that_boundary() {
+    let mut app = zsh();
+    let (start, y, cw, h) = app.ime_area();
+    assert!(app.commit("日本語x").is_ok());
+
+    assert!(app.click(start + 2 * cw, y + h / 2));
+    type_str(&mut app, "Q");
+    assert_eq!(app.input_text(), "日Q本語x");
+}
+
+#[test]
 fn composing_letters_are_inked_in_the_text_colour_on_the_editor_background() {
     let theme = renderer().theme().clone();
     let mut app = zsh();
@@ -168,6 +198,7 @@ fn the_rest_of_the_line_moves_right_to_make_room() {
 #[test]
 fn clearing_or_committing_removes_the_composing_text() {
     let mut app = zsh();
+    let (_, box_top, _, cell_h) = app.ime_area();
     let empty = app.view();
     app.set_preedit("かな", Some((0, 0)));
     assert_ne!(app.view(), empty);
@@ -180,14 +211,17 @@ fn clearing_or_committing_removes_the_composing_text() {
     assert_eq!(app.input_text(), "かな", "the committed text is in the box");
     let committed = app.view();
     let mut fresh = zsh();
-    fresh
-        .commit("かな")
-        .unwrap_or_else(|e| unreachable!("the box takes it: {e}"));
-    assert_eq!(
-        committed,
-        fresh.view(),
-        "committed, it looks as if it had been typed"
-    );
+    type_str(&mut fresh, "かな");
+    let typed = fresh.view();
+    for y in box_top..box_top + EDITOR_ROWS * cell_h {
+        for x in 0..WIDTH {
+            assert_eq!(
+                committed.pixel(x, y),
+                typed.pixel(x, y),
+                "committing and typing draw the same input box at ({x}, {y})"
+            );
+        }
+    }
 }
 
 #[test]

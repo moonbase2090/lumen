@@ -151,6 +151,45 @@ pub struct InputView {
     pub preedit: Option<PreeditView>,
 }
 
+impl InputView {
+    /// The same caret as `caret`, with its column in display cells.
+    pub(crate) fn caret_cell(&self) -> Option<(usize, u32)> {
+        let (line, character) = self.caret?;
+        let column = self.lines.get(line).map_or(0, |text| {
+            Self::cell_offsets(text)
+                .take(character.saturating_add(1))
+                .last()
+                .unwrap_or(0)
+        });
+        Some((line, u32::try_from(column).unwrap_or(u32::MAX)))
+    }
+
+    /// A click inside a wide character goes to its leading boundary.
+    pub(crate) fn character_at_cell(&self, line: usize, column: usize) -> usize {
+        self.lines.get(line).map_or(0, |text| {
+            Self::cell_offsets(text)
+                .take_while(|&offset| offset <= column)
+                .count()
+                .saturating_sub(1)
+        })
+    }
+
+    fn cell_offsets(text: &str) -> impl Iterator<Item = usize> + '_ {
+        std::iter::once(0).chain(text.chars().map(cells).scan(0, |offset, width| {
+            *offset += width;
+            Some(*offset)
+        }))
+    }
+
+    /// The first line shown when the box scrolls to keep the caret in view.
+    pub(crate) fn visible_first_line(&self, rows: usize) -> usize {
+        let caret_line = self.caret.map_or(0, |(line, _)| line);
+        (caret_line + 1)
+            .saturating_sub(rows)
+            .min(self.lines.len().saturating_sub(rows))
+    }
+}
+
 /// The text an input method is composing, to draw where it will go: at the caret of the box
 /// or at the program's cursor.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1874,10 +1913,7 @@ impl Renderer {
             Some(view) => {
                 self.text_line(frame, ex + self.cell_w, ey, ">", t.prompt);
                 let rows = (editor_rows.saturating_sub(1) as usize).max(1);
-                let caret_line = view.caret.map_or(0, |c| c.0);
-                let first = (caret_line + 1)
-                    .saturating_sub(rows)
-                    .min(view.lines.len().saturating_sub(rows));
+                let first = view.visible_first_line(rows);
                 let composing = view.preedit.as_ref().zip(view.caret);
                 for (i, line) in view.lines.iter().skip(first).take(rows).enumerate() {
                     let y = ey + u32::try_from(i).unwrap_or(0) * self.cell_h;
@@ -1897,7 +1933,7 @@ impl Renderer {
                     }
                 }
                 let caret = view
-                    .caret
+                    .caret_cell()
                     .filter(|_| view.preedit.is_none())
                     .filter(|&(line, _)| focused && (first..first + rows).contains(&line));
                 if let Some(hint) = &view.hint {
@@ -1905,15 +1941,9 @@ impl Renderer {
                     let y = ey + eh.saturating_sub(self.cell_h + self.scale);
                     self.text_line(frame, text_x, y, &shown, t.muted);
                 }
-                if let Some((line, col)) = caret {
-                    let width: u32 = view.lines.get(line).map_or(0, |l| {
-                        l.chars()
-                            .take(col)
-                            .map(|c| u32::try_from(grapheme_display_width(c, &[])).unwrap_or(1))
-                            .sum()
-                    });
+                if let Some((line, column)) = caret {
                     let y = ey + u32::try_from(line - first).unwrap_or(0) * self.cell_h;
-                    let x = text_x + width * self.cell_w;
+                    let x = text_x.saturating_add(column.saturating_mul(self.cell_w));
                     frame.fill(x, y, self.scale.max(2), self.cell_h, t.prompt);
                 }
             }
