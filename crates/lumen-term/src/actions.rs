@@ -140,7 +140,6 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 'p' => Some(Action::FindPrevious),
                 'l' => Some(Action::NextLink),
                 'k' => Some(Action::PreviousLink),
-                'q' => Some(Action::Quit),
                 _ => None,
             }
         }

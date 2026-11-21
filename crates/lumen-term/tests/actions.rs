@@ -263,8 +263,10 @@ fn every_action_has_a_chord_on_each_platform_that_can_reach_it() {
     let other = reach(Platform::Other, linux);
     for action in ALL {
         assert!(mac.contains(&action), "{action:?} has no chord on macOS");
-        // Settings opens a file only where there is a menu to ask for it.
-        if action != Action::Settings {
+        // Settings opens a file only where there is a menu to ask for it, and
+        // quitting is closing the window elsewhere: a chord for it would be one
+        // slip from losing every tab.
+        if !matches!(action, Action::Settings | Action::Quit) {
             assert!(other.contains(&action), "{action:?} has no chord elsewhere");
         }
     }
