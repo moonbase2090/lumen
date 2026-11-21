@@ -1,7 +1,7 @@
 {
  "revision": "records-1",
- "decoder_build": "d64a119dc632b1d823691ac443e632bd86aed9b972c73103c2cf015445977118",
- "image_path_build": "133d6a689a910ec5bdd12b0ba9683f61d13f394dd2a9f00c901295c9914060dd",
+ "decoder_build": "078f019ecff6ad46f45499295ee9b7ae5f5c20fd490ed8957d438435934ebf09",
+ "image_path_build": "d86774939a555edb47e0aa53848205c7d69d15310320baea7bbebee032f9a329",
  "formats": [
   {
    "name": "png",
