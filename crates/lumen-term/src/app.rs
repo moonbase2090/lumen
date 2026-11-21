@@ -71,6 +71,15 @@ impl Default for Links {
     }
 }
 
+/// The live grid's history as it was before output arrived while the view was
+/// held: how many blocks there were, where the grid starts in the flow, and a
+/// fingerprint of each history row.
+struct HistoryBefore {
+    blocks: usize,
+    top: u32,
+    prints: Vec<u64>,
+}
+
 /// The context menu the terminal draws itself: the one open now, the choice
 /// made and not yet carried out, and whether the press that took the menu is
 /// still down.
@@ -119,6 +128,8 @@ pub struct App {
     glide: Glide,
     /// Whether a wheel step eases the view instead of jumping it.
     smooth_scroll: bool,
+    /// The system asks for less motion: the wheel jumps and the cursor does not blink.
+    reduce_motion: bool,
     /// How many times the view moved since the host last asked.
     view_moves: u32,
     /// The find bar and its matches, while it is open.
@@ -262,6 +273,97 @@ pub const INPUT_NOTICE_MS: u64 = 4000;
 /// program starts a new cycle with the cursor on.
 pub const CURSOR_BLINK_MS: u64 = 530;
 
+/// Whether a blinking cursor is in its on half at `now`, its cycle having
+/// restarted at `epoch`. With less motion asked for it is always on.
+fn cursor_on(now: u64, epoch: u64, reduce_motion: bool) -> bool {
+    reduce_motion || (now.saturating_sub(epoch) / CURSOR_BLINK_MS).is_multiple_of(2)
+}
+
+#[cfg(test)]
+mod motion_tests {
+    #[cfg(unix)]
+    use super::App;
+    use super::{CURSOR_BLINK_MS, cursor_on};
+    #[cfg(unix)]
+    use crate::{Block, Passthrough};
+    #[cfg(unix)]
+    use std::time::{Duration, Instant};
+
+    #[cfg(unix)]
+    fn blinking_app() -> App {
+        let mut app = App::start(
+            Box::new(Passthrough),
+            "/bin/sh",
+            &["-c", "printf 'hi\\033[1 q'; sleep 30"],
+            1,
+            640,
+            400,
+        )
+        .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+        let end = Instant::now() + Duration::from_secs(20);
+        loop {
+            app.pump();
+            let up = app.session().document().blocks().iter().any(|b| match b {
+                Block::Grid(g) => g.cursor().blink && g.text_rows().iter().any(|r| r == "hi"),
+                Block::Rich(_) => false,
+            });
+            if up {
+                break;
+            }
+            let left = end.saturating_duration_since(Instant::now());
+            assert!(!left.is_zero(), "the program set a blinking cursor");
+            app.pump_wait(left);
+        }
+        app.set_focused(true);
+        app
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn less_motion_brings_a_cursor_caught_in_its_off_half_back_on_and_asks_for_a_frame() {
+        let mut app = blinking_app();
+        app.cursor_phase = false;
+        assert!(app.set_reduce_motion(true), "a frame is needed");
+        assert!(app.cursor_phase, "the cursor is on");
+        assert!(
+            !app.set_reduce_motion(true),
+            "the same setting again changes nothing"
+        );
+        // And it no longer blinks, so a later tick takes it for steady.
+        assert!(!app.cursor_blinks());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn less_motion_asks_for_no_frame_when_the_cursor_is_already_on() {
+        let mut app = blinking_app();
+        app.cursor_phase = true;
+        assert!(!app.set_reduce_motion(true));
+        assert!(app.cursor_phase);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn turning_less_motion_off_again_lets_the_cursor_blink() {
+        let mut app = blinking_app();
+        let _ = app.set_reduce_motion(true);
+        assert!(!app.cursor_blinks());
+        let _ = app.set_reduce_motion(false);
+        assert!(app.cursor_blinks());
+    }
+
+    #[test]
+    fn a_cursor_blinks_through_its_cycle_unless_less_motion_is_asked_for() {
+        let half = CURSOR_BLINK_MS;
+        assert!(cursor_on(0, 0, false));
+        assert!(!cursor_on(half, 0, false));
+        assert!(cursor_on(2 * half, 0, false));
+        for t in [0, half, 2 * half, 7 * half + 1] {
+            assert!(cursor_on(t, 0, true), "steady at {t}");
+        }
+    }
+}
+
 /// Why input could not be sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Refusal {
@@ -347,17 +449,6 @@ pub fn cells_for(width: u32, height: u32, cell: (u32, u32)) -> (usize, usize) {
     let columns = (width / cell.0.max(1)).clamp(1, u32::try_from(MAX_COLUMNS).unwrap_or(1));
     let rows = (height / cell.1.max(1)).clamp(1, u32::try_from(MAX_ROWS).unwrap_or(1));
     (columns as usize, rows as usize)
-}
-
-/// Columns a character takes in the editor: 2 for the East Asian wide and
-/// fullwidth blocks and emoji, else 1. It only sizes the candidate window's
-/// anchor, so the blocks are the common ones, not the full width table.
-fn cell_columns(c: char) -> u32 {
-    let wide = matches!(c as u32,
-        0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF
-        | 0xFE30..=0xFE6F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6
-        | 0x1F300..=0x1F64F | 0x1F900..=0x1F9FF | 0x20000..=0x3FFFD);
-    if wide { 2 } else { 1 }
 }
 
 /// Rows of the input editor.
@@ -517,6 +608,7 @@ impl App {
             reporting: Reporting::default(),
             glide: Glide::new(),
             smooth_scroll: true,
+            reduce_motion: false,
             view_moves: 0,
             find: None,
             find_kept: String::new(),
@@ -992,22 +1084,14 @@ impl App {
         if !inside || x < left || cell_h == 0 || cell_w == 0 {
             return false;
         }
-        let line = ((y - top) / cell_h) as usize;
+        let row = ((y - top) / cell_h) as usize;
         let column = ((x - left) / cell_w) as usize;
-        let first = self.visible_first_line();
-        self.input.set_caret_at(first + line, column);
-        true
-    }
-
-    /// The first line of the box's text that is shown: the box scrolls to keep
-    /// the caret's line in view.
-    fn visible_first_line(&self) -> usize {
         let view = self.input_view();
-        let rows = (self.box_rows.saturating_sub(1) as usize).max(1);
-        let caret_line = view.caret.map_or(0, |c| c.0);
-        (caret_line + 1)
-            .saturating_sub(rows)
-            .min(view.lines.len().saturating_sub(rows))
+        let first = view.visible_first_line((self.box_rows.saturating_sub(1) as usize).max(1));
+        let line = (first + row).min(view.lines.len().saturating_sub(1));
+        self.input
+            .set_caret_at(line, view.character_at_cell(line, column));
+        true
     }
 
     /// The height of a cell in pixels.
@@ -1089,7 +1173,7 @@ impl App {
         }
         let reporting = self
             .live_modes()
-            .is_some_and(|m| m.tracking != crate::mouse::MouseTracking::Off && m.sgr);
+            .is_some_and(|m| m.tracking != crate::mouse::MouseTracking::Off);
         !(reporting && self.live_cell(x, y).is_some())
     }
 
@@ -1139,7 +1223,11 @@ impl App {
             .position(|l| cy >= l.top && cy < l.top + l.height)
             .or_else(|| {
                 if inside {
-                    return None;
+                    // Below the end of the flow, in the content area: the
+                    // last line, so a press under the newest output and a drag
+                    // up select it.
+                    let last = lines.len().checked_sub(1)?;
+                    return (cy >= lines[last].top + lines[last].height).then_some(last);
                 }
                 // The line nearest the pixel row.
                 lines
@@ -1319,9 +1407,26 @@ impl App {
     /// Whether wheel steps ease the view (the default) or jump it.
     pub fn set_smooth_scroll(&mut self, on: bool) {
         self.smooth_scroll = on;
-        if !on {
+        if !on || self.reduce_motion {
             self.glide.cancel();
         }
+    }
+
+    /// Whether the system asks for less motion. While it does, the wheel jumps
+    /// whatever `smooth_scroll` says and a blinking cursor stays on. Returns
+    /// whether a frame needs drawing.
+    pub fn set_reduce_motion(&mut self, on: bool) -> bool {
+        if self.reduce_motion == on {
+            return false;
+        }
+        // A blinking cursor caught in its off half comes back on: that needs a frame.
+        let redraw = on && !self.cursor_phase && self.cursor_blinks();
+        self.reduce_motion = on;
+        if on {
+            self.glide.cancel();
+            self.cursor_phase = true;
+        }
+        redraw
     }
 
     /// Whether a wheel's move is still easing the view.
@@ -1382,6 +1487,16 @@ impl App {
                 return Ok(false);
             }
             self.links.press_down = false;
+        }
+        if held.shift {
+            // Shift is the terminal's: it selects, as in other terminals, and
+            // the program is told nothing of the press. The reporter is not
+            // given it either, so it holds no button and no release is sent
+            // for it later.
+            if b == Button::Left {
+                self.begin_selection(x, y);
+            }
+            return Ok(false);
         }
         if b == Button::Left && self.pointer_selects(x, y, held) {
             self.begin_selection(x, y);
@@ -1496,7 +1611,7 @@ impl App {
         if self.menu.open.is_some() {
             return Ok(false);
         }
-        self.wheel_step(x, y, step, held, self.smooth_scroll)
+        self.wheel_step(x, y, step, held, self.smooth_scroll && !self.reduce_motion)
     }
 
     fn wheel_step(
@@ -1685,6 +1800,7 @@ impl App {
     /// Whether the live grid has a cursor that blinks in a focused window.
     fn cursor_blinks(&self) -> bool {
         self.desk.focused
+            && !self.reduce_motion
             && !self.exited
             && self
                 .session
@@ -1701,7 +1817,7 @@ impl App {
 
     /// The on half of the blink cycle at `now`.
     fn blink_on(&self, now: u64) -> bool {
-        (now.saturating_sub(self.cursor_epoch_ms) / CURSOR_BLINK_MS).is_multiple_of(2)
+        cursor_on(now, self.cursor_epoch_ms, self.reduce_motion)
     }
 
     /// The notifier, for reading what is shown and counted.
@@ -1824,7 +1940,11 @@ impl App {
         }
         match action {
             Action::Quit | Action::Close => Outcome::Exit,
-            Action::NewTab | Action::NextTab | Action::PreviousTab => Outcome::Nothing,
+            Action::NewWindow
+            | Action::NewTab
+            | Action::NextTab
+            | Action::PreviousTab
+            | Action::Settings => Outcome::Nothing,
             Action::Find => {
                 self.find_open();
                 Outcome::Redraw
@@ -2449,14 +2569,15 @@ impl App {
         let used = self
             .preedit
             .as_ref()
-            .map_or(0, |p| p.text.chars().map(cell_columns).sum::<u32>());
+            .map_or(0, |p| Renderer::preedit_columns(&p.text));
         let editing = self.input.mode(self.facts_with(self.exited)) == Mode::Editing;
         if let (false, Some((x, y, _))) = (editing, self.live_cursor_pixel()) {
             return (x, y, used.max(1).saturating_mul(cell_w), cell_h);
         }
-        let (line, col) = self.input_view().caret.unwrap_or((0, 0));
-        let line = u32::try_from(line.saturating_sub(self.visible_first_line())).unwrap_or(0);
-        let col = u32::try_from(col).unwrap_or(0);
+        let view = self.input_view();
+        let (line, col) = view.caret_cell().unwrap_or((0, 0));
+        let first = view.visible_first_line((self.box_rows.saturating_sub(1) as usize).max(1));
+        let line = u32::try_from(line.saturating_sub(first)).unwrap_or(0);
         (
             GUTTER_COLUMNS
                 .saturating_mul(cell_w)
@@ -2596,15 +2717,66 @@ impl App {
         self.pump_taking(Some(wait))
     }
 
+    /// What the live grid's history is before output arrives, when the view is
+    /// held somewhere in it: output can drop its oldest rows, which would slide
+    /// the held place if it were left as a pixel offset.
+    fn history_before_output(&self) -> Option<HistoryBefore> {
+        if !matches!(self.scroll, Scroll::Pinned(_)) {
+            return None;
+        }
+        let doc = self.session.document();
+        let Some(Block::Grid(live)) = doc.blocks().last() else {
+            return None;
+        };
+        let rows = live.history_rows();
+        if rows == 0 {
+            return None;
+        }
+        let (_, columns, _) = self.content_metrics();
+        let screen_top = self.renderer.live_screen_top(doc, columns)?;
+        let ch = self.renderer.cell().1;
+        Some(HistoryBefore {
+            blocks: doc.blocks().len(),
+            top: screen_top.saturating_sub(u32::try_from(rows).unwrap_or(u32::MAX) * ch),
+            prints: live.history_prints(),
+        })
+    }
+
+    /// Move a held view up by the rows of the live grid's history that output
+    /// dropped, so it keeps showing the same text; once those are gone it holds
+    /// at the oldest output left.
+    fn hold_view_through_eviction(&mut self, before: Option<HistoryBefore>) {
+        let Some(before) = before else {
+            return;
+        };
+        let doc = self.session.document();
+        let Some(Block::Grid(live)) = doc.blocks().last() else {
+            return;
+        };
+        if doc.blocks().len() != before.blocks {
+            return;
+        }
+        let gone = Scroll::rows_evicted(&before.prints, &live.history_prints());
+        if gone == 0 {
+            return;
+        }
+        let pixels = u32::try_from(gone)
+            .unwrap_or(u32::MAX)
+            .saturating_mul(self.renderer.cell().1);
+        self.scroll = self.scroll.after_eviction(before.top, pixels);
+    }
+
     fn pump_taking(&mut self, wait: Option<std::time::Duration>) -> usize {
         self.refresh_front();
         let facts = self.facts_with(self.exited);
         self.input.observe(facts);
+        let history = self.history_before_output();
         let bytes = match wait {
             Some(wait) => self.session.pump_wait(wait),
             None => self.session.pump(),
         };
         if bytes > 0 {
+            self.hold_view_through_eviction(history);
             self.track_reporting();
             self.cursor_epoch_ms = self.session.now_ms();
             self.refresh_find();

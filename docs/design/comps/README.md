@@ -37,5 +37,5 @@ python3 scenes.py scenes
 - **The operating system's title bar.** These are headless snapshots of the terminal's own drawing, not window captures.
 - **Headings at their own size.** Headings draw at the paragraph size for now; the design tokens' type scale is not applied to rich blocks yet.
 - **Bold.** Bold text draws in the regular weight; there is no bold face yet.
-- **Rich blocks after a full screen of output.** The window draws the document from the top and a grid block is as tall as the screen, so the rich-block scene writes its frames first.
+- **Rich blocks after a full screen of output.** These comps were made when every grid block was as tall as the screen, so the rich-block scene writes its frames first. Now a grid block that has not scrolled takes only the rows it has used, so rich blocks after a little output follow it directly; after a full screen of output they follow the whole screen.
 - **The image itself.** With images on, the image block shows the decoded image; these comps turn images off to show the alt text.

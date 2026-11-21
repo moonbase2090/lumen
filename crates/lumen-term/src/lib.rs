@@ -57,6 +57,7 @@ pub mod marks;
 #[cfg(all(feature = "window", any(target_os = "macos", windows)))]
 pub mod menu;
 pub mod modes;
+pub mod motion;
 pub mod mouse;
 pub mod notify;
 pub mod os_backend;
@@ -73,6 +74,8 @@ pub mod search;
 pub mod select;
 pub mod session;
 pub mod settings;
+#[cfg(all(feature = "window", target_os = "macos"))]
+mod settings_command;
 pub mod shell;
 pub mod shellint;
 pub mod strip;
@@ -81,6 +84,8 @@ mod tabs;
 pub mod theme_file;
 pub mod title;
 pub mod typed;
+#[cfg(feature = "window")]
+mod window_state;
 mod writer;
 
 pub use app::App;

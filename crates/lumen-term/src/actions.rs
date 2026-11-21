@@ -10,6 +10,8 @@
 /// Something the window does for the user, apart from typing into the program.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
+    /// Open another window with its own tabs and programs.
+    NewWindow,
     /// Open another shell in a new tab and show it.
     NewTab,
     /// Show the tab to the right, wrapping at the end.
@@ -34,6 +36,8 @@ pub enum Action {
     FindNext,
     /// Go to the previous match of the find.
     FindPrevious,
+    /// Open the settings file.
+    Settings,
     /// Close the window and end the session.
     Close,
     /// Quit the application.
@@ -90,6 +94,7 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 return None;
             }
             match (key, held.shift) {
+                ('n', false) => Some(Action::NewWindow),
                 ('t', false) => Some(Action::NewTab),
                 (']' | '}', true) => Some(Action::NextTab),
                 ('[' | '{', true) => Some(Action::PreviousTab),
@@ -102,6 +107,7 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 ('f', false) => Some(Action::Find),
                 ('g', false) => Some(Action::FindNext),
                 ('g', true) => Some(Action::FindPrevious),
+                (',', false) => Some(Action::Settings),
                 ('w', false) => Some(Action::Close),
                 ('q', false) => Some(Action::Quit),
                 _ => None,
@@ -112,6 +118,7 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 return None;
             }
             match key {
+                'n' => Some(Action::NewWindow),
                 't' => Some(Action::NewTab),
                 ']' | '}' => Some(Action::NextTab),
                 '[' | '{' => Some(Action::PreviousTab),
@@ -181,6 +188,7 @@ mod tests {
         assert_eq!(action_for(Platform::Mac, '=', CMD), Some(Action::ZoomIn));
         assert_eq!(action_for(Platform::Mac, '-', CMD), Some(Action::ZoomOut));
         assert_eq!(action_for(Platform::Mac, '0', CMD), Some(Action::ZoomReset));
+        assert_eq!(action_for(Platform::Mac, ',', CMD), Some(Action::Settings));
         let with_control = Held {
             control: true,
             ..CMD

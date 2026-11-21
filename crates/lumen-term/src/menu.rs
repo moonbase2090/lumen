@@ -24,6 +24,7 @@ use crate::APP_NAME;
 #[must_use]
 pub const fn id_of(action: Action) -> &'static str {
     match action {
+        Action::NewWindow => "new-window",
         Action::NewTab => "new-tab",
         Action::NextTab => "next-tab",
         Action::PreviousTab => "previous-tab",
@@ -36,6 +37,7 @@ pub const fn id_of(action: Action) -> &'static str {
         Action::Find => "find",
         Action::FindNext => "find-next",
         Action::FindPrevious => "find-previous",
+        Action::Settings => "settings",
         Action::Close => "close",
         Action::Quit => "quit",
     }
@@ -45,6 +47,7 @@ pub const fn id_of(action: Action) -> &'static str {
 #[must_use]
 pub fn action_of(id: &str) -> Option<Action> {
     [
+        Action::NewWindow,
         Action::NewTab,
         Action::NextTab,
         Action::PreviousTab,
@@ -57,6 +60,7 @@ pub fn action_of(id: &str) -> Option<Action> {
         Action::Find,
         Action::FindNext,
         Action::FindPrevious,
+        Action::Settings,
         Action::Close,
         Action::Quit,
     ]
@@ -102,6 +106,7 @@ impl MenuBar {
             true,
             &[
                 &PredefinedMenuItem::about(None, None),
+                &item(Action::Settings, "Settings…", Code::Comma),
                 &PredefinedMenuItem::separator(),
                 &PredefinedMenuItem::services(None),
                 &PredefinedMenuItem::separator(),
@@ -148,6 +153,7 @@ impl MenuBar {
             "Window",
             true,
             &[
+                &item(Action::NewWindow, "New Window", Code::KeyN),
                 &item(Action::NewTab, "New Tab", Code::KeyT),
                 &item_with(
                     Action::PreviousTab,

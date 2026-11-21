@@ -454,3 +454,142 @@ fn with_smooth_scrolling_off_a_wheel_step_jumps() {
     assert!(!app.is_gliding());
     assert!(!app.following(), "the view moved at once");
 }
+
+/// Take the program's output as it arrives until `done`: each wait blocks on
+/// the program's output, and only the hang bound ends a test that never gets
+/// its signal.
+fn until(app: &mut App, done: impl Fn(&App) -> bool) -> bool {
+    let end = Instant::now() + Duration::from_secs(30);
+    loop {
+        app.pump();
+        if done(app) {
+            return true;
+        }
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        app.pump_wait(left);
+    }
+}
+
+fn grid_has(app: &App, text: &str) -> bool {
+    app.session().document().blocks().iter().any(|b| match b {
+        lumen_term::Block::Grid(g) => g.text_rows().iter().any(|l| l == text),
+        lumen_term::Block::Rich(_) => false,
+    })
+}
+
+/// The oldest line of the live grid's history, as text.
+fn oldest_kept(app: &App) -> String {
+    let Some(lumen_term::Block::Grid(g)) = app.session().document().blocks().last() else {
+        unreachable!("the live block is a grid");
+    };
+    g.history_row(0)
+        .unwrap_or_default()
+        .iter()
+        .map(|c| c.character)
+        .collect::<String>()
+        .trim_end()
+        .to_owned()
+}
+
+/// A program that prints 1100 numbered lines (more than the history keeps),
+/// then waits on a named pipe before each of two more bursts, so the test
+/// decides when more output arrives and no sleep is involved.
+fn bursts() -> (App, std::path::PathBuf) {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let pipe = std::env::temp_dir().join(format!("lumen-scrollback-{}-{n}", std::process::id()));
+    let p = pipe.display();
+    let script = format!(
+        "rm -f {p}; mkfifo {p}; seq 1 1100 | sed 's/^/line/'; echo READY; read go < {p}; \
+         seq 1101 1400 | sed 's/^/line/'; echo MORE; read go < {p}; \
+         seq 1401 2600 | sed 's/^/line/'; echo END; read go < {p}"
+    );
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", &script],
+        1,
+        640,
+        420,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    assert!(until(&mut app, |a| grid_has(a, "READY")), "the first burst");
+    (app, pipe)
+}
+
+fn release(pipe: &std::path::Path) {
+    // Opening the pipe for writing waits for the program's read, which is the
+    // program saying it has finished the burst before.
+    std::fs::write(pipe, "go\n").unwrap_or_else(|e| unreachable!("pipe: {e}"));
+}
+
+#[test]
+fn once_the_history_is_full_new_output_does_not_move_a_view_scrolled_up() {
+    let (mut app, pipe) = bursts();
+    for _ in 0..5 {
+        app.key(Key::PageUp, Mods::default()).unwrap_or(());
+    }
+    assert!(!app.following());
+    let held = app.visible_text();
+    let first = lines(&app).first().copied();
+    assert!(first.is_some_and(|n| n > 1), "{held:?}");
+    release(&pipe);
+    assert!(until(&mut app, |a| grid_has(a, "MORE")), "300 more lines");
+    // 300 rows of the 1000-row history were dropped under the view: the view
+    // is on the same text.
+    assert_eq!(app.visible_text(), held, "the rows in view did not change");
+    assert!(!app.following());
+    release(&pipe);
+    assert!(until(&mut app, |a| grid_has(a, "END")));
+    let _ = std::fs::remove_file(&pipe);
+}
+
+#[test]
+fn a_view_whose_rows_were_dropped_holds_at_the_oldest_output() {
+    let (mut app, pipe) = bursts();
+    for _ in 0..5 {
+        app.key(Key::PageUp, Mods::default()).unwrap_or(());
+    }
+    release(&pipe);
+    assert!(until(&mut app, |a| grid_has(a, "MORE")));
+    release(&pipe);
+    // 1500 more lines in all went by: the rows that were in view are gone.
+    assert!(until(&mut app, |a| grid_has(a, "END")));
+    assert!(!app.following(), "still scrolled up");
+    assert!(app.at_top(), "held at the oldest output that is left");
+    let oldest = oldest_kept(&app);
+    assert_ne!(oldest, "");
+    assert_eq!(
+        app.visible_text().first().map(|l| l.trim_end().to_owned()),
+        Some(oldest),
+        "the top row in view is the oldest kept"
+    );
+    let _ = std::fs::remove_file(&pipe);
+}
+
+#[test]
+fn when_the_system_asks_for_less_motion_a_wheel_step_jumps_even_with_smooth_scrolling_on() {
+    let mut app = run(&format!("{COUNT} sleep 30"));
+    app.set_smooth_scroll(true);
+    let (x, y) = pointer(&app);
+    app.set_reduce_motion(true);
+    assert!(
+        app.mouse_wheel_glide(x, y, Wheel::Up, NONE)
+            .unwrap_or(false)
+    );
+    assert!(!app.is_gliding(), "no easing");
+    assert!(!app.following(), "the view moved at once");
+    // Going back to full motion eases again.
+    let mut app = run(&format!("{COUNT} sleep 30"));
+    let (x, y) = pointer(&app);
+    app.set_reduce_motion(true);
+    app.set_reduce_motion(false);
+    assert!(
+        app.mouse_wheel_glide(x, y, Wheel::Up, NONE)
+            .unwrap_or(false)
+    );
+    assert!(app.is_gliding(), "easing is back");
+}

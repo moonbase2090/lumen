@@ -53,6 +53,36 @@ impl Scroll {
         }
     }
 
+    /// The view after the oldest `pixels` of a block that starts `block_top`
+    /// pixels down the flow were dropped from its history. A held view keeps the
+    /// text it shows by moving up with the rows that went; once the rows at its
+    /// top are themselves gone it holds at the oldest output that is left. A
+    /// view above the block, or following the bottom, does not move.
+    #[must_use]
+    pub fn after_eviction(self, block_top: u32, pixels: u32) -> Scroll {
+        match self {
+            Scroll::Pinned(top) if top >= block_top => {
+                Scroll::Pinned(top.saturating_sub(pixels).max(block_top))
+            }
+            other => other,
+        }
+    }
+
+    /// How many of the oldest rows of `old` are gone from `new`, two fingerprints
+    /// of a block's history, oldest first: the smallest count after which what
+    /// is left of `old` is the start of `new`. Rows are only dropped from the
+    /// front and added at the back, so this is how many were dropped. All of
+    /// `old` when nothing of it is left.
+    #[must_use]
+    pub fn rows_evicted(old: &[u64], new: &[u64]) -> usize {
+        (0..=old.len())
+            .find(|&gone| {
+                let left = &old[gone..];
+                left.len() <= new.len() && new[..left.len()] == *left
+            })
+            .unwrap_or(old.len())
+    }
+
     /// The view with its top at `top` pixels of the flow, held; the bottom is
     /// [`Scroll::Follow`].
     #[must_use]
@@ -100,6 +130,42 @@ impl Scroll {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rows_dropped_from_the_front_are_counted_by_where_the_old_history_starts_in_the_new() {
+        let old = [1, 2, 3, 4, 5];
+        assert_eq!(Scroll::rows_evicted(&old, &[1, 2, 3, 4, 5]), 0);
+        assert_eq!(
+            Scroll::rows_evicted(&old, &[1, 2, 3, 4, 5, 6]),
+            0,
+            "it grew"
+        );
+        assert_eq!(Scroll::rows_evicted(&old, &[3, 4, 5, 6, 7]), 2);
+        assert_eq!(Scroll::rows_evicted(&old, &[5, 6, 7, 8, 9]), 4);
+        assert_eq!(Scroll::rows_evicted(&old, &[6, 7, 8, 9, 10]), 5, "all gone");
+        assert_eq!(Scroll::rows_evicted(&[], &[1, 2]), 0);
+        // Lines that repeat: the same text is in view whichever count is taken.
+        assert_eq!(Scroll::rows_evicted(&[7, 7, 7], &[7, 7, 7]), 0);
+    }
+
+    #[test]
+    fn a_held_view_moves_up_with_the_rows_that_were_dropped_and_stops_at_the_oldest() {
+        let held = Scroll::Pinned(500);
+        assert_eq!(held.after_eviction(0, 48), Scroll::Pinned(452));
+        assert_eq!(held.after_eviction(0, 500), Scroll::Pinned(0));
+        assert_eq!(
+            held.after_eviction(0, 9000),
+            Scroll::Pinned(0),
+            "holds at the oldest"
+        );
+        assert_eq!(
+            held.after_eviction(200, 9000),
+            Scroll::Pinned(200),
+            "the oldest of a block that starts lower down"
+        );
+        assert_eq!(held.after_eviction(800, 48), held, "a view above the block");
+        assert_eq!(Scroll::Follow.after_eviction(0, 48), Scroll::Follow);
+    }
 
     #[test]
     fn a_short_flow_starts_at_the_top_and_does_not_scroll() {
