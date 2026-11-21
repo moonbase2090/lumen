@@ -49,6 +49,9 @@ pub struct FlowLine {
     /// Whether the line is drawn on the cell grid (grid rows and code) rather
     /// than in the proportional face.
     pub grid: bool,
+    /// The step of the type scale a proportional line is set at: 0 for body
+    /// text, more for a heading. Always 0 on the grid.
+    pub step: i8,
     /// What a copy strips from it.
     pub kind: Kind,
     /// How it joins the next line.

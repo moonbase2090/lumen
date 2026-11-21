@@ -63,6 +63,18 @@ pub const BOTTOM_INSET_PX: u32 = 8;
 pub const SCROLL_BAR_PX: u32 = 4;
 /// The label every rich block's container carries.
 pub const CONTAINER_LABEL: &str = "unverified output";
+/// Pixels at scale 1 above and below a rich block's container: the space
+/// between one container and the next, or the grid output beside it.
+pub const RICH_MARGIN_PX: u32 = 4;
+/// Pixels at scale 1 inside a rich block's container, above its label and
+/// below its last line.
+pub const RICH_PAD_Y_PX: u32 = 6;
+/// Pixels at scale 1 between a container's label and its first line.
+pub const RICH_LABEL_GAP_PX: u32 = 2;
+/// The step of the type scale a container's label is set at: one under the
+/// body, so the label reads as the terminal's note on the content, not as
+/// part of it.
+pub const RICH_LABEL_STEP: i8 = -1;
 pub use crate::image_draw::IMAGE_MAX_ROWS;
 /// The most lines of text in a toast; the rest is cut.
 pub const TOAST_MAX_LINES: usize = 3;
@@ -270,6 +282,19 @@ enum Part<'a> {
 enum Face {
     Mono,
     Sans,
+    /// The proportional face at another size, in whole pixels at the render
+    /// scale: a step of the type scale other than the body's.
+    SansAt(u32),
+}
+
+/// How a line of one face and size is set: the face, its size in pixels,
+/// where the baseline sits below the line's top, and the line's height.
+#[derive(Clone, Copy)]
+struct LineSet {
+    face: Face,
+    px: f32,
+    ascent: i32,
+    height: u32,
 }
 
 struct Glyph {
@@ -296,7 +321,7 @@ pub struct Renderer {
     ascent: i32,
     theme: Theme,
     cache: RefCell<HashMap<(Face, char), Glyph>>,
-    advances: RefCell<HashMap<char, usize>>,
+    advances: RefCell<HashMap<(char, i8), usize>>,
 }
 
 /// A face the renderer owns: the bundled bytes or a user's font file.
@@ -519,9 +544,10 @@ impl Renderer {
         colour: Rgb,
     ) {
         let (x, y) = at;
+        let set = self.face_set(face);
         let (font, size) = match face {
-            Face::Mono => (self.font.get(), self.px),
-            Face::Sans => (self.sans.get(), self.sans_px),
+            Face::Mono => (self.font.get(), set.px),
+            Face::Sans | Face::SansAt(_) => (self.sans.get(), set.px),
         };
         let glyph = font.charmap().map(ch);
         if ch == ' ' || ch == '\0' || glyph == 0 {
@@ -555,10 +581,10 @@ impl Renderer {
             }
         });
         let rows = i64::try_from(g.height).unwrap_or(0);
-        let top = i64::from(y) + i64::from(self.ascent) - i64::from(g.ymin) - rows;
+        let top = i64::from(y) + i64::from(set.ascent) - i64::from(g.ymin) - rows;
         let left = i64::from(x) + i64::from(g.xmin);
         let (band_start, band_end) = band;
-        let (cell_top, cell_bottom) = (i64::from(y), i64::from(y + self.cell_h));
+        let (cell_top, cell_bottom) = (i64::from(y), i64::from(y + set.height));
         for row in 0..g.height {
             for col in 0..g.width {
                 let px = left + i64::try_from(col).unwrap_or(0);
@@ -896,11 +922,17 @@ impl Renderer {
     /// character that draws nothing has none. One the proportional face lacks,
     /// or one that takes two cells, takes whole cells, as it does on the grid.
     fn advance(&self, ch: char) -> usize {
+        self.advance_at(ch, 0)
+    }
+
+    /// As [`advance`](Self::advance), for text set at size `step` of the type
+    /// scale. A character the proportional face lacks keeps its cells.
+    fn advance_at(&self, ch: char, step: i8) -> usize {
         let cells = grapheme_display_width(ch, &[]);
         if cells == 0 {
             return 0;
         }
-        if let Some(a) = self.advances.borrow().get(&ch) {
+        if let Some(a) = self.advances.borrow().get(&(ch, step)) {
             return *a;
         }
         let a = if self.proportional_face(ch) == Face::Sans {
@@ -908,7 +940,7 @@ impl Renderer {
             let glyph = sans.charmap().map(ch);
             let w = sans
                 .glyph_metrics(&[])
-                .scale(self.sans_px)
+                .scale(self.prose_set(step).px)
                 .advance_width(glyph);
             #[allow(
                 clippy::cast_possible_truncation,
@@ -920,8 +952,71 @@ impl Renderer {
         } else {
             cells * self.cell_w as usize * SUBPIXELS
         };
-        self.advances.borrow_mut().insert(ch, a);
+        self.advances.borrow_mut().insert((ch, step), a);
         a
+    }
+
+    /// How prose at size `step` of the type scale is set. Step 0 is the body:
+    /// the user's prose size on the row height, exactly as before. Another
+    /// step scales the prose size by that step's share of the body size, and
+    /// its line is as tall as the face's ascent and descent at that size.
+    fn prose_set(&self, step: i8) -> LineSet {
+        if step == 0 {
+            return LineSet {
+                face: Face::Sans,
+                px: self.sans_px,
+                ascent: self.ascent,
+                height: self.cell_h,
+            };
+        }
+        #[allow(
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "type sizes and their metrics are small positive numbers"
+        )]
+        {
+            let px = (self.sans_px * crate::design::size_px(step) as f32
+                / crate::design::size_px(0) as f32)
+                .round()
+                .max(1.0);
+            let m = self.sans.get().metrics(&[]).scale(px);
+            LineSet {
+                face: Face::SansAt(px as u32),
+                px,
+                ascent: m.ascent.round() as i32,
+                height: (m.ascent + m.descent).ceil().max(1.0) as u32,
+            }
+        }
+    }
+
+    /// How a line of `face` is set.
+    fn face_set(&self, face: Face) -> LineSet {
+        match face {
+            Face::Mono => LineSet {
+                face,
+                px: self.px,
+                ascent: self.ascent,
+                height: self.cell_h,
+            },
+            Face::Sans => self.prose_set(0),
+            #[allow(clippy::cast_precision_loss, reason = "a font size is small")]
+            Face::SansAt(px) => {
+                let px = px as f32;
+                let m = self.sans.get().metrics(&[]).scale(px);
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "metrics of a face are small and positive"
+                )]
+                LineSet {
+                    face,
+                    px,
+                    ascent: m.ascent.round() as i32,
+                    height: (m.ascent + m.descent).ceil().max(1.0) as u32,
+                }
+            }
+        }
     }
 
     /// The width of `text` in the proportional layout, in 64ths of a pixel.
@@ -941,6 +1036,20 @@ impl Renderer {
         colour: Rgb,
         (limit, marks): (u32, &[Mark]),
     ) {
+        self.proportional_line_at(frame, at, text, (colour, 0), (limit, marks));
+    }
+
+    /// As [`proportional_line`](Self::proportional_line), set at size `step`
+    /// of the type scale.
+    fn proportional_line_at(
+        &self,
+        frame: &mut Frame,
+        at: (u32, u32),
+        text: &str,
+        (colour, step): (Rgb, i8),
+        (limit, marks): (u32, &[Mark]),
+    ) {
+        let set = self.prose_set(step);
         let (x, y) = at;
         let band = (i64::from(x), i64::from(x) + i64::from(limit));
         // Where each character starts, in 64ths of a pixel, and the end.
@@ -948,7 +1057,7 @@ impl Renderer {
         let mut pos = 0usize;
         for ch in text.chars() {
             starts.push(pos);
-            pos += self.advance(ch);
+            pos += self.advance_at(ch, step);
         }
         starts.push(pos);
         let px = |sub: usize| u32::try_from(sub.div_ceil(SUBPIXELS)).unwrap_or(u32::MAX);
@@ -960,17 +1069,20 @@ impl Renderer {
             let left = x + u32::try_from(starts[m.start] / SUBPIXELS).unwrap_or(0);
             let right = (x + px(starts[end])).min(x + limit);
             if right > left {
-                frame.fill(left, y, right - left, self.cell_h, self.mark_background(m));
+                frame.fill(left, y, right - left, set.height, self.mark_background(m));
                 if m.current {
                     self.outline(frame, left, y, right - left);
                 }
             }
         }
         for (ci, ch) in text.chars().enumerate() {
-            let a = self.advance(ch);
+            let a = self.advance_at(ch, step);
             if a > 0 {
                 let left = x + u32::try_from((starts[ci] + SUBPIXELS / 2) / SUBPIXELS).unwrap_or(0);
-                let face = self.proportional_face(ch);
+                let face = match self.proportional_face(ch) {
+                    Face::Sans => set.face,
+                    other => other,
+                };
                 let ink = if marks.iter().any(|m| m.start <= ci && ci < m.end) {
                     self.theme.find_text
                 } else {
@@ -1005,10 +1117,12 @@ impl Renderer {
         (kind, colour): (Style2, Rgb),
         (limit, marks): (u32, &[Mark]),
     ) {
-        if kind == Style2::Code {
-            self.text_line_marked(frame, at.0, at.1, text, colour, marks);
-        } else {
-            self.proportional_line(frame, at, text, colour, (limit, marks));
+        match kind {
+            Style2::Code => self.text_line_marked(frame, at.0, at.1, text, colour, marks),
+            Style2::Heading(step) => {
+                self.proportional_line_at(frame, at, text, (colour, step), (limit, marks));
+            }
+            Style2::Plain => self.proportional_line(frame, at, text, colour, (limit, marks)),
         }
     }
 
@@ -1020,7 +1134,11 @@ impl Renderer {
         let flow = |t: &str| wrap_by(t, limit, &|c| self.advance(c));
         match block {
             Track0Block::Paragraph(t) => (flow(t), Style2::Plain),
-            Track0Block::Heading { text, .. } => (flow(text), Style2::Heading),
+            Track0Block::Heading { text, level } => {
+                let step = heading_step(*level);
+                let lines = wrap_by(text, limit, &|c| self.advance_at(c, step));
+                (lines, Style2::Heading(step))
+            }
             Track0Block::Code { text, stripped, .. } => {
                 let mut lines: Vec<String> = text.lines().map(|l| clip(l, width)).collect();
                 if *stripped > 0 {
@@ -1311,8 +1429,9 @@ impl Renderer {
                     }
                 }
                 Part::Rich(r) if r.image.is_none() => {
-                    let (lines, _) = self.body(&r.content, columns.saturating_sub(2).max(1));
-                    let first = p.top.saturating_add(self.scale).saturating_add(self.cell_h);
+                    let (lines, kind) = self.body(&r.content, columns.saturating_sub(2).max(1));
+                    let first = p.top.saturating_add(self.rich_text_top());
+                    let line_h = self.line_height(kind);
                     for (i, text) in lines.into_iter().enumerate() {
                         out.push(SearchRow {
                             block: p.index,
@@ -1320,9 +1439,9 @@ impl Renderer {
                             top: first.saturating_add(
                                 u32::try_from(i)
                                     .unwrap_or(u32::MAX)
-                                    .saturating_mul(self.cell_h),
+                                    .saturating_mul(line_h),
                             ),
-                            height: self.cell_h,
+                            height: line_h,
                             text,
                             wraps: false,
                         });
@@ -1492,6 +1611,7 @@ impl Renderer {
                             left: 0,
                             text: text.trim_end().to_owned(),
                             grid: true,
+                            step: 0,
                             kind: CopyKind::Command,
                             join: Join::Break,
                         });
@@ -1499,7 +1619,7 @@ impl Renderer {
                 }
                 Part::Rich(r) => {
                     if r.image.is_none() {
-                        let first = p.top + self.scale + self.cell_h;
+                        let first = p.top + self.rich_text_top();
                         self.flow_rich(&mut out, p.index, &r.content, inner, first);
                     }
                 }
@@ -1520,10 +1640,15 @@ impl Renderer {
         first: u32,
     ) {
         let limit = inner * self.cell_w as usize * SUBPIXELS;
+        let step = match content {
+            Track0Block::Heading { level, .. } => heading_step(*level),
+            _ => 0,
+        };
+        let line_h = self.prose_set(step).height;
         let mut rows: Vec<(String, bool, CopyKind, Join)> = Vec::new();
         let mut flowed = |text: &str| {
             for paragraph in text.split('\n') {
-                let lines = wrap_by(paragraph, limit, &|c| self.advance(c));
+                let lines = wrap_by(paragraph, limit, &|c| self.advance_at(c, step));
                 let last = lines.len().saturating_sub(1);
                 let mut seen = 0usize;
                 for (i, line) in lines.into_iter().enumerate() {
@@ -1551,17 +1676,21 @@ impl Renderer {
             }
             Track0Block::ImageData { .. } => {}
         }
-        for (i, (text, grid, kind, join)) in rows.into_iter().enumerate() {
+        let mut top = first;
+        for (text, grid, kind, join) in rows {
+            let height = if grid { self.cell_h } else { line_h };
             out.push(FlowLine {
                 block,
-                top: first + u32::try_from(i).unwrap_or(0) * self.cell_h,
-                height: self.cell_h,
+                top,
+                height,
                 left: self.cell_w,
                 text,
                 grid,
+                step: if grid { 0 } else { step },
                 kind,
                 join,
             });
+            top += height;
         }
     }
 
@@ -1574,7 +1703,7 @@ impl Renderer {
             pos += if line.grid {
                 cells(c) * self.cell_w as usize * SUBPIXELS
             } else {
-                self.advance(c)
+                self.advance_at(c, line.step)
             };
         }
         u32::try_from((pos + SUBPIXELS / 2) / SUBPIXELS).unwrap_or(u32::MAX)
@@ -1589,7 +1718,7 @@ impl Renderer {
             let a = if line.grid {
                 cells(c) * self.cell_w as usize * SUBPIXELS
             } else {
-                self.advance(c)
+                self.advance_at(c, line.step)
             };
             if target < pos + a / 2 + a % 2 {
                 return i;
@@ -1686,8 +1815,27 @@ impl Renderer {
                 self.scale,
             );
         }
-        let (lines, _) = self.body(&block.content, columns.saturating_sub(2).max(1));
-        2 * self.scale + (1 + u32::try_from(lines.len()).unwrap_or(0)) * self.cell_h
+        let (lines, kind) = self.body(&block.content, columns.saturating_sub(2).max(1));
+        let rows = u32::try_from(lines.len()).unwrap_or(u32::MAX);
+        self.rich_text_top()
+            .saturating_add(rows.saturating_mul(self.line_height(kind)))
+            .saturating_add((RICH_PAD_Y_PX + RICH_MARGIN_PX + 1) * self.scale)
+    }
+
+    /// Pixels from the top of a rich block (with no image) to its first line:
+    /// the margin, the container's edge, its padding, the label and the gap
+    /// under it. Drawing, selection and search all start the text here.
+    fn rich_text_top(&self) -> u32 {
+        (RICH_MARGIN_PX + 1 + RICH_PAD_Y_PX + RICH_LABEL_GAP_PX) * self.scale
+            + self.prose_set(RICH_LABEL_STEP).height
+    }
+
+    /// The height of one line of a rich block's body of `kind`.
+    fn line_height(&self, kind: Style2) -> u32 {
+        match kind {
+            Style2::Heading(step) => self.prose_set(step).height,
+            Style2::Plain | Style2::Code => self.cell_h,
+        }
     }
 
     /// The size a decoded image is drawn at in a container `columns` wide; see
@@ -1714,41 +1862,59 @@ impl Renderer {
         let t = &self.theme;
         let width = u32::try_from(columns).unwrap_or(1) * self.cell_w;
         let height = self.rich_height(block, columns);
-        frame.fill(x, y, width, height, t.border);
-        frame.fill(
-            x + self.scale,
-            y + self.scale,
-            width.saturating_sub(2 * self.scale),
-            height.saturating_sub(2 * self.scale),
-            t.container,
-        );
         let inner = x + self.cell_w;
-        let mut line_y = y + self.scale;
-        self.text_line(frame, inner, line_y, CONTAINER_LABEL, t.label);
-        line_y += self.cell_h;
         if let Some(pixels) = &block.image {
+            frame.fill(x, y, width, height, t.border);
+            frame.fill(
+                x + self.scale,
+                y + self.scale,
+                width.saturating_sub(2 * self.scale),
+                height.saturating_sub(2 * self.scale),
+                t.container,
+            );
+            self.text_line(frame, inner, y + self.scale, CONTAINER_LABEL, t.label);
             image_draw::paint_block(
                 frame,
-                (inner, line_y),
+                (inner, y + self.scale + self.cell_h),
                 columns,
                 (self.cell_w, self.cell_h),
                 pixels,
             );
             return;
         }
-        let (lines, kind) = self.body(&block.content, columns.saturating_sub(2).max(1));
+        // The container: inside the margin above and below it.
+        let margin = RICH_MARGIN_PX * self.scale;
+        let (top, boxed) = (y + margin, height.saturating_sub(2 * margin));
+        frame.fill(x, top, width, boxed, t.border);
+        frame.fill(
+            x + self.scale,
+            top + self.scale,
+            width.saturating_sub(2 * self.scale),
+            boxed.saturating_sub(2 * self.scale),
+            t.container,
+        );
         let limit = u32::try_from(columns.saturating_sub(2).max(1)).unwrap_or(1) * self.cell_w;
+        self.proportional_line_at(
+            frame,
+            (inner, top + (1 + RICH_PAD_Y_PX) * self.scale),
+            CONTAINER_LABEL,
+            (t.label, RICH_LABEL_STEP),
+            (limit, &[]),
+        );
+        let (lines, kind) = self.body(&block.content, columns.saturating_sub(2).max(1));
+        let line_h = self.line_height(kind);
+        let colour = match kind {
+            Style2::Heading(_) => t.heading,
+            Style2::Plain | Style2::Code => t.foreground,
+        };
+        let mut line_y = y + self.rich_text_top();
         for (i, line) in lines.iter().enumerate() {
-            let colour = match kind {
-                Style2::Heading => t.heading,
-                _ => t.foreground,
-            };
             if kind == Style2::Code {
                 frame.fill(
                     x + self.scale,
                     line_y,
                     width.saturating_sub(2 * self.scale),
-                    self.cell_h,
+                    line_h,
                     t.code,
                 );
             }
@@ -1759,7 +1925,7 @@ impl Renderer {
                 (kind, colour),
                 (limit, marks.row(i)),
             );
-            line_y += self.cell_h;
+            line_y += line_h;
         }
     }
 
@@ -2674,8 +2840,20 @@ impl Renderer {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Style2 {
     Plain,
-    Heading,
+    /// A heading, set at this step of the type scale.
+    Heading(i8),
     Code,
+}
+
+/// The step of the type scale a heading of `level` is set at: 1 is the
+/// largest, 4 and deeper are the body size.
+fn heading_step(level: u8) -> i8 {
+    match level {
+        1 => 3,
+        2 => 2,
+        3 => 1,
+        _ => 0,
+    }
 }
 
 /// How wide a character is in the unit a layout counts in.
