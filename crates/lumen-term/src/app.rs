@@ -974,6 +974,7 @@ impl App {
             for hit in crate::linkhit::row_links(screen, row) {
                 let continues = stops.last().is_some_and(|prev| {
                     prev.last.0 + 1 == row
+                        && prev.last.1 == screen.columns()
                         && hit.columns.start == 0
                         && prev.hit.target == hit.target
                         && prev.hit.visible == hit.visible
@@ -1386,6 +1387,11 @@ impl App {
     fn begin_selection(&mut self, x: u32, y: u32) {
         let lines = self.flow();
         let had = self.selection.take().is_some();
+        // A selection the pointer makes is not the keyboard's focused link.
+        #[cfg(feature = "links-clipboard")]
+        {
+            self.links.focus = None;
+        }
         match self.pos_at(&lines, x, y, true) {
             Some(p) => {
                 self.selection = Some(Selection { anchor: p, head: p });
@@ -1446,6 +1452,12 @@ impl App {
     #[must_use]
     pub fn selected_text(&self) -> Option<String> {
         let sel = self.selection?;
+        // A link the keyboard focused copies as its own text: the screen rows
+        // it wrapped over are not line breaks in it.
+        #[cfg(feature = "links-clipboard")]
+        if let Some(stop) = &self.links.focus {
+            return Some(stop.hit.visible.clone());
+        }
         select::copy_selection(&self.flow(), &sel).map(|c| c.text)
     }
 

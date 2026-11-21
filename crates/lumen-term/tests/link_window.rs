@@ -807,7 +807,7 @@ fn a_wrapped_link_is_one_stop_and_is_selected_whole() {
         act(&mut app, Action::NextLink);
         seen.push((
             app.focused_link().map(|h| h.target.clone()),
-            app.selected_text().map(|t| t.replace('\n', "")),
+            app.selected_text(),
         ));
     }
     let long = Some(LONG.to_owned());
@@ -906,4 +906,53 @@ fn keypad_enter_asks_and_then_opens_like_enter() {
     assert!(lines(&app).contains(URL));
     key(&mut app);
     assert_eq!(opened.all(), [URL]);
+}
+
+fn grid_columns(app: &App) -> usize {
+    app.session()
+        .document()
+        .blocks()
+        .iter()
+        .find_map(|block| match block {
+            lumen_term::Block::Grid(grid) => Some(grid.size().0),
+            lumen_term::Block::Rich(_) => None,
+        })
+        .unwrap_or_else(|| unreachable!("a live grid"))
+}
+
+#[test]
+fn identical_links_split_by_a_space_in_the_last_column_are_two_stops() {
+    use lumen_term::actions::Action;
+    const Z: &str = "https://example.com/z";
+    let (mut probe, _) = start("echo probe; sleep 30");
+    assert!(pump_until(&mut probe, |a| shows(a, "probe")));
+    let columns = grid_columns(&probe);
+    drop(probe);
+    // The first address ends one column short of the edge, a space fills the
+    // last column, and the same address starts the next row: two links.
+    let pad = columns - 1 - Z.len();
+    let script = format!(
+        "printf '%{pad}s' ''; printf '%s' '{Z} {Z}'; printf '\\r\\n'; echo https://example.com/w; sleep 30"
+    );
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", &script],
+        1,
+        SIZE.0,
+        SIZE.1,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/w")));
+    let mut stops = Vec::new();
+    for _ in 0..3 {
+        act(&mut app, Action::NextLink);
+        stops.push(app.selected_text());
+    }
+    let (z, w) = (Some(Z.to_owned()), Some("https://example.com/w".to_owned()));
+    assert_eq!(
+        stops,
+        [z.clone(), z, w],
+        "two stops for the two links, then the next"
+    );
 }
