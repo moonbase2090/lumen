@@ -24,6 +24,7 @@ use crate::APP_NAME;
 #[must_use]
 pub const fn id_of(action: Action) -> &'static str {
     match action {
+        Action::NewWindow => "new-window",
         Action::NewTab => "new-tab",
         Action::NextTab => "next-tab",
         Action::PreviousTab => "previous-tab",
@@ -46,6 +47,7 @@ pub const fn id_of(action: Action) -> &'static str {
 #[must_use]
 pub fn action_of(id: &str) -> Option<Action> {
     [
+        Action::NewWindow,
         Action::NewTab,
         Action::NextTab,
         Action::PreviousTab,
@@ -151,6 +153,7 @@ impl MenuBar {
             "Window",
             true,
             &[
+                &item(Action::NewWindow, "New Window", Code::KeyN),
                 &item(Action::NewTab, "New Tab", Code::KeyT),
                 &item_with(
                     Action::PreviousTab,

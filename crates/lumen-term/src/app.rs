@@ -1828,9 +1828,11 @@ impl App {
         }
         match action {
             Action::Quit | Action::Close => Outcome::Exit,
-            Action::NewTab | Action::NextTab | Action::PreviousTab | Action::Settings => {
-                Outcome::Nothing
-            }
+            Action::NewWindow
+            | Action::NewTab
+            | Action::NextTab
+            | Action::PreviousTab
+            | Action::Settings => Outcome::Nothing,
             Action::Find => {
                 self.find_open();
                 Outcome::Redraw

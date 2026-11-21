@@ -83,6 +83,8 @@ mod tabs;
 pub mod theme_file;
 pub mod title;
 pub mod typed;
+#[cfg(feature = "window")]
+mod window_state;
 mod writer;
 
 pub use app::App;

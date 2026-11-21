@@ -10,6 +10,8 @@
 /// Something the window does for the user, apart from typing into the program.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
+    /// Open another window with its own tabs and programs.
+    NewWindow,
     /// Open another shell in a new tab and show it.
     NewTab,
     /// Show the tab to the right, wrapping at the end.
@@ -92,6 +94,7 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 return None;
             }
             match (key, held.shift) {
+                ('n', false) => Some(Action::NewWindow),
                 ('t', false) => Some(Action::NewTab),
                 (']' | '}', true) => Some(Action::NextTab),
                 ('[' | '{', true) => Some(Action::PreviousTab),
@@ -115,6 +118,7 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 return None;
             }
             match key {
+                'n' => Some(Action::NewWindow),
                 't' => Some(Action::NewTab),
                 ']' | '}' => Some(Action::NextTab),
                 '[' | '{' => Some(Action::PreviousTab),
