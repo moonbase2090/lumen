@@ -405,7 +405,7 @@ struct Host {
     /// Whether the operating system says this window owns the focus.
     focused: bool,
     /// The last answer the system gave about reduced motion, kept when a later read gives none.
-    reduce_motion: std::cell::Cell<bool>,
+    reduce_motion: std::cell::Cell<Option<bool>>,
     /// A button whose press began in the active tab's content. Its drag and
     /// release stay with the content when the pointer crosses the tab strip.
     mouse_capture: Option<MouseButton>,
@@ -468,10 +468,13 @@ impl Host {
         app.set_theme_choice(look.theme);
         app.set_copy_on_select(raw.copy_on_select);
         app.set_smooth_scroll(raw.smooth_scroll);
-        if let Some(reduce) = crate::motion::system_reduces_motion() {
-            self.reduce_motion.set(reduce);
+        // Read once, when the window first needs it; later answers come on focus
+        // and reach every tab, so a new tab never differs from the others.
+        if self.reduce_motion.get().is_none() {
+            self.reduce_motion
+                .set(crate::motion::system_reduces_motion());
         }
-        app.set_reduce_motion(self.reduce_motion.get());
+        app.set_reduce_motion(self.reduce_motion.get().unwrap_or(false));
         app.set_appearance(appearance(window.theme()));
         if let Err(e) = app.set_fonts(&look.fonts) {
             eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
@@ -819,9 +822,9 @@ impl Host {
         self.focused = focused;
         // The system setting can change while another window has the focus.
         if focused && let Some(reduce) = crate::motion::system_reduces_motion() {
-            self.reduce_motion.set(reduce);
+            self.reduce_motion.set(Some(reduce));
         }
-        let reduce = self.reduce_motion.get();
+        let reduce = self.reduce_motion.get().unwrap_or(false);
         let Some(run) = &mut self.state else { return };
         let active = run.tabs.active_index();
         for (index, tab) in run.tabs.iter_mut().enumerate() {
@@ -1142,7 +1145,7 @@ pub fn run(config: Config) -> Result<(), String> {
         pointer: (0, 0),
         ime: ImeFollower::default(),
         focused: false,
-        reduce_motion: std::cell::Cell::new(false),
+        reduce_motion: std::cell::Cell::new(None),
         mouse_capture: None,
         next_settings_check: Instant::now(),
     };

@@ -281,10 +281,15 @@ fn cursor_on(now: u64, epoch: u64, reduce_motion: bool) -> bool {
 
 #[cfg(test)]
 mod motion_tests {
-    use super::{App, CURSOR_BLINK_MS, cursor_on};
+    #[cfg(unix)]
+    use super::App;
+    use super::{CURSOR_BLINK_MS, cursor_on};
+    #[cfg(unix)]
     use crate::{Block, Passthrough};
+    #[cfg(unix)]
     use std::time::{Duration, Instant};
 
+    #[cfg(unix)]
     fn blinking_app() -> App {
         let mut app = App::start(
             Box::new(Passthrough),
@@ -313,6 +318,7 @@ mod motion_tests {
         app
     }
 
+    #[cfg(unix)]
     #[test]
     fn less_motion_brings_a_cursor_caught_in_its_off_half_back_on_and_asks_for_a_frame() {
         let mut app = blinking_app();
@@ -327,6 +333,7 @@ mod motion_tests {
         assert!(!app.cursor_blinks());
     }
 
+    #[cfg(unix)]
     #[test]
     fn less_motion_asks_for_no_frame_when_the_cursor_is_already_on() {
         let mut app = blinking_app();
@@ -335,6 +342,7 @@ mod motion_tests {
         assert!(app.cursor_phase);
     }
 
+    #[cfg(unix)]
     #[test]
     fn turning_less_motion_off_again_lets_the_cursor_blink() {
         let mut app = blinking_app();

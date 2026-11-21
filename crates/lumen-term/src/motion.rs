@@ -24,10 +24,15 @@ const GNOME_READ: (&str, [&str; 3]) = (
     ["get", "org.gnome.desktop.interface", "enable-animations"],
 );
 
+/// What `defaults` says when the key has never been written.
+const MACOS_ABSENT: &str =
+    "The domain/default pair of (com.apple.universalaccess, reduceMotion) does not exist";
+
 /// What `defaults read com.apple.universalaccess reduceMotion` said. `1` is on
 /// and `0` is off. The key is absent until Reduce motion has been turned on
-/// once, and then `defaults` fails saying the pair does not exist: that is
-/// off. Any other failure, or text that is not `0` or `1`, is no answer.
+/// once, and then `defaults` fails saying that very pair does not exist: that
+/// is off. Any other failure (including the same words about another domain
+/// or key), or text that is not `0` or `1`, is no answer.
 #[must_use]
 pub fn macos_answer(succeeded: bool, stdout: &str, stderr: &str) -> Option<bool> {
     if succeeded {
@@ -37,7 +42,7 @@ pub fn macos_answer(succeeded: bool, stdout: &str, stderr: &str) -> Option<bool>
             _ => None,
         }
     } else {
-        stderr.contains("does not exist").then_some(false)
+        stderr.contains(MACOS_ABSENT).then_some(false)
     }
 }
 
@@ -102,6 +107,10 @@ mod tests {
     #[test]
     fn a_macos_read_that_failed_another_way_or_said_something_else_is_no_answer() {
         assert_eq!(macos_answer(false, "", "Operation not permitted"), None);
+        let other = "The domain/default pair of (com.example.other, reduceMotion) does not exist\n";
+        assert_eq!(macos_answer(false, "", other), None);
+        let file = "/Users/x/Library/Preferences/com.apple.universalaccess.plist does not exist\n";
+        assert_eq!(macos_answer(false, "", file), None);
         assert_eq!(macos_answer(false, "", ""), None);
         assert_eq!(macos_answer(true, "", ""), None);
         assert_eq!(macos_answer(true, "2\n", ""), None);
