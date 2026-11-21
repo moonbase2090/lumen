@@ -274,6 +274,7 @@ fn the_editor_prompt_is_drawn_in_the_accent() -> Result<(), Box<dyn std::error::
         focused: false,
         status: None,
         hint: None,
+        preedit: None,
     };
     let frame = r.render_window_input(
         &lumen_term::Document::new(1, 1),
@@ -518,6 +519,7 @@ fn a_held_choice_shows_the_lines_and_the_hint_under_them() -> Result<(), Box<dyn
         focused: true,
         status: None,
         hint: hint.map(str::to_owned),
+        preedit: None,
     };
     let render = |v: &lumen_term::raster::InputView| {
         r.render_window_input(

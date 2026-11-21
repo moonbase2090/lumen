@@ -3,8 +3,8 @@
 //!
 //! Nothing here opens anything or judges a target: a [`Hit`] says what is
 //! under a cell and who produced it, and [`crate::link::check`] decides what
-//! the target may do. A row is read on its own, so an address broken across
-//! two rows is found only as far as the first row goes.
+//! the target may do. Primary-screen soft wraps join rows into one logical
+//! line; a hit keeps the whole target and the columns it covers on this row.
 
 use prismattyc_core::{Cell, Screen};
 use std::ops::Range;
@@ -18,12 +18,12 @@ pub enum Producer {
     Detected,
 }
 
-/// A link on one row of the grid.
+/// The part of a link on one row of the grid, with its full target and text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hit {
     /// The target, as the program wrote it or as the text reads.
     pub target: String,
-    /// The text of the cells the link covers.
+    /// The link's text, including its soft-wrapped continuations.
     pub visible: String,
     /// Who made it.
     pub producer: Producer,
@@ -34,15 +34,19 @@ pub struct Hit {
 /// The longest address the scan takes, in characters. A longer run is not a link.
 const MAX_DETECTED: usize = 2048;
 
+#[cfg(test)]
+thread_local! {
+    static SCAN_WORK: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
 /// Every link on `row` of `screen`, left to right. A program's OSC 8 link
 /// covers its cells; a written address is found only where no OSC 8 link is.
 #[must_use]
 pub fn row_links(screen: &Screen, row: usize) -> Vec<Hit> {
-    let Some(cells) = screen.row(row) else {
+    if row >= screen.rows() {
         return Vec::new();
-    };
-    let uri = |col: usize| screen.hyperlink_uri_at_view(0, row, col).map(str::to_owned);
-    links_in(cells, &uri)
+    }
+    logical_links(screen, screen.max_view_scroll() + row)
 }
 
 /// Every written address in `cells`, a row of scrollback or of the screen,
@@ -57,18 +61,91 @@ pub fn cell_links(cells: &[Cell]) -> Vec<Hit> {
 /// left to right, the program's as well as written addresses.
 #[must_use]
 pub fn history_links(screen: &Screen, back: usize) -> Vec<Hit> {
-    let hist = screen.max_view_scroll();
-    let Some(cells) = screen.scrollback().get(back).filter(|_| back < hist) else {
+    if back >= screen.max_view_scroll() {
         return Vec::new();
+    }
+    logical_links(screen, back)
+}
+
+fn flow_row(screen: &Screen, row: usize) -> Option<&[Cell]> {
+    let history = screen.max_view_scroll();
+    let cells = if row < history {
+        screen.scrollback().get(row).map(Vec::as_slice)
+    } else {
+        screen.row(row - history)
     };
-    // A view scrolled `hist - back` lines shows that line as its first row.
-    let offset = hist - back;
+    #[cfg(test)]
+    if let Some(cells) = cells {
+        SCAN_WORK.with(|work| {
+            let (rows, count) = work.get();
+            work.set((rows + 1, count + cells.len()));
+        });
+    }
+    cells
+}
+
+fn logical_links(screen: &Screen, row: usize) -> Vec<Hit> {
+    let history = screen.max_view_scroll();
+    let total = history + screen.rows();
+    // The upstream history wrap flags describe the primary screen. Do not
+    // apply them to unrelated alternate-screen cells.
+    let wrapped = |at| !screen.alt_active() && screen.history_line_wrapped(at);
+    let mut first = row;
+    let mut before = 0;
+    // More than one maximum-length address on either side keeps a clipped
+    // context from truncating a valid detected link that touches this row.
+    while first > 0 && before <= MAX_DETECTED && wrapped(first - 1) {
+        first -= 1;
+        before += flow_characters(screen, first);
+    }
+    let mut last = row;
+    let mut after = 0;
+    while last + 1 < total && after <= MAX_DETECTED && wrapped(last) {
+        last += 1;
+        after += flow_characters(screen, last);
+    }
+    let mut cells = Vec::new();
+    let mut offsets = Vec::new();
+    for at in first..=last {
+        offsets.push(cells.len());
+        cells.extend_from_slice(flow_row(screen, at).unwrap_or_default());
+    }
+    let start = offsets[row - first];
+    let end = start + flow_row(screen, row).map_or(0, <[Cell]>::len);
     let uri = |col: usize| {
+        let part = offsets.partition_point(|offset| *offset <= col) - 1;
+        let at = first + part;
+        let column = col - offsets[part];
+        let (scroll, view_row) = if at < history {
+            (history - at, 0)
+        } else {
+            (0, at - history)
+        };
         screen
-            .hyperlink_uri_at_view(offset, 0, col)
+            .hyperlink_uri_at_view(scroll, view_row, column)
             .map(str::to_owned)
     };
-    links_in(cells, &uri)
+    links_in(&cells, &uri)
+        .into_iter()
+        .filter_map(|mut hit| {
+            let left = hit.columns.start.max(start);
+            let right = hit.columns.end.min(end);
+            if left >= right {
+                return None;
+            }
+            hit.columns = left - start..right - start;
+            Some(hit)
+        })
+        .collect()
+}
+
+fn flow_characters(screen: &Screen, row: usize) -> usize {
+    flow_row(screen, row)
+        .unwrap_or_default()
+        .iter()
+        .filter(|cell| !cell.wide_cont)
+        .count()
+        .max(1)
 }
 
 /// The link under column `col` of `row`, if there is one.
@@ -244,6 +321,122 @@ mod tests {
             targets("see https://example.com/a?b=1 now"),
             vec![("https://example.com/a?b=1".to_owned(), 4..29)]
         );
+    }
+
+    #[test]
+    fn a_soft_wrapped_address_has_its_full_target_on_both_rows() {
+        let mut block = GridBlock::new(20, 4);
+        block.feed(b"see https://example.org/path");
+        let first = row_links(block.screen(), 0);
+        let next = row_links(block.screen(), 1);
+        assert_eq!(first.len(), 1);
+        assert_eq!(next.len(), 1);
+        assert_eq!(first[0].target, "https://example.org/path");
+        assert_eq!(next[0].target, "https://example.org/path");
+        assert_eq!(first[0].visible, "https://example.org/path");
+        assert_eq!(next[0].visible, "https://example.org/path");
+        assert_eq!(first[0].columns, 4..20);
+        assert_eq!(next[0].columns, 0..8);
+    }
+
+    #[test]
+    fn an_address_split_by_a_real_newline_is_not_joined() {
+        let mut block = GridBlock::new(20, 4);
+        block.feed(b"https://example.org/\r\npath");
+        assert_eq!(
+            row_links(block.screen(), 0)[0].target,
+            "https://example.org/"
+        );
+        assert_eq!(row_links(block.screen(), 1).len(), 0);
+    }
+
+    #[test]
+    fn a_wrapped_scheme_is_found_across_the_history_screen_boundary() {
+        let mut block = GridBlock::new(12, 2);
+        block.feed(b"1234567 https://example.org/path ");
+        assert_eq!(block.history_rows(), 1);
+        let first = history_links(block.screen(), 0);
+        let second = row_links(block.screen(), 0);
+        let third = row_links(block.screen(), 1);
+        assert_eq!(first[0].target, "https://example.org/path");
+        assert_eq!(second[0].target, "https://example.org/path");
+        assert_eq!(third[0].target, "https://example.org/path");
+        assert_eq!(first[0].columns, 8..12);
+        assert_eq!(second[0].columns, 0..12);
+        assert_eq!(third[0].columns, 0..8);
+    }
+
+    #[test]
+    fn a_wrapped_address_keeps_punctuation_and_osc8_precedence() {
+        let mut block = GridBlock::new(20, 4);
+        block.feed(b"(https://example.org/path).");
+        assert_eq!(
+            row_links(block.screen(), 0)[0].target,
+            "https://example.org/path"
+        );
+        assert_eq!(row_links(block.screen(), 1)[0].columns, 0..5);
+        block = GridBlock::new(20, 4);
+        block.feed(b"\x1b]8;;https://other.test/\x07https://example.org/path\x1b]8;;\x07");
+        for row in 0..2 {
+            let hits = row_links(block.screen(), row);
+            assert_eq!(hits.len(), 1);
+            assert_eq!(hits[0].producer, Producer::Program);
+            assert_eq!(hits[0].target, "https://other.test/");
+            assert_eq!(hits[0].visible, "https://example.org/path");
+        }
+    }
+
+    #[test]
+    fn an_over_limit_wrapped_address_is_not_a_link_to_its_prefix() {
+        let mut block = GridBlock::new(31, 70);
+        let address = format!("https://e.org/{}", "a".repeat(2048));
+        block.feed(address.as_bytes());
+        assert_eq!(row_links(block.screen(), 0).len(), 0);
+        assert_eq!(row_links(block.screen(), 20).len(), 0);
+    }
+
+    #[test]
+    fn a_million_character_wrapped_line_has_bounded_scan_work() {
+        let mut emulator = prismattyc_emulator::Emulator::new(80, 24, 20_000);
+        emulator.feed(&vec![b'x'; 1_000_000]);
+        let screen = emulator.screen();
+        assert!(screen.max_view_scroll() > 10_000);
+        for (history, row) in [(false, 0), (false, 12), (false, 23), (true, 6_000)] {
+            SCAN_WORK.with(|work| work.set((0, 0)));
+            let links = if history {
+                history_links(screen, row)
+            } else {
+                row_links(screen, row)
+            };
+            assert_eq!(links.len(), 0);
+            let (rows, cells) = SCAN_WORK.with(std::cell::Cell::get);
+            assert!(rows <= 256, "visited {rows} rows for one visible row");
+            assert!(cells <= 20_000, "visited {cells} cells for one visible row");
+        }
+    }
+
+    #[test]
+    fn a_maximum_length_wrapped_address_is_whole_near_both_context_edges() {
+        let address = format!("https://e.org/{}", "a".repeat(2034));
+        let mut block = GridBlock::new(31, 70);
+        block.feed(address.as_bytes());
+        for row in [0, 30, 60, 66] {
+            let links = row_links(block.screen(), row);
+            assert_eq!(links.len(), 1);
+            assert_eq!(links[0].target, address);
+        }
+    }
+
+    #[test]
+    fn primary_wrap_flags_do_not_join_unrelated_alternate_screen_rows() {
+        let mut block = GridBlock::new(20, 4);
+        block.feed(b"a primary line that wraps onto the next row");
+        block.feed(b"\x1b[?1049hhttps://example.org/\r\npath");
+        assert_eq!(
+            row_links(block.screen(), 0)[0].target,
+            "https://example.org/"
+        );
+        assert_eq!(row_links(block.screen(), 1).len(), 0);
     }
 
     #[test]

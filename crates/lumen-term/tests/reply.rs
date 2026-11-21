@@ -2,11 +2,24 @@
 //! program on a PTY that asks and reads what the terminal writes back.
 
 use lumen_term::reply::{
-    ColourQuery, MAX_PER_READ, MAX_PER_WINDOW, Replies, WINDOW_MS, parse_query,
+    ColourQuery, CursorQueryEnds, MAX_PER_READ, MAX_PER_WINDOW, Replies, WINDOW_MS, parse_query,
 };
 use lumen_term::{Context, Document, Layer, Passthrough, Session, Theme};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
+
+/// The cursor-position reports the grids of a document hold, as the session
+/// takes them.
+fn cursor_reports(d: &Document) -> Vec<(u32, u32)> {
+    d.blocks()
+        .iter()
+        .filter_map(|b| match b {
+            lumen_term::Block::Grid(g) => Some(g.take_cursor_reports()),
+            lumen_term::Block::Rich(_) => None,
+        })
+        .flatten()
+        .collect()
+}
 
 fn light() -> Replies {
     Replies::new(Theme::light())
@@ -281,6 +294,97 @@ fn the_document_keeps_a_bounded_number_of_unanswered_queries() {
     d.receive(&mut Passthrough, &flood, at(0));
     assert_eq!(d.take_colour_queries().len(), 64);
     assert_eq!(d.take_colour_queries(), [], "taking empties the queue");
+}
+
+#[test]
+fn a_cursor_position_query_makes_a_report_of_where_the_cursor_is_when_it_asks() {
+    let mut d = Document::new(40, 6);
+    // The cursor is at row 2, column 4 when the query arrives, and the program
+    // goes on to move it before the read ends: the report is for the query.
+    d.receive(&mut Passthrough, b"ab\r\n  x\x1b[6n\x1b[5;9Hmore", at(0));
+    assert_eq!(cursor_reports(&d), [(2, 4)]);
+    assert_eq!(cursor_reports(&d), [], "taking empties the queue");
+}
+
+#[test]
+fn queries_other_than_cursor_position_make_no_report() {
+    let mut d = Document::new(40, 6);
+    // Device status, primary attributes and the size reports all have answers
+    // in the emulator; the terminal sends none of them.
+    d.receive(
+        &mut Passthrough,
+        b"\x1b[5n\x1b[c\x1b[14t\x1b[16t\x1b[18t",
+        at(0),
+    );
+    assert_eq!(cursor_reports(&d), []);
+}
+
+#[test]
+fn the_document_keeps_a_bounded_number_of_unanswered_cursor_queries() {
+    let mut d = Document::new(40, 4);
+    d.receive(&mut Passthrough, &b"\x1b[6n".repeat(1000), at(0));
+    assert_eq!(cursor_reports(&d).len(), 64);
+}
+
+#[test]
+fn a_cursor_report_is_the_fixed_form_and_shares_the_reply_limits() {
+    let mut replies = light();
+    let reports: Vec<(u32, u32)> = (1..=20).map(|n| (n, n + 1)).collect();
+    let got = replies.answer_cursor(&reports, 0);
+    let want: Vec<u8> = (1..=8_u32)
+        .flat_map(|n| format!("\x1b[{n};{}R", n + 1).into_bytes())
+        .collect();
+    assert_eq!(MAX_PER_READ, 8);
+    assert_eq!(got, want, "at most eight for one read");
+    // Four more full reads fill the window (forty replies); a colour query in
+    // it then gets no answer, and one after the window has slid does.
+    for _ in 0..4 {
+        assert_eq!(replies.answer_cursor(&reports, 10).len(), want.len());
+    }
+    assert_eq!(replies.answer_cursor(&reports, 20), []);
+    assert_eq!(replies.answer(&[ColourQuery::Special(11)], 30), []);
+    assert_eq!(
+        replies
+            .answer(&[ColourQuery::Special(11)], WINDOW_MS + 30)
+            .first(),
+        Some(&0x1b)
+    );
+}
+
+#[test]
+fn the_pieces_of_one_read_share_its_eight_answers() {
+    let mut replies = light();
+    let mut left = MAX_PER_READ;
+    let cursor: Vec<(u32, u32)> = (1..=6).map(|n| (n, n)).collect();
+    let colour = [ColourQuery::Special(11); 6];
+    let first = replies.answer_cursor_within(&cursor, 0, &mut left);
+    assert_eq!(first.len(), "\x1b[1;1R".len() * 6);
+    assert_eq!(left, 2);
+    let second = replies.answer_within(&colour, 0, &mut left);
+    assert_eq!(second.windows(2).filter(|w| w == b"\x1b]").count(), 2);
+    assert_eq!(left, 0);
+    assert_eq!(replies.answer_cursor_within(&cursor, 0, &mut left), []);
+    // The next read has its own eight.
+    let mut next = MAX_PER_READ;
+    assert_eq!(
+        replies.answer_cursor_within(&cursor, 1, &mut next).len(),
+        "\x1b[1;1R".len() * 6
+    );
+}
+
+#[test]
+fn the_end_of_a_cursor_query_is_found_across_reads_and_only_for_that_query() {
+    let ends = |chunks: &[&[u8]]| {
+        let mut scan = CursorQueryEnds::default();
+        chunks
+            .iter()
+            .map(|c| c.iter().filter(|b| scan.step(**b)).count())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ends(&[b"x\x1b[6ny\x1b[6n"]), [2]);
+    assert_eq!(ends(&[b"\x1b[", b"6", b"n"]), [0, 0, 1]);
+    assert_eq!(ends(&[b"\x1b\x1b[6n"]), [1], "a stray ESC does not hide it");
+    assert_eq!(ends(&[b"\x1b[5n\x1b[16n\x1b[?6n\x1b[6;1n"]), [0]);
 }
 
 #[cfg(all(unix, feature = "colour-replies"))]

@@ -13,7 +13,7 @@
 use lumen_term::App;
 use lumen_term::cli::{Options, USAGE};
 use lumen_term::policy::Policy;
-use lumen_term::settings::{Look, Settings};
+use lumen_term::settings::{Look, Settings, Watcher as SettingsWatcher};
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -73,8 +73,7 @@ fn snapshot(o: &Options, policy: &Policy, look: &Look, path: &str) -> Result<(),
 }
 
 #[cfg(feature = "window")]
-fn window(o: &Options, policy: &Policy, look: &Look, wheel: (bool, bool)) -> Result<(), String> {
-    let (copy_on_select, smooth_scroll) = wheel;
+fn window(o: &Options, policy: &Policy, settings: SettingsWatcher) -> Result<(), String> {
     lumen_term::host::run(lumen_term::host::Config {
         layer: Box::new(layer),
         command: o.command.clone(),
@@ -83,17 +82,12 @@ fn window(o: &Options, policy: &Policy, look: &Look, wheel: (bool, bool)) -> Res
         exit_after: o.exit_after,
         notifications: policy.settings(),
         images: policy.images(),
-        theme: look.theme,
-        fonts: look.fonts.clone(),
-        copy_on_select,
-        smooth_scroll,
-        shell: look.shell.clone(),
-        shell_integration: look.shell_integration,
+        settings,
     })
 }
 
 #[cfg(not(feature = "window"))]
-fn window(_: &Options, _: &Policy, _: &Look, _: (bool, bool)) -> Result<(), String> {
+fn window(_: &Options, _: &Policy, _: SettingsWatcher) -> Result<(), String> {
     Err("this build has no window: build with --features window, or use --snapshot".into())
 }
 
@@ -169,26 +163,18 @@ fn main() -> ExitCode {
     if let Some(notice) = policy.notice() {
         eprintln!("bright: {notice}");
     }
-    let settings = lumen_term::settings::load();
-    let look = settings.look().resolve();
+    let settings = SettingsWatcher::system();
+    let look = settings.current().look().resolve();
     if options.show_settings {
-        println!("{}", describe_settings(&settings, &look));
+        println!("{}", describe_settings(settings.current(), &look));
         return ExitCode::SUCCESS;
     }
-    for notice in settings.notice().iter().chain(&look.notices) {
+    for notice in settings.current().notice().iter().chain(&look.notices) {
         eprintln!("bright: {notice}");
     }
     let result = match &options.snapshot {
         Some(path) => snapshot(&options, &policy, &look, path),
-        None => window(
-            &options,
-            &policy,
-            &look,
-            (
-                settings.look().copy_on_select,
-                settings.look().smooth_scroll,
-            ),
-        ),
+        None => window(&options, &policy, settings),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

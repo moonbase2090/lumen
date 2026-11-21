@@ -147,6 +147,57 @@ pub struct InputView {
     pub status: Option<String>,
     /// A line under the text, inside the box: the choice a held line waits for.
     pub hint: Option<String>,
+    /// Text being composed at the caret, drawn there with the rest of the line moved right.
+    pub preedit: Option<PreeditView>,
+}
+
+impl InputView {
+    /// The same caret as `caret`, with its column in display cells.
+    pub(crate) fn caret_cell(&self) -> Option<(usize, u32)> {
+        let (line, character) = self.caret?;
+        let column = self.lines.get(line).map_or(0, |text| {
+            Self::cell_offsets(text)
+                .take(character.saturating_add(1))
+                .last()
+                .unwrap_or(0)
+        });
+        Some((line, u32::try_from(column).unwrap_or(u32::MAX)))
+    }
+
+    /// A click inside a wide character goes to its leading boundary.
+    pub(crate) fn character_at_cell(&self, line: usize, column: usize) -> usize {
+        self.lines.get(line).map_or(0, |text| {
+            Self::cell_offsets(text)
+                .take_while(|&offset| offset <= column)
+                .count()
+                .saturating_sub(1)
+        })
+    }
+
+    fn cell_offsets(text: &str) -> impl Iterator<Item = usize> + '_ {
+        std::iter::once(0).chain(text.chars().map(cells).scan(0, |offset, width| {
+            *offset += width;
+            Some(*offset)
+        }))
+    }
+
+    /// The first line shown when the box scrolls to keep the caret in view.
+    pub(crate) fn visible_first_line(&self, rows: usize) -> usize {
+        let caret_line = self.caret.map_or(0, |(line, _)| line);
+        (caret_line + 1)
+            .saturating_sub(rows)
+            .min(self.lines.len().saturating_sub(rows))
+    }
+}
+
+/// The text an input method is composing, to draw where it will go: at the caret of the box
+/// or at the program's cursor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreeditView {
+    /// The unfinished text.
+    pub text: String,
+    /// The caret or the selected clause, as byte offsets into `text`; `None` hides the caret.
+    pub cursor: Option<(usize, usize)>,
 }
 
 /// Most lines of text the box shows before it scrolls.
@@ -1165,8 +1216,10 @@ impl Renderer {
     }
 
     /// The rows of text in the flow that can be searched, top down: every row
-    /// of a grid block (its history and its screen) with trailing blanks
-    /// removed, and every line of a rich block as it is drawn. A strip's label is
+    /// of a grid block (its history and its screen), and every line of a rich
+    /// block as it is drawn. A grid row has its trailing blanks removed, except a
+    /// row the terminal wrapped, which keeps them so the next row joins on at the
+    /// right column. A strip's label is
     /// the terminal's own text and an image has no text, so neither is a row.
     #[must_use]
     pub fn search_rows(&self, doc: &Document, columns: usize) -> Vec<SearchRow> {
@@ -1189,6 +1242,7 @@ impl Renderer {
                             .filter(|c| !c.wide_cont)
                             .map(|c| c.character)
                             .collect();
+                        let wraps = g.row_wraps(k);
                         out.push(SearchRow {
                             block: p.index,
                             row: k,
@@ -1198,7 +1252,12 @@ impl Renderer {
                                     .saturating_mul(self.cell_h),
                             ),
                             height: self.cell_h,
-                            text: text.trim_end().to_owned(),
+                            text: if wraps {
+                                text
+                            } else {
+                                text.trim_end().to_owned()
+                            },
+                            wraps,
                         });
                     }
                 }
@@ -1216,6 +1275,7 @@ impl Renderer {
                             ),
                             height: self.cell_h,
                             text,
+                            wraps: false,
                         });
                     }
                 }
@@ -1686,6 +1746,138 @@ impl Renderer {
         }
     }
 
+    /// The text of `text` that fits in `cells` columns, and the columns it takes. A two-column
+    /// character that would cross the edge is left out.
+    fn clip_cells(text: &str, cells: usize) -> (String, usize) {
+        let mut used = 0usize;
+        let mut out = String::new();
+        for ch in text.chars() {
+            let w = grapheme_display_width(ch, &[]);
+            if used + w > cells {
+                break;
+            }
+            used += w;
+            out.push(ch);
+        }
+        (out, used)
+    }
+
+    /// The columns `text` takes.
+    fn cells_of(text: &str) -> usize {
+        text.chars().map(|c| grapheme_display_width(c, &[])).sum()
+    }
+
+    /// Draw composing text from `(x, y)`, at most `room` columns wide: the text on the editor's
+    /// background, underlined across what is drawn (a thicker line under the clause the input
+    /// method has selected), and a bar caret where the input method puts it. Returns the
+    /// columns used.
+    fn paint_preedit_run(
+        &self,
+        frame: &mut Frame,
+        (x, y): (u32, u32),
+        room: usize,
+        (preedit, focused, inset): (&PreeditView, bool, u32),
+    ) -> usize {
+        let t = &self.theme;
+        let (shown, used) = Self::clip_cells(&preedit.text, room);
+        let width = u32::try_from(used).unwrap_or(0) * self.cell_w;
+        let top = inset.min(self.cell_h / 2);
+        frame.fill(x, y + top, width, self.cell_h - top, t.editor);
+        self.text_line(frame, x, y, &shown, t.foreground);
+        let line = if focused { t.prompt } else { t.muted };
+        let thin = self.scale.max(1).min(self.cell_h);
+        let thick = (2 * self.scale).max(2).min(self.cell_h);
+        let base = y + self.cell_h;
+        let selected = preedit
+            .cursor
+            .filter(|&(a, b)| a < b)
+            .map(|(a, b)| (a.min(preedit.text.len()), b.min(preedit.text.len())));
+        frame.fill(x, base - thin, width, thin, line);
+        if let Some((a, b)) = selected {
+            let before = Self::clip_cells(preedit.text.get(..a).unwrap_or(""), used).1;
+            let inside = Self::clip_cells(preedit.text.get(a..b).unwrap_or(""), used - before).1;
+            frame.fill(
+                x + u32::try_from(before).unwrap_or(0) * self.cell_w,
+                base - thick,
+                u32::try_from(inside).unwrap_or(0) * self.cell_w,
+                thick,
+                line,
+            );
+        }
+        if let Some((a, _)) = preedit.cursor.filter(|&(a, b)| a == b && focused) {
+            let before = Self::clip_cells(preedit.text.get(..a).unwrap_or(""), used).1;
+            frame.fill(
+                x + u32::try_from(before).unwrap_or(0) * self.cell_w,
+                y,
+                self.scale.max(2),
+                self.cell_h,
+                t.prompt,
+            );
+        }
+        used
+    }
+
+    /// Draw the line of the box the caret is on while text is being composed at `col`: the
+    /// text before the caret, the composing text, then the rest of the line moved to the right,
+    /// all clipped to `room` columns.
+    fn paint_composing_line(
+        &self,
+        frame: &mut Frame,
+        (x, y): (u32, u32),
+        room: usize,
+        (line, col): (&str, usize),
+        preedit: (&PreeditView, bool),
+    ) {
+        let split = line
+            .char_indices()
+            .nth(col)
+            .map_or(line.len(), |(at, _)| at);
+        let (before, after) = line.split_at(split);
+        let (before, before_cells) = Self::clip_cells(before, room);
+        self.text_line(frame, x, y, &before, self.theme.foreground);
+        let used = self.paint_preedit_run(
+            frame,
+            (
+                x + u32::try_from(before_cells).unwrap_or(0) * self.cell_w,
+                y,
+            ),
+            room - before_cells,
+            (preedit.0, preedit.1, self.scale),
+        );
+        let left = before_cells + used;
+        let (after, _) = Self::clip_cells(after, room - left);
+        self.text_line(
+            frame,
+            x + u32::try_from(left).unwrap_or(0) * self.cell_w,
+            y,
+            &after,
+            self.theme.foreground,
+        );
+    }
+
+    /// Draw composing text over the grid, from pixel `(x, y)` (the program's cursor) to no
+    /// further than pixel `right`. The program's cells under it are covered while it is there.
+    pub fn paint_preedit(
+        &self,
+        frame: &mut Frame,
+        (x, y): (u32, u32),
+        right: u32,
+        preedit: &PreeditView,
+        focused: bool,
+    ) {
+        let room = (right.saturating_sub(x) / self.cell_w.max(1)) as usize;
+        if room == 0 {
+            return;
+        }
+        self.paint_preedit_run(frame, (x, y), room, (preedit, focused, 0));
+    }
+
+    /// How wide `text` is drawn, in columns.
+    #[must_use]
+    pub fn preedit_columns(text: &str) -> u32 {
+        u32::try_from(Self::cells_of(text)).unwrap_or(u32::MAX)
+    }
+
     /// Paint the input box into `frame` at `(ex, ey, ew, eh)` pixels. Its text is
     /// the user's own and its status is fixed text: no program output.
     fn paint_input_box(
@@ -1726,32 +1918,37 @@ impl Renderer {
             Some(view) => {
                 self.text_line(frame, ex + self.cell_w, ey, ">", t.prompt);
                 let rows = (editor_rows.saturating_sub(1) as usize).max(1);
-                let caret_line = view.caret.map_or(0, |c| c.0);
-                let first = (caret_line + 1)
-                    .saturating_sub(rows)
-                    .min(view.lines.len().saturating_sub(rows));
+                let first = view.visible_first_line(rows);
+                let composing = view.preedit.as_ref().zip(view.caret);
                 for (i, line) in view.lines.iter().skip(first).take(rows).enumerate() {
-                    let shown: String = line.chars().take(room.max(1)).collect();
                     let y = ey + u32::try_from(i).unwrap_or(0) * self.cell_h;
-                    self.text_line(frame, text_x, y, &shown, t.foreground);
+                    if let Some((preedit, (_, col))) =
+                        composing.filter(|&(_, (at, _))| at == first + i)
+                    {
+                        self.paint_composing_line(
+                            frame,
+                            (text_x, y),
+                            room.max(1),
+                            (line, col),
+                            (preedit, focused),
+                        );
+                    } else {
+                        let shown: String = line.chars().take(room.max(1)).collect();
+                        self.text_line(frame, text_x, y, &shown, t.foreground);
+                    }
                 }
                 let caret = view
-                    .caret
+                    .caret_cell()
+                    .filter(|_| view.preedit.is_none())
                     .filter(|&(line, _)| focused && (first..first + rows).contains(&line));
                 if let Some(hint) = &view.hint {
                     let shown: String = hint.chars().take(room.max(1)).collect();
                     let y = ey + eh.saturating_sub(self.cell_h + self.scale);
                     self.text_line(frame, text_x, y, &shown, t.muted);
                 }
-                if let Some((line, col)) = caret {
-                    let width: u32 = view.lines.get(line).map_or(0, |l| {
-                        l.chars()
-                            .take(col)
-                            .map(|c| u32::try_from(grapheme_display_width(c, &[])).unwrap_or(1))
-                            .sum()
-                    });
+                if let Some((line, column)) = caret {
                     let y = ey + u32::try_from(line - first).unwrap_or(0) * self.cell_h;
-                    let x = text_x + width * self.cell_w;
+                    let x = text_x.saturating_add(column.saturating_mul(self.cell_w));
                     frame.fill(x, y, self.scale.max(2), self.cell_h, t.prompt);
                 }
             }

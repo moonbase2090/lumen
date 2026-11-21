@@ -410,6 +410,99 @@ fn a_written_address_is_underlined_in_the_accent_colour() {
 }
 
 #[test]
+fn a_soft_wrapped_address_is_underlined_and_asks_with_the_whole_target_on_each_row() {
+    const ADDRESS: &str = "https://example.org/a/long/path/that/goes/past/the/edge";
+    const WIDTH: u32 = 420;
+    const HEIGHT: u32 = 300;
+    let script = format!("printf '%25s' ''; printf '%s\\r\\n' '{ADDRESS} END'; read hold");
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", &script],
+        1,
+        WIDTH,
+        HEIGHT,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    let opened = Opened::default();
+    app.use_link_opener(Box::new(opened.clone()));
+    assert!(pump_until(&mut app, |a| shows(a, " END")));
+    let columns = app
+        .session()
+        .document()
+        .blocks()
+        .iter()
+        .find_map(|block| match block {
+            lumen_term::Block::Grid(grid) => Some(grid.size().0),
+            lumen_term::Block::Rich(_) => None,
+        })
+        .unwrap_or_else(|| unreachable!("a live grid"));
+    let mut positions = std::collections::BTreeMap::new();
+    for y in (0..HEIGHT).step_by(2) {
+        for x in (0..WIDTH).step_by(2) {
+            if let Some((col, row)) = app.live_cell(x, y) {
+                positions.entry((row, col)).or_insert((x, y));
+            }
+        }
+    }
+    let frame = app.view();
+    let accent = lumen_term::design::theme().prompt;
+    let mut clickable_rows = std::collections::BTreeMap::new();
+    for ((row, col), (x, y)) in positions {
+        let address_cell =
+            (25..25 + ADDRESS.len()).contains(&(row as usize * columns + col as usize));
+        let hit = app.link_at(x, y);
+        assert_eq!(
+            hit.as_ref().map(|h| h.target.as_str()),
+            address_cell.then_some(ADDRESS),
+            "cell {row}:{col}"
+        );
+        if address_cell {
+            let bottom = y - y % app.cell_height() + app.cell_height();
+            assert!(
+                (bottom.saturating_sub(4)..bottom).any(|line| frame.pixel(x, line) == Some(accent)),
+                "underline at {row}:{col}"
+            );
+            clickable_rows.entry(row).or_insert((x, y));
+        }
+    }
+    assert!(
+        clickable_rows.len() >= 2,
+        "the address must cross a real row edge"
+    );
+    for &(x, y) in clickable_rows.values() {
+        assert!(app.link_press(x, y));
+        assert!(lines(&app).contains(ADDRESS), "{}", lines(&app));
+        assert_eq!(opened.count(), 0);
+        app.key(Key::Escape, lumen_term::Mods::default())
+            .unwrap_or_else(|e| unreachable!("{e}"));
+    }
+    let &(x, y) = clickable_rows
+        .values()
+        .last()
+        .unwrap_or_else(|| unreachable!("wrapped link"));
+    assert!(app.link_press(x, y));
+    if let Some(dir) = std::env::var_os("LUMEN_PROOF_DIR") {
+        for (name, image) in [
+            ("wrapped-link.png", frame),
+            ("wrapped-link-prompt.png", app.view()),
+        ] {
+            std::fs::write(
+                std::path::Path::new(&dir).join(name),
+                image.to_png().unwrap_or_else(|e| unreachable!("png: {e}")),
+            )
+            .unwrap_or_else(|e| unreachable!("write: {e}"));
+        }
+    }
+    enter(&mut app);
+    assert_eq!(opened.all(), vec![ADDRESS]);
+    eprintln!(
+        "wrapped link: every target cell is clickable and underlined; {} rows ask with the full target; opening uses the full target",
+        clickable_rows.len()
+    );
+}
+
+#[test]
 fn the_pixel_wheel_is_the_prompts_too_while_it_is_up() {
     // The program asks for mouse reports and shows what it is sent, so a
     // wheel report that reached it would be on screen.

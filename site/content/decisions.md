@@ -48,6 +48,12 @@ Every decision listed here is **Adopted**: the specification follows it.
 - **Effect:** The terminal answers colour queries only in the single query form, from its own theme values with a fixed format, and rate-limits all replies. The privacy effect of these replies is listed under accepted risks below.
 - **Where:** [Terminal replies](@/spec/v0/sealed-layers.md#sealed.replies), [Accepted residual risks](@/spec/v0/threat-model.md#threat.residuals).
 
+### Cursor-position queries are answered
+
+- **Status:** Adopted, on by default.
+- **Effect:** A program in a grid that asks where the cursor is (`CSI 6 n`) is told the row and column the cursor was at when it asked, as `CSI row ; column R` built from two numbers the terminal parsed. Line editors such as PowerShell's need this to draw. No other query is answered by this change, and these replies share the same rate limits as the colour replies.
+- **Where:** [Terminal replies](@/spec/v0/sealed-layers.md#sealed.replies).
+
 ### tmux and screen are post-v0; one multiplexer path exists
 
 - **Status:** Adopted.
