@@ -51,6 +51,14 @@ fn renderer(scale: u32) -> Renderer {
     Renderer::light(scale).unwrap_or_else(|e| unreachable!("the bundled face loads: {e}"))
 }
 
+/// A renderer whose gutter is drawn full width (a layer whose gutter can hold
+/// marks) or narrow (an empty gutter).
+fn renderer_with(scale: u32, full: bool) -> Renderer {
+    let mut r = renderer(scale);
+    r.set_gutter_full(full);
+    r
+}
+
 fn string(text: &str) -> Vec<u8> {
     let mut v = u16::try_from(text.len())
         .unwrap_or(0)
@@ -211,17 +219,27 @@ fn random_streams() -> Vec<(String, Vec<u8>)> {
 }
 
 /// The pixel box of a rectangle of cells, worked out here and not by the
-/// renderer: everything right of the gutter is moved right by the padding, and
-/// the header runs on to the window's edge.
+/// renderer. The gutter's four layout columns are drawn four cells wide when
+/// it can hold marks and two when it is empty; everything right of it starts
+/// past the drawn gutter and the padding, and the header runs on to the
+/// window's edge.
 fn px(r: &Renderer, rect: &Rect) -> (u32, u32, u32, u32) {
     let (cw, ch) = r.cell();
     let pad = r.gutter_pad();
     let gutter = lumen_term::GUTTER_COLUMNS;
-    let at = |col: u32| col * cw + if col > gutter { pad } else { 0 };
+    let drawn = if r.gutter_full() { 4 * cw } else { 2 * cw };
+    let content = |col: u32| drawn + pad + (col - gutter) * cw;
+    let at = |col: u32| {
+        if col > gutter {
+            content(col)
+        } else {
+            (col * cw).min(drawn)
+        }
+    };
     let left = if rect.x >= gutter {
-        rect.x * cw + pad
+        content(rect.x)
     } else {
-        rect.x * cw
+        (rect.x * cw).min(drawn)
     };
     (left, rect.y * ch, at(rect.x + rect.w) - left, rect.h * ch)
 }
@@ -280,10 +298,24 @@ fn margin_and_editor(win: &Window) -> Vec<(&'static str, Rect)> {
     ]
 }
 
-/// Render each input in each way and count the pixels of the margin and editor
-/// that differ from the baseline. Returns how many renders were checked.
+/// Render each input in each way, with the gutter empty and full, and count the
+/// pixels of the margin and editor that differ from the baseline. Returns how
+/// many renders were checked.
 fn check(scale: u32, windows: &[Window], inputs: &[(String, Vec<u8>)], chunks: &[bool]) -> usize {
-    let r = renderer(scale);
+    let mut runs = 0;
+    for full in [false, true] {
+        runs += check_with(&renderer_with(scale, full), windows, inputs, chunks);
+    }
+    runs
+}
+
+fn check_with(
+    r: &Renderer,
+    windows: &[Window],
+    inputs: &[(String, Vec<u8>)],
+    chunks: &[bool],
+) -> usize {
+    let (scale, full) = (r.scale(), r.gutter_full());
     let mut runs = 0;
     for win in windows {
         let base = r.render_window(&doc_for(win), win);
@@ -291,13 +323,13 @@ fn check(scale: u32, windows: &[Window], inputs: &[(String, Vec<u8>)], chunks: &
         for (name, bytes) in inputs {
             for container in [true, false] {
                 for &chunked in chunks {
-                    let f = render(&r, win, bytes, container, chunked);
+                    let f = render(r, win, bytes, container, chunked);
                     for (part, rect) in &parts {
                         assert_eq!(
-                            changed(&r, &base, &f, rect),
+                            changed(r, &base, &f, rect),
                             0,
-                            "{name}: scale {scale}, {}x{}, container {container}, \
-                             chunked {chunked}: {part} changed",
+                            "{name}: scale {scale}, gutter full {full}, {}x{}, \
+                             container {container}, chunked {chunked}: {part} changed",
                             win.cols,
                             win.rows
                         );
@@ -319,8 +351,8 @@ fn no_named_or_random_input_changes_a_margin_or_editor_pixel_in_any_window() {
     // inputs only, which keeps the run short.
     let one = check(1, &WINDOWS, &all, &[false, true]);
     let two = check(2, &WINDOWS, &named, &[false, true]);
-    assert_eq!(one, 4 * (16 + 72) * 4);
-    assert_eq!(two, 4 * 16 * 4);
+    assert_eq!(one, 2 * 4 * (16 + 72) * 4);
+    assert_eq!(two, 2 * 4 * 16 * 4);
 }
 
 #[test]
@@ -329,22 +361,27 @@ fn no_frame_type_byte_changes_a_margin_or_editor_pixel() {
     assert_eq!(kinds.len(), 256);
     // The largest and the smallest window, with and without the container.
     let windows = [WINDOWS[0], WINDOWS[3]];
-    assert_eq!(check(1, &windows, &kinds, &[false]), 2 * 256 * 2);
+    assert_eq!(check(1, &windows, &kinds, &[false]), 2 * 2 * 256 * 2);
 }
 
 #[test]
 fn the_frame_size_and_the_baseline_do_not_depend_on_the_input() {
-    for scale in [1, 2] {
-        let r = renderer(scale);
+    for (scale, full) in [(1, false), (1, true), (2, false), (2, true)] {
+        let r = renderer_with(scale, full);
         let (cw, ch) = r.cell();
+        // The drawn gutter, the padding, then the columns right of the gutter.
+        let left = if full { 4 * cw } else { 2 * cw } + r.gutter_pad();
         for win in &WINDOWS {
             let base = r.render_window(&doc_for(win), win);
             assert_eq!(
                 (base.width, base.height),
                 (
-                    (win.cols * cw + r.gutter_pad()).max(1),
+                    left + win.cols.saturating_sub(4) * cw,
                     (win.rows * ch).max(1)
-                )
+                ),
+                "scale {scale}, gutter full {full}, {}x{}",
+                win.cols,
+                win.rows
             );
             for (name, bytes) in adversarial() {
                 let f = render(&r, win, &bytes, true, false);
@@ -417,31 +454,33 @@ fn toasts_with_hostile_text_stay_out_of_the_margin_and_the_editor() {
 #[test]
 fn the_oracle_fails_when_content_reaches_the_margin() {
     // Content painted straight into each part, which is what the gate forbids.
-    let r = renderer(1);
-    let win = &WINDOWS[0];
-    let base = r.render_window(&doc_for(win), win);
-    let lay = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
-    let damage = |rect: &Rect, dx: u32, dy: u32| {
-        let (x, y, w, h) = px(&r, rect);
-        let mut tampered = base.clone();
-        // `dx`, `dy` count from the top left, or from the bottom right when
-        // `u32::MAX`, so the last pixels of a part are tried as well.
-        let x = if dx == u32::MAX { x + w - 3 } else { x + dx };
-        let y = if dy == u32::MAX { y + h - 3 } else { y + dy };
-        tampered.fill(x, y, 3, 3, [255, 0, 0]);
-        tampered
-    };
-    let gutter = damage(&lay.margin[0], 0, 40);
-    assert_eq!(changed(&r, &base, &gutter, &lay.margin[0]), 9);
-    assert_eq!(changed(&r, &base, &gutter, &lay.margin[1]), 0);
-    // The last pixels of the header strip, in the padded part past the cells.
-    let header = damage(&lay.margin[1], u32::MAX, 0);
-    assert_eq!(changed(&r, &base, &header, &lay.margin[1]), 9);
-    assert_eq!(changed(&r, &base, &header, &lay.editor), 0);
-    // The first and the last pixels of the editor, either side of the padding.
-    let first = damage(&lay.editor, 0, 0);
-    assert_eq!(changed(&r, &base, &first, &lay.editor), 9);
-    assert_eq!(changed(&r, &base, &first, &lay.margin[0]), 0);
-    let last = damage(&lay.editor, u32::MAX, u32::MAX);
-    assert_eq!(changed(&r, &base, &last, &lay.editor), 9);
+    for full in [false, true] {
+        let r = renderer_with(1, full);
+        let win = &WINDOWS[0];
+        let base = r.render_window(&doc_for(win), win);
+        let lay = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
+        let damage = |rect: &Rect, dx: u32, dy: u32| {
+            let (x, y, w, h) = px(&r, rect);
+            let mut tampered = base.clone();
+            // `dx`, `dy` count from the top left, or from the bottom right when
+            // `u32::MAX`, so the last pixels of a part are tried as well.
+            let x = if dx == u32::MAX { x + w - 3 } else { x + dx };
+            let y = if dy == u32::MAX { y + h - 3 } else { y + dy };
+            tampered.fill(x, y, 3, 3, [255, 0, 0]);
+            tampered
+        };
+        let gutter = damage(&lay.margin[0], 0, 40);
+        assert_eq!(changed(&r, &base, &gutter, &lay.margin[0]), 9);
+        assert_eq!(changed(&r, &base, &gutter, &lay.margin[1]), 0);
+        // The last pixels of the header strip, in the padded part past the cells.
+        let header = damage(&lay.margin[1], u32::MAX, 0);
+        assert_eq!(changed(&r, &base, &header, &lay.margin[1]), 9);
+        assert_eq!(changed(&r, &base, &header, &lay.editor), 0);
+        // The first and the last pixels of the editor, either side of the padding.
+        let first = damage(&lay.editor, 0, 0);
+        assert_eq!(changed(&r, &base, &first, &lay.editor), 9);
+        assert_eq!(changed(&r, &base, &first, &lay.margin[0]), 0);
+        let last = damage(&lay.editor, u32::MAX, u32::MAX);
+        assert_eq!(changed(&r, &base, &last, &lay.editor), 9);
+    }
 }

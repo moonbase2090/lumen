@@ -7,7 +7,7 @@ What Bright draws today, in each built-in theme. Every image is the terminal's o
 | Grid: plain and coloured output, the 16 ANSI colours, bold, underline and inverse | [grid-light.png](grid-light.png) | [grid-dark.png](grid-dark.png) | [grid-high-contrast.png](grid-high-contrast.png) |
 | Rich blocks: two headings, a paragraph, a code block and an image shown by its alt text, each in its unverified-output box | [rich-light.png](rich-light.png) | [rich-dark.png](rich-dark.png) | [rich-high-contrast.png](rich-high-contrast.png) |
 
-Every image also shows the window's own chrome: the trust margin (the gutter on the left and the header strip that reads Bright, in the terminal's background colour and set off by a one-pixel divider), and the editor at the bottom.
+Every image also shows the window's own chrome: the trust margin (the gutter on the left and the header strip, in the terminal's background colour and set off by a one-pixel divider), and the editor at the bottom.
 
 ## How they were made
 

@@ -48,13 +48,16 @@ pub const BASE_PX: f32 = 14.0;
 /// Pixels of padding, at scale 1, between the gutter's divider and the text
 /// column. It is scaled with the render scale, so it follows zoom and DPI.
 pub const GUTTER_PAD_PX: u32 = 6;
+/// Cells of width the gutter is drawn in while it can hold nothing: on a layer
+/// without sealing keys, which has no typed-line marks. The layout keeps its
+/// [`GUTTER_COLUMNS`] either way; only the pixels the empty gutter takes shrink,
+/// so the text column starts nearer the window's edge.
+pub const GUTTER_EMPTY_COLUMNS: u32 = 2;
 /// The label every rich block's container carries.
 pub const CONTAINER_LABEL: &str = "unverified output";
 pub use crate::image_draw::IMAGE_MAX_ROWS;
 /// The most lines of text in a toast; the rest is cut.
 pub const TOAST_MAX_LINES: usize = 3;
-/// The terminal's own text in the header strip of the trust margin.
-pub const MARGIN_LABEL: &str = "Bright";
 
 /// The terminal's mark, in the gutter, beside the first row of a line typed in
 /// the input box for a sealed command. Only the terminal draws in the gutter,
@@ -284,6 +287,8 @@ pub struct Renderer {
     theme: Theme,
     cache: RefCell<HashMap<(Face, char), Glyph>>,
     advances: RefCell<HashMap<char, usize>>,
+    /// The gutter is drawn its full width, because it can hold marks.
+    gutter_full: bool,
 }
 
 /// A face the renderer owns: the bundled bytes or a user's font file.
@@ -400,6 +405,7 @@ impl Renderer {
             theme,
             cache: RefCell::new(HashMap::new()),
             advances: RefCell::new(HashMap::new()),
+            gutter_full: false,
         })
     }
 
@@ -414,6 +420,58 @@ impl Renderer {
     #[must_use]
     pub fn gutter_pad(&self) -> u32 {
         GUTTER_PAD_PX * self.scale
+    }
+
+    /// Draw the gutter its full width, for a layer whose gutter can hold marks,
+    /// or narrow, for one whose gutter stays empty.
+    pub fn set_gutter_full(&mut self, full: bool) {
+        self.gutter_full = full;
+    }
+
+    /// Whether the gutter is drawn its full width.
+    #[must_use]
+    pub fn gutter_full(&self) -> bool {
+        self.gutter_full
+    }
+
+    /// The gutter's width in pixels, up to and including its divider.
+    #[must_use]
+    pub fn gutter_width(&self) -> u32 {
+        let cells = if self.gutter_full {
+            GUTTER_COLUMNS
+        } else {
+            GUTTER_EMPTY_COLUMNS
+        };
+        cells * self.cell_w
+    }
+
+    /// The pixel column the text column starts at: past the gutter and its
+    /// padding.
+    #[must_use]
+    pub fn content_left(&self) -> u32 {
+        self.gutter_width() + self.gutter_pad()
+    }
+
+    /// The pixel column of the left edge of layout column `col`. The gutter's
+    /// columns share its drawn width; a column right of it starts past the
+    /// padding.
+    #[must_use]
+    pub fn col_px(&self, col: u32) -> u32 {
+        if col >= GUTTER_COLUMNS {
+            self.content_left() + (col - GUTTER_COLUMNS) * self.cell_w
+        } else {
+            (col * self.cell_w).min(self.gutter_width())
+        }
+    }
+
+    /// The width in pixels of a window frame `cols` cells wide.
+    #[must_use]
+    pub fn frame_width(&self, cols: u32) -> u32 {
+        if cols > GUTTER_COLUMNS {
+            self.col_px(cols)
+        } else {
+            self.content_left()
+        }
     }
 
     /// The render scale.
@@ -1718,13 +1776,15 @@ impl Renderer {
     /// the gutter is moved right by the gutter padding, so the text column
     /// starts clear of the divider; the header runs on to the window's edge.
     fn rect_px(&self, r: &Rect) -> (u32, u32, u32, u32) {
-        let pad = self.gutter_pad();
-        let edge = |col: u32| col * self.cell_w + if col > GUTTER_COLUMNS { pad } else { 0 };
-        let left = if r.x >= GUTTER_COLUMNS {
-            r.x * self.cell_w + pad
-        } else {
-            r.x * self.cell_w
+        // The gutter's right edge is its divider; past it comes the padding.
+        let edge = |col: u32| {
+            if col > GUTTER_COLUMNS {
+                self.col_px(col)
+            } else {
+                (col * self.cell_w).min(self.gutter_width())
+            }
         };
+        let left = self.col_px(r.x);
         let right = edge(r.x + r.w);
         (
             left,
@@ -2079,7 +2139,7 @@ impl Renderer {
         );
         let px = |r: &Rect| self.rect_px(r);
         let mut frame = Frame::new(
-            (win.cols * self.cell_w + self.gutter_pad()).max(1),
+            self.frame_width(win.cols).max(1),
             (win.rows * self.cell_h).max(1),
             t.background,
         );
@@ -2153,13 +2213,6 @@ impl Renderer {
                 t.divider,
             );
         }
-        self.text_line(
-            &mut frame,
-            self.cell_w * GUTTER_COLUMNS.min(win.cols) + self.gutter_pad(),
-            0,
-            MARGIN_LABEL,
-            t.margin_text,
-        );
         frame
     }
 
@@ -2173,7 +2226,7 @@ impl Renderer {
     /// pixel `top`: the gutter, short of its divider, on that row.
     #[must_use]
     pub fn on_typed_mark(&self, top: u32, (x, y): (u32, u32)) -> bool {
-        let gutter = self.cell_w * GUTTER_COLUMNS;
+        let gutter = self.gutter_width();
         x < gutter.saturating_sub(self.scale) && y >= top && y < top + self.cell_h
     }
 
@@ -2189,7 +2242,7 @@ impl Renderer {
         let width = (chars + 2) * self.cell_w;
         let height = self.cell_h + 2 * self.scale;
         let header = self.cell_h * HEADER_ROWS;
-        let content = self.cell_w * GUTTER_COLUMNS + self.gutter_pad();
+        let content = self.content_left();
         let wanted = content + after * self.cell_w;
         let (left, top) = if wanted + width <= frame.width {
             (wanted, row_top.saturating_sub(self.scale).max(header))

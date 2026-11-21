@@ -329,7 +329,8 @@ fn rich_blocks_stay_whole_when_scrolled_to() {
         r.theme().background,
     );
     r.paint_rich(&mut alone, 0, 0, columns, first);
-    let (x0, y0) = (4 * r.cell().0 + r.gutter_pad(), ch);
+    // The empty gutter is drawn two cells wide, then the padding.
+    let (x0, y0) = (2 * r.cell().0 + r.gutter_pad(), ch);
     // The scroll bar is the terminal's, drawn over the right edge of the area.
     let bar = 2 * r.scale();
     for y in 0..alone.height {

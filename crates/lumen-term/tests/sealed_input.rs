@@ -1132,3 +1132,32 @@ fn a_box_line_queued_behind_a_line_typed_ahead_is_not_recorded_for_it() {
     );
     assert_eq!(app.typed_marks().len(), 1);
 }
+
+/// The gutter holds the typed-line marks only on a layer with its keys. There
+/// it is drawn four cells wide; on a layer without them it is two, and the
+/// program is given the columns each width leaves.
+#[test]
+fn the_gutter_is_full_width_only_where_it_can_hold_marks() {
+    let (cw, ch) = cell();
+    // A row of the block area above any typed line: no mark is drawn on it.
+    let y = ch * 3 + ch / 2;
+    let divider_at = |app: &App| {
+        let view = app.view();
+        let gutter = view.pixel(1, y);
+        (1..cw * 6).find(|&x| view.pixel(x, y) != gutter)
+    };
+    if let Some(mut app) = start("sealed-input-gutter-full") {
+        assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+        assert_eq!(divider_at(&app), Some(4 * cw - 1), "sealed: full gutter");
+        // 800 pixels less the full gutter and its 6 pixel padding leave 99
+        // cells, 95 of them right of the gutter.
+        assert_eq!(app.session().document().columns(), 95);
+    }
+    if let Some(mut app) = start_with("sealed-input-gutter-empty", "", 0) {
+        assert!(matches!(app.session().seal_status(), Status::GridOnly(_)));
+        assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+        assert_eq!(divider_at(&app), Some(2 * cw - 1), "no keys: narrow gutter");
+        // The narrow gutter gives the program two more columns.
+        assert_eq!(app.session().document().columns(), 97);
+    }
+}

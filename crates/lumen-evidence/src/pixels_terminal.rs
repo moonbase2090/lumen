@@ -344,8 +344,7 @@ pub fn terminal_rects(renderer: &Renderer) -> String {
     for (cols, rows) in WINDOWS {
         let win = window_for(cols as usize, rows as usize);
         let l = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
-        let px =
-            |r: &lumen_term::Rect| format!("{},{},{},{}", r.x * cw, r.y * ch, r.w * cw, r.h * ch);
+        let px = |r: &lumen_term::Rect| crate::pixels::rect_text(renderer, r);
         let _ = writeln!(
             out,
             "rects {cols}x{rows} cells, {}x{} px: margin=[{}] [{}] chrome=[{}]",

@@ -236,7 +236,7 @@ fn the_type_scale_rises_and_steps_are_clamped() {
 #[cfg(unix)]
 #[test]
 fn the_app_draws_in_the_design_theme() -> Result<(), Box<dyn std::error::Error>> {
-    use lumen_term::{App, GUTTER_COLUMNS, Passthrough};
+    use lumen_term::{App, Passthrough};
     let app = App::start(
         Box::new(Passthrough),
         "/bin/sh",
@@ -247,9 +247,7 @@ fn the_app_draws_in_the_design_theme() -> Result<(), Box<dyn std::error::Error>>
     )?;
     let frame = app.view();
     let (cell_w, _) = lumen_term::Renderer::light(1)?.cell();
-    let gutter = frame
-        .pixel(cell_w * GUTTER_COLUMNS / 2, frame.height / 2)
-        .ok_or("no pixel")?;
+    let gutter = frame.pixel(cell_w, frame.height / 2).ok_or("no pixel")?;
     assert_eq!(gutter, design::theme().margin);
     assert_ne!(gutter, Theme::light().margin);
     Ok(())
@@ -265,7 +263,9 @@ fn the_editor_prompt_is_drawn_in_the_accent() -> Result<(), Box<dyn std::error::
     let r = lumen_term::Renderer::new(1, design::theme())?;
     let (cw, ch) = r.cell();
     let pad = r.gutter_pad();
-    let (cols, rows) = cells_for(640 - pad, 380, (cw, ch));
+    // An empty gutter is drawn two cells wide; the layout counts four.
+    let content = 2 * cw + pad;
+    let (cols, rows) = cells_for(640 - content + 4 * cw, 380, (cw, ch));
     let win = window_for(cols, rows);
     // The box while the user can type in it: no status, nothing typed yet.
     let editing = lumen_term::raster::InputView {
@@ -287,7 +287,7 @@ fn the_editor_prompt_is_drawn_in_the_accent() -> Result<(), Box<dyn std::error::
     );
     let lay = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
     // The mark sits in the editor's second cell of its first row.
-    let (x0, y0) = ((lay.editor.x + 1) * cw + pad, lay.editor.y * ch);
+    let (x0, y0) = (content + (lay.editor.x + 1 - 4) * cw, lay.editor.y * ch);
     // Find the most inked pixel of the mark. Glyph edges are blended, so it is
     // the accent laid over the field at some coverage: every channel must sit
     // on the line from the field to the accent at the same coverage, which
@@ -326,9 +326,7 @@ fn canvas_and_gutter(
     let (cell_w, cell_h) = lumen_term::Renderer::light(1)?.cell();
     // The gutter, halfway down; and the content area, right of the gutter on
     // the row above the editor, which `sleep` leaves empty.
-    let gutter = frame
-        .pixel(cell_w * lumen_term::GUTTER_COLUMNS / 2, frame.height / 2)
-        .ok_or("no pixel")?;
+    let gutter = frame.pixel(cell_w, frame.height / 2).ok_or("no pixel")?;
     let canvas = frame
         .pixel(frame.width - cell_w, cell_h * 4 + cell_h / 2)
         .ok_or("no pixel")?;
@@ -461,7 +459,7 @@ fn the_builtin_margin_is_the_canvas_with_a_divider() {
 fn the_margin_is_drawn_in_the_grid_background_with_a_divider()
 -> Result<(), Box<dyn std::error::Error>> {
     use lumen_term::design::ThemeChoice;
-    use lumen_term::{App, GUTTER_COLUMNS, HEADER_ROWS, Passthrough};
+    use lumen_term::{App, HEADER_ROWS, Passthrough};
     let mut app = App::start(
         Box::new(Passthrough),
         "/bin/sh",
@@ -476,10 +474,11 @@ fn the_margin_is_drawn_in_the_grid_background_with_a_divider()
         let f = app.view();
         let (cw, ch) = lumen_term::Renderer::light(1)?.cell();
         let at = |x: u32, y: u32| f.pixel(x, y).ok_or("outside the frame");
-        let (gutter_right, header_bottom) = (cw * GUTTER_COLUMNS, ch * HEADER_ROWS);
+        // An empty gutter is drawn two cells wide.
+        let (gutter_right, header_bottom) = (cw * 2, ch * HEADER_ROWS);
         let grid = at(f.width - cw, header_bottom + ch * 3 + ch / 2)?;
         assert_eq!(grid, p.canvas, "{b:?} grid");
-        // Inside the gutter and the header strip, clear of the label.
+        // Inside the gutter and the header strip.
         assert_eq!(at(gutter_right / 2, f.height / 2)?, grid, "{b:?} gutter");
         assert_eq!(at(f.width - cw, header_bottom / 2)?, grid, "{b:?} header");
         assert_eq!(
@@ -491,10 +490,11 @@ fn the_margin_is_drawn_in_the_grid_background_with_a_divider()
         assert_eq!(at(gutter_right - 1, f.height / 2)?, p.divider, "{b:?}");
         assert_eq!(at(f.width - cw, header_bottom - 1)?, p.divider, "{b:?}");
         assert_eq!(at(gutter_right, f.height / 2)?, grid, "{b:?} content edge");
-        // The label is drawn in the header strip.
-        let inked = (gutter_right..gutter_right + 6 * cw)
-            .any(|x| (0..header_bottom - 1).any(|y| f.pixel(x, y) != Some(grid)));
-        assert!(inked, "{b:?} label");
+        // No title is drawn in the header strip: above its divider it is
+        // the margin's colour across the whole window.
+        let inked =
+            (0..f.width).find(|&x| (0..header_bottom - 1).any(|y| f.pixel(x, y) != Some(grid)));
+        assert_eq!(inked, None, "{b:?} header text");
     }
     Ok(())
 }

@@ -494,9 +494,12 @@ pub fn block_cells_for(columns: usize, rows: usize, editor_rows: u32) -> (usize,
 
 /// The columns and rows of a window of `width` by `height` pixels drawn by
 /// `renderer`, whose text column starts a gutter padding right of the gutter.
+/// The gutter's layout columns are counted at the width they are drawn in.
 fn window_cells(width: u32, height: u32, renderer: &Renderer) -> (usize, usize) {
+    let (cell_w, _) = renderer.cell();
+    let text = width.saturating_sub(renderer.content_left());
     cells_for(
-        width.saturating_sub(renderer.gutter_pad()),
+        text.saturating_add(GUTTER_COLUMNS.saturating_mul(cell_w)),
         height,
         renderer.cell(),
     )
@@ -566,7 +569,10 @@ impl App {
         (scale, width, height): (u32, u32, u32),
         config: &crate::seal::Config,
     ) -> Result<Self, SpawnError> {
-        let renderer = Renderer::new(scale, crate::design::theme()).map_err(SpawnError)?;
+        let mut renderer = Renderer::new(scale, crate::design::theme()).map_err(SpawnError)?;
+        // Sized for the marks a sealed layer shows; corrected below if the
+        // layer comes up without its keys.
+        renderer.set_gutter_full(true);
         let (columns, rows) = window_cells(width, height, &renderer);
         let (block_columns, block_rows) = block_cells(columns, rows);
         let session =
@@ -633,6 +639,11 @@ impl App {
             recalling: None,
         };
         app.sealed_keys = app.session.has_sealed_keys();
+        if app.renderer.gutter_full() != app.sealed_keys {
+            app.renderer.set_gutter_full(app.sealed_keys);
+            // A program that cannot be told keeps its size until the next resize.
+            let _ = app.resize(width, height);
+        }
         if let Some(why) = app.session.seal_off_reason() {
             app.seal_notice = Some(SealNotice {
                 text: format!("Shell not sealed: {why}"),
@@ -675,9 +686,10 @@ impl App {
         if self.renderer.fonts() == fonts {
             return Ok(false);
         }
-        let renderer =
+        let mut renderer =
             Renderer::with_fonts(self.renderer.scale(), self.renderer.theme().clone(), fonts)
                 .map_err(SpawnError)?;
+        renderer.set_gutter_full(self.renderer.gutter_full());
         self.renderer = renderer;
         self.resize(self.width, self.height)?;
         Ok(true)
@@ -1079,7 +1091,7 @@ impl App {
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         let win = window_for_box(columns, rows, self.box_rows);
         let top = win.editor_row * cell_h;
-        let left = GUTTER_COLUMNS * cell_w + self.renderer.gutter_pad() + 3 * cell_w;
+        let left = self.renderer.content_left() + 3 * cell_w;
         let inside = y >= top && y < (win.editor_row + win.editor_rows) * cell_h;
         if !inside || x < left || cell_h == 0 || cell_w == 0 {
             return false;
@@ -1150,7 +1162,7 @@ impl App {
             return None;
         };
         let (area, content_columns, total) = self.content_metrics();
-        let content_x = GUTTER_COLUMNS.saturating_mul(cw) + self.renderer.gutter_pad();
+        let content_x = self.renderer.content_left();
         let content_y = HEADER_ROWS.saturating_mul(ch);
         let px = x.checked_sub(content_x)?;
         let py = y.checked_sub(content_y)?;
@@ -1203,10 +1215,10 @@ impl App {
     /// must be in the content area; without it, a pixel outside is moved to
     /// the nearest line, so a drag past an edge still selects.
     fn pos_at(&self, lines: &[select::FlowLine], x: u32, y: u32, inside: bool) -> Option<Pos> {
-        let (cw, ch) = self.renderer.cell();
+        let (_, ch) = self.renderer.cell();
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         let win = window_for_box(columns, rows, self.box_rows);
-        let content_x = GUTTER_COLUMNS.saturating_mul(cw) + self.renderer.gutter_pad();
+        let content_x = self.renderer.content_left();
         let content_y = HEADER_ROWS.saturating_mul(ch);
         let area_bottom = win.editor_row.saturating_mul(ch);
         if inside && (x < content_x || y < content_y || y >= area_bottom) {
@@ -1871,9 +1883,11 @@ impl App {
             Scroll::Pinned(_) => Some(u64::from(self.scroll.top(total, area))),
             Scroll::Follow => None,
         };
-        self.renderer =
+        let mut renderer =
             Renderer::with_fonts(scale, self.renderer.theme().clone(), self.renderer.fonts())
                 .map_err(SpawnError)?;
+        renderer.set_gutter_full(self.renderer.gutter_full());
+        self.renderer = renderer;
         self.scale = scale;
         self.resize(self.width, self.height)?;
         if let Some(top) = held {
@@ -2333,9 +2347,7 @@ impl App {
         if top.saturating_add(ch) > area {
             return None;
         }
-        let content_x = GUTTER_COLUMNS
-            .saturating_mul(cw)
-            .saturating_add(self.renderer.gutter_pad());
+        let content_x = self.renderer.content_left();
         let right =
             content_x.saturating_add(u32::try_from(content_columns).ok()?.saturating_mul(cw));
         Some((
@@ -2579,9 +2591,8 @@ impl App {
         let first = view.visible_first_line((self.box_rows.saturating_sub(1) as usize).max(1));
         let line = u32::try_from(line.saturating_sub(first)).unwrap_or(0);
         (
-            GUTTER_COLUMNS
-                .saturating_mul(cell_w)
-                .saturating_add(self.renderer.gutter_pad())
+            self.renderer
+                .content_left()
                 .saturating_add(col.saturating_add(3).saturating_mul(cell_w)),
             win.editor_row.saturating_add(line).saturating_mul(cell_h),
             used.max(1).saturating_mul(cell_w),
@@ -2658,6 +2669,12 @@ impl App {
     fn refresh_seal(&mut self) {
         let had = self.sealed_keys;
         self.sealed_keys = self.session.has_sealed_keys();
+        if had != self.sealed_keys {
+            // The gutter holds marks only on a layer with its keys: it is
+            // drawn full width for them and narrow without them.
+            self.renderer.set_gutter_full(self.sealed_keys);
+            let _ = self.resize(self.width, self.height);
+        }
         if self.exited || self.session.has_exited() {
             self.seal_notice = None;
             return;

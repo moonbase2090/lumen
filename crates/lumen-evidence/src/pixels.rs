@@ -178,6 +178,38 @@ impl PixelReport {
     }
 }
 
+/// The pixel box `(x, y, w, h)` of a layout rectangle, worked out here and not
+/// by the renderer. The gutter's four layout columns are drawn four cells wide
+/// when it can hold marks and two when it is empty; a column right of the
+/// gutter starts past the drawn gutter and the gutter padding.
+#[must_use]
+pub fn rect_px(renderer: &Renderer, r: &Rect) -> (u32, u32, u32, u32) {
+    const GUTTER: u32 = 4;
+    let (cw, ch) = renderer.cell();
+    let drawn = if renderer.gutter_full() { 4 } else { 2 } * cw;
+    let content = drawn + renderer.gutter_pad();
+    let left = if r.x >= GUTTER {
+        content + (r.x - GUTTER) * cw
+    } else {
+        (r.x * cw).min(drawn)
+    };
+    let end = r.x + r.w;
+    // The gutter ends at its divider, short of the padding.
+    let right = if end > GUTTER {
+        content + (end - GUTTER) * cw
+    } else {
+        (end * cw).min(drawn)
+    };
+    (left, r.y * ch, right.saturating_sub(left), r.h * ch)
+}
+
+/// [`rect_px`] as the text the summary and the committed list show.
+#[must_use]
+pub fn rect_text(renderer: &Renderer, r: &Rect) -> String {
+    let (left, top, width, height) = rect_px(renderer, r);
+    format!("{left},{top},{width},{height}")
+}
+
 /// The exact pixel rectangles of the trust margin and the chrome per window, as
 /// text, for the summary and the committed list.
 #[must_use]
@@ -186,7 +218,7 @@ pub fn rects_text(renderer: &Renderer) -> String {
     let mut out = String::new();
     for w in WINDOWS {
         let l = layout(w.cols, w.rows, w.editor_row, w.editor_rows, None);
-        let px = |r: &Rect| format!("{},{},{},{}", r.x * cw, r.y * ch, r.w * cw, r.h * ch);
+        let px = |r: &Rect| rect_text(renderer, r);
         let _ = writeln!(
             out,
             "rects {}x{} cells, {}x{} px: margin=[{}] [{}] chrome=[{}]",
@@ -212,14 +244,15 @@ fn digest(frames: &[Frame]) -> String {
     format!("{:x}", h.finalize())
 }
 
-/// Pixels that differ between `a` and `b` inside the union of `rects` (in cells).
+/// Pixels that differ between `a` and `b` inside the union of `rects` (in cells,
+/// placed by [`rect_px`]).
 #[must_use]
 pub fn changed_in(renderer: &Renderer, a: &Frame, b: &Frame, rects: &[Rect]) -> usize {
-    let (cw, ch) = renderer.cell();
     let mut seen = BTreeSet::new();
     for r in rects {
-        for y in r.y * ch..(r.y + r.h) * ch {
-            for x in r.x * cw..(r.x + r.w) * cw {
+        let (x0, y0, w, h) = rect_px(renderer, r);
+        for y in y0..y0 + h {
+            for x in x0..x0 + w {
                 if a.pixel(x, y) != b.pixel(x, y) {
                     seen.insert((x, y));
                 }

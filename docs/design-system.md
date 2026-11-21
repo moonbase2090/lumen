@@ -47,7 +47,7 @@ The tests in `crates/lumen-term/tests/design.rs` check these for each built-in p
 - **ANSI.** The black and white slots that sit next to the background by convention are exempt: 7 and 15 on a light palette, 0 on a dark one. The readable one of black and white is at least 4.5:1.
 - **Edges.** The edge of the editor and of the unverified output container use the control border, so that boundary is always clearly drawn.
 - **Find.** `find_text` is held to the text floor on both `find_match` and `find_current`. The current match is also drawn with a one-pixel outline in `find_text`, so it stands apart from the others by more than its colour.
-- **Margin.** The trust margin has the canvas colour, and a one-pixel divider separates it from the content: subtle in light and dark, at least 3:1 in high contrast. The header label is `chrome_text`, held to the text floor on the canvas like every text role.
+- **Margin.** The trust margin has the canvas colour, and a one-pixel divider separates it from the content: subtle in light and dark, at least 3:1 in high contrast. The header strip carries no title. The gutter is four cells wide on a layer whose gutter can hold marks (one with its sealing keys), and two cells wide when it stays empty; either way the text column starts 6 px past its divider. Chrome text in the margin is `chrome_text`, held to the text floor on the canvas like every text role.
 - **Sizes.** Every step of the type scale, and every font size a user may choose (8 to 72 px), is over the spec's 6 px floor for a visible run.
 
 ## Theme files

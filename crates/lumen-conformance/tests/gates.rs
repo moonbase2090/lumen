@@ -5,7 +5,7 @@
 use lumen_detector::TAG;
 use lumen_sealed::{Direction, DirectionKeys, LayerId, LayerRoot, Receiver};
 use lumen_term::notify::{Desk, Notifier, Place, Recorder, Settings};
-use lumen_term::{Context, Document, Event, Layer, Piece, Renderer, Window, layout};
+use lumen_term::{Context, Document, Event, Layer, Piece, Rect, Renderer, Window, layout};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -132,6 +132,28 @@ fn expected_parser(doc: &Value, name: &str, bytes: &[u8]) -> Vec<u8> {
     } else {
         bytes[15..].to_vec()
     }
+}
+
+/// The pixel columns `(x, w)` a layout rectangle is drawn in, worked out here
+/// and not by the renderer: the gutter's four layout columns are drawn two
+/// cells wide while it is empty (an unsealed layer), and a column right of it
+/// starts past the drawn gutter and the padding.
+fn columns_px(rect: &Rect, cw: u32, pad: u32) -> (u32, u32) {
+    let x = |col: u32| {
+        if col >= 4 {
+            (col - 2) * cw + pad
+        } else {
+            (col * cw).min(2 * cw)
+        }
+    };
+    let end = rect.x + rect.w;
+    let right = if end > 4 {
+        x(end)
+    } else {
+        (end * cw).min(2 * cw)
+    };
+    let left = x(rect.x);
+    (left, right.saturating_sub(left))
 }
 
 fn window(v: &Value) -> Window {
@@ -278,8 +300,9 @@ fn g12_no_input_changes_a_margin_or_editor_pixel() {
                     feed_chunks(&mut d, &mut l, &bytes, chunked);
                     let f = r.render_window(&d, &win);
                     for rect in &parts {
+                        let (x0, width) = columns_px(rect, cw, r.gutter_pad());
                         for y in rect.y * ch..(rect.y + rect.h) * ch {
-                            for x in rect.x * cw..(rect.x + rect.w) * cw {
+                            for x in x0..x0 + width {
                                 assert_eq!(
                                     base.pixel(x, y),
                                     f.pixel(x, y),
