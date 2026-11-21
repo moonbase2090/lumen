@@ -1129,7 +1129,11 @@ impl App {
             .position(|l| cy >= l.top && cy < l.top + l.height)
             .or_else(|| {
                 if inside {
-                    return None;
+                    // Below the end of the flow, in the content area: the
+                    // last line, so a press under the newest output and a drag
+                    // up select it.
+                    let last = lines.len().checked_sub(1)?;
+                    return (cy >= lines[last].top + lines[last].height).then_some(last);
                 }
                 // The line nearest the pixel row.
                 lines
