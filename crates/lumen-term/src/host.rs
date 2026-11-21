@@ -682,6 +682,13 @@ impl Host {
             Action::NewTab => return self.new_tab(),
             Action::NextTab => return self.cycle_tab(true),
             Action::PreviousTab => return self.cycle_tab(false),
+            Action::Settings => {
+                #[cfg(target_os = "macos")]
+                if let Err(e) = crate::settings_command::open() {
+                    eprintln!("{}: settings not opened ({e})", crate::APP_NAME);
+                }
+                return;
+            }
             Action::Close => return self.close_active(event_loop),
             Action::Quit => {
                 event_loop.exit();
