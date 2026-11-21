@@ -58,6 +58,27 @@ struct Links {
     prompt: Option<crate::linkprompt::Prompt>,
     opener: Box<dyn crate::linkprompt::LinkOpener + Send>,
     press_down: bool,
+    /// The link the keyboard has focused: its screen row and what it is.
+    focus: Option<LinkStop>,
+}
+
+/// One place the keyboard can stop on: a link, with the screen rows and columns
+/// it starts and ends on. A link the terminal soft-wrapped over several rows is
+/// one stop.
+#[cfg(feature = "links-clipboard")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LinkStop {
+    first: (usize, usize),
+    last: (usize, usize),
+    hit: crate::linkhit::Hit,
+}
+
+#[cfg(feature = "links-clipboard")]
+impl Links {
+    /// Whether the focused stop is still one of `stops`.
+    fn focus_is_current(&self, stops: &[LinkStop]) -> bool {
+        self.focus.as_ref().is_some_and(|f| stops.contains(f))
+    }
 }
 
 #[cfg(feature = "links-clipboard")]
@@ -67,6 +88,7 @@ impl Default for Links {
             prompt: None,
             opener: Box::new(crate::linkprompt::SystemOpener),
             press_down: false,
+            focus: None,
         }
     }
 }
@@ -890,6 +912,121 @@ impl App {
         hits.into_iter().find(|hit| hit.columns.contains(&col))
     }
 
+    /// The top left pixel of cell `(col, row)` of the live screen, if it is in view.
+    #[cfg(feature = "links-clipboard")]
+    fn live_pixel(&self, col: usize, row: usize) -> Option<(u32, u32)> {
+        let (cw, ch) = self.renderer.cell();
+        let doc = self.session.document();
+        let (area, content_columns, total) = self.content_metrics();
+        let screen_top = self.renderer.live_screen_top(doc, content_columns)?;
+        let x = GUTTER_COLUMNS
+            .saturating_mul(cw)
+            .saturating_add(self.renderer.gutter_pad())
+            .saturating_add(u32::try_from(col).ok()?.saturating_mul(cw));
+        let in_flow =
+            u64::from(screen_top) + u64::try_from(row).ok()?.saturating_mul(u64::from(ch));
+        let in_view = in_flow.checked_sub(u64::from(self.scroll.top(total, area)))?;
+        let in_view = u32::try_from(in_view).ok()?;
+        (in_view < area).then(|| (x, HEADER_ROWS.saturating_mul(ch).saturating_add(in_view)))
+    }
+
+    /// Move the keyboard's link focus to the next (or previous) link on the
+    /// screen, in reading order, wrapping at the ends, and show it selected.
+    /// Returns whether a link is now focused.
+    #[cfg(feature = "links-clipboard")]
+    pub fn focus_link(&mut self, forward: bool) -> bool {
+        self.follow();
+        let all = self.link_stops();
+        if all.is_empty() {
+            self.clear_link_focus();
+            return false;
+        }
+        let at = self
+            .links
+            .focus
+            .as_ref()
+            .and_then(|f| all.iter().position(|stop| stop == f));
+        let n = all.len();
+        let next = match (at, forward) {
+            (Some(i), true) => (i + 1) % n,
+            (Some(i), false) => (i + n - 1) % n,
+            (None, true) => 0,
+            (None, false) => n - 1,
+        };
+        let stop = all[next].clone();
+        self.select_cells(stop.first, stop.last);
+        self.links.focus = Some(stop);
+        self.view_moves = self.view_moves.wrapping_add(1);
+        true
+    }
+
+    /// The links on the live screen in reading order, a soft-wrapped link as
+    /// one stop from where it starts to where it ends.
+    #[cfg(feature = "links-clipboard")]
+    fn link_stops(&self) -> Vec<LinkStop> {
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return Vec::new();
+        };
+        let screen = live.screen();
+        let history = screen.max_view_scroll();
+        let mut stops: Vec<LinkStop> = Vec::new();
+        for row in 0..screen.rows() {
+            for hit in crate::linkhit::row_links(screen, row) {
+                let continues = stops.last().is_some_and(|prev| {
+                    prev.last.0 + 1 == row
+                        && prev.last.1 == screen.columns()
+                        && hit.columns.start == 0
+                        && prev.hit.target == hit.target
+                        && prev.hit.visible == hit.visible
+                        && !screen.alt_active()
+                        && screen.history_line_wrapped(history + prev.last.0)
+                });
+                if continues {
+                    if let Some(prev) = stops.last_mut() {
+                        prev.last = (row, hit.columns.end);
+                    }
+                } else {
+                    stops.push(LinkStop {
+                        first: (row, hit.columns.start),
+                        last: (row, hit.columns.end),
+                        hit,
+                    });
+                }
+            }
+        }
+        stops
+    }
+
+    /// Select from cell `(row, column)` `from` to the cell edge `to`, as the
+    /// pointer would drag.
+    #[cfg(feature = "links-clipboard")]
+    fn select_cells(&mut self, from: (usize, usize), to: (usize, usize)) {
+        let (Some((x0, y0)), Some((x1, y1))) =
+            (self.live_pixel(from.1, from.0), self.live_pixel(to.1, to.0))
+        else {
+            return;
+        };
+        self.begin_selection(x0 + 1, y0 + 1);
+        self.extend_selection(x1, y1 + 1);
+        self.selecting = false;
+    }
+
+    /// Drop the keyboard's link focus and the selection that shows it.
+    #[cfg(feature = "links-clipboard")]
+    fn clear_link_focus(&mut self) {
+        if self.links.focus.take().is_some() {
+            self.clear_selection();
+            self.view_moves = self.view_moves.wrapping_add(1);
+        }
+    }
+
+    /// The link the keyboard has focused, if any.
+    #[cfg(feature = "links-clipboard")]
+    #[must_use]
+    pub fn focused_link(&self) -> Option<&crate::linkhit::Hit> {
+        self.links.focus.as_ref().map(|stop| &stop.hit)
+    }
+
     /// The user pressed the link modifier with the primary button at pixel
     /// `(x, y)`. Over a link, the terminal asks before anything opens, and the
     /// press is the terminal's, not the program's: returns `true`. Nothing is
@@ -1250,6 +1387,11 @@ impl App {
     fn begin_selection(&mut self, x: u32, y: u32) {
         let lines = self.flow();
         let had = self.selection.take().is_some();
+        // A selection the pointer makes is not the keyboard's focused link.
+        #[cfg(feature = "links-clipboard")]
+        {
+            self.links.focus = None;
+        }
         match self.pos_at(&lines, x, y, true) {
             Some(p) => {
                 self.selection = Some(Selection { anchor: p, head: p });
@@ -1310,6 +1452,12 @@ impl App {
     #[must_use]
     pub fn selected_text(&self) -> Option<String> {
         let sel = self.selection?;
+        // A link the keyboard focused copies as its own text: the screen rows
+        // it wrapped over are not line breaks in it.
+        #[cfg(feature = "links-clipboard")]
+        if let Some(stop) = &self.links.focus {
+            return Some(stop.hit.visible.clone());
+        }
         select::copy_selection(&self.flow(), &sel).map(|c| c.text)
     }
 
@@ -1938,6 +2086,12 @@ impl App {
             // window can still be closed, and a copy sends nothing anywhere.
             return Outcome::Nothing;
         }
+        if !matches!(
+            action,
+            Action::NextLink | Action::PreviousLink | Action::Copy
+        ) {
+            self.clear_link_focus();
+        }
         match action {
             Action::Quit | Action::Close => Outcome::Exit,
             Action::NewWindow
@@ -1945,6 +2099,10 @@ impl App {
             | Action::NextTab
             | Action::PreviousTab
             | Action::Settings => Outcome::Nothing,
+            Action::NextLink | Action::PreviousLink => {
+                self.focus_link(action == Action::NextLink);
+                Outcome::Redraw
+            }
             Action::Find => {
                 self.find_open();
                 Outcome::Redraw
@@ -2033,11 +2191,31 @@ impl App {
             // The prompt owns the keys: Enter opens, Escape closes, and nothing
             // reaches the program until it is answered.
             match key {
-                Key::Enter => self.answer_link(true).map(|_| ()),
+                Key::Enter | Key::KeypadEnter => self.answer_link(true).map(|_| ()),
                 Key::Escape => self.answer_link(false).map(|_| ()),
                 _ => Ok(()),
             }?;
             return Ok(());
+        }
+        #[cfg(feature = "links-clipboard")]
+        if self.links.focus.is_some() {
+            // The focus belongs to the screen it was made on: if the link is gone
+            // or moved, or another input has taken over, it is let go and the
+            // key does its usual work.
+            let live = self.find.is_none() && self.links.focus_is_current(&self.link_stops());
+            match (live, self.links.focus.clone(), key) {
+                (true, Some(stop), Key::Enter | Key::KeypadEnter) if !mods.ctrl && !mods.alt => {
+                    self.clear_link_focus();
+                    self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&stop.hit));
+                    self.view_moves = self.view_moves.wrapping_add(1);
+                    return Ok(());
+                }
+                (true, _, Key::Escape) => {
+                    self.clear_link_focus();
+                    return Ok(());
+                }
+                _ => self.clear_link_focus(),
+            }
         }
         if self.scroll_key(key, mods) {
             return Ok(());
