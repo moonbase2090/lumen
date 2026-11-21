@@ -776,3 +776,134 @@ fn with_no_link_on_screen_the_keyboard_focuses_nothing() {
     act(&mut app, Action::NextLink);
     assert!(app.focused_link().is_none());
 }
+
+const LONG: &str = "https://example.org/a/long/path/that/goes/past/the/edge";
+
+fn start_wrapped(tail: &str) -> (App, Opened) {
+    let script = format!(
+        "printf '%25s' ''; printf '%s\\r\\n' '{LONG} END'; printf '%s\\r\\n' '{tail}'; read hold"
+    );
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", &script],
+        1,
+        420,
+        300,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    let opened = Opened::default();
+    app.use_link_opener(Box::new(opened.clone()));
+    assert!(pump_until(&mut app, |a| shows(a, "https://example.com/z")));
+    (app, opened)
+}
+
+#[test]
+fn a_wrapped_link_is_one_stop_and_is_selected_whole() {
+    use lumen_term::actions::Action;
+    let (mut app, _) = start_wrapped("https://example.com/z");
+    let mut seen = Vec::new();
+    for _ in 0..3 {
+        act(&mut app, Action::NextLink);
+        seen.push((
+            app.focused_link().map(|h| h.target.clone()),
+            app.selected_text().map(|t| t.replace('\n', "")),
+        ));
+    }
+    let long = Some(LONG.to_owned());
+    let z = Some("https://example.com/z".to_owned());
+    assert_eq!(
+        seen[0],
+        (long.clone(), long.clone()),
+        "the whole link, not its first row"
+    );
+    assert_eq!(seen[1], (z.clone(), z), "the next stop is the next link");
+    assert_eq!(
+        seen[2],
+        (long.clone(), long),
+        "and it wraps back to the first"
+    );
+}
+
+#[test]
+fn opening_a_wrapped_link_by_keyboard_asks_with_the_whole_target() {
+    use lumen_term::actions::Action;
+    let (mut app, opened) = start_wrapped("https://example.com/z");
+    act(&mut app, Action::NextLink);
+    enter(&mut app);
+    assert!(lines(&app).contains(LONG));
+    enter(&mut app);
+    assert_eq!(opened.all(), [LONG]);
+}
+
+#[test]
+fn find_takes_enter_from_a_focused_link() {
+    use lumen_term::actions::Action;
+    let (mut app, opened) = start(SAY);
+    assert!(pump_until(&mut app, |a| shows(a, "and more")));
+    act(&mut app, Action::NextLink);
+    act(&mut app, Action::Find);
+    assert!(app.focused_link().is_none(), "find takes over the keys");
+    enter(&mut app);
+    assert!(
+        app.link_prompt().is_none(),
+        "Enter was find's, not the link's"
+    );
+    assert_eq!(opened.count(), 0);
+}
+
+#[test]
+fn a_focused_link_the_program_replaces_is_not_asked_about() {
+    use lumen_term::actions::Action;
+    let dir = std::env::temp_dir().join(format!("lumen-focus-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| unreachable!("{e}"));
+    let fifo = dir.join("go");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap_or_else(|e| unreachable!("mkfifo: {e}"));
+    assert!(made.success());
+    let script = format!(
+        "echo 'see https://example.com/old here'; cat '{p}' >/dev/null; printf '\\033[2J\\033[Hnothing here'; read hold",
+        p = fifo.display()
+    );
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", &script],
+        1,
+        SIZE.0,
+        SIZE.1,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    let opened = Opened::default();
+    app.use_link_opener(Box::new(opened.clone()));
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/old")));
+    act(&mut app, Action::NextLink);
+    assert!(app.focused_link().is_some());
+    std::fs::write(&fifo, "go").unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(pump_until(&mut app, |a| shows(a, "nothing here")));
+    enter(&mut app);
+    assert!(
+        app.link_prompt().is_none(),
+        "the link is gone, so Enter asks about nothing"
+    );
+    assert_eq!(opened.count(), 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn keypad_enter_asks_and_then_opens_like_enter() {
+    use lumen_term::actions::Action;
+    let (mut app, opened) = start(SAY);
+    assert!(pump_until(&mut app, |a| shows(a, "and more")));
+    act(&mut app, Action::NextLink);
+    let key = |app: &mut App| {
+        app.key(Key::KeypadEnter, lumen_term::Mods::default())
+            .unwrap_or_else(|e| unreachable!("{e}"));
+    };
+    key(&mut app);
+    assert!(lines(&app).contains(URL));
+    key(&mut app);
+    assert_eq!(opened.all(), [URL]);
+}
