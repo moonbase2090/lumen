@@ -187,6 +187,67 @@ pub enum Settings {
     },
 }
 
+/// The settings file and the last value read from it.
+///
+/// A window polls this source and receives a value only when the parsed
+/// settings change. Reading the small settings file avoids relying on file
+/// timestamps, which can miss two quick saves with the same size.
+#[derive(Debug)]
+pub struct Watcher {
+    path: Option<PathBuf>,
+    home: Option<PathBuf>,
+    current: Settings,
+}
+
+impl Watcher {
+    /// The settings source under the user's home directory.
+    #[must_use]
+    pub fn system() -> Self {
+        let home = home_dir(
+            std::env::var_os("HOME"),
+            std::env::var_os("USERPROFILE"),
+            cfg!(windows),
+        );
+        match home {
+            Some(home) => Self::from_path(home.join(RELATIVE_PATH), Some(home)),
+            None => Self {
+                path: None,
+                home: None,
+                current: Settings::Defaults,
+            },
+        }
+    }
+
+    /// A settings source at `path`, with `home` for `~/` paths in the file.
+    #[must_use]
+    pub fn from_path(path: PathBuf, home: Option<PathBuf>) -> Self {
+        let current = load_from(&path, home.as_deref());
+        Self {
+            path: Some(path),
+            home,
+            current,
+        }
+    }
+
+    /// The settings that apply now.
+    #[must_use]
+    pub fn current(&self) -> &Settings {
+        &self.current
+    }
+
+    /// Read the source again and return the new settings when they changed.
+    pub fn take_change(&mut self) -> Option<&Settings> {
+        let next = self.path.as_ref().map_or(Settings::Defaults, |path| {
+            load_from(path, self.home.as_deref())
+        });
+        if next == self.current {
+            return None;
+        }
+        self.current = next;
+        Some(&self.current)
+    }
+}
+
 impl Settings {
     /// The look settings that apply.
     #[must_use]

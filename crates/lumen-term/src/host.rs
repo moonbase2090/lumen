@@ -10,6 +10,7 @@ use crate::keys::{Key, Mods};
 use crate::layer::Layer;
 use crate::mouse::{Button, Held, Wheel};
 use crate::raster::Frame;
+use crate::settings::Watcher as SettingsWatcher;
 use crate::tabs::Tabs;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -373,18 +374,8 @@ pub struct Config {
     pub notifications: crate::notify::Settings,
     /// The user's `images` setting; `false` always shows the alt text.
     pub images: bool,
-    /// The user's choice of look.
-    pub theme: crate::design::ThemeChoice,
-    /// The user's fonts.
-    pub fonts: crate::design::Fonts,
-    /// Copy a finished mouse selection at once.
-    pub copy_on_select: bool,
-    /// Ease the wheel's scrolling instead of jumping.
-    pub smooth_scroll: bool,
-    /// The user's `shell` setting: what to run when `command` is empty.
-    pub shell: Option<String>,
-    /// Whether a shell started directly gets the prompt-mark hooks.
-    pub shell_integration: bool,
+    /// The user's settings file and its current value.
+    pub settings: SettingsWatcher,
 }
 
 struct Tab {
@@ -416,6 +407,8 @@ struct Host {
     /// A button whose press began in the active tab's content. Its drag and
     /// release stay with the content when the pointer crosses the tab strip.
     mouse_capture: Option<MouseButton>,
+    /// The next time the small settings file is read for a change.
+    next_settings_check: Instant,
 }
 
 impl Host {
@@ -434,6 +427,8 @@ impl Host {
     }
 
     fn start_app(&self, window: &Window) -> Result<App, String> {
+        let raw = self.config.settings.current().look();
+        let look = raw.resolve();
         let size = window.inner_size();
         #[allow(
             clippy::cast_possible_truncation,
@@ -447,7 +442,7 @@ impl Host {
         let (program, arguments) = match self.config.command.split_first() {
             Some((p, a)) => (p.clone(), a.to_vec()),
             None => (
-                crate::shell::default_shell(self.config.shell.as_deref()),
+                crate::shell::default_shell(look.shell.as_deref()),
                 Vec::new(),
             ),
         };
@@ -459,7 +454,7 @@ impl Host {
             size.width,
             size.height,
             crate::shellint::ShellOptions {
-                integration: self.config.shell_integration,
+                integration: look.shell_integration,
             },
         )
         .map_err(|e| e.to_string())?;
@@ -468,17 +463,49 @@ impl Host {
         }
         app.use_settings(self.config.notifications);
         app.use_images(self.config.images);
-        app.set_theme_choice(self.config.theme);
-        app.set_copy_on_select(self.config.copy_on_select);
-        app.set_smooth_scroll(self.config.smooth_scroll);
+        app.set_theme_choice(look.theme);
+        app.set_copy_on_select(raw.copy_on_select);
+        app.set_smooth_scroll(raw.smooth_scroll);
         app.set_appearance(appearance(window.theme()));
-        if let Err(e) = app.set_fonts(&self.config.fonts) {
+        if let Err(e) = app.set_fonts(&look.fonts) {
             eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
         }
         let content_height = size.height.saturating_sub(app.cell_height());
         app.resize(size.width, content_height)
             .map_err(|e| e.to_string())?;
         Ok(app)
+    }
+
+    fn reload_settings(&mut self) {
+        let Some(settings) = self.config.settings.take_change() else {
+            return;
+        };
+        let raw = settings.look();
+        let look = raw.resolve();
+        for notice in settings.notice().iter().chain(&look.notices) {
+            eprintln!("{}: {notice}", crate::APP_NAME);
+        }
+        let Some(run) = &mut self.state else { return };
+        let mut redraw = false;
+        let mut resized = false;
+        for tab in run.tabs.iter_mut() {
+            redraw |= tab.app.set_theme_choice(look.theme);
+            match tab.app.set_fonts(&look.fonts) {
+                Ok(changed) => resized |= changed,
+                Err(e) => eprintln!("{}: fonts not used ({e})", crate::APP_NAME),
+            }
+            tab.app.set_copy_on_select(raw.copy_on_select);
+            tab.app.set_smooth_scroll(raw.smooth_scroll);
+        }
+        if resized {
+            redraw |= Self::resize_tabs(run, run.window.inner_size());
+        }
+        if redraw {
+            run.window.request_redraw();
+        }
+        if resized {
+            self.refocus();
+        }
     }
 
     fn update_window_title(run: &mut Running) {
@@ -1016,6 +1043,11 @@ impl ApplicationHandler for Host {
             event_loop.exit();
             return;
         }
+        let now = Instant::now();
+        if now >= self.next_settings_check {
+            self.next_settings_check = now + Duration::from_millis(250);
+            self.reload_settings();
+        }
         #[cfg(any(target_os = "macos", windows))]
         for action in crate::menu::chosen() {
             self.act(event_loop, action);
@@ -1099,6 +1131,7 @@ pub fn run(config: Config) -> Result<(), String> {
         ime: ImeFollower::default(),
         focused: false,
         mouse_capture: None,
+        next_settings_check: Instant::now(),
     };
     event_loop
         .run_app(&mut host)

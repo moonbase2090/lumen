@@ -6,8 +6,10 @@
 //! is drawn. This module searches those rows and knows nothing about blocks, so
 //! the same rows give the matches, the highlights and the place to scroll to.
 //!
-//! A match never spans two rows. The text searched is the text on screen: what
-//! the user sees is what they find. The comparison ignores case.
+//! A row the terminal wrapped on to the next is one line with it, as it is for
+//! copying: a match can start at the end of one row and finish on the next, and
+//! a real line break still separates lines. The text searched is the text on
+//! screen: what the user sees is what they find. The comparison ignores case.
 
 use std::collections::HashMap;
 
@@ -22,11 +24,16 @@ pub struct SearchRow {
     pub top: u32,
     /// The row's height in pixels.
     pub height: u32,
-    /// The text of the row.
+    /// The text of the row. A row that wraps keeps its trailing blanks, which
+    /// belong to the line.
     pub text: String,
+    /// Whether the terminal wrapped this row on to the next row of the block, so
+    /// the next row continues this line.
+    pub wraps: bool,
 }
 
-/// A match: `start..end` in characters of one row's text.
+/// A match: from character `start` of row `row`'s text to character `end` of row
+/// `end_row`'s text. A match inside one row has `end_row == row`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Hit {
     /// The block the match is in.
@@ -37,9 +44,11 @@ pub struct Hit {
     pub top: u32,
     /// The row's height in pixels.
     pub height: u32,
-    /// The first character of the match.
+    /// The first character of the match, in row `row`.
     pub start: usize,
-    /// One past the last character of the match.
+    /// The row the match ends in: after `row` when it runs over a wrap.
+    pub end_row: usize,
+    /// One past the last character of the match, in row `end_row`.
     pub end: usize,
 }
 
@@ -82,7 +91,8 @@ fn fold(c: char) -> char {
 }
 
 /// Every match of `query` in `rows`, in the order of the flow. Matches do not
-/// overlap. An empty query has none.
+/// overlap. A row that wraps is searched as one with the row after it. An empty
+/// query has none.
 #[must_use]
 pub fn find_all(rows: &[SearchRow], query: &str) -> Vec<Hit> {
     let needle: Vec<char> = query.chars().map(fold).collect();
@@ -90,26 +100,51 @@ pub fn find_all(rows: &[SearchRow], query: &str) -> Vec<Hit> {
     if needle.is_empty() {
         return hits;
     }
-    for r in rows {
-        let hay: Vec<char> = r.text.chars().map(fold).collect();
-        let mut at = 0;
-        while at + needle.len() <= hay.len() {
-            if hay[at..at + needle.len()] == needle[..] {
-                hits.push(Hit {
-                    block: r.block,
-                    row: r.row,
-                    top: r.top,
-                    height: r.height,
-                    start: at,
-                    end: at + needle.len(),
-                });
-                at += needle.len();
-            } else {
-                at += 1;
-            }
+    let mut first = 0;
+    while first < rows.len() {
+        let mut end = first + 1;
+        while end < rows.len()
+            && rows[end - 1].wraps
+            && rows[end].block == rows[first].block
+            && rows[end].row == rows[end - 1].row + 1
+        {
+            end += 1;
         }
+        find_in_line(&rows[first..end], &needle, &mut hits);
+        first = end;
     }
     hits
+}
+
+/// The matches of `needle` in the rows of one line (each but the last wraps on
+/// to the next), added to `hits`.
+fn find_in_line(line: &[SearchRow], needle: &[char], hits: &mut Vec<Hit>) {
+    let mut hay: Vec<char> = Vec::new();
+    // Where each row's text starts in `hay`.
+    let mut starts: Vec<usize> = Vec::with_capacity(line.len());
+    for r in line {
+        starts.push(hay.len());
+        hay.extend(r.text.chars().map(fold));
+    }
+    let row_of = |at: usize| starts.partition_point(|&s| s <= at) - 1;
+    let mut at = 0;
+    while at + needle.len() <= hay.len() {
+        if hay[at..at + needle.len()] == needle[..] {
+            let (from, to) = (row_of(at), row_of(at + needle.len() - 1));
+            hits.push(Hit {
+                block: line[from].block,
+                row: line[from].row,
+                top: line[from].top,
+                height: line[from].height,
+                start: at - starts[from],
+                end_row: line[to].row,
+                end: at + needle.len() - starts[to],
+            });
+            at += needle.len();
+        } else {
+            at += 1;
+        }
+    }
 }
 
 /// An open find: the query, its matches and the current one.
@@ -232,11 +267,18 @@ impl Find {
         let mut marks: HashMap<(usize, usize), Vec<Mark>> = HashMap::new();
         let current = self.current_index();
         for (i, h) in self.hits.iter().enumerate() {
-            marks.entry((h.block, h.row)).or_default().push(Mark {
-                start: h.start,
-                end: h.end,
-                current: Some(i) == current,
-            });
+            let is_current = Some(i) == current;
+            for row in h.row..=h.end_row {
+                // A match over a wrap marks the rest of its first row, all of
+                // the rows between, and the start of its last.
+                let start = if row == h.row { h.start } else { 0 };
+                let end = if row == h.end_row { h.end } else { usize::MAX };
+                marks.entry((h.block, row)).or_default().push(Mark {
+                    start,
+                    end,
+                    current: is_current,
+                });
+            }
         }
         let missing = !self.query.is_empty() && self.hits.is_empty();
         let status = if self.query.is_empty() {
@@ -269,8 +311,18 @@ mod tests {
                 top: u32::try_from(i).unwrap_or(0) * 10,
                 height: 10,
                 text: (*t).to_owned(),
+                wraps: false,
             })
             .collect()
+    }
+
+    /// Rows as `rows`, with the ones in `wrapping` wrapped on to the next.
+    fn wrapped(lines: &[&str], wrapping: &[usize]) -> Vec<SearchRow> {
+        let mut r = rows(lines);
+        for &i in wrapping {
+            r[i].wraps = true;
+        }
+        r
     }
 
     #[test]
@@ -284,10 +336,64 @@ mod tests {
     }
 
     #[test]
-    fn matches_do_not_overlap_or_span_rows() {
+    fn matches_do_not_overlap_or_span_a_real_line_break() {
         let r = rows(&["aaaa", "ab", "ba"]);
         assert_eq!(find_all(&r, "aa").len(), 2);
-        assert_eq!(find_all(&r, "abba").len(), 0, "a match stays in its row");
+        assert_eq!(
+            find_all(&r, "abba").len(),
+            0,
+            "a line break separates lines"
+        );
+    }
+
+    #[test]
+    fn a_match_runs_over_a_wrap() {
+        let r = wrapped(&["xxxnee", "dle", "needle"], &[0]);
+        let hits = find_all(&r, "NEEDLE");
+        let spans: Vec<(usize, usize, usize, usize)> = hits
+            .iter()
+            .map(|h| (h.row, h.start, h.end_row, h.end))
+            .collect();
+        // Over the wrap, then the whole of the third row, which is its own line.
+        assert_eq!(spans, [(0, 3, 1, 3), (2, 0, 2, 6)]);
+    }
+
+    #[test]
+    fn a_wrap_joins_only_the_rows_it_joins() {
+        // Row 1 does not wrap, so row 2 is a new line.
+        let r = wrapped(&["nee", "dle", "needle"], &[0]);
+        assert_eq!(find_all(&r, "needle").len(), 2);
+        let unjoined = rows(&["nee", "dle"]);
+        assert_eq!(find_all(&unjoined, "needle").len(), 0);
+    }
+
+    #[test]
+    fn a_match_can_run_over_more_than_two_rows() {
+        let r = wrapped(&["ab", "cd", "ef"], &[0, 1]);
+        let hits = find_all(&r, "bcde");
+        assert_eq!(hits.len(), 1);
+        assert_eq!((hits[0].row, hits[0].start), (0, 1));
+        assert_eq!((hits[0].end_row, hits[0].end), (2, 1));
+    }
+
+    #[test]
+    fn a_match_over_a_wrap_is_marked_on_both_rows() {
+        let r = wrapped(&["xxxnee", "dle"], &[0]);
+        let mut f = Find::new();
+        f.push("needle");
+        f.refresh(&r, 0);
+        let o = f.overlay();
+        let first = &o.marks[&(0, 0)];
+        let second = &o.marks[&(0, 1)];
+        assert_eq!(
+            (first[0].start, first[0].end > 6, first[0].current),
+            (3, true, true)
+        );
+        assert_eq!(
+            (second[0].start, second[0].end, second[0].current),
+            (0, 3, true)
+        );
+        assert_eq!(o.status, "1 of 1");
     }
 
     #[test]

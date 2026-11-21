@@ -23,6 +23,34 @@ pub const MAX_PER_WINDOW: usize = 40;
 /// The length of the sliding window, in milliseconds.
 pub const WINDOW_MS: u64 = 1000;
 
+/// Most places one read of the PTY is split at a cursor-position query.
+pub const MAX_SPLITS_PER_READ: usize = 64;
+
+/// Finds the end of `ESC [ 6 n` in a stream, across reads, so the session can
+/// answer queries of different kinds in the order the program asked them.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CursorQueryEnds {
+    matched: u8,
+}
+
+impl CursorQueryEnds {
+    /// Whether `byte` ends a cursor-position query.
+    pub fn step(&mut self, byte: u8) -> bool {
+        const QUERY: &[u8] = b"\x1b[6n";
+        let next = usize::from(self.matched);
+        self.matched = if byte == QUERY[next] {
+            self.matched + 1
+        } else {
+            u8::from(byte == QUERY[0])
+        };
+        if usize::from(self.matched) == QUERY.len() {
+            self.matched = 0;
+            return true;
+        }
+        false
+    }
+}
+
 /// A colour a program asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColourQuery {
@@ -102,6 +130,57 @@ impl Replies {
     /// The bytes to write to the PTY for the queries of one read, at `now_ms`:
     /// the first [`MAX_PER_READ`] of them that the window has room for.
     pub fn answer(&mut self, queries: &[ColourQuery], now_ms: u64) -> Vec<u8> {
+        let mut left = MAX_PER_READ;
+        self.answer_within(queries, now_ms, &mut left)
+    }
+
+    /// Like [`answer`](Self::answer), for a read answered in pieces: `left` is
+    /// what the read may still have answered, and it goes down by what this
+    /// call answers, so all the pieces together stay within [`MAX_PER_READ`].
+    pub fn answer_within(
+        &mut self,
+        queries: &[ColourQuery],
+        now_ms: u64,
+        left: &mut usize,
+    ) -> Vec<u8> {
+        let room = self.room(now_ms).min(*left);
+        let mut out = Vec::new();
+        for query in queries.iter().take(room) {
+            out.extend(format(*query, &self.theme));
+            self.sent.push_back(now_ms);
+        }
+        *left -= queries.len().min(room);
+        out
+    }
+
+    /// The bytes to write to the PTY for the cursor-position queries of one
+    /// read, at `now_ms`: `ESC [ row ; column R` for each, within the same
+    /// limits as the colour replies.
+    pub fn answer_cursor(&mut self, reports: &[(u32, u32)], now_ms: u64) -> Vec<u8> {
+        let mut left = MAX_PER_READ;
+        self.answer_cursor_within(reports, now_ms, &mut left)
+    }
+
+    /// [`answer_cursor`](Self::answer_cursor) for a read answered in pieces; see
+    /// [`answer_within`](Self::answer_within).
+    pub fn answer_cursor_within(
+        &mut self,
+        reports: &[(u32, u32)],
+        now_ms: u64,
+        left: &mut usize,
+    ) -> Vec<u8> {
+        let room = self.room(now_ms).min(*left);
+        let mut out = Vec::new();
+        for (row, column) in reports.iter().take(room) {
+            out.extend(format!("\x1b[{row};{column}R").into_bytes());
+            self.sent.push_back(now_ms);
+        }
+        *left -= reports.len().min(room);
+        out
+    }
+
+    /// How many more replies the window has room for at `now_ms`.
+    fn room(&mut self, now_ms: u64) -> usize {
         while self
             .sent
             .front()
@@ -109,12 +188,6 @@ impl Replies {
         {
             self.sent.pop_front();
         }
-        let room = MAX_PER_WINDOW.saturating_sub(self.sent.len());
-        let mut out = Vec::new();
-        for query in queries.iter().take(MAX_PER_READ.min(room)) {
-            out.extend(format(*query, &self.theme));
-            self.sent.push_back(now_ms);
-        }
-        out
+        MAX_PER_WINDOW.saturating_sub(self.sent.len())
     }
 }

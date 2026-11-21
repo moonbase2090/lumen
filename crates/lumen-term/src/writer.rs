@@ -13,9 +13,7 @@
 //!   the queue is full.
 
 use std::io::{self, Write};
-#[cfg(feature = "colour-replies")]
 use std::sync::Arc;
-#[cfg(feature = "colour-replies")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 
@@ -23,25 +21,19 @@ use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 pub(crate) const TYPED_QUEUE: usize = 256;
 
 /// Replies that can wait; more are dropped.
-#[cfg(feature = "colour-replies")]
 pub(crate) const REPLY_QUEUE: usize = 16;
 
-/// The queue room kept for replies: none when they are off.
-#[cfg(feature = "colour-replies")]
+/// The queue room kept for replies.
 const REPLY_ROOM: usize = REPLY_QUEUE;
-#[cfg(not(feature = "colour-replies"))]
-const REPLY_ROOM: usize = 0;
 
 enum Message {
     Typed(Vec<u8>),
-    #[cfg(feature = "colour-replies")]
     Reply(Vec<u8>),
 }
 
 /// Queues bytes for a PTY and writes them on a thread of its own.
 pub(crate) struct InputWriter {
     queue: SyncSender<Message>,
-    #[cfg(feature = "colour-replies")]
     replies_waiting: Arc<AtomicUsize>,
 }
 
@@ -52,21 +44,15 @@ impl InputWriter {
         // The queue holds the most of both kinds that may wait, so a full run of
         // replies cannot take the room typed input is promised.
         let (queue, waiting) = sync_channel::<Message>(TYPED_QUEUE + REPLY_ROOM);
-        #[cfg(feature = "colour-replies")]
         let replies_waiting = Arc::new(AtomicUsize::new(0));
-        #[cfg(feature = "colour-replies")]
         let counter = Arc::clone(&replies_waiting);
         std::thread::spawn(move || {
             while let Ok(message) = waiting.recv() {
-                #[cfg(feature = "colour-replies")]
                 let (bytes, reply) = match message {
                     Message::Typed(bytes) => (bytes, false),
                     Message::Reply(bytes) => (bytes, true),
                 };
-                #[cfg(not(feature = "colour-replies"))]
-                let Message::Typed(bytes) = message;
                 let written = writer.write_all(&bytes).and_then(|()| writer.flush());
-                #[cfg(feature = "colour-replies")]
                 if reply {
                     counter.fetch_sub(1, Ordering::SeqCst);
                 }
@@ -77,7 +63,6 @@ impl InputWriter {
         });
         Self {
             queue,
-            #[cfg(feature = "colour-replies")]
             replies_waiting,
         }
     }
@@ -104,7 +89,6 @@ impl InputWriter {
 
     /// Queue one of the terminal's own replies. Never blocks. Returns whether it
     /// was queued.
-    #[cfg(feature = "colour-replies")]
     pub(crate) fn reply(&self, bytes: Vec<u8>) -> bool {
         if self.replies_waiting.fetch_add(1, Ordering::SeqCst) >= REPLY_QUEUE {
             self.replies_waiting.fetch_sub(1, Ordering::SeqCst);
@@ -159,7 +143,6 @@ mod tests {
         (writer, release, written)
     }
 
-    #[cfg(feature = "colour-replies")]
     #[test]
     fn replies_are_dropped_when_sixteen_wait_and_never_block() {
         let (w, _release, _) = stalled();
@@ -173,7 +156,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "colour-replies")]
     #[test]
     fn a_full_run_of_replies_leaves_the_room_typed_input_is_promised() {
         let (w, _release, _) = stalled();
