@@ -74,8 +74,9 @@ $labels = @($buttons | ForEach-Object { $_.Current.Name })
 Write-Output "the question is up with buttons: $($labels -join ', ')"
 $everything = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants,
   [System.Windows.Automation.Condition]::TrueCondition)
-$text = @($everything | ForEach-Object { $_.Current.Name } | Where-Object { $_ -like "*example.com/b*" -and $_ -like "*Open this link*" -or $_ -like "*Found in the program's output*" })
-Write-Output "question text found: $($text.Count -gt 0)"
+$text = @($everything | ForEach-Object { $_.Current.Name } | Where-Object { ($_ -like "*Open this link*") -and ($_ -like "*https://example.com/b*") })
+Write-Output "question text names the address: $($text.Count -gt 0)"
+if ($text.Count -eq 0) { Fail "the question does not show the address" }
 
 $cancel = $buttons | Where-Object { $_.Current.Name -eq "Cancel" } | Select-Object -First 1
 $cancel.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
