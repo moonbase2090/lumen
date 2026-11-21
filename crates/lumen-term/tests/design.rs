@@ -452,8 +452,7 @@ fn the_builtin_margin_is_the_canvas_with_a_divider() {
 }
 
 /// In each built-in look the gutter and the header strip are drawn in the
-/// grid's background, with the divider on their inner edges and the label
-/// still drawn.
+/// grid's background, with the divider only on the gutter's right edge.
 #[cfg(unix)]
 #[test]
 fn the_margin_is_drawn_in_the_grid_background_with_a_divider()
@@ -486,15 +485,13 @@ fn the_margin_is_drawn_in_the_grid_background_with_a_divider()
             grid,
             "{b:?} gutter edge"
         );
-        // The divider: right of the gutter, and under the header.
+        // The divider: right of the gutter only.
         assert_eq!(at(gutter_right - 1, f.height / 2)?, p.divider, "{b:?}");
-        assert_eq!(at(f.width - cw, header_bottom - 1)?, p.divider, "{b:?}");
         assert_eq!(at(gutter_right, f.height / 2)?, grid, "{b:?} content edge");
-        // No title is drawn in the header strip: above its divider it is
-        // the margin's colour across the whole window.
-        let inked =
-            (0..f.width).find(|&x| (0..header_bottom - 1).any(|y| f.pixel(x, y) != Some(grid)));
-        assert_eq!(inked, None, "{b:?} header text");
+        // The header strip carries no title and no line under it: it is the
+        // margin's colour across the whole window, down to its last row.
+        let inked = (0..f.width).find(|&x| (0..header_bottom).any(|y| f.pixel(x, y) != Some(grid)));
+        assert_eq!(inked, None, "{b:?} header text or line");
     }
     Ok(())
 }

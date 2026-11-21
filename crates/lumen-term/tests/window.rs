@@ -202,7 +202,7 @@ fn no_producer_output_changes_a_margin_or_editor_pixel() {
 }
 
 #[test]
-fn the_margin_is_the_terminals_colour_and_the_header_carries_no_title() {
+fn the_margin_is_the_terminals_colour_and_the_header_carries_no_title_or_line() {
     let r = renderer();
     let f = baseline();
     let l = lay(None);
@@ -214,10 +214,10 @@ fn the_margin_is_the_terminals_colour_and_the_header_carries_no_title() {
             assert_eq!(f.pixel(x, y), Some(colour), "gutter pixel {x},{y}");
         }
     }
-    // The header strip is the margin's colour from edge to edge, above its
-    // divider: no title or other text is drawn in it.
+    // The header strip is the margin's colour from edge to edge, down to its
+    // last row: no title is drawn in it and no line runs under it.
     let (_, hy, _, hh) = px(&r, &l.margin[1]);
-    for y in hy..hy + hh - 1 {
+    for y in hy..hy + hh {
         for x in 0..f.width {
             assert_eq!(f.pixel(x, y), Some(colour), "header pixel {x},{y}");
         }
