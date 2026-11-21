@@ -165,6 +165,7 @@ fn the_shortcut_for_each_action_is_the_one_the_platform_uses() {
         ..Held::default()
     };
     for (key, action) in [
+        ('n', Action::NewWindow),
         ('t', Action::NewTab),
         ('v', Action::Paste),
         ('=', Action::ZoomIn),
@@ -190,6 +191,10 @@ fn the_shortcut_for_each_action_is_the_one_the_platform_uses() {
     );
     assert_eq!(action_for(Platform::Other, 'v', linux), Some(Action::Paste));
     assert_eq!(
+        action_for(Platform::Other, 'n', linux),
+        Some(Action::NewWindow)
+    );
+    assert_eq!(
         action_for(Platform::Other, 't', linux),
         Some(Action::NewTab)
     );
@@ -213,6 +218,7 @@ fn the_shortcut_for_each_action_is_the_one_the_platform_uses() {
 fn every_macos_menu_item_stands_for_one_action_and_back() {
     use lumen_term::menu::{action_of, id_of};
     for action in [
+        Action::NewWindow,
         Action::NewTab,
         Action::NextTab,
         Action::PreviousTab,
