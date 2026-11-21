@@ -76,6 +76,11 @@ impl Store {
 
     /// Replace the state with the windows that are open now.
     pub fn save(&self, placements: &[Placement]) -> Result<(), String> {
+        if placements.is_empty() {
+            // Closing the last window is still a placement to restore. An
+            // empty file means no saved state, so keep the last nonempty one.
+            return Ok(());
+        }
         let Some(path) = &self.path else {
             return Ok(());
         };
@@ -173,7 +178,11 @@ fn encode(placements: &[Placement]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Placement, encode, parse};
+    use super::{Placement, ReadError, Store, encode, parse, read};
+
+    fn path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("lumen-window-state-{}-{name}", std::process::id()))
+    }
 
     #[test]
     fn placements_round_trip_with_and_without_a_position() {
@@ -195,5 +204,47 @@ mod tests {
         assert_eq!(parse("0 0 800 600\n- 2 640 480\n"), Err("bad position"));
         assert_eq!(parse("0 0 0 600\n"), Err("bad size"));
         assert_eq!(parse("0 0 800 600 extra\n"), Err("bad line"));
+    }
+
+    #[test]
+    fn closing_the_last_window_keeps_its_placement_for_the_next_launch() {
+        let path = path("last-window");
+        let store = Store::from_path(path.clone());
+        let placement = Placement {
+            position: Some((40, 80)),
+            size: (900, 700),
+        };
+        assert_eq!(store.save(&[placement]), Ok(()));
+        assert_eq!(store.save(&[]), Ok(()));
+        assert!(matches!(read(&path), Ok(got) if got == vec![placement]));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn state_over_4096_bytes_is_refused() {
+        let path = path("too-large");
+        assert!(std::fs::write(&path, vec![b'x'; 4097]).is_ok());
+        assert!(matches!(read(&path), Err(ReadError::Refused("too large"))));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn reading_more_than_32_windows_is_refused() {
+        assert_eq!(parse(&"0 0 800 600\n".repeat(33)), Err("too many windows"));
+    }
+
+    #[test]
+    fn a_dimension_over_16384_is_refused() {
+        assert_eq!(parse("0 0 16385 600\n"), Err("bad size"));
+        assert!(parse("0 0 16384 16384\n").is_ok());
+    }
+
+    #[test]
+    fn encoding_keeps_at_most_32_windows() {
+        let placement = Placement {
+            position: None,
+            size: (800, 600),
+        };
+        assert_eq!(encode(&vec![placement; 33]).lines().count(), 32);
     }
 }
