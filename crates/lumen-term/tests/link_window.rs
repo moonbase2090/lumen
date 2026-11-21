@@ -685,3 +685,348 @@ fn a_menu_or_shortcut_action_does_nothing_while_the_prompt_is_up() {
     // Output keeps its order: the second paste would be on screen by now.
     assert!(!shows(&app, "second-paste"), "the program saw nothing");
 }
+
+struct NoClip;
+
+impl lumen_term::clipboard::Clipboard for NoClip {
+    fn text(&self) -> Option<String> {
+        None
+    }
+}
+
+fn act(app: &mut App, action: lumen_term::actions::Action) {
+    app.perform(action, &NoClip);
+}
+
+const TWO: &str = "echo 'one https://example.com/a two https://example.com/b'; echo 'three https://example.com/c'; sleep 30";
+
+#[test]
+fn the_keyboard_walks_the_links_in_reading_order_and_wraps() {
+    use lumen_term::actions::Action;
+    let (mut app, _) = start(TWO);
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/c")));
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        act(&mut app, Action::NextLink);
+        seen.push(app.focused_link().map(|h| h.target.clone()));
+    }
+    let want = |s: &str| Some(format!("https://example.com/{s}"));
+    assert_eq!(seen, [want("a"), want("b"), want("c"), want("a")]);
+    act(&mut app, Action::PreviousLink);
+    assert_eq!(app.focused_link().map(|h| h.target.clone()), want("c"));
+}
+
+#[test]
+fn the_focused_link_is_shown_selected_and_copies_as_its_text() {
+    use lumen_term::actions::Action;
+    let (mut app, _) = start(TWO);
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/c")));
+    act(&mut app, Action::NextLink);
+    assert_eq!(
+        app.selected_text().as_deref(),
+        Some("https://example.com/a")
+    );
+    act(&mut app, Action::NextLink);
+    assert_eq!(
+        app.selected_text().as_deref(),
+        Some("https://example.com/b")
+    );
+}
+
+#[test]
+fn enter_on_a_focused_link_asks_as_a_press_does_and_opens_only_on_yes() {
+    use lumen_term::actions::Action;
+    let (mut app, opened) = start(SAY);
+    assert!(pump_until(&mut app, |a| shows(a, "and more")));
+    act(&mut app, Action::NextLink);
+    enter(&mut app);
+    assert!(lines(&app).contains(URL), "the whole target is asked about");
+    assert_eq!(opened.count(), 0, "nothing opens before the answer");
+    assert!(
+        app.focused_link().is_none(),
+        "the prompt replaces the focus"
+    );
+    enter(&mut app);
+    assert_eq!(opened.all(), [URL]);
+}
+
+#[test]
+fn escape_lets_go_of_the_focus_and_another_key_does_too() {
+    use lumen_term::actions::Action;
+    let (mut app, opened) = start(SAY);
+    assert!(pump_until(&mut app, |a| shows(a, "and more")));
+    act(&mut app, Action::NextLink);
+    app.key(Key::Escape, lumen_term::Mods::default())
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(app.focused_link().is_none());
+    assert!(!app.has_selection());
+    act(&mut app, Action::NextLink);
+    app.key(Key::Char('x'), lumen_term::Mods::default())
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(app.focused_link().is_none());
+    assert!(app.link_prompt().is_none());
+    assert_eq!(opened.count(), 0);
+}
+
+#[test]
+fn with_no_link_on_screen_the_keyboard_focuses_nothing() {
+    use lumen_term::actions::Action;
+    let (mut app, _) = start("echo plain words; sleep 30");
+    assert!(pump_until(&mut app, |a| shows(a, "plain words")));
+    act(&mut app, Action::NextLink);
+    assert!(app.focused_link().is_none());
+}
+
+const LONG: &str = "https://example.org/a/long/path/that/goes/past/the/edge";
+
+fn start_wrapped(tail: &str) -> (App, Opened) {
+    let script = format!(
+        "printf '%25s' ''; printf '%s\\r\\n' '{LONG} END'; printf '%s\\r\\n' '{tail}'; read hold"
+    );
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", &script],
+        1,
+        420,
+        300,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    let opened = Opened::default();
+    app.use_link_opener(Box::new(opened.clone()));
+    assert!(pump_until(&mut app, |a| shows(a, "https://example.com/z")));
+    (app, opened)
+}
+
+#[test]
+fn a_wrapped_link_is_one_stop_and_is_selected_whole() {
+    use lumen_term::actions::Action;
+    let (mut app, _) = start_wrapped("https://example.com/z");
+    let mut seen = Vec::new();
+    for _ in 0..3 {
+        act(&mut app, Action::NextLink);
+        seen.push((
+            app.focused_link().map(|h| h.target.clone()),
+            app.selected_text(),
+        ));
+    }
+    let long = Some(LONG.to_owned());
+    let z = Some("https://example.com/z".to_owned());
+    assert_eq!(
+        seen[0],
+        (long.clone(), long.clone()),
+        "the whole link, not its first row"
+    );
+    assert_eq!(seen[1], (z.clone(), z), "the next stop is the next link");
+    assert_eq!(
+        seen[2],
+        (long.clone(), long),
+        "and it wraps back to the first"
+    );
+}
+
+#[test]
+fn opening_a_wrapped_link_by_keyboard_asks_with_the_whole_target() {
+    use lumen_term::actions::Action;
+    let (mut app, opened) = start_wrapped("https://example.com/z");
+    act(&mut app, Action::NextLink);
+    enter(&mut app);
+    assert!(lines(&app).contains(LONG));
+    enter(&mut app);
+    assert_eq!(opened.all(), [LONG]);
+}
+
+#[test]
+fn find_takes_enter_from_a_focused_link() {
+    use lumen_term::actions::Action;
+    let (mut app, opened) = start(SAY);
+    assert!(pump_until(&mut app, |a| shows(a, "and more")));
+    act(&mut app, Action::NextLink);
+    act(&mut app, Action::Find);
+    assert!(app.focused_link().is_none(), "find takes over the keys");
+    enter(&mut app);
+    assert!(
+        app.link_prompt().is_none(),
+        "Enter was find's, not the link's"
+    );
+    assert_eq!(opened.count(), 0);
+}
+
+#[test]
+fn a_focused_link_the_program_replaces_is_not_asked_about() {
+    use lumen_term::actions::Action;
+    let dir = std::env::temp_dir().join(format!("lumen-focus-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| unreachable!("{e}"));
+    let fifo = dir.join("go");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap_or_else(|e| unreachable!("mkfifo: {e}"));
+    assert!(made.success());
+    let script = format!(
+        "echo 'see https://example.com/old here'; cat '{p}' >/dev/null; printf '\\033[2J\\033[Hnothing here'; read hold",
+        p = fifo.display()
+    );
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", &script],
+        1,
+        SIZE.0,
+        SIZE.1,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    let opened = Opened::default();
+    app.use_link_opener(Box::new(opened.clone()));
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/old")));
+    act(&mut app, Action::NextLink);
+    assert!(app.focused_link().is_some());
+    std::fs::write(&fifo, "go").unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(pump_until(&mut app, |a| shows(a, "nothing here")));
+    enter(&mut app);
+    assert!(
+        app.link_prompt().is_none(),
+        "the link is gone, so Enter asks about nothing"
+    );
+    assert_eq!(opened.count(), 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn keypad_enter_asks_and_then_opens_like_enter() {
+    use lumen_term::actions::Action;
+    let (mut app, opened) = start(SAY);
+    assert!(pump_until(&mut app, |a| shows(a, "and more")));
+    act(&mut app, Action::NextLink);
+    let key = |app: &mut App| {
+        app.key(Key::KeypadEnter, lumen_term::Mods::default())
+            .unwrap_or_else(|e| unreachable!("{e}"));
+    };
+    key(&mut app);
+    assert!(lines(&app).contains(URL));
+    key(&mut app);
+    assert_eq!(opened.all(), [URL]);
+}
+
+fn grid_columns(app: &App) -> usize {
+    app.session()
+        .document()
+        .blocks()
+        .iter()
+        .find_map(|block| match block {
+            lumen_term::Block::Grid(grid) => Some(grid.size().0),
+            lumen_term::Block::Rich(_) => None,
+        })
+        .unwrap_or_else(|| unreachable!("a live grid"))
+}
+
+#[test]
+fn identical_links_split_by_a_space_in_the_last_column_are_two_stops() {
+    use lumen_term::actions::Action;
+    const Z: &str = "https://example.com/z";
+    let (mut probe, _) = start("echo probe; sleep 30");
+    assert!(pump_until(&mut probe, |a| shows(a, "probe")));
+    let columns = grid_columns(&probe);
+    drop(probe);
+    // The first address ends one column short of the edge, a space fills the
+    // last column, and the same address starts the next row: two links.
+    let pad = columns - 1 - Z.len();
+    let script = format!(
+        "printf '%{pad}s' ''; printf '%s' '{Z} {Z}'; printf '\\r\\n'; echo https://example.com/w; sleep 30"
+    );
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", &script],
+        1,
+        SIZE.0,
+        SIZE.1,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/w")));
+    let mut stops = Vec::new();
+    for _ in 0..3 {
+        act(&mut app, Action::NextLink);
+        stops.push(app.selected_text());
+    }
+    let (z, w) = (Some(Z.to_owned()), Some("https://example.com/w".to_owned()));
+    assert_eq!(
+        stops,
+        [z.clone(), z, w],
+        "two stops for the two links, then the next"
+    );
+}
+
+#[derive(Default)]
+struct Recorder(std::sync::Mutex<Option<String>>);
+
+impl lumen_term::clipboard::Clipboard for Recorder {
+    fn text(&self) -> Option<String> {
+        None
+    }
+
+    fn set_text(&self, text: &str) -> bool {
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(text.to_owned());
+        true
+    }
+}
+
+impl Recorder {
+    fn got(&self) -> Option<String> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+}
+
+#[test]
+fn the_copy_action_puts_a_wrapped_link_on_the_clipboard_with_no_line_break() {
+    use lumen_term::actions::Action;
+    let (mut app, _) = start_wrapped("https://example.com/z");
+    act(&mut app, Action::NextLink);
+    let clip = Recorder::default();
+    app.perform(Action::Copy, &clip);
+    assert_eq!(clip.got().as_deref(), Some(LONG));
+}
+
+#[test]
+fn copy_does_not_put_an_erased_link_on_the_clipboard() {
+    use lumen_term::actions::Action;
+    let dir = std::env::temp_dir().join(format!("lumen-copy-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| unreachable!("{e}"));
+    let fifo = dir.join("go");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap_or_else(|e| unreachable!("mkfifo: {e}"));
+    assert!(made.success());
+    let script = format!(
+        "echo 'see https://example.com/old here'; cat '{p}' >/dev/null; printf '\\033[2J\\033[Hsee https://example.com/new!'; read hold",
+        p = fifo.display()
+    );
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", &script],
+        1,
+        SIZE.0,
+        SIZE.1,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/old")));
+    act(&mut app, Action::NextLink);
+    std::fs::write(&fifo, "go").unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/new")));
+    let clip = Recorder::default();
+    app.perform(Action::Copy, &clip);
+    assert_ne!(
+        clip.got().as_deref(),
+        Some("https://example.com/old"),
+        "the erased link is not what the screen shows"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
