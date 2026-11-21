@@ -466,6 +466,7 @@ impl Host {
         app.set_theme_choice(look.theme);
         app.set_copy_on_select(raw.copy_on_select);
         app.set_smooth_scroll(raw.smooth_scroll);
+        app.set_reduce_motion(crate::motion::system_reduces_motion());
         app.set_appearance(appearance(window.theme()));
         if let Err(e) = app.set_fonts(&look.fonts) {
             eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
@@ -813,7 +814,12 @@ impl Host {
         self.focused = focused;
         let Some(run) = &mut self.state else { return };
         let active = run.tabs.active_index();
+        // The system setting can change while another window has the focus.
+        let reduce = focused.then(crate::motion::system_reduces_motion);
         for (index, tab) in run.tabs.iter_mut().enumerate() {
+            if let Some(reduce) = reduce {
+                tab.app.set_reduce_motion(reduce);
+            }
             tab.app.set_focused(focused && index == active);
             if !focused {
                 tab.app.clear_preedit();
