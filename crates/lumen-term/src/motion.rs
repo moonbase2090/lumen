@@ -11,10 +11,11 @@
 
 use std::process::{Command, Stdio};
 
-/// The macOS Accessibility preference: `1` when Reduce motion is on.
+/// The preference behind macOS's Reduce motion: `1` when it is on. The key is
+/// absent until it has been turned on once, which makes `defaults` fail.
 const MACOS_READ: (&str, [&str; 3]) = (
     "/usr/bin/defaults",
-    ["read", "com.apple.Accessibility", "ReduceMotionEnabled"],
+    ["read", "com.apple.universalaccess", "reduceMotion"],
 );
 
 /// The GNOME setting: `true` while animations are on.
@@ -23,8 +24,8 @@ const GNOME_READ: (&str, [&str; 3]) = (
     ["get", "org.gnome.desktop.interface", "enable-animations"],
 );
 
-/// Whether `defaults read com.apple.Accessibility ReduceMotionEnabled` said
-/// Reduce motion is on. A missing key makes `defaults` fail, which is off.
+/// Whether `defaults read com.apple.universalaccess reduceMotion` said Reduce
+/// motion is on. A missing key makes `defaults` fail, which is off.
 #[must_use]
 pub fn parse_macos(output: &str) -> bool {
     output.trim() == "1"
