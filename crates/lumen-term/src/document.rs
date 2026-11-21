@@ -9,7 +9,7 @@ use crate::reply::ColourQuery;
 use crate::strip::Strip;
 use lumen_decoder::frames::{Data, Start};
 use lumen_track0::Block as Track0Block;
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::BTreeSet;
 
 /// A Track 0 block shown in the terminal's own container.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,10 +77,6 @@ pub struct Document {
     images: ImageHost,
     pending_title: Option<String>,
     pending_bell: bool,
-    /// Stop after each sealed frame: see [`pause_at_sealed`](Self::pause_at_sealed).
-    pause_at_sealed: bool,
-    /// What the layer gave after a sealed frame, not applied yet.
-    deferred: VecDeque<Piece>,
 }
 
 /// Most colour queries kept for the owner to answer. Later ones are not kept.
@@ -111,31 +107,7 @@ impl Document {
             images,
             pending_title: None,
             pending_bell: false,
-            pause_at_sealed: false,
-            deferred: VecDeque::new(),
         }
-    }
-
-    /// Stop applying after each sealed frame, so that whoever takes the events
-    /// can act on the frame with the document as it was when the frame came,
-    /// before output that followed it in the same read. What follows waits
-    /// until [`apply_deferred`](Self::apply_deferred). Off, every piece is
-    /// applied at once.
-    pub fn pause_at_sealed(&mut self, on: bool) {
-        self.pause_at_sealed = on;
-    }
-
-    /// Whether pieces wait behind a sealed frame.
-    #[must_use]
-    pub fn paused(&self) -> bool {
-        !self.deferred.is_empty()
-    }
-
-    /// Apply what waited behind a sealed frame, up to and including the next
-    /// sealed frame if pausing is on.
-    pub fn apply_deferred(&mut self) {
-        let pieces: Vec<Piece> = self.deferred.drain(..).collect();
-        self.apply(pieces);
     }
 
     /// The local `images` setting: `false` always shows the alt text.
@@ -252,104 +224,89 @@ impl Document {
 
     /// Apply what the layer decided. Output and text go to the newest grid
     /// block, which a rich block ends: what comes after it starts a new one.
-    /// While pieces wait behind a sealed frame, these wait after them.
     pub fn apply(&mut self, pieces: Vec<Piece>) {
-        if self.paused() {
-            self.deferred.extend(pieces);
-            return;
-        }
-        let mut pieces = pieces.into_iter();
-        while let Some(piece) = pieces.next() {
-            let sealed = matches!(piece, Piece::Sealed { .. });
-            self.apply_piece(piece);
-            if sealed && self.pause_at_sealed {
-                self.deferred.extend(pieces);
-                return;
-            }
-        }
-    }
-
-    fn apply_piece(&mut self, piece: Piece) {
-        match piece {
-            Piece::Bytes(bytes) => {
-                // Notification sequences are removed before the emulator sees
-                // the bytes, on this path as on every other.
-                let mut kept = Vec::with_capacity(bytes.len());
-                let mut found = Vec::new();
-                self.guard.filter(&bytes, &mut kept, &mut found);
-                for f in found {
-                    self.events.push(Event::Unsigned {
-                        number: f.number,
-                        cycle: self.cycle,
-                    });
+        for piece in pieces {
+            match piece {
+                Piece::Bytes(bytes) => {
+                    // Notification sequences are removed before the emulator sees
+                    // the bytes, on this path as on every other.
+                    let mut kept = Vec::with_capacity(bytes.len());
+                    let mut found = Vec::new();
+                    self.guard.filter(&bytes, &mut kept, &mut found);
+                    for f in found {
+                        self.events.push(Event::Unsigned {
+                            number: f.number,
+                            cycle: self.cycle,
+                        });
+                    }
+                    self.isolate_and_feed(&kept);
                 }
-                self.isolate_and_feed(&kept);
-            }
-            Piece::Text(text) => {
-                let mut line = text.into_bytes();
-                line.extend_from_slice(b"\r\n");
-                self.grid().feed(&line);
-            }
-            Piece::Rich(Track0Block::ImageStart {
-                id,
-                width,
-                height,
-                length,
-                alt,
-                format,
-            }) => {
-                let (shown, abandoned) = self.images.start(Start {
+                Piece::Text(text) => {
+                    let mut line = text.into_bytes();
+                    line.extend_from_slice(b"\r\n");
+                    self.grid().feed(&line);
+                }
+                Piece::Rich(Track0Block::ImageStart {
                     id,
                     width,
                     height,
                     length,
-                });
-                debug_assert!(!matches!(shown, Shown::Image(_)));
-                let _ = abandoned;
-                self.blocks.push(Block::Rich(RichBlock {
-                    content: Track0Block::ImageStart {
+                    alt,
+                    format,
+                }) => {
+                    let (shown, abandoned) = self.images.start(Start {
                         id,
-                        format,
                         width,
                         height,
                         length,
-                        alt,
-                    },
+                    });
+                    debug_assert!(!matches!(shown, Shown::Image(_)));
+                    let _ = abandoned;
+                    self.blocks.push(Block::Rich(RichBlock {
+                        content: Track0Block::ImageStart {
+                            id,
+                            format,
+                            width,
+                            height,
+                            length,
+                            alt,
+                        },
+                        background: false,
+                        cycle: self.cycle,
+                        image: None,
+                    }));
+                }
+                Piece::Rich(Track0Block::ImageData { id, offset, data }) => {
+                    if let Data::Rejected { .. } = self.images.data(id, offset, &data) {
+                        // The frame did not fit: shown as escaped text.
+                        let mut raw = vec![lumen_track0::KIND_IMAGE_DATA];
+                        raw.extend_from_slice(&id.to_be_bytes());
+                        raw.extend_from_slice(&offset.to_be_bytes());
+                        raw.extend_from_slice(&data);
+                        let mut line = lumen_track0::escaped_text(&raw).into_bytes();
+                        line.extend_from_slice(b"\r\n");
+                        self.grid().feed(&line);
+                    }
+                }
+                // Image bytes never take a row in a strip.
+                Piece::Background(Track0Block::ImageData { .. }) => {}
+                Piece::Rich(content) => self.blocks.push(Block::Rich(RichBlock {
+                    content,
                     background: false,
                     cycle: self.cycle,
                     image: None,
-                }));
-            }
-            Piece::Rich(Track0Block::ImageData { id, offset, data }) => {
-                if let Data::Rejected { .. } = self.images.data(id, offset, &data) {
-                    // The frame did not fit: shown as escaped text.
-                    let mut raw = vec![lumen_track0::KIND_IMAGE_DATA];
-                    raw.extend_from_slice(&id.to_be_bytes());
-                    raw.extend_from_slice(&offset.to_be_bytes());
-                    raw.extend_from_slice(&data);
-                    let mut line = lumen_track0::escaped_text(&raw).into_bytes();
-                    line.extend_from_slice(b"\r\n");
-                    self.grid().feed(&line);
+                })),
+                Piece::Background(content) => self.blocks.push(Block::Rich(RichBlock {
+                    content,
+                    background: true,
+                    cycle: self.cycle,
+                    image: None,
+                })),
+                Piece::Notice(n) => self.notices.push(n),
+                Piece::Sealed { kind, body } => {
+                    self.sealed.push((kind, body.len()));
+                    self.events.push(Event::Sealed { kind, body });
                 }
-            }
-            // Image bytes never take a row in a strip.
-            Piece::Background(Track0Block::ImageData { .. }) => {}
-            Piece::Rich(content) => self.blocks.push(Block::Rich(RichBlock {
-                content,
-                background: false,
-                cycle: self.cycle,
-                image: None,
-            })),
-            Piece::Background(content) => self.blocks.push(Block::Rich(RichBlock {
-                content,
-                background: true,
-                cycle: self.cycle,
-                image: None,
-            })),
-            Piece::Notice(n) => self.notices.push(n),
-            Piece::Sealed { kind, body } => {
-                self.sealed.push((kind, body.len()));
-                self.events.push(Event::Sealed { kind, body });
             }
         }
     }
@@ -455,14 +412,10 @@ impl Document {
         self.apply(pieces);
     }
 
-    /// The stream ended. Whatever waited behind a sealed frame is applied
-    /// first, then what the layer held back.
+    /// The stream ended.
     pub fn finish(&mut self, layer: &mut dyn Layer) {
-        let pause = std::mem::replace(&mut self.pause_at_sealed, false);
-        self.apply_deferred();
         let pieces = layer.finish();
         self.apply(pieces);
-        self.pause_at_sealed = pause;
         // Whatever the guard held back at the end of a stream goes on to the grid.
         let mut rest = Vec::new();
         self.guard.finish(&mut rest);
