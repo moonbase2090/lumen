@@ -931,9 +931,9 @@ impl App {
         let doc = self.session.document();
         let (area, content_columns, total) = self.content_metrics();
         let screen_top = self.renderer.live_screen_top(doc, content_columns)?;
-        let x = GUTTER_COLUMNS
-            .saturating_mul(cw)
-            .saturating_add(self.renderer.gutter_pad())
+        let x = self
+            .renderer
+            .content_left()
             .saturating_add(u32::try_from(col).ok()?.saturating_mul(cw));
         let in_flow =
             u64::from(screen_top) + u64::try_from(row).ok()?.saturating_mul(u64::from(ch));
