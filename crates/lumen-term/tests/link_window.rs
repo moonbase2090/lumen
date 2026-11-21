@@ -956,3 +956,77 @@ fn identical_links_split_by_a_space_in_the_last_column_are_two_stops() {
         "two stops for the two links, then the next"
     );
 }
+
+#[derive(Default)]
+struct Recorder(std::sync::Mutex<Option<String>>);
+
+impl lumen_term::clipboard::Clipboard for Recorder {
+    fn text(&self) -> Option<String> {
+        None
+    }
+
+    fn set_text(&self, text: &str) -> bool {
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(text.to_owned());
+        true
+    }
+}
+
+impl Recorder {
+    fn got(&self) -> Option<String> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+}
+
+#[test]
+fn the_copy_action_puts_a_wrapped_link_on_the_clipboard_with_no_line_break() {
+    use lumen_term::actions::Action;
+    let (mut app, _) = start_wrapped("https://example.com/z");
+    act(&mut app, Action::NextLink);
+    let clip = Recorder::default();
+    app.perform(Action::Copy, &clip);
+    assert_eq!(clip.got().as_deref(), Some(LONG));
+}
+
+#[test]
+fn copy_does_not_put_an_erased_link_on_the_clipboard() {
+    use lumen_term::actions::Action;
+    let dir = std::env::temp_dir().join(format!("lumen-copy-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| unreachable!("{e}"));
+    let fifo = dir.join("go");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap_or_else(|e| unreachable!("mkfifo: {e}"));
+    assert!(made.success());
+    let script = format!(
+        "echo 'see https://example.com/old here'; cat '{p}' >/dev/null; printf '\\033[2J\\033[Hsee https://example.com/new!'; read hold",
+        p = fifo.display()
+    );
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", &script],
+        1,
+        SIZE.0,
+        SIZE.1,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/old")));
+    act(&mut app, Action::NextLink);
+    std::fs::write(&fifo, "go").unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/new")));
+    let clip = Recorder::default();
+    app.perform(Action::Copy, &clip);
+    assert_ne!(
+        clip.got().as_deref(),
+        Some("https://example.com/old"),
+        "the erased link is not what the screen shows"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

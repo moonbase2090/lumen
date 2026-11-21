@@ -1452,11 +1452,13 @@ impl App {
     #[must_use]
     pub fn selected_text(&self) -> Option<String> {
         let sel = self.selection?;
-        // A link the keyboard focused copies as its own text: the screen rows
-        // it wrapped over are not line breaks in it.
+        // A link the keyboard focused copies as the text on the screen now, with
+        // the grid's own text rules, minus the breaks where the terminal wrapped
+        // it over rows (a link has no line break of its own). A focus whose link
+        // is gone copies what is selected, like any selection.
         #[cfg(feature = "links-clipboard")]
-        if let Some(stop) = &self.links.focus {
-            return Some(stop.hit.visible.clone());
+        if self.links.focus_is_current(&self.link_stops()) {
+            return select::copy_selection(&self.flow(), &sel).map(|c| c.text.replace('\n', ""));
         }
         select::copy_selection(&self.flow(), &sel).map(|c| c.text)
     }
