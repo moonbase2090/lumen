@@ -234,3 +234,84 @@ fn every_macos_menu_item_stands_for_one_action_and_back() {
     }
     assert_eq!(action_of("not-an-item"), None);
 }
+
+#[test]
+fn every_action_has_a_chord_on_each_platform_that_can_reach_it() {
+    let command = Held {
+        command: true,
+        ..Held::default()
+    };
+    let command_shift = Held {
+        shift: true,
+        ..command
+    };
+    let linux = Held {
+        control: true,
+        shift: true,
+        ..Held::default()
+    };
+    let keys = "abcdefghijklmnopqrstuvwxyz=-0,[]";
+    let reach = |platform: Platform, held: Held| -> Vec<Action> {
+        keys.chars()
+            .filter_map(|k| action_for(platform, k, held))
+            .collect()
+    };
+    let mac: Vec<Action> = reach(Platform::Mac, command)
+        .into_iter()
+        .chain(reach(Platform::Mac, command_shift))
+        .collect();
+    let other = reach(Platform::Other, linux);
+    for action in ALL {
+        assert!(mac.contains(&action), "{action:?} has no chord on macOS");
+        // Settings opens a file only where there is a menu to ask for it.
+        if action != Action::Settings {
+            assert!(other.contains(&action), "{action:?} has no chord elsewhere");
+        }
+    }
+}
+
+const ALL: [Action; 18] = [
+    Action::NewWindow,
+    Action::NewTab,
+    Action::NextTab,
+    Action::PreviousTab,
+    Action::Copy,
+    Action::Paste,
+    Action::SelectAll,
+    Action::ZoomIn,
+    Action::ZoomOut,
+    Action::ZoomReset,
+    Action::Find,
+    Action::FindNext,
+    Action::FindPrevious,
+    Action::NextLink,
+    Action::PreviousLink,
+    Action::Settings,
+    Action::Close,
+    Action::Quit,
+];
+
+/// A new action must be added to `ALL`, or this stops compiling.
+#[allow(dead_code)]
+fn all_is_complete(a: Action) {
+    match a {
+        Action::NewWindow
+        | Action::NewTab
+        | Action::NextTab
+        | Action::PreviousTab
+        | Action::Copy
+        | Action::Paste
+        | Action::SelectAll
+        | Action::ZoomIn
+        | Action::ZoomOut
+        | Action::ZoomReset
+        | Action::Find
+        | Action::FindNext
+        | Action::FindPrevious
+        | Action::NextLink
+        | Action::PreviousLink
+        | Action::Settings
+        | Action::Close
+        | Action::Quit => {}
+    }
+}

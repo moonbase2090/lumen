@@ -58,6 +58,8 @@ struct Links {
     prompt: Option<crate::linkprompt::Prompt>,
     opener: Box<dyn crate::linkprompt::LinkOpener + Send>,
     press_down: bool,
+    /// The link the keyboard has focused: its screen row and what it is.
+    focus: Option<(usize, crate::linkhit::Hit)>,
 }
 
 #[cfg(feature = "links-clipboard")]
@@ -67,6 +69,7 @@ impl Default for Links {
             prompt: None,
             opener: Box::new(crate::linkprompt::SystemOpener),
             press_down: false,
+            focus: None,
         }
     }
 }
@@ -888,6 +891,92 @@ impl App {
             crate::linkhit::row_links(live.screen(), usize::try_from(row).ok()?)
         };
         hits.into_iter().find(|hit| hit.columns.contains(&col))
+    }
+
+    /// The top left pixel of cell `(col, row)` of the live screen, if it is in view.
+    #[cfg(feature = "links-clipboard")]
+    fn live_pixel(&self, col: usize, row: usize) -> Option<(u32, u32)> {
+        let (cw, ch) = self.renderer.cell();
+        let doc = self.session.document();
+        let (area, content_columns, total) = self.content_metrics();
+        let screen_top = self.renderer.live_screen_top(doc, content_columns)?;
+        let x = GUTTER_COLUMNS
+            .saturating_mul(cw)
+            .saturating_add(self.renderer.gutter_pad())
+            .saturating_add(u32::try_from(col).ok()?.saturating_mul(cw));
+        let in_flow =
+            u64::from(screen_top) + u64::try_from(row).ok()?.saturating_mul(u64::from(ch));
+        let in_view = in_flow.checked_sub(u64::from(self.scroll.top(total, area)))?;
+        let in_view = u32::try_from(in_view).ok()?;
+        (in_view < area).then(|| (x, HEADER_ROWS.saturating_mul(ch).saturating_add(in_view)))
+    }
+
+    /// Move the keyboard's link focus to the next (or previous) link on the
+    /// screen, in reading order, wrapping at the ends, and show it selected.
+    /// Returns whether a link is now focused.
+    #[cfg(feature = "links-clipboard")]
+    pub fn focus_link(&mut self, forward: bool) -> bool {
+        self.follow();
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return false;
+        };
+        let screen = live.screen();
+        let mut all: Vec<(usize, crate::linkhit::Hit)> = Vec::new();
+        for row in 0..screen.rows() {
+            for hit in crate::linkhit::row_links(screen, row) {
+                all.push((row, hit));
+            }
+        }
+        if all.is_empty() {
+            self.clear_link_focus();
+            return false;
+        }
+        let at = self.links.focus.as_ref().and_then(|(row, hit)| {
+            all.iter()
+                .position(|(r, h)| r == row && h.columns == hit.columns)
+        });
+        let n = all.len();
+        let next = match (at, forward) {
+            (Some(i), true) => (i + 1) % n,
+            (Some(i), false) => (i + n - 1) % n,
+            (None, true) => 0,
+            (None, false) => n - 1,
+        };
+        let (row, hit) = all.swap_remove(next);
+        self.select_cells(row, hit.columns.clone());
+        self.links.focus = Some((row, hit));
+        self.view_moves = self.view_moves.wrapping_add(1);
+        true
+    }
+
+    /// Select the cells `columns` of screen row `row`, as the pointer would.
+    #[cfg(feature = "links-clipboard")]
+    fn select_cells(&mut self, row: usize, columns: std::ops::Range<usize>) {
+        let (Some((x0, y)), Some((x1, _))) = (
+            self.live_pixel(columns.start, row),
+            self.live_pixel(columns.end, row),
+        ) else {
+            return;
+        };
+        self.begin_selection(x0 + 1, y + 1);
+        self.extend_selection(x1, y + 1);
+        self.selecting = false;
+    }
+
+    /// Drop the keyboard's link focus and the selection that shows it.
+    #[cfg(feature = "links-clipboard")]
+    fn clear_link_focus(&mut self) {
+        if self.links.focus.take().is_some() {
+            self.clear_selection();
+            self.view_moves = self.view_moves.wrapping_add(1);
+        }
+    }
+
+    /// The link the keyboard has focused, if any.
+    #[cfg(feature = "links-clipboard")]
+    #[must_use]
+    pub fn focused_link(&self) -> Option<&crate::linkhit::Hit> {
+        self.links.focus.as_ref().map(|(_, hit)| hit)
     }
 
     /// The user pressed the link modifier with the primary button at pixel
@@ -1945,6 +2034,10 @@ impl App {
             | Action::NextTab
             | Action::PreviousTab
             | Action::Settings => Outcome::Nothing,
+            Action::NextLink | Action::PreviousLink => {
+                self.focus_link(action == Action::NextLink);
+                Outcome::Redraw
+            }
             Action::Find => {
                 self.find_open();
                 Outcome::Redraw
@@ -2038,6 +2131,24 @@ impl App {
                 _ => Ok(()),
             }?;
             return Ok(());
+        }
+        #[cfg(feature = "links-clipboard")]
+        if let Some((_, hit)) = self.links.focus.clone() {
+            // A focused link: Enter asks about it, as a pointer press does, and
+            // Escape lets go. Any other key lets go and goes on to its usual work.
+            match key {
+                Key::Enter | Key::KeypadEnter if !mods.ctrl && !mods.alt => {
+                    self.clear_link_focus();
+                    self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&hit));
+                    self.view_moves = self.view_moves.wrapping_add(1);
+                    return Ok(());
+                }
+                Key::Escape => {
+                    self.clear_link_focus();
+                    return Ok(());
+                }
+                _ => self.clear_link_focus(),
+            }
         }
         if self.scroll_key(key, mods) {
             return Ok(());

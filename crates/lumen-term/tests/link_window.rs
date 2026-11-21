@@ -685,3 +685,94 @@ fn a_menu_or_shortcut_action_does_nothing_while_the_prompt_is_up() {
     // Output keeps its order: the second paste would be on screen by now.
     assert!(!shows(&app, "second-paste"), "the program saw nothing");
 }
+
+struct NoClip;
+
+impl lumen_term::clipboard::Clipboard for NoClip {
+    fn text(&self) -> Option<String> {
+        None
+    }
+}
+
+fn act(app: &mut App, action: lumen_term::actions::Action) {
+    app.perform(action, &NoClip);
+}
+
+const TWO: &str = "echo 'one https://example.com/a two https://example.com/b'; echo 'three https://example.com/c'; sleep 30";
+
+#[test]
+fn the_keyboard_walks_the_links_in_reading_order_and_wraps() {
+    use lumen_term::actions::Action;
+    let (mut app, _) = start(TWO);
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/c")));
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        act(&mut app, Action::NextLink);
+        seen.push(app.focused_link().map(|h| h.target.clone()));
+    }
+    let want = |s: &str| Some(format!("https://example.com/{s}"));
+    assert_eq!(seen, [want("a"), want("b"), want("c"), want("a")]);
+    act(&mut app, Action::PreviousLink);
+    assert_eq!(app.focused_link().map(|h| h.target.clone()), want("c"));
+}
+
+#[test]
+fn the_focused_link_is_shown_selected_and_copies_as_its_text() {
+    use lumen_term::actions::Action;
+    let (mut app, _) = start(TWO);
+    assert!(pump_until(&mut app, |a| shows(a, "example.com/c")));
+    act(&mut app, Action::NextLink);
+    assert_eq!(
+        app.selected_text().as_deref(),
+        Some("https://example.com/a")
+    );
+    act(&mut app, Action::NextLink);
+    assert_eq!(
+        app.selected_text().as_deref(),
+        Some("https://example.com/b")
+    );
+}
+
+#[test]
+fn enter_on_a_focused_link_asks_as_a_press_does_and_opens_only_on_yes() {
+    use lumen_term::actions::Action;
+    let (mut app, opened) = start(SAY);
+    assert!(pump_until(&mut app, |a| shows(a, "and more")));
+    act(&mut app, Action::NextLink);
+    enter(&mut app);
+    assert!(lines(&app).contains(URL), "the whole target is asked about");
+    assert_eq!(opened.count(), 0, "nothing opens before the answer");
+    assert!(
+        app.focused_link().is_none(),
+        "the prompt replaces the focus"
+    );
+    enter(&mut app);
+    assert_eq!(opened.all(), [URL]);
+}
+
+#[test]
+fn escape_lets_go_of_the_focus_and_another_key_does_too() {
+    use lumen_term::actions::Action;
+    let (mut app, opened) = start(SAY);
+    assert!(pump_until(&mut app, |a| shows(a, "and more")));
+    act(&mut app, Action::NextLink);
+    app.key(Key::Escape, lumen_term::Mods::default())
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(app.focused_link().is_none());
+    assert!(!app.has_selection());
+    act(&mut app, Action::NextLink);
+    app.key(Key::Char('x'), lumen_term::Mods::default())
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(app.focused_link().is_none());
+    assert!(app.link_prompt().is_none());
+    assert_eq!(opened.count(), 0);
+}
+
+#[test]
+fn with_no_link_on_screen_the_keyboard_focuses_nothing() {
+    use lumen_term::actions::Action;
+    let (mut app, _) = start("echo plain words; sleep 30");
+    assert!(pump_until(&mut app, |a| shows(a, "plain words")));
+    act(&mut app, Action::NextLink);
+    assert!(app.focused_link().is_none());
+}
