@@ -1333,8 +1333,8 @@ impl App {
         had
     }
 
-    /// Whether the view moved since the last call, for the window to draw again
-    /// after an input that scrolled it.
+    /// Whether input changed the view since the last call, for the window to
+    /// draw again after an edit or a scroll.
     pub fn take_view_changed(&mut self) -> bool {
         std::mem::take(&mut self.view_moves) > 0
     }
@@ -2213,6 +2213,7 @@ impl App {
                 self.follow();
                 self.cursor_epoch_ms = self.session.now_ms();
                 self.sync_box();
+                self.view_moves = self.view_moves.wrapping_add(1);
                 Ok(())
             }
             Line::None | Line::Refused | Line::NotMine => Ok(()),
