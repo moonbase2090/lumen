@@ -685,3 +685,41 @@ fn a_menu_or_shortcut_action_does_nothing_while_the_prompt_is_up() {
     // Output keeps its order: the second paste would be on screen by now.
     assert!(!shows(&app, "second-paste"), "the program saw nothing");
 }
+
+#[test]
+fn the_button_labels_are_readable_in_every_built_in_palette() {
+    use lumen_term::design::{Builtin, ThemeChoice, contrast};
+    // The text floor each palette keeps, written out here.
+    let palettes = [
+        (Builtin::Light, 4.5),
+        (Builtin::Dark, 4.5),
+        (Builtin::HighContrast, 7.0),
+    ];
+    let (mut app, _) = start(SAY);
+    assert!(pump_until(&mut app, |a| shows(a, "and more")));
+    let (x, y) = pixel_of(&app, URL, 0);
+    assert!(app.link_press(x, y));
+    for (builtin, floor) in palettes {
+        let _ = app.set_theme_choice(ThemeChoice::Fixed(builtin.palette()));
+        let frame = app.view();
+        let b = app
+            .link_prompt_box()
+            .unwrap_or_else(|| unreachable!("a prompt"));
+        for (label, (bx, by, bw, bh)) in &b.buttons {
+            // Inside the button's one-pixel edge, left of its label.
+            let fill = frame.pixel(bx + 2, by + 2).unwrap_or_default();
+            let mut ink = 1.0_f64;
+            for py in *by..by + bh {
+                for px in *bx..bx + bw {
+                    if let Some(c) = frame.pixel(px, py) {
+                        ink = ink.max(contrast(c, fill));
+                    }
+                }
+            }
+            assert!(
+                ink >= floor,
+                "{builtin:?}: {label:?} is {ink:.2}:1 against its button, under {floor}:1"
+            );
+        }
+    }
+}

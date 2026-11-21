@@ -131,6 +131,12 @@ pub enum MenuHit {
     Outside,
 }
 
+/// Pixels at scale 1 from a context menu's outer edge to its entries: a
+/// one-pixel border and a 3 px inset.
+pub const MENU_INSET_PX: u32 = 4;
+/// Pixels at scale 1 above and below the label of a context menu entry.
+pub const MENU_ENTRY_PAD_PX: u32 = 2;
+
 /// Thickness of a bar or underline cursor, in pixels at scale 1.
 const CURSOR_LINE_PX: u32 = 2;
 
@@ -2398,8 +2404,17 @@ impl Renderer {
             self.text_line(frame, left + self.cell_w, line_top, line, colour);
             line_top += self.cell_h;
         }
+        // A button is a field with a control edge, its label in the body text:
+        // a pair the palette's floors already hold, whatever the box's colour.
         for (label, (bx, by, bw, bh)) in &placed.buttons {
-            frame.fill(*bx, *by, *bw, *bh, theme.toast_border);
+            frame.fill(*bx, *by, *bw, *bh, theme.border);
+            frame.fill(
+                bx + self.scale,
+                by + self.scale,
+                bw.saturating_sub(2 * self.scale),
+                bh.saturating_sub(2 * self.scale),
+                theme.editor,
+            );
             self.text_line(frame, *bx, *by, label, theme.foreground);
         }
     }
@@ -2447,8 +2462,10 @@ impl Renderer {
         menu: &crate::contextmenu::ContextMenu,
     ) -> MenuBox {
         let cw = self.cell_w.max(1);
-        let edge = 2 * self.scale;
-        let entry_h = self.cell_h + 2 * self.scale;
+        // The one-pixel edge and a 3 px inset inside it, so the highlight sits
+        // clear of the edge; each entry is 2 px above and below its label.
+        let edge = MENU_INSET_PX * self.scale;
+        let entry_h = self.cell_h + 2 * MENU_ENTRY_PAD_PX * self.scale;
         let rule_h = self.cell_h / 2 + self.scale;
         let labels = menu
             .items()
@@ -2481,34 +2498,50 @@ impl Renderer {
 
     /// Draw a context menu over `frame`, the whole window. It is painted after
     /// everything else, so nothing a program drew can cover it or pass for it.
+    ///
+    /// The menu is a raised surface with a control edge, not a toast: it is a
+    /// control, not a notice. The highlighted entry is filled with the accent
+    /// and its label drawn in the canvas colour. That is the accent-on-canvas
+    /// pair every palette already holds to its text floor, so the highlighted
+    /// label is as readable as the accent is anywhere.
     pub fn paint_context_menu(&self, frame: &mut Frame, menu: &crate::contextmenu::ContextMenu) {
         let theme = &self.theme;
         let placed = self.context_menu_box(frame.width, frame.height, menu);
         let (left, top, width, height) = placed.rect;
-        frame.fill(left, top, width, height, theme.toast_border);
-        let edge = 2 * self.scale;
+        frame.fill(left, top, width, height, theme.border);
+        let line = self.scale;
         frame.fill(
-            left + edge,
-            top + edge,
-            width.saturating_sub(2 * edge),
-            height.saturating_sub(2 * edge),
-            theme.toast,
+            left + line,
+            top + line,
+            width.saturating_sub(2 * line),
+            height.saturating_sub(2 * line),
+            theme.container,
         );
+        let label_y = |ry: u32, rh: u32| ry + rh.saturating_sub(self.cell_h) / 2;
         for (i, (entry, (rx, ry, rw, rh))) in menu.items().iter().zip(&placed.rows).enumerate() {
             if let Some((_, label, on)) = entry {
-                if menu.hover() == Some(i) {
-                    frame.fill(*rx, *ry, *rw, *rh, theme.toast_border);
-                }
-                let colour = if *on { theme.foreground } else { theme.muted };
-                self.text_line(frame, rx + 2 * self.cell_w, ry + self.scale, label, colour);
+                let colour = if menu.hover() == Some(i) {
+                    frame.fill(*rx, *ry, *rw, *rh, theme.prompt);
+                    theme.background
+                } else if *on {
+                    theme.foreground
+                } else {
+                    theme.muted
+                };
+                self.text_line(
+                    frame,
+                    rx + 2 * self.cell_w,
+                    label_y(*ry, *rh),
+                    label,
+                    colour,
+                );
             } else {
-                let line = (*rh / 2).max(1);
                 frame.fill(
                     rx + self.cell_w,
-                    ry + line,
+                    ry + (*rh / 2).max(1),
                     rw.saturating_sub(2 * self.cell_w),
                     self.scale.max(1),
-                    theme.toast_border,
+                    theme.divider,
                 );
             }
         }
