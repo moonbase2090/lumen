@@ -62,6 +62,18 @@ struct Links {
     focus: Option<LinkStop>,
 }
 
+/// A link on the live screen, as a screen reader hears of it.
+#[cfg(feature = "links-clipboard")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScreenLink {
+    /// Where it goes, as the program wrote it or as the text reads.
+    pub target: String,
+    /// The text on the screen.
+    pub text: String,
+    /// The screen row it starts on.
+    pub row: usize,
+}
+
 /// One place the keyboard can stop on: a link, with the screen rows and columns
 /// it starts and ends on. A link the terminal soft-wrapped over several rows is
 /// one stop.
@@ -1018,6 +1030,57 @@ impl App {
             self.clear_selection();
             self.view_moves = self.view_moves.wrapping_add(1);
         }
+    }
+
+    /// The links on the live screen in reading order, each a soft-wrapped link
+    /// once, for what a screen reader is told.
+    #[cfg(feature = "links-clipboard")]
+    #[must_use]
+    pub fn screen_links(&self) -> Vec<ScreenLink> {
+        self.link_stops()
+            .into_iter()
+            .map(|stop| ScreenLink {
+                target: stop.hit.target,
+                text: stop.hit.visible,
+                row: stop.first.0,
+            })
+            .collect()
+    }
+
+    /// The place in [`App::screen_links`] of the focused link, if one is focused.
+    #[cfg(feature = "links-clipboard")]
+    #[must_use]
+    pub fn focused_link_place(&self) -> Option<usize> {
+        let focus = self.links.focus.as_ref()?;
+        self.link_stops().iter().position(|stop| stop == focus)
+    }
+
+    /// Focus the `place`th link of [`App::screen_links`], as Next Link would.
+    /// Returns whether there is one.
+    #[cfg(feature = "links-clipboard")]
+    pub fn focus_link_place(&mut self, place: usize) -> bool {
+        self.follow();
+        let Some(stop) = self.link_stops().into_iter().nth(place) else {
+            return false;
+        };
+        self.select_cells(stop.first, stop.last);
+        self.links.focus = Some(stop);
+        self.view_moves = self.view_moves.wrapping_add(1);
+        true
+    }
+
+    /// Ask about the `place`th link of [`App::screen_links`], as a press or
+    /// Enter on it does: the terminal's question comes up and nothing opens.
+    /// Returns whether there is one.
+    #[cfg(feature = "links-clipboard")]
+    pub fn ask_about_link_place(&mut self, place: usize) -> bool {
+        let Some(stop) = self.link_stops().into_iter().nth(place) else {
+            return false;
+        };
+        self.clear_link_focus();
+        self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&stop.hit));
+        self.view_moves = self.view_moves.wrapping_add(1);
+        true
     }
 
     /// The link the keyboard has focused, if any.
