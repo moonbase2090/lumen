@@ -9,7 +9,7 @@ use crate::reply::ColourQuery;
 use crate::strip::Strip;
 use lumen_decoder::frames::{Data, Start};
 use lumen_track0::Block as Track0Block;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 /// A Track 0 block shown in the terminal's own container.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,6 +75,10 @@ pub struct Document {
     events: Vec<Event>,
     colour_queries: Vec<ColourQuery>,
     images: ImageHost,
+    /// The block of each image that is being received or decoded, by id: the
+    /// one block its pixels go to. A start the terminal refused (a repeated id,
+    /// say) is not in it, so it never takes another image's pixels.
+    awaiting: HashMap<u32, usize>,
     pending_title: Option<String>,
     pending_bell: bool,
 }
@@ -105,6 +109,7 @@ impl Document {
             events: Vec::new(),
             colour_queries: Vec::new(),
             images,
+            awaiting: HashMap::new(),
             pending_title: None,
             pending_bell: false,
         }
@@ -261,7 +266,12 @@ impl Document {
                         length,
                     });
                     debug_assert!(!matches!(shown, Shown::Image(_)));
-                    let _ = abandoned;
+                    if let Some(ended) = abandoned {
+                        self.awaiting.remove(&ended);
+                    }
+                    if matches!(shown, Shown::Waiting) {
+                        self.awaiting.insert(id, self.blocks.len());
+                    }
                     self.blocks.push(Block::Rich(RichBlock {
                         content: Track0Block::ImageStart {
                             id,
@@ -343,20 +353,13 @@ impl Document {
     pub fn poll_images(&mut self) -> bool {
         let mut changed = false;
         for update in self.images.poll() {
+            let Some(index) = self.awaiting.remove(&update.id) else {
+                continue;
+            };
             let Shown::Image(pixels) = update.shown else {
                 continue;
             };
-            let target = self.blocks.iter_mut().rev().find_map(|b| match b {
-                Block::Rich(r)
-                    if !r.background
-                        && matches!(&r.content,
-                            Track0Block::ImageStart { id, .. } if *id == update.id) =>
-                {
-                    Some(r)
-                }
-                _ => None,
-            });
-            if let Some(r) = target {
+            if let Some(Block::Rich(r)) = self.blocks.get_mut(index) {
                 r.image = Some(pixels);
                 changed = true;
             }
@@ -393,7 +396,9 @@ impl Document {
     pub fn begin_prompt_cycle(&mut self, layer: &mut dyn Layer) {
         // The command ended: an image still being received ends with its alt
         // text and its bytes are freed.
-        let _ = self.images.end_command();
+        if let Some(ended) = self.images.end_command() {
+            self.awaiting.remove(&ended);
+        }
         self.cycle = self.cycle.saturating_add(1);
         layer.open_container();
     }
