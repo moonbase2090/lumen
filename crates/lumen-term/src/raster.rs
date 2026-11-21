@@ -37,6 +37,9 @@ use swash::zeno::Format;
 
 /// The bundled monospace face.
 const FACE: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf");
+/// The bundled fallback face for Chinese, Japanese and Korean characters the
+/// monospace face lacks: a subset of Noto Sans CJK (SIL Open Font License).
+const CJK: &[u8] = include_bytes!("../assets/fonts/NotoSansCJK-Subset-Regular.otf");
 /// The bundled proportional face, for text in rich blocks.
 const SANS: &[u8] = include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf");
 /// Proportional advances are measured in 64ths of a pixel, so a line is as
@@ -257,6 +260,7 @@ enum Part<'a> {
 enum Face {
     Mono,
     Sans,
+    Cjk,
 }
 
 struct Glyph {
@@ -271,6 +275,7 @@ struct Glyph {
 pub struct Renderer {
     font: OwnedFace,
     sans: OwnedFace,
+    cjk: OwnedFace,
     scaler: RefCell<ScaleContext>,
     /// Pixel size of the monospace face.
     px: f32,
@@ -358,6 +363,7 @@ impl Renderer {
     pub fn with_fonts(scale: u32, theme: Theme, fonts: &Fonts) -> Result<Self, String> {
         let font = OwnedFace::new(&fonts.mono, FACE)?;
         let sans = OwnedFace::new(&fonts.prose, SANS)?;
+        let cjk = OwnedFace::new(&FontFile::Bundled, CJK)?;
         #[allow(
             clippy::cast_precision_loss,
             reason = "a scale and a font size are small whole numbers"
@@ -389,6 +395,7 @@ impl Renderer {
         Ok(Self {
             font,
             sans,
+            cjk,
             scaler: RefCell::new(ScaleContext::new()),
             px,
             sans_px,
@@ -465,14 +472,34 @@ impl Renderer {
         band: (i64, i64),
         colour: Rgb,
     ) {
-        let (x, y) = at;
+        let (mut x, y) = at;
+        let mut face = face;
+        if face == Face::Mono && ch != ' ' && ch != '\0' && self.font.get().charmap().map(ch) == 0 {
+            face = Face::Cjk;
+        }
         let (font, size) = match face {
             Face::Mono => (self.font.get(), self.px),
             Face::Sans => (self.sans.get(), self.sans_px),
+            Face::Cjk => (self.cjk.get(), self.px),
         };
         let glyph = font.charmap().map(ch);
         if ch == ' ' || ch == '\0' || glyph == 0 {
             return;
+        }
+        if face == Face::Cjk {
+            let advance = font.glyph_metrics(&[]).scale(size).advance_width(glyph);
+            #[allow(
+                clippy::cast_precision_loss,
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a band is a few hundred pixels and the shift is not negative"
+            )]
+            {
+                let room = (band.1 - band.0) as f32;
+                if room > advance {
+                    x += ((room - advance) / 2.0) as u32;
+                }
+            }
         }
         let mut cache = self.cache.borrow_mut();
         let g = cache.entry((face, ch)).or_insert_with(|| {
