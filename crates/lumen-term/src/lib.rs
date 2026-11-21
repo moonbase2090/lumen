@@ -57,6 +57,7 @@ pub mod marks;
 #[cfg(all(feature = "window", any(target_os = "macos", windows)))]
 pub mod menu;
 pub mod modes;
+pub mod motion;
 pub mod mouse;
 pub mod notify;
 pub mod os_backend;

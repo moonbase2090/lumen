@@ -406,6 +406,10 @@ struct Host {
     window_store: WindowStore,
     state_dirty: bool,
     next_state_save: Instant,
+    /// The last answer the system gave about reduced motion, read when the window
+    /// opens and when it gains focus, and kept when a later read gives none. Every
+    /// tab, old or new, takes this one value.
+    reduce_motion: std::cell::Cell<bool>,
     /// The next time the small settings file is read for a change.
     next_settings_check: Instant,
     #[cfg(target_os = "macos")]
@@ -438,6 +442,21 @@ impl Host {
         }
         self.state_dirty = false;
         self.next_state_save = Instant::now() + Duration::from_millis(250);
+    }
+
+    fn refresh_reduce_motion(&mut self) {
+        let Some(reduce) = crate::motion::system_reduces_motion() else {
+            return;
+        };
+        self.reduce_motion.set(reduce);
+        for run in &mut self.windows {
+            let redraw = run.tabs.iter_mut().fold(false, |changed, tab| {
+                tab.app.set_reduce_motion(reduce) | changed
+            });
+            if redraw {
+                run.window.request_redraw();
+            }
+        }
     }
 
     fn fail(&mut self, event_loop: &ActiveEventLoop, message: String) {
@@ -485,6 +504,9 @@ impl Host {
         app.set_theme_choice(look.theme);
         app.set_copy_on_select(raw.copy_on_select);
         app.set_smooth_scroll(raw.smooth_scroll);
+        // The window reads the system's answer when it opens and when it gains
+        // focus; a new tab only takes what the window knows.
+        app.set_reduce_motion(self.reduce_motion.get());
         app.set_appearance(appearance(window.theme()));
         if let Err(e) = app.set_fonts(&look.fonts) {
             eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
@@ -878,11 +900,17 @@ impl Host {
     }
 
     fn on_focus(&mut self, id: WindowId, focused: bool) {
+        // The system setting can change while another window has the focus.
+        if focused {
+            self.refresh_reduce_motion();
+        }
+        let reduce = self.reduce_motion.get();
         let Some(index) = self.index(id) else { return };
         let run = &mut self.windows[index];
         run.focused = focused;
         let active = run.tabs.active_index();
         for (index, tab) in run.tabs.iter_mut().enumerate() {
+            tab.app.set_reduce_motion(reduce);
             tab.app.set_focused(focused && index == active);
             if !focused {
                 tab.app.clear_preedit();
@@ -1108,6 +1136,7 @@ impl Host {
         let surface = softbuffer::Surface::new(&context, window.clone())
             .map_err(|e| format!("no surface: {e}"))?;
         window.set_ime_allowed(true);
+        self.refresh_reduce_motion();
         let app = self.start_app(&window)?;
         let size = window.inner_size();
         let actual = Placement {
@@ -1277,6 +1306,7 @@ pub fn run(config: Config) -> Result<(), String> {
         window_store,
         state_dirty: false,
         next_state_save: Instant::now(),
+        reduce_motion: std::cell::Cell::new(false),
         next_settings_check: Instant::now(),
         #[cfg(target_os = "macos")]
         menu: None,
