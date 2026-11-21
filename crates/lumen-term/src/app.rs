@@ -493,11 +493,13 @@ pub fn block_cells_for(columns: usize, rows: usize, editor_rows: u32) -> (usize,
 }
 
 /// The columns and rows of a window of `width` by `height` pixels drawn by
-/// `renderer`, whose text column starts a gutter padding right of the gutter.
+/// `renderer`: what is left of it in whole cells after the gutter padding and
+/// right inset, and the header padding and bottom inset.
 fn window_cells(width: u32, height: u32, renderer: &Renderer) -> (usize, usize) {
+    let (wide, tall) = renderer.insets();
     cells_for(
-        width.saturating_sub(renderer.gutter_pad()),
-        height,
+        width.saturating_sub(wide),
+        height.saturating_sub(tall),
         renderer.cell(),
     )
 }
@@ -1078,9 +1080,9 @@ impl App {
         let (cell_w, cell_h) = self.renderer.cell();
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         let win = window_for_box(columns, rows, self.box_rows);
-        let top = win.editor_row * cell_h;
-        let left = GUTTER_COLUMNS * cell_w + self.renderer.gutter_pad() + 3 * cell_w;
-        let inside = y >= top && y < (win.editor_row + win.editor_rows) * cell_h;
+        let top = self.renderer.px_y(win.editor_row);
+        let left = self.renderer.px_x(GUTTER_COLUMNS) + 3 * cell_w;
+        let inside = y >= top && y < self.renderer.px_y(win.editor_row + win.editor_rows);
         if !inside || x < left || cell_h == 0 || cell_w == 0 {
             return false;
         }
@@ -1150,8 +1152,8 @@ impl App {
             return None;
         };
         let (area, content_columns, total) = self.content_metrics();
-        let content_x = GUTTER_COLUMNS.saturating_mul(cw) + self.renderer.gutter_pad();
-        let content_y = HEADER_ROWS.saturating_mul(ch);
+        let content_x = self.renderer.px_x(GUTTER_COLUMNS);
+        let content_y = self.renderer.px_y(HEADER_ROWS);
         let px = x.checked_sub(content_x)?;
         let py = y.checked_sub(content_y)?;
         if py >= area {
@@ -1203,12 +1205,11 @@ impl App {
     /// must be in the content area; without it, a pixel outside is moved to
     /// the nearest line, so a drag past an edge still selects.
     fn pos_at(&self, lines: &[select::FlowLine], x: u32, y: u32, inside: bool) -> Option<Pos> {
-        let (cw, ch) = self.renderer.cell();
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         let win = window_for_box(columns, rows, self.box_rows);
-        let content_x = GUTTER_COLUMNS.saturating_mul(cw) + self.renderer.gutter_pad();
-        let content_y = HEADER_ROWS.saturating_mul(ch);
-        let area_bottom = win.editor_row.saturating_mul(ch);
+        let content_x = self.renderer.px_x(GUTTER_COLUMNS);
+        let content_y = self.renderer.px_y(HEADER_ROWS);
+        let area_bottom = self.renderer.px_y(win.editor_row);
         if inside && (x < content_x || y < content_y || y >= area_bottom) {
             return None;
         }
@@ -2142,7 +2143,7 @@ impl App {
         let Some(screen_top) = self.renderer.live_screen_top(doc, content_columns) else {
             return Vec::new();
         };
-        let content_y = i64::from(HEADER_ROWS) * ch;
+        let content_y = i64::from(self.renderer.px_y(HEADER_ROWS));
         let scroll_top = i64::from(self.scroll.top(total, area));
         let history = i64::try_from(live.history_rows()).unwrap_or(i64::MAX);
         let bottom = content_y + i64::from(area);
@@ -2333,14 +2334,12 @@ impl App {
         if top.saturating_add(ch) > area {
             return None;
         }
-        let content_x = GUTTER_COLUMNS
-            .saturating_mul(cw)
-            .saturating_add(self.renderer.gutter_pad());
+        let content_x = self.renderer.px_x(GUTTER_COLUMNS);
         let right =
             content_x.saturating_add(u32::try_from(content_columns).ok()?.saturating_mul(cw));
         Some((
             content_x.saturating_add(col.saturating_mul(cw)),
-            HEADER_ROWS.saturating_mul(ch).saturating_add(top),
+            self.renderer.px_y(HEADER_ROWS).saturating_add(top),
             right,
         ))
     }
@@ -2579,11 +2578,10 @@ impl App {
         let first = view.visible_first_line((self.box_rows.saturating_sub(1) as usize).max(1));
         let line = u32::try_from(line.saturating_sub(first)).unwrap_or(0);
         (
-            GUTTER_COLUMNS
-                .saturating_mul(cell_w)
-                .saturating_add(self.renderer.gutter_pad())
+            self.renderer
+                .px_x(GUTTER_COLUMNS)
                 .saturating_add(col.saturating_add(3).saturating_mul(cell_w)),
-            win.editor_row.saturating_add(line).saturating_mul(cell_h),
+            self.renderer.px_y(win.editor_row.saturating_add(line)),
             used.max(1).saturating_mul(cell_w),
             cell_h,
         )
@@ -2911,7 +2909,10 @@ impl App {
             self.renderer
                 .paint_preedit(&mut frame, (x, y), right, &preedit, self.desk.focused);
         }
+        let drawn = (frame.width, frame.height);
         let mut frame = frame.viewport(self.width, self.height, self.renderer.theme().background);
+        // The window is rarely a whole number of cells: the margin runs on to its edges.
+        self.renderer.extend_margin(&mut frame, drawn);
         #[cfg(feature = "links-clipboard")]
         if let Some(prompt) = &self.links.prompt {
             // Last, over everything: a program's output cannot cover it.

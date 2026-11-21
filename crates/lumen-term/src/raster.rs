@@ -48,6 +48,19 @@ pub const BASE_PX: f32 = 14.0;
 /// Pixels of padding, at scale 1, between the gutter's divider and the text
 /// column. It is scaled with the render scale, so it follows zoom and DPI.
 pub const GUTTER_PAD_PX: u32 = 6;
+/// Pixels at scale 1 above and below the label in the header strip, so the
+/// label is centred in its band and clear of the divider under it.
+pub const HEADER_LABEL_PAD_PX: u32 = 3;
+/// Pixels at scale 1 between the header's divider and the first row of
+/// content: the same space the text column keeps from the gutter's divider.
+pub const HEADER_GAP_PX: u32 = GUTTER_PAD_PX;
+/// Pixels at scale 1 the window keeps clear right of the text column, at the
+/// least. The scroll bar sits in it.
+pub const RIGHT_INSET_PX: u32 = 12;
+/// Pixels at scale 1 the window keeps clear below the last row, at the least.
+pub const BOTTOM_INSET_PX: u32 = 8;
+/// Width of the scroll bar's thumb, in pixels at scale 1.
+pub const SCROLL_BAR_PX: u32 = 4;
 /// The label every rich block's container carries.
 pub const CONTAINER_LABEL: &str = "unverified output";
 pub use crate::image_draw::IMAGE_MAX_ROWS;
@@ -414,6 +427,46 @@ impl Renderer {
     #[must_use]
     pub fn gutter_pad(&self) -> u32 {
         GUTTER_PAD_PX * self.scale
+    }
+
+    /// Pixels the header strip is taller than its row: the label's padding
+    /// above and below it.
+    #[must_use]
+    pub fn header_band_extra(&self) -> u32 {
+        2 * HEADER_LABEL_PAD_PX * self.scale
+    }
+
+    /// Pixels every row below the header is moved down by: the header's
+    /// padding and the gap under its divider.
+    #[must_use]
+    pub fn header_pad(&self) -> u32 {
+        self.header_band_extra() + HEADER_GAP_PX * self.scale
+    }
+
+    /// Pixels a window is wider and taller than its cells: the gutter
+    /// padding and the right inset, the header padding and the bottom inset.
+    #[must_use]
+    pub fn insets(&self) -> (u32, u32) {
+        (
+            self.gutter_pad() + RIGHT_INSET_PX * self.scale,
+            self.header_pad() + BOTTOM_INSET_PX * self.scale,
+        )
+    }
+
+    /// The pixel column where cell column `col` starts. Columns right of the
+    /// gutter start a gutter padding further right.
+    #[must_use]
+    pub fn px_x(&self, col: u32) -> u32 {
+        col.saturating_mul(self.cell_w)
+            .saturating_add(if col >= GUTTER_COLUMNS { self.gutter_pad() } else { 0 })
+    }
+
+    /// The pixel row where cell row `row` starts. Rows below the header start
+    /// a header padding further down.
+    #[must_use]
+    pub fn px_y(&self, row: u32) -> u32 {
+        row.saturating_mul(self.cell_h)
+            .saturating_add(if row >= HEADER_ROWS { self.header_pad() } else { 0 })
     }
 
     /// The render scale.
@@ -1167,10 +1220,6 @@ impl Renderer {
         if let Some(sel) = selection {
             self.paint_selection(&mut region, &self.flow(doc, columns), sel, view_top);
         }
-        if let Some((top, height)) = scroll.thumb(total, ah) {
-            let bar = (2 * self.scale).min(aw);
-            region.fill(aw - bar, top, bar, height, self.theme.border);
-        }
         if let Some(o) = overlay {
             self.paint_find_bar(&mut region, o);
         }
@@ -1717,21 +1766,54 @@ impl Renderer {
     /// The pixel box `(x, y, w, h)` of a layout rectangle. What lies right of
     /// the gutter is moved right by the gutter padding, so the text column
     /// starts clear of the divider; the header runs on to the window's edge.
+    /// What lies below the header is moved down by the header padding; the
+    /// header itself ends at the bottom of its band, above the gap.
     fn rect_px(&self, r: &Rect) -> (u32, u32, u32, u32) {
-        let pad = self.gutter_pad();
-        let edge = |col: u32| col * self.cell_w + if col > GUTTER_COLUMNS { pad } else { 0 };
-        let left = if r.x >= GUTTER_COLUMNS {
-            r.x * self.cell_w + pad
-        } else {
-            r.x * self.cell_w
+        let right_edge = |col: u32| {
+            col * self.cell_w + if col > GUTTER_COLUMNS { self.gutter_pad() } else { 0 }
         };
-        let right = edge(r.x + r.w);
+        let bottom_edge = |row: u32| {
+            row * self.cell_h
+                + match row.cmp(&HEADER_ROWS) {
+                    std::cmp::Ordering::Less => 0,
+                    std::cmp::Ordering::Equal => self.header_band_extra(),
+                    std::cmp::Ordering::Greater => self.header_pad(),
+                }
+        };
+        let (left, top) = (self.px_x(r.x), self.px_y(r.y));
         (
             left,
-            r.y * self.cell_h,
-            right.saturating_sub(left),
-            r.h * self.cell_h,
+            top,
+            right_edge(r.x + r.w).saturating_sub(left),
+            bottom_edge(r.y + r.h).saturating_sub(top),
         )
+    }
+
+    /// Paint the margin where `frame` is larger than the `drawn` part of it
+    /// (width, height): the header band and its divider right of `drawn.0`,
+    /// and the gutter and its divider below `drawn.1`. A window is rarely a
+    /// whole number of cells, so the margin runs on to the window's edges.
+    /// Only the terminal's colours are used.
+    pub fn extend_margin(&self, frame: &mut Frame, (drawn_w, drawn_h): (u32, u32)) {
+        let t = &self.theme;
+        let line = self.scale;
+        let band = (self.cell_h * HEADER_ROWS + self.header_band_extra()).min(frame.height);
+        let wide = frame.width.saturating_sub(drawn_w);
+        if wide > 0 {
+            frame.fill(drawn_w, 0, wide, band, t.margin);
+            if band >= line {
+                frame.fill(drawn_w, band - line, wide, line, t.divider);
+            }
+        }
+        let gutter = (self.cell_w * GUTTER_COLUMNS).min(frame.width);
+        let from = drawn_h.max(band);
+        let tall = frame.height.saturating_sub(from);
+        if tall > 0 {
+            frame.fill(0, from, gutter, tall, t.margin);
+            if gutter >= line {
+                frame.fill(gutter - line, from, line, tall, t.divider);
+            }
+        }
     }
 
     /// Copy `src` into `frame` with its top left at `x`, `y`. `src` is the
@@ -2079,8 +2161,8 @@ impl Renderer {
         );
         let px = |r: &Rect| self.rect_px(r);
         let mut frame = Frame::new(
-            (win.cols * self.cell_w + self.gutter_pad()).max(1),
-            (win.rows * self.cell_h).max(1),
+            (win.cols * self.cell_w + self.insets().0).max(1),
+            (win.rows * self.cell_h + self.insets().1).max(1),
             t.background,
         );
 
@@ -2096,6 +2178,14 @@ impl Renderer {
             let region =
                 self.content_region((aw, ah), doc, area.w, scroll, selection, (cursor, overlay));
             Self::blit(&mut frame, &region, ax, ay);
+            // The scroll bar: in the right inset, centred in it, clear of the text.
+            let columns = usize::try_from(area.w).unwrap_or(1);
+            let total = self.content_height(doc, columns);
+            if let Some((top, height)) = scroll.thumb(total, ah) {
+                let bar = SCROLL_BAR_PX * self.scale;
+                let x = ax + aw + (RIGHT_INSET_PX * self.scale).saturating_sub(bar) / 2;
+                frame.fill(x, ay + top, bar, height, t.border);
+            }
         }
 
         // Toasts: in the notification area only.
@@ -2139,8 +2229,11 @@ impl Renderer {
         // it, under the header and right of the gutter below the header.
         let line = self.scale;
         let [gutter, header] = &lay.margin;
-        let (gx, _, gw, gh) = px(gutter);
-        let (_, hy, hw, hh) = px(header);
+        let (gx, gy, gw, gh) = px(gutter);
+        let (_, hy, _, hh) = px(header);
+        // The header runs the whole width of the window, past the last column.
+        let hw = frame.width;
+        frame.fill(0, hy, hw, hh, t.margin);
         if hh >= line {
             frame.fill(0, hy + hh - line, hw, line, t.divider);
         }
@@ -2153,10 +2246,13 @@ impl Renderer {
                 t.divider,
             );
         }
+        // Below the last row: the gutter runs on to the bottom of the frame.
+        let full_width = frame.width;
+        self.extend_margin(&mut frame, (full_width, gy + gh));
         self.text_line(
             &mut frame,
             self.cell_w * GUTTER_COLUMNS.min(win.cols) + self.gutter_pad(),
-            0,
+            HEADER_LABEL_PAD_PX * self.scale,
             MARGIN_LABEL,
             t.margin_text,
         );
@@ -2188,8 +2284,8 @@ impl Renderer {
         let chars = u32::try_from(TYPED_TIP.chars().count()).unwrap_or(0);
         let width = (chars + 2) * self.cell_w;
         let height = self.cell_h + 2 * self.scale;
-        let header = self.cell_h * HEADER_ROWS;
-        let content = self.cell_w * GUTTER_COLUMNS + self.gutter_pad();
+        let header = self.px_y(HEADER_ROWS);
+        let content = self.px_x(GUTTER_COLUMNS);
         let wanted = content + after * self.cell_w;
         let (left, top) = if wanted + width <= frame.width {
             (wanted, row_top.saturating_sub(self.scale).max(header))
