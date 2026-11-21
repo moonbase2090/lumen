@@ -782,12 +782,13 @@ fn a_record_points_at_the_row_its_line_was_typed_on_until_the_screen_is_cleared(
     assert_eq!(app.typed_row_text(&records[2]), None);
 }
 
-/// How many pixels of the gutter, on the row whose top is pixel `top`, differ
-/// from the gutter's own colour there. Text in the gutter differs; an empty
-/// gutter row has none.
-fn gutter_ink(frame: &lumen_term::Frame, top: u32) -> usize {
+/// How many pixels of the gutter, drawn `cells` cells wide, on the row whose
+/// top is pixel `top`, differ from the gutter's own colour there. Text in the
+/// gutter differs; an empty gutter row has none. A layer with its keys draws
+/// the gutter four cells wide, one without them two.
+fn gutter_ink(frame: &lumen_term::Frame, top: u32, cells: u32) -> usize {
     let (cw, ch) = cell();
-    let gutter = cw * lumen_term::GUTTER_COLUMNS - 2;
+    let gutter = cw * cells - 2;
     let plain = frame.pixel(1, top + ch - 1);
     (top..top + ch)
         .flat_map(|y| (0..gutter).map(move |x| (x, y)))
@@ -831,12 +832,12 @@ fn a_typed_line_has_a_gutter_mark_that_explains_itself_and_edits_it_again() {
     let plain = app.view();
     capture(&plain, "typed-mark.png");
     assert!(
-        gutter_ink(&plain, top) > 0,
+        gutter_ink(&plain, top, 4) > 0,
         "the mark is drawn in the gutter"
     );
     let (cw, ch) = cell();
     assert_eq!(
-        gutter_ink(&plain, top + ch),
+        gutter_ink(&plain, top + ch, 4),
         0,
         "the next row's gutter is empty"
     );
@@ -894,7 +895,7 @@ fn a_layer_without_keys_draws_no_mark() {
     let (_, ch) = cell();
     let rows = frame.height / ch;
     for row in 1..rows {
-        assert_eq!(gutter_ink(&frame, row * ch), 0, "gutter row {row}");
+        assert_eq!(gutter_ink(&frame, row * ch, 2), 0, "gutter row {row}");
     }
 }
 
