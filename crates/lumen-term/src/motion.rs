@@ -109,7 +109,7 @@ mod tests {
         assert_eq!(macos_answer(false, "", "Operation not permitted"), None);
         let other = "The domain/default pair of (com.example.other, reduceMotion) does not exist\n";
         assert_eq!(macos_answer(false, "", other), None);
-        let file = "/Users/x/Library/Preferences/com.apple.universalaccess.plist does not exist\n";
+        let file = "/var/prefs/com.apple.universalaccess.plist does not exist\n";
         assert_eq!(macos_answer(false, "", file), None);
         assert_eq!(macos_answer(false, "", ""), None);
         assert_eq!(macos_answer(true, "", ""), None);
