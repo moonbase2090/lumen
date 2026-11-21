@@ -57,8 +57,9 @@ optional = true
 
 [dependencies.accesskit_winit]
 # The platform adapters (macOS and Windows) for the window. Default features
-# off: on Linux the adapter would pull an async runtime and a D-Bus stack, so
-# Linux is its own change and its dependency graph is unchanged here.
+# off: the Linux adapter would pull an async runtime and a D-Bus stack, so
+# Linux support is its own change. The crates here still build on Linux, and
+# add the schema crate and what it needs (uuid, getrandom) to its graph.
 version = "0.34"
 default-features = false
 features = ["rwh_06"]
