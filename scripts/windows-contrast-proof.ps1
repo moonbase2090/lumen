@@ -114,9 +114,9 @@ function RefocusAndCheck($label) {
   # read would take the focus, and this would see the other process in front.
   for ($i = 0; $i -lt 10; $i++) {
     Start-Sleep -Milliseconds 300
-    if ([Probe]::ForegroundPid() -ne $app.Id) { Fail "$label: the window lost the focus" }
+    if ([Probe]::ForegroundPid() -ne $app.Id) { Fail "${label}: the window lost the focus" }
   }
-  Write-Output "$label: the window has the focus and keeps it"
+  Write-Output "${label}: the window has the focus and keeps it"
   Stop-Process -Id $script:other.Id -Force
   $script:other = $null
 }
