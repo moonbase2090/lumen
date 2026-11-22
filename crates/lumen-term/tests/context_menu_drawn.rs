@@ -227,3 +227,69 @@ fn copy_is_on_only_with_a_selection() {
     assert!(app.open_context_menu(100, 100, true));
     assert!(app.context_menu().is_some_and(|m| m.is_on(COPY)));
 }
+
+/// The highest contrast between `fill` and any pixel inside `rect`: the ink of
+/// the label drawn there against the fill around it. A label drawn in the
+/// fill's own colour, or close to it, comes out at or near 1.
+fn ink_contrast(frame: &lumen_term::Frame, rect: (u32, u32, u32, u32), fill: [u8; 3]) -> f64 {
+    let (x, y, w, h) = rect;
+    let mut best = 1.0_f64;
+    for py in y..y + h {
+        for px in x..x + w {
+            if let Some(c) = frame.pixel(px, py) {
+                best = best.max(lumen_term::design::contrast(c, fill));
+            }
+        }
+    }
+    best
+}
+
+#[test]
+fn every_entry_s_label_is_readable_in_every_built_in_palette_highlighted_or_not() {
+    use lumen_term::design::{Builtin, ThemeChoice};
+    // The text floor each palette keeps, written out here.
+    let palettes = [
+        (Builtin::Light, 4.5),
+        (Builtin::Dark, 4.5),
+        (Builtin::HighContrast, 7.0),
+    ];
+    let mut app = start("echo palettes; sleep 30");
+    ready(&mut app, "palettes");
+    for (builtin, floor) in palettes {
+        app.close_context_menu();
+        let _ = app.set_theme_choice(ThemeChoice::Fixed(builtin.palette()));
+        // Copy is off (nothing is selected), Paste is on, Select all is highlighted.
+        let on = centre(open(&mut app, true, SELECT_ALL));
+        assert!(app.mouse_move(on.0, on.1, Held::default()).unwrap_or(false));
+        assert_eq!(
+            app.context_menu()
+                .and_then(lumen_term::contextmenu::ContextMenu::hover),
+            Some(SELECT_ALL)
+        );
+        let frame = app.view();
+        let rows = app
+            .context_menu_box()
+            .unwrap_or_else(|| unreachable!("open"))
+            .rows;
+        let plain = frame
+            .pixel(rows[PASTE].0, rows[PASTE].1)
+            .unwrap_or_default();
+        let lit = frame
+            .pixel(rows[SELECT_ALL].0, rows[SELECT_ALL].1)
+            .unwrap_or_default();
+        assert_ne!(lit, plain, "{builtin:?}: the highlight is filled");
+        for (name, index) in [
+            ("Copy (off)", COPY),
+            ("Paste", PASTE),
+            ("Select all (highlighted)", SELECT_ALL),
+        ] {
+            let rect = rows[index];
+            let fill = frame.pixel(rect.0, rect.1).unwrap_or_default();
+            let ratio = ink_contrast(&frame, rect, fill);
+            assert!(
+                ratio >= floor,
+                "{builtin:?}: {name} is {ratio:.2}:1 against its row, under {floor}:1"
+            );
+        }
+    }
+}
