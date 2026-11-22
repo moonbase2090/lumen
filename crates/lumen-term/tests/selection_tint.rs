@@ -7,7 +7,9 @@
 use lumen_term::actions::Action;
 use lumen_term::clipboard::Clipboard;
 use lumen_term::design::theme;
-use lumen_term::{App, Passthrough};
+use lumen_term::raster::Window;
+use lumen_term::{App, Document, Frame, Passthrough, Piece, Renderer};
+use lumen_track0::Block;
 use std::time::{Duration, Instant};
 
 struct NoClipboard;
@@ -199,6 +201,96 @@ fn block_glyphs_keep_their_fill_when_selected_at_every_zoom() {
             after.pixel(first + 2 * cell_w - 1, mid),
             Some(t.selection),
             "the empty part of the three-quarter block is the selection colour at {scale}x"
+        );
+    }
+}
+
+/// The box around every pixel a selection changed in a window of native blocks.
+fn selected_box(
+    blocks: Vec<lumen_track0::Block>,
+    scale: u32,
+) -> (Renderer, Frame, (u32, u32, u32, u32)) {
+    let r = Renderer::light(scale).unwrap_or_else(|e| unreachable!("renderer: {e}"));
+    let mut doc = Document::new(60, 8);
+    doc.apply(blocks.into_iter().map(Piece::Rich).collect());
+    let win = Window {
+        cols: 60,
+        rows: 10,
+        editor_row: 9,
+        editor_rows: 1,
+    };
+    let lines = r.flow(&doc, 60);
+    let sel =
+        lumen_term::select::select_all(&lines).unwrap_or_else(|| unreachable!("there are lines"));
+    let plain = r.render_window(&doc, &win);
+    let after = r.render_window_selected(&doc, &win, &[], Some(&sel));
+    let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
+    for y in 0..plain.height {
+        for x in 0..plain.width {
+            if plain.pixel(x, y) != after.pixel(x, y) {
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+        }
+    }
+    assert!(x0 <= x1, "the selection changed the frame at {scale}x");
+    (r, after, (x0, y0, x1, y1))
+}
+
+#[test]
+fn native_text_and_code_are_redrawn_on_the_selection_colours_at_every_zoom() {
+    for scale in 1..=4 {
+        // Selected text, spaces included, lies on the selection pair.
+        let (r, after, (x0, y0, x1, y1)) =
+            selected_box(vec![Block::Paragraph("HELLO WORLD".into())], scale);
+        let t = r.theme();
+        // The space between the words is all background, and it is the selection's.
+        let mut doc = Document::new(60, 8);
+        doc.apply(vec![Piece::Rich(Block::Paragraph("HELLO WORLD".into()))]);
+        let lines = r.flow(&doc, 60);
+        let line = lines.iter().find(|l| !l.grid).unwrap_or(&lines[0]);
+        let space = x0 + (r.char_left(line, 5) + r.char_left(line, 6)) / 2;
+        assert_eq!(
+            after.pixel(space, u32::midpoint(y0, y1)),
+            Some(t.selection),
+            "the selected space is the selection colour at {scale}x"
+        );
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let p = after.pixel(x, y).unwrap_or([0; 3]);
+                let between = (0..3).all(|k| {
+                    let (lo, hi) = (
+                        t.selection[k].min(t.selection_text[k]),
+                        t.selection[k].max(t.selection_text[k]),
+                    );
+                    (lo.saturating_sub(1)..=hi.saturating_add(1)).contains(&p[k])
+                });
+                assert!(between, "pixel {x},{y} of the text at {scale}x is {p:?}");
+            }
+        }
+        // A solid block in code keeps its fill and gap.
+        let (r, after, (x0, y0, _, y1)) = selected_box(
+            vec![Block::Code {
+                text: "▊ W".into(),
+                stripped: 0,
+                lang: String::new(),
+            }],
+            scale,
+        );
+        let t = r.theme();
+        let (cell_w, _) = r.cell();
+        let mid = u32::midpoint(y0, y1);
+        assert_eq!(
+            after.pixel(x0 + cell_w / 4, mid),
+            Some(t.selection_text),
+            "the filled part of the block is the text colour at {scale}x"
+        );
+        assert_eq!(
+            after.pixel(x0 + cell_w - 1, mid),
+            Some(t.selection),
+            "the gap of the block is the selection colour at {scale}x"
         );
     }
 }

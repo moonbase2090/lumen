@@ -1685,7 +1685,15 @@ impl Renderer {
             }
             Track0Block::ImageData { .. } => {}
         }
+        // What the painter draws these lines with: the text on the container, a
+        // heading in the heading colour, code on the code background.
+        let pair = match content {
+            Track0Block::Heading { .. } => (self.theme.heading, self.theme.container),
+            Track0Block::Code { .. } => (self.theme.foreground, self.theme.code),
+            _ => (self.theme.foreground, self.theme.container),
+        };
         for (i, (text, grid, kind, join)) in rows.into_iter().enumerate() {
+            let colours = vec![pair; text.chars().count()];
             out.push(FlowLine {
                 block,
                 top: first + u32::try_from(i).unwrap_or(0) * self.cell_h,
@@ -1695,7 +1703,7 @@ impl Renderer {
                 grid,
                 kind,
                 join,
-                colours: Vec::new(),
+                colours,
             });
         }
     }
