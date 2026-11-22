@@ -87,6 +87,19 @@ jobs:
         shell: powershell
         run: ./scripts/windows-access-proof.ps1
 
+  # The system's High Contrast theme on Windows switches the window's palette,
+  # on and back off, with the window keeping the focus while it reads the setting.
+  term-windows-contrast:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --locked -p lumen-term --features window --bin lumen-term
+      - name: Turn High Contrast on and off under the window
+        shell: powershell
+        run: ./scripts/windows-contrast-proof.ps1
+
   deny:
     runs-on: ubuntu-latest
     steps:

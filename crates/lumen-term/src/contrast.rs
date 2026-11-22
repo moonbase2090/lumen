@@ -60,29 +60,39 @@ pub fn gnome_answer(succeeded: bool, stdout: &str) -> Option<bool> {
 }
 
 /// What `reg query "HKCU\Control Panel\Accessibility\HighContrast" /v Flags`
-/// said. The value is a string of flags and the lowest bit (`HCF_HIGHCONTRASTON`)
-/// is set while a High Contrast theme is on. Output that has no `Flags` line
-/// with a number is no answer.
+/// said. The value is a string (`REG_SZ`) of flags and the lowest bit
+/// (`HCF_HIGHCONTRASTON`) is set while a High Contrast theme is on. The line must
+/// be exactly the name, `REG_SZ` and one whole decimal number: another type, a
+/// number with anything after it, a missing line or an error is no answer.
 #[must_use]
 pub fn windows_answer(succeeded: bool, stdout: &str) -> Option<bool> {
     if !succeeded {
         return None;
     }
     stdout.lines().find_map(|line| {
-        let mut words = line.split_whitespace();
-        (words.next()? == "Flags").then_some(())?;
-        words.next().filter(|kind| kind.starts_with("REG_"))?;
-        let flags: u64 = words.next()?.parse().ok()?;
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let [name, kind, value] = words[..] else {
+            return None;
+        };
+        if name != "Flags" || kind != "REG_SZ" || !value.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let flags: u64 = value.parse().ok()?;
         Some(flags & 1 == 1)
     })
 }
 
 fn run(program: &str, args: &[&str]) -> Option<(bool, String, String)> {
-    let out = Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .ok()?;
+    let mut command = Command::new(program);
+    command.args(args).stdin(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        // CREATE_NO_WINDOW: the window program must not open a console, which
+        // would take the focus from the window and ask this question again.
+        command.creation_flags(0x0800_0000);
+    }
+    let out = command.output().ok()?;
     Some((
         out.status.success(),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -163,11 +173,27 @@ mod tests {
     }
 
     #[test]
-    fn windows_output_that_is_not_a_flags_number_is_no_answer() {
+    fn windows_output_that_is_not_exactly_a_flags_string_number_is_no_answer() {
         assert_eq!(windows_answer(false, "    Flags    REG_SZ    127"), None);
         assert_eq!(windows_answer(true, ""), None);
         assert_eq!(windows_answer(true, "    Flags    REG_SZ    on"), None);
         assert_eq!(windows_answer(true, "    Other    REG_SZ    127"), None);
+        // Another type, even with a number the string type would give.
+        assert_eq!(windows_answer(true, "    Flags    REG_BINARY    127"), None);
+        assert_eq!(windows_answer(true, "    Flags    REG_DWORD    0x7f"), None);
+        // Anything after the number.
+        assert_eq!(
+            windows_answer(true, "    Flags    REG_SZ    126 trailing"),
+            None
+        );
+        assert_eq!(
+            windows_answer(true, "    Flags    REG_SZ    126    127"),
+            None
+        );
+        // A sign, a decimal point or a hex prefix is not a plain number.
+        assert_eq!(windows_answer(true, "    Flags    REG_SZ    +127"), None);
+        assert_eq!(windows_answer(true, "    Flags    REG_SZ    1.0"), None);
+        assert_eq!(windows_answer(true, "    Flags    REG_SZ    0x7f"), None);
         assert_eq!(
             windows_answer(
                 true,
