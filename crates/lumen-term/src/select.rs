@@ -53,6 +53,9 @@ pub struct FlowLine {
     pub kind: Kind,
     /// How it joins the next line.
     pub join: Join,
+    /// The foreground and background each character was drawn with, so a
+    /// selection can redraw it the right way round. Empty when not known.
+    pub colours: Vec<([u8; 3], [u8; 3])>,
 }
 
 /// A place in the flow: a line, and a character boundary in it.

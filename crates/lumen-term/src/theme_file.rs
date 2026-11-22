@@ -115,6 +115,8 @@ fn slot<'a>(p: &'a mut Palette, key: &str) -> Option<&'a mut Rgb> {
         "find_match" => &mut p.find_match,
         "find_current" => &mut p.find_current,
         "find_text" => &mut p.find_text,
+        "selection" => &mut p.selection,
+        "selection_text" => &mut p.selection_text,
         _ => return None,
     })
 }

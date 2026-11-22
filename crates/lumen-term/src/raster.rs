@@ -90,6 +90,9 @@ pub struct CursorState {
 /// The widest a link prompt is, in cells.
 #[cfg(feature = "links-clipboard")]
 const PROMPT_COLUMNS: u32 = 72;
+/// How far, in RGB distance, a pixel may be from the line between a cell's
+/// background and its ink and still be an antialiased edge of one glyph.
+const OFF_LINE: f64 = 36.0;
 
 /// Where a link prompt is drawn.
 #[cfg(feature = "links-clipboard")]
@@ -1610,12 +1613,11 @@ impl Renderer {
                         } else {
                             g.screen().row(k - hist)
                         };
-                        let text: String = cells
-                            .unwrap_or_default()
-                            .iter()
-                            .filter(|c| !c.wide_cont)
-                            .map(|c| c.character)
-                            .collect();
+                        let cells = cells.unwrap_or_default();
+                        let drawn = || cells.iter().filter(|c| !c.wide_cont);
+                        let text: String = drawn().map(|c| c.character).collect();
+                        let colours: Vec<(Rgb, Rgb)> =
+                            drawn().map(|c| self.colours(c.style)).collect();
                         out.push(FlowLine {
                             block: p.index,
                             top: p.top + u32::try_from(k).unwrap_or(0) * self.cell_h,
@@ -1625,6 +1627,7 @@ impl Renderer {
                             grid: true,
                             kind: CopyKind::Command,
                             join: Join::Break,
+                            colours,
                         });
                     }
                 }
@@ -1682,7 +1685,15 @@ impl Renderer {
             }
             Track0Block::ImageData { .. } => {}
         }
+        // What the painter draws these lines with: the text on the container, a
+        // heading in the heading colour, code on the code background.
+        let pair = match content {
+            Track0Block::Heading { .. } => (self.theme.heading, self.theme.container),
+            Track0Block::Code { .. } => (self.theme.foreground, self.theme.code),
+            _ => (self.theme.foreground, self.theme.container),
+        };
         for (i, (text, grid, kind, join)) in rows.into_iter().enumerate() {
+            let colours = vec![pair; text.chars().count()];
             out.push(FlowLine {
                 block,
                 top: first + u32::try_from(i).unwrap_or(0) * self.cell_h,
@@ -1692,6 +1703,7 @@ impl Renderer {
                 grid,
                 kind,
                 join,
+                colours,
             });
         }
     }
@@ -1742,30 +1754,142 @@ impl Renderer {
         sel: &Selection,
         view_top: u32,
     ) {
-        let fg = self.theme.foreground;
+        let back = self.theme.selection;
         let last = sel.ordered().1.line;
         for (i, line) in lines.iter().enumerate() {
             let Some((from, to)) = sel.span_in(lines, i) else {
                 continue;
             };
-            let start = line.left + self.char_left(line, from);
-            let mut end = line.left + self.char_left(line, to);
-            if i < last && to >= line.text.chars().count() {
-                // A line the selection runs past is tinted a little beyond its end.
-                end += self.cell_w / 2;
-            }
             if line.top + line.height <= view_top {
                 continue;
             }
             let top = line.top.saturating_sub(view_top);
             let bottom = line.top + line.height - view_top;
-            for y in top..bottom {
-                for x in start..end {
-                    if let Some(p) = region.pixel(x, y) {
-                        region.put(x, y, crate::design::selected(p, fg));
+            // Each character is redrawn on its own: its background becomes the
+            // selection colour and its ink the selection's text colour, with the
+            // glyph's edges kept.
+            for c in from..to {
+                let left = line.left + self.char_left(line, c);
+                let right = line.left + self.char_left(line, c + 1);
+                let known = line.colours.get(c).copied();
+                self.recolour_selected(region, left..right, top..bottom, known);
+            }
+            if i < last && to >= line.text.chars().count() {
+                // A line the selection runs past is tinted a little beyond its end.
+                let end = line.left + self.char_left(line, to);
+                for y in top..bottom {
+                    for x in end..end + self.cell_w / 2 {
+                        if region.pixel(x, y).is_some() {
+                            region.put(x, y, back);
+                        }
                     }
                 }
             }
+        }
+    }
+
+    /// How far `p` is from the line between `bg` and `ink`, whose squared
+    /// distance apart is `span`.
+    fn off_line(bg: Rgb, ink: Rgb, span: f64, p: Rgb) -> f64 {
+        let t: f64 = (0..3)
+            .map(|k| (f64::from(p[k]) - f64::from(bg[k])) * (f64::from(ink[k]) - f64::from(bg[k])))
+            .sum::<f64>()
+            / span;
+        (0..3)
+            .map(|k| {
+                let on = f64::from(bg[k]) + (f64::from(ink[k]) - f64::from(bg[k])) * t;
+                (f64::from(p[k]) - on).powi(2)
+            })
+            .sum::<f64>()
+            .sqrt()
+    }
+
+    /// Redraw the pixels `xs` by `ys` of `region`, one selected character, on
+    /// the selection colour. The cell's own background is the colour most of its
+    /// pixels have, its ink the pixel furthest from that, and each pixel is
+    /// placed between the selection colour and the selection's text colour as
+    /// far as it was between the background and the ink. A cell whose pixels do
+    /// not lie on that line (an image, an emoji, a colour glyph) is tinted
+    /// instead, as it has no one ink. How many shades the edges have does not
+    /// matter, so a plain glyph at any zoom is recoloured.
+    fn recolour_selected(
+        &self,
+        region: &mut Frame,
+        xs: std::ops::Range<u32>,
+        ys: std::ops::Range<u32>,
+        known: Option<(Rgb, Rgb)>,
+    ) {
+        use std::collections::HashMap;
+        let (back, text) = (self.theme.selection, self.theme.selection_text);
+        let mut seen: HashMap<Rgb, u32> = HashMap::new();
+        let mut pixels = Vec::new();
+        for y in ys {
+            for x in xs.clone() {
+                if let Some(p) = region.pixel(x, y) {
+                    *seen.entry(p).or_default() += 1;
+                    pixels.push((x, y, p));
+                }
+            }
+        }
+        let Some(common) = seen.iter().max_by_key(|(c, n)| (**n, **c)).map(|(c, _)| *c) else {
+            return;
+        };
+        let away = |from: Rgb, p: Rgb| -> f64 {
+            (0..3)
+                .map(|k| (f64::from(p[k]) - f64::from(from[k])).powi(2))
+                .sum()
+        };
+        let furthest = pixels
+            .iter()
+            .map(|(_, _, p)| *p)
+            .max_by(|a, b| away(common, *a).total_cmp(&away(common, *b)))
+            .unwrap_or(common);
+        // The cell's own colours, when the grid knows them, say which way round
+        // background and ink are (a block glyph is mostly ink); the pixels
+        // alone only say which colour is commonest. The pair that explains the
+        // pixels is the one used.
+        let explains = |bg: Rgb, ink: Rgb| -> bool {
+            let span = away(bg, ink);
+            if span == 0.0 {
+                return false;
+            }
+            let stray = pixels
+                .iter()
+                .filter(|(_, _, p)| Self::off_line(bg, ink, span, *p) > OFF_LINE)
+                .count();
+            stray * 10 <= pixels.len()
+        };
+        let (bg, ink) = match known {
+            Some((fg, back)) if explains(back, fg) => (back, fg),
+            _ if explains(common, furthest) => (common, furthest),
+            _ => {
+                for (x, y, p) in pixels {
+                    region.put(x, y, crate::design::selected(p, self.theme.foreground));
+                }
+                return;
+            }
+        };
+        let span = away(bg, ink);
+        for (x, y, p) in pixels {
+            let reach = ((0..3)
+                .map(|k| {
+                    (f64::from(p[k]) - f64::from(bg[k])) * (f64::from(ink[k]) - f64::from(bg[k]))
+                })
+                .sum::<f64>()
+                / span)
+                .clamp(0.0, 1.0);
+            let mix = |k: usize| {
+                let v = f64::from(back[k]) + (f64::from(text[k]) - f64::from(back[k])) * reach;
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "clamped to 0 to 255 first"
+                )]
+                {
+                    v.round().clamp(0.0, 255.0) as u8
+                }
+            };
+            region.put(x, y, [mix(0), mix(1), mix(2)]);
         }
     }
 

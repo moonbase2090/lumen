@@ -26,6 +26,7 @@ The [text runs](../spec/v0/text-runs.md#runs.colour) section of the spec names c
 | `control_border` | The edge of the input editor and of the unverified output container |
 | `notice`, `notice_border` | A toast's box and border |
 | `find_match`, `find_current`, `find_text` | The backgrounds of a find match and of the one the user is on, and the text inside either |
+| `selection`, `selection_text` | The background of selected text and the one colour its glyphs are drawn in; the pair holds the text floor |
 | `ansi[0..16]` | The sixteen ANSI colours of grid blocks |
 
 ## Built-in palettes

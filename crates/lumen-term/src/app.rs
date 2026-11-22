@@ -1303,7 +1303,6 @@ impl App {
         self.clear_link_focus();
         self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&link.hit));
         self.links.fit.take();
-        self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&link.hit));
         self.links.scroll = 0;
         self.view_moves = self.view_moves.wrapping_add(1);
         true
@@ -1357,7 +1356,6 @@ impl App {
         };
         self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&hit));
         self.links.fit.take();
-        self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&hit));
         self.links.scroll = 0;
         self.links.press_down = true;
         self.view_moves = self.view_moves.wrapping_add(1);
@@ -2623,7 +2621,6 @@ impl App {
                     self.clear_link_focus();
                     self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&stop.hit));
                     self.links.fit.take();
-                    self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&stop.hit));
                     self.links.scroll = 0;
                     self.view_moves = self.view_moves.wrapping_add(1);
                     return Ok(());
