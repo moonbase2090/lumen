@@ -154,6 +154,9 @@ pub struct MenuBox {
     pub scrolls: bool,
     /// The first entry on the page.
     pub first: usize,
+    /// Whether the window is narrower than the menu's labels need, so the box
+    /// was cut to the window and its longer labels with it.
+    pub clamped: bool,
 }
 
 impl MenuBox {
@@ -161,7 +164,7 @@ impl MenuBox {
     #[must_use]
     pub fn fits(&self, width: u32, height: u32) -> bool {
         let (x, y, w, h) = self.rect;
-        !self.scrolls && x + w <= width && y + h <= height
+        !self.scrolls && !self.clamped && x + w <= width && y + h <= height
     }
 }
 
@@ -2701,7 +2704,9 @@ impl Renderer {
             .map(|(_, label, _)| u32::try_from(label.chars().count()).unwrap_or(0))
             .max()
             .unwrap_or(0);
-        let box_w = ((labels + 4) * cw + 2 * edge).min(width.max(1));
+        let natural_w = (labels + 4) * cw + 2 * edge;
+        let clamped = natural_w > width;
+        let box_w = natural_w.min(width.max(1));
         let heights: Vec<u32> = menu
             .items()
             .iter()
@@ -2756,6 +2761,7 @@ impl Renderer {
             rows,
             scrolls,
             first,
+            clamped,
         }
     }
 

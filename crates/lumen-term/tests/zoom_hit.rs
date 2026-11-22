@@ -233,6 +233,14 @@ fn the_menu_fits_a_narrow_window_as_well_as_a_short_one() {
     // At four times it is 542 wide and 606 tall: too wide for 360 pixels.
     let b = menu_in((360, 800), 1, 4);
     assert!(b.rect.0 + b.rect.2 <= 360, "{:?}", b.rect);
+    // The size was chosen so the labels are whole, not cut to the window: the
+    // box is at the natural width of its longest label at a smaller size.
+    assert!(!b.clamped, "the labels are not cut: {:?}", b.rect);
+    let one = menu_in((360, 800), 1, 1);
+    assert!(
+        b.rect.2 > one.rect.2,
+        "and the size is the largest that fits"
+    );
     assert!(b.rect.1 + b.rect.3 <= 800, "{:?}", b.rect);
 }
 
