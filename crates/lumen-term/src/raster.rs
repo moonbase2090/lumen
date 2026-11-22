@@ -90,6 +90,9 @@ pub struct CursorState {
 /// The widest a link prompt is, in cells.
 #[cfg(feature = "links-clipboard")]
 const PROMPT_COLUMNS: u32 = 72;
+/// A selected cell with more colours than this is an image or an emoji, not text
+/// on a background.
+const MANY_COLOURS: usize = 24;
 
 /// Where a link prompt is drawn.
 #[cfg(feature = "links-clipboard")]
@@ -1742,30 +1745,108 @@ impl Renderer {
         sel: &Selection,
         view_top: u32,
     ) {
-        let fg = self.theme.foreground;
+        let back = self.theme.selection;
         let last = sel.ordered().1.line;
         for (i, line) in lines.iter().enumerate() {
             let Some((from, to)) = sel.span_in(lines, i) else {
                 continue;
             };
-            let start = line.left + self.char_left(line, from);
-            let mut end = line.left + self.char_left(line, to);
-            if i < last && to >= line.text.chars().count() {
-                // A line the selection runs past is tinted a little beyond its end.
-                end += self.cell_w / 2;
-            }
             if line.top + line.height <= view_top {
                 continue;
             }
             let top = line.top.saturating_sub(view_top);
             let bottom = line.top + line.height - view_top;
-            for y in top..bottom {
-                for x in start..end {
-                    if let Some(p) = region.pixel(x, y) {
-                        region.put(x, y, crate::design::selected(p, fg));
+            // Each character is redrawn on its own: its background becomes the
+            // selection colour and its ink the selection's text colour, with the
+            // glyph's edges kept.
+            for c in from..to {
+                let left = line.left + self.char_left(line, c);
+                let right = line.left + self.char_left(line, c + 1);
+                self.recolour_selected(region, left..right, top..bottom);
+            }
+            if i < last && to >= line.text.chars().count() {
+                // A line the selection runs past is tinted a little beyond its end.
+                let end = line.left + self.char_left(line, to);
+                for y in top..bottom {
+                    for x in end..end + self.cell_w / 2 {
+                        if region.pixel(x, y).is_some() {
+                            region.put(x, y, back);
+                        }
                     }
                 }
             }
+        }
+    }
+
+    /// Redraw the pixels `xs` by `ys` of `region`, one selected character, on
+    /// the selection colour. The cell's own background is the colour most of its
+    /// pixels have, its ink the pixel furthest from that, and each pixel is
+    /// placed between the selection colour and the selection's text colour as
+    /// far as it was between the background and the ink. A cell of many colours
+    /// (an image, an emoji) is tinted instead, as it has no one ink.
+    fn recolour_selected(
+        &self,
+        region: &mut Frame,
+        xs: std::ops::Range<u32>,
+        ys: std::ops::Range<u32>,
+    ) {
+        use std::collections::HashMap;
+        let (back, text) = (self.theme.selection, self.theme.selection_text);
+        let mut seen: HashMap<Rgb, u32> = HashMap::new();
+        let mut pixels = Vec::new();
+        for y in ys {
+            for x in xs.clone() {
+                if let Some(p) = region.pixel(x, y) {
+                    *seen.entry(p).or_default() += 1;
+                    pixels.push((x, y, p));
+                }
+            }
+        }
+        if seen.len() > MANY_COLOURS {
+            for (x, y, p) in pixels {
+                region.put(x, y, crate::design::selected(p, self.theme.foreground));
+            }
+            return;
+        }
+        let Some(bg) = seen.iter().max_by_key(|(c, n)| (**n, **c)).map(|(c, _)| *c) else {
+            return;
+        };
+        let away = |p: Rgb| -> f64 {
+            (0..3)
+                .map(|k| (f64::from(p[k]) - f64::from(bg[k])).powi(2))
+                .sum()
+        };
+        let ink = pixels
+            .iter()
+            .map(|(_, _, p)| *p)
+            .max_by(|a, b| away(*a).total_cmp(&away(*b)))
+            .unwrap_or(bg);
+        let span = away(ink);
+        for (x, y, p) in pixels {
+            let reach = if span == 0.0 {
+                0.0
+            } else {
+                ((0..3)
+                    .map(|k| {
+                        (f64::from(p[k]) - f64::from(bg[k]))
+                            * (f64::from(ink[k]) - f64::from(bg[k]))
+                    })
+                    .sum::<f64>()
+                    / span)
+                    .clamp(0.0, 1.0)
+            };
+            let mix = |k: usize| {
+                let v = f64::from(back[k]) + (f64::from(text[k]) - f64::from(back[k])) * reach;
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "clamped to 0 to 255 first"
+                )]
+                {
+                    v.round().clamp(0.0, 255.0) as u8
+                }
+            };
+            region.put(x, y, [mix(0), mix(1), mix(2)]);
         }
     }
 
