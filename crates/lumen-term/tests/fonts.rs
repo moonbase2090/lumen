@@ -153,7 +153,10 @@ fn a_font_change_resizes_the_grid_live() -> Result<(), Box<dyn std::error::Error
     let before = app.session().document().columns();
     let bigger = Fonts::default().with_mono_px(28);
     assert!(app.set_fonts(&bigger)?);
-    let (cols, rows) = cells_for(640, 400, renderer(&bigger).cell());
+    // The empty gutter is drawn two cells wide and the layout counts four, so
+    // the cells are what 640 pixels less the 6 pixel padding plus two cells give.
+    let cell = renderer(&bigger).cell();
+    let (cols, rows) = cells_for(640 - 6 + 2 * cell.0, 400, cell);
     assert_eq!(
         (
             app.session().document().columns(),

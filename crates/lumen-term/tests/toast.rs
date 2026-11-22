@@ -47,11 +47,34 @@ fn lay() -> lumen_term::Layout {
     layout(WIN.cols, WIN.rows, WIN.editor_row, WIN.editor_rows, None)
 }
 
-fn changed(r: &Renderer, a: &Frame, b: &Frame, rect: &Rect) -> usize {
+/// The pixel box of a rectangle of cells, worked out here and not by the
+/// renderer: the gutter's four layout columns are drawn two cells wide while it
+/// is empty, the columns right of it start past it and the gutter padding, and
+/// the header runs on to the window's edge.
+fn px(r: &Renderer, rect: &Rect) -> (u32, u32, u32, u32) {
     let (cw, ch) = r.cell();
+    let x = |col: u32| {
+        if col >= 4 {
+            (col - 2) * cw + r.gutter_pad()
+        } else {
+            (col * cw).min(2 * cw)
+        }
+    };
+    let left = x(rect.x);
+    // The gutter's right edge is its divider, short of the padding.
+    let right = if rect.x + rect.w > 4 {
+        x(rect.x + rect.w)
+    } else {
+        ((rect.x + rect.w) * cw).min(2 * cw)
+    };
+    (left, rect.y * ch, right.saturating_sub(left), rect.h * ch)
+}
+
+fn changed(r: &Renderer, a: &Frame, b: &Frame, rect: &Rect) -> usize {
+    let (x0, y0, width, height) = px(r, rect);
     let mut count = 0;
-    for y in rect.y * ch..(rect.y + rect.h) * ch {
-        for x in rect.x * cw..(rect.x + rect.w) * cw {
+    for y in y0..y0 + height {
+        for x in x0..x0 + width {
             if a.pixel(x, y) != b.pixel(x, y) {
                 count += 1;
             }
@@ -166,7 +189,8 @@ fn an_unsigned_toast_carries_the_unverified_output_label_as_an_extra_row() {
     let (cw, ch) = r.cell();
     let first_row = |f: &Frame| {
         (area.y * ch..area.y * ch + ch).any(|y| {
-            ((area.x * cw + 6)..((area.x + area.w) * cw + 6)).any(|x| f.pixel(x, y) == Some(label))
+            (((area.x - 2) * cw + 6)..((area.x + area.w - 2) * cw + 6))
+                .any(|x| f.pixel(x, y) == Some(label))
         })
     };
     assert!(first_row(&unsigned), "the unverified-output label is drawn");
@@ -219,7 +243,7 @@ fn toasts_stack_from_the_top_of_the_area_in_order() {
         (0..one.width).find(|x| (0..one.height).any(|y| one.pixel(*x, y) != base.pixel(*x, y)));
     assert_eq!(
         left_col,
-        Some(area.x * cw + 6),
+        Some((area.x - 2) * cw + 6),
         "and fills the width of the area"
     );
 }
@@ -313,7 +337,7 @@ fn the_toast_index_follows_the_stacking_order_and_never_exceeds_what_was_drawn()
     let area = notification_area(&lay());
     let (cw, ch) = r.cell();
     let shown = toasts(&["one", "two", "three"], false);
-    let x = (area.x * cw + 6) + 2 * cw;
+    let x = ((area.x - 2) * cw + 6) + 2 * cw;
     let mut last = None;
     let mut seen = Vec::new();
     for y in area.y * ch..(area.y + area.h) * ch {
@@ -352,11 +376,11 @@ fn a_point_outside_the_notification_area_hits_nothing() {
     let (cw, ch) = r.cell();
     for (x, y) in [
         (0, 0),
-        ((area.x * cw + 6) - 1, area.y * ch + 2),
-        (((area.x + area.w) * cw + 6), area.y * ch + 2),
-        ((area.x * cw + 6) + 2, 0),
+        (((area.x - 2) * cw + 6) - 1, area.y * ch + 2),
+        (((area.x + area.w - 2) * cw + 6), area.y * ch + 2),
+        (((area.x - 2) * cw + 6) + 2, 0),
         (u32::MAX, u32::MAX),
-        ((area.x * cw + 6) + 2, u32::MAX),
+        (((area.x - 2) * cw + 6) + 2, u32::MAX),
     ] {
         assert_eq!(r.toast_at(&WIN, &shown, x, y), None, "{x},{y}");
     }
