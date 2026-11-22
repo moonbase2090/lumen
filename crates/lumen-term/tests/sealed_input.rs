@@ -1164,7 +1164,9 @@ fn a_box_line_queued_behind_a_line_typed_ahead_is_not_recorded_for_it() {
 /// At the first prompt after `~/gate` exists, the shell's line editor runs a
 /// hook that waits on `~/gate` with a builtin (the shell stays in front), then
 /// on `~/gate2` with a program (the program is in front until it is written).
-const HOOK_RUNS_A_PROGRAM: &str = "zle-line-init() {\n  if [[ -p ~/gate && -z $_held ]]; then\n    _held=1\n    read -r _ < ~/gate\n    cat ~/gate2 > /dev/null\n  fi\n}\nzle -N zle-line-init\n";
+/// The program says `held` first: the shell hands it the terminal before it
+/// starts, so that output is the test's signal that it is in front.
+const HOOK_RUNS_A_PROGRAM: &str = "zle-line-init() {\n  if [[ -p ~/gate && -z $_held ]]; then\n    _held=1\n    read -r _ < ~/gate\n    sh -c 'echo held; exec cat ~/gate2 > /dev/null'\n  fi\n}\nzle -N zle-line-init\n";
 
 #[test]
 fn keys_typed_while_a_prompt_hook_runs_a_program_finish_the_line_in_the_box() {
@@ -1188,8 +1190,8 @@ fn keys_typed_while_a_prompt_hook_runs_a_program_finish_the_line_in_the_box() {
     let gate = dir.join("gate");
     let opener = std::thread::spawn(move || std::fs::write(gate, "x\n").is_ok());
     assert!(
-        until(&mut app, |a| a.session().tty_state().shell_in_front
-            == Some(false)),
+        until(&mut app, |a| grid_text(a).contains("held")
+            && a.session().tty_state().shell_in_front == Some(false)),
         "the hook's program is in front"
     );
     assert!(opener.join().unwrap_or(false), "the hook read the gate");
