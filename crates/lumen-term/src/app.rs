@@ -64,6 +64,9 @@ struct Links {
     /// does not make it fit (text zoomed so far that the whole question is taller
     /// than the window).
     fit: FitCache,
+    /// The first line of the question's text shown, when it is too long for the
+    /// window even at the smallest size and is shown a page at a time.
+    scroll: usize,
 }
 
 /// A link in the rows the window shows now (the scrolled view, not the live
@@ -130,6 +133,7 @@ impl Default for Links {
             press_down: false,
             focus: None,
             fit: FitCache::default(),
+            scroll: 0,
         }
     }
 }
@@ -172,30 +176,33 @@ enum Fit {
 }
 
 /// Run `f` with the renderer an overlay is drawn and hit with. It is `base`
-/// unless the overlay is taller than `height` at that text size, when it is the
-/// largest smaller size at which it fits, or the smallest: text zoomed so far
-/// that the whole overlay is taller than the window must not push its end,
-/// and the buttons or entries there, off the screen. `tall` is the overlay's
-/// height at a renderer. The answer is kept in `cache` until it is cleared.
+/// when the overlay `fits` the window with it. Otherwise it is the largest
+/// smaller size at which it fits, never below `floor` (the display's own size:
+/// zooming out past it would make the text smaller than the user chose for the
+/// display), or the floor itself when none does: text zoomed so far that the
+/// whole overlay is larger than the window must not push its end, and the
+/// buttons or entries there, off the screen. The answer is kept in `cache`
+/// until it is cleared.
 fn with_fit<R>(
     base: &Renderer,
     scale: u32,
+    floor: u32,
     cache: &FitCache,
-    height: u32,
-    tall: impl Fn(&Renderer) -> u32,
+    fits: impl Fn(&Renderer) -> bool,
     f: impl FnOnce(&Renderer) -> R,
 ) -> R {
+    let floor = floor.clamp(actions::MIN_SCALE, scale.max(actions::MIN_SCALE));
     let mut cache = cache.0.borrow_mut();
     let chosen = cache.get_or_insert_with(|| {
-        if tall(base) <= height {
+        if fits(base) {
             return Fit::Window;
         }
         let mut smaller = Fit::Window;
-        for size in (actions::MIN_SCALE..scale).rev() {
+        for size in (floor..scale).rev() {
             let Ok(r) = Renderer::with_fonts(size, base.theme().clone(), base.fonts()) else {
                 continue;
             };
-            let done = tall(&r) <= height || size == actions::MIN_SCALE;
+            let done = fits(&r) || size == floor;
             smaller = Fit::Smaller(Box::new(r));
             if done {
                 break;
@@ -844,6 +851,10 @@ impl App {
         #[cfg(feature = "colour-replies")]
         self.session.set_theme(theme.clone());
         self.renderer.set_theme(theme);
+        // An overlay drawn at a smaller size holds a copy of the old palette.
+        #[cfg(feature = "links-clipboard")]
+        self.links.fit.take();
+        self.menu.fit.take();
         true
     }
 
@@ -1015,7 +1026,7 @@ impl App {
     pub fn link_prompt_box(&self) -> Option<crate::raster::PromptBox> {
         let prompt = self.links.prompt.as_ref()?;
         Some(self.with_prompt_renderer(prompt, |r| {
-            r.link_prompt_box(self.width, self.height, prompt)
+            r.link_prompt_box(self.width, self.height, prompt, self.links.scroll)
         }))
     }
 
@@ -1033,11 +1044,48 @@ impl App {
         with_fit(
             &self.renderer,
             self.scale,
+            self.base_scale,
             &self.links.fit,
-            self.height,
-            |r| r.link_prompt_box(self.width, self.height, prompt).rect.3,
+            |r| {
+                r.link_prompt_box(self.width, self.height, prompt, 0)
+                    .fits(self.width, self.height)
+            },
             f,
         )
+    }
+
+    /// Move the question's text by `steps` lines, or pages when `pages`, if it
+    /// is too long for the window and is shown a page at a time. Returns whether
+    /// the page changed.
+    #[cfg(feature = "links-clipboard")]
+    fn scroll_prompt(&mut self, steps: isize, pages: bool) -> bool {
+        let Some(prompt) = &self.links.prompt else {
+            return false;
+        };
+        let shown = self.with_prompt_renderer(prompt, |r| {
+            r.link_prompt_box(self.width, self.height, prompt, self.links.scroll)
+        });
+        if !shown.scrolls {
+            return false;
+        }
+        let page = shown.lines.len().saturating_sub(1).max(1);
+        let by = if pages {
+            steps.saturating_mul(isize::try_from(page).unwrap_or(1))
+        } else {
+            steps
+        };
+        let last = shown.total.saturating_sub(page);
+        let next = isize::try_from(shown.first)
+            .unwrap_or(0)
+            .saturating_add(by)
+            .clamp(0, isize::try_from(last).unwrap_or(0));
+        let next = usize::try_from(next).unwrap_or(0);
+        if next == shown.first {
+            return false;
+        }
+        self.links.scroll = next;
+        self.view_moves = self.view_moves.wrapping_add(1);
+        true
     }
 
     /// The link under pixel `(x, y)` of the live grid, if there is one.
@@ -1255,6 +1303,8 @@ impl App {
         self.clear_link_focus();
         self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&link.hit));
         self.links.fit.take();
+        self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&link.hit));
+        self.links.scroll = 0;
         self.view_moves = self.view_moves.wrapping_add(1);
         true
     }
@@ -1307,6 +1357,8 @@ impl App {
         };
         self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&hit));
         self.links.fit.take();
+        self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&hit));
+        self.links.scroll = 0;
         self.links.press_down = true;
         self.view_moves = self.view_moves.wrapping_add(1);
         true
@@ -1324,7 +1376,7 @@ impl App {
         };
         self.links.press_down = true;
         match self.with_prompt_renderer(prompt, |r| {
-            r.link_prompt_at(self.width, self.height, prompt, x, y)
+            r.link_prompt_at(self.width, self.height, prompt, self.links.scroll, x, y)
         }) {
             PromptHit::Open => {
                 let _ = self.answer_link(true);
@@ -1390,9 +1442,12 @@ impl App {
         Some(with_fit(
             &self.renderer,
             self.scale,
+            self.base_scale,
             &self.menu.fit,
-            self.height,
-            |r| r.context_menu_box(self.width, self.height, menu).rect.3,
+            |r| {
+                let (x, y, w, h) = r.context_menu_box(self.width, self.height, menu).rect;
+                x + w <= self.width && y + h <= self.height
+            },
             |r| r.context_menu_box(self.width, self.height, menu),
         ))
     }
@@ -1417,9 +1472,12 @@ impl App {
         match with_fit(
             &self.renderer,
             self.scale,
+            self.base_scale,
             &self.menu.fit,
-            self.height,
-            |r| r.context_menu_box(self.width, self.height, menu).rect.3,
+            |r| {
+                let (x, y, w, h) = r.context_menu_box(self.width, self.height, menu).rect;
+                x + w <= self.width && y + h <= self.height
+            },
             |r| r.context_menu_at(self.width, self.height, menu, x, y),
         ) {
             MenuHit::Item(i) => {
@@ -1454,9 +1512,12 @@ impl App {
         let at = match with_fit(
             &self.renderer,
             self.scale,
+            self.base_scale,
             &self.menu.fit,
-            self.height,
-            |r| r.context_menu_box(self.width, self.height, menu).rect.3,
+            |r| {
+                let (x, y, w, h) = r.context_menu_box(self.width, self.height, menu).rect;
+                x + w <= self.width && y + h <= self.height
+            },
             |r| r.context_menu_at(self.width, self.height, menu, x, y),
         ) {
             MenuHit::Item(i) => Some(i),
@@ -2054,7 +2115,7 @@ impl App {
     ) -> std::io::Result<bool> {
         #[cfg(feature = "links-clipboard")]
         if self.links.prompt.is_some() {
-            return Ok(false);
+            return Ok(self.scroll_prompt(if matches!(step, Wheel::Up) { -3 } else { 3 }, false));
         }
         if let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes())
             && let Some(report) = Reporter::wheel(modes, step, held, cell)
@@ -2099,7 +2160,7 @@ impl App {
         }
         #[cfg(feature = "links-clipboard")]
         if self.links.prompt.is_some() {
-            return Ok(false);
+            return Ok(self.scroll_prompt(if pixels > 0 { -3 } else { 3 }, false));
         }
         if let (Some(cell), Some(modes)) = (self.live_cell(x, y), self.live_modes()) {
             let step = if pixels > 0 { Wheel::Up } else { Wheel::Down };
@@ -2482,6 +2543,22 @@ impl App {
             match key {
                 Key::Enter | Key::KeypadEnter => self.answer_link(true).map(|_| ()),
                 Key::Escape => self.answer_link(false).map(|_| ()),
+                Key::Up => {
+                    self.scroll_prompt(-1, false);
+                    Ok(())
+                }
+                Key::Down => {
+                    self.scroll_prompt(1, false);
+                    Ok(())
+                }
+                Key::PageUp => {
+                    self.scroll_prompt(-1, true);
+                    Ok(())
+                }
+                Key::PageDown => {
+                    self.scroll_prompt(1, true);
+                    Ok(())
+                }
                 _ => Ok(()),
             }?;
             return Ok(());
@@ -2497,6 +2574,8 @@ impl App {
                     self.clear_link_focus();
                     self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&stop.hit));
                     self.links.fit.take();
+                    self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&stop.hit));
+                    self.links.scroll = 0;
                     self.view_moves = self.view_moves.wrapping_add(1);
                     return Ok(());
                 }
@@ -3394,16 +3473,21 @@ impl App {
         #[cfg(feature = "links-clipboard")]
         if let Some(prompt) = &self.links.prompt {
             // Last, over everything: a program's output cannot cover it.
-            self.with_prompt_renderer(prompt, |r| r.paint_link_prompt(&mut frame, prompt));
+            self.with_prompt_renderer(prompt, |r| {
+                r.paint_link_prompt(&mut frame, prompt, self.links.scroll);
+            });
         }
         if let Some(menu) = &self.menu.open {
             // Also last, over everything: a program's output cannot cover it.
             with_fit(
                 &self.renderer,
                 self.scale,
+                self.base_scale,
                 &self.menu.fit,
-                self.height,
-                |r| r.context_menu_box(self.width, self.height, menu).rect.3,
+                |r| {
+                    let (x, y, w, h) = r.context_menu_box(self.width, self.height, menu).rect;
+                    x + w <= self.width && y + h <= self.height
+                },
                 |r| r.paint_context_menu(&mut frame, menu),
             );
         }

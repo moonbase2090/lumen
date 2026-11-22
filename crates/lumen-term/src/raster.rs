@@ -101,6 +101,28 @@ pub struct PromptBox {
     pub lines: Vec<String>,
     /// Each button's label and its rectangle.
     pub buttons: Vec<(String, (u32, u32, u32, u32))>,
+    /// Whether the text is taller than the window allows and is shown a page at
+    /// a time: `lines` is then the page, with a last line saying where it is.
+    pub scrolls: bool,
+    /// The first of the whole text's lines on the page, and how many there are.
+    pub first: usize,
+    /// How many lines the whole text has.
+    pub total: usize,
+}
+
+impl PromptBox {
+    /// Whether the box and its buttons lie inside a window of `width` by `height`,
+    /// the buttons inside the box, and all the text is shown without scrolling.
+    #[must_use]
+    pub fn fits(&self, width: u32, height: u32) -> bool {
+        let (x, y, w, h) = self.rect;
+        !self.scrolls
+            && x + w <= width
+            && y + h <= height
+            && self.buttons.iter().all(|(_, (bx, by, bw, bh))| {
+                *bx >= x && by >= &y && bx + bw <= x + w && by + bh <= y + h
+            })
+    }
 }
 
 /// What a point on a link prompt is.
@@ -2454,30 +2476,64 @@ impl Renderer {
         width: u32,
         height: u32,
         prompt: &crate::linkprompt::Prompt,
+        scroll: usize,
     ) -> PromptBox {
         let cw = self.cell_w.max(1);
         let columns = (width / cw).max(1);
         let box_cols =
             usize::try_from(columns.saturating_sub(2).clamp(1, PROMPT_COLUMNS)).unwrap_or(1);
         let inner = box_cols.saturating_sub(2).max(1);
-        let mut lines = Vec::new();
+        let mut all = Vec::new();
         for line in prompt.lines() {
             if line.is_empty() {
-                lines.push(String::new());
+                all.push(String::new());
             } else {
-                lines.extend(wrap_by(&line, inner, &cells));
+                all.extend(wrap_by(&line, inner, &cells));
             }
+        }
+        let total = all.len();
+        let chrome = 4 * self.scale;
+        let full_h = (u32::try_from(total).unwrap_or(0) + 3) * self.cell_h + chrome;
+        let scrolls = full_h > height;
+        let (mut lines, mut first) = (all, 0);
+        if scrolls {
+            // A page: what is left of the window after the box's own rows and a
+            // line that says where the page is.
+            let room = height.saturating_sub(chrome) / self.cell_h.max(1);
+            let page = usize::try_from(room.saturating_sub(4)).unwrap_or(1).max(1);
+            first = scroll.min(total.saturating_sub(page));
+            let last = (first + page).min(total);
+            let mut shown: Vec<String> = lines[first..last].to_vec();
+            let hint = format!("Up/Down: {}-{} of {}", first + 1, last, total);
+            shown.push(hint.chars().take(inner).collect());
+            lines = shown;
         }
         let rows = u32::try_from(lines.len()).unwrap_or(0) + 2;
         let box_w = u32::try_from(box_cols).unwrap_or(1) * cw;
-        let box_h = rows * self.cell_h + self.cell_h + 4 * self.scale;
+        let box_h = rows * self.cell_h + self.cell_h + chrome;
         let x = width.saturating_sub(box_w) / 2;
         let y = height.saturating_sub(box_h) / 2;
         let buttons_y = y + 2 * self.scale + self.cell_h / 2 + (rows - 1) * self.cell_h;
-        let labels: &[&str] = if prompt.target().is_some() {
+        let wide: &[&str] = if prompt.target().is_some() {
             &[" Open (Enter) ", " Cancel (Esc) "]
         } else {
             &[" Close (Esc) "]
+        };
+        let narrow: &[&str] = if prompt.target().is_some() {
+            &[" Open ", " Cancel "]
+        } else {
+            &[" Close "]
+        };
+        let needs = |labels: &[&str]| {
+            labels
+                .iter()
+                .map(|l| u32::try_from(l.chars().count()).unwrap_or(0) + 2)
+                .sum::<u32>()
+        };
+        let labels = if needs(wide) < u32::try_from(box_cols).unwrap_or(0) {
+            wide
+        } else {
+            narrow
         };
         let mut col = 1u32;
         let mut buttons = Vec::new();
@@ -2493,15 +2549,23 @@ impl Renderer {
             rect: (x, y, box_w, box_h),
             lines,
             buttons,
+            scrolls,
+            first,
+            total,
         }
     }
 
     /// Draw a link prompt over `frame`, the whole window. It is the last thing
     /// painted, so nothing a program drew can cover it or pass for it.
     #[cfg(feature = "links-clipboard")]
-    pub fn paint_link_prompt(&self, frame: &mut Frame, prompt: &crate::linkprompt::Prompt) {
+    pub fn paint_link_prompt(
+        &self,
+        frame: &mut Frame,
+        prompt: &crate::linkprompt::Prompt,
+        scroll: usize,
+    ) {
         let theme = &self.theme;
-        let placed = self.link_prompt_box(frame.width, frame.height, prompt);
+        let placed = self.link_prompt_box(frame.width, frame.height, prompt, scroll);
         let (left, top, width, height) = placed.rect;
         frame.fill(left, top, width, height, theme.toast_border);
         let edge = 2 * self.scale;
@@ -2548,10 +2612,11 @@ impl Renderer {
         width: u32,
         height: u32,
         prompt: &crate::linkprompt::Prompt,
+        scroll: usize,
         px: u32,
         py: u32,
     ) -> PromptHit {
-        let b = self.link_prompt_box(width, height, prompt);
+        let b = self.link_prompt_box(width, height, prompt, scroll);
         let inside =
             |(x, y, w, h): (u32, u32, u32, u32)| px >= x && px < x + w && py >= y && py < y + h;
         for (label, rect) in &b.buttons {
