@@ -27,6 +27,22 @@ use winit::window::{Theme as WinitTheme, Window, WindowId};
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
+/// What wakes the event loop from outside it.
+#[derive(Debug)]
+enum UserEvent {
+    /// The frame wake thread asks for a redraw pass (macOS).
+    #[cfg(target_os = "macos")]
+    Wake,
+    /// A screen reader or other assistive technology asks something.
+    Access(accesskit_winit::Event),
+}
+
+impl From<accesskit_winit::Event> for UserEvent {
+    fn from(event: accesskit_winit::Event) -> Self {
+        Self::Access(event)
+    }
+}
+
 /// A timed wait on macOS can stall until input arrives. Wake the event loop
 /// from a worker and keep at most one wake queued while the window is busy.
 #[cfg(any(target_os = "macos", all(test, unix)))]
@@ -424,6 +440,12 @@ struct Running {
     focused: bool,
     mouse_capture: Option<MouseButton>,
     placement: Placement,
+    /// The window's connection to the platform's accessibility.
+    access: accesskit_winit::Adapter,
+    /// Whether an assistive technology is connected and wants the tree.
+    access_on: bool,
+    /// The facts the reader was last told, so an unchanged screen sends nothing.
+    access_told: Option<crate::access::Snapshot>,
 }
 
 struct Host {
@@ -431,6 +453,7 @@ struct Host {
     windows: Vec<Running>,
     active: Option<WindowId>,
     started: Instant,
+    proxy: winit::event_loop::EventLoopProxy<UserEvent>,
     error: Option<String>,
     window_store: WindowStore,
     state_dirty: bool,
@@ -740,6 +763,97 @@ fn chord(state: ModifiersState) -> actions::Held {
 }
 
 impl Host {
+    /// What the reader should be told about this window now.
+    fn access_snapshot(run: &Running) -> Option<crate::access::Snapshot> {
+        let tab = run.tabs.active()?;
+        let app = &tab.app;
+        let view_links = app.view_links();
+        let focused_link = view_links.iter().position(|l| l.focused);
+        let links = view_links
+            .iter()
+            .map(|l| crate::access::Link {
+                target: l.target().to_owned(),
+                text: l.text().to_owned(),
+            })
+            .collect();
+        Some(crate::access::Snapshot {
+            title: run.shown_title.clone(),
+            rows: app.visible_text(),
+            links,
+            focused_link,
+            question: app
+                .link_prompt()
+                .map(|p| crate::access::Question { lines: p.lines() }),
+            tabs: run.tabs.iter().map(|t| t.title.clone()).collect(),
+            active_tab: run.tabs.active_index(),
+        })
+    }
+
+    /// Send the reader what changed since it was last told, if one is connected.
+    fn tell_reader(run: &mut Running) {
+        if !run.access_on {
+            return;
+        }
+        let Some(now) = Self::access_snapshot(run) else {
+            return;
+        };
+        if run.access_told.as_ref() == Some(&now) {
+            return;
+        }
+        run.access.update_if_active(|| crate::access::build(&now));
+        run.access_told = Some(now);
+    }
+
+    /// An assistive technology asked something.
+    fn on_access(&mut self, event: accesskit_winit::Event) {
+        use accesskit_winit::WindowEvent as Ask;
+        let Some(index) = self.index(event.window_id) else {
+            return;
+        };
+        let run = &mut self.windows[index];
+        match event.window_event {
+            Ask::InitialTreeRequested => {
+                run.access_on = true;
+                run.access_told = None;
+                Self::tell_reader(run);
+            }
+            Ask::AccessibilityDeactivated => {
+                run.access_on = false;
+                run.access_told = None;
+            }
+            Ask::ActionRequested(request) => {
+                use crate::access::{Target, target_of};
+                use accesskit::Action;
+                let target = target_of(request.target_node);
+                let index_now = run.tabs.active_index();
+                let Some(tab) = run.tabs.active_mut() else {
+                    return;
+                };
+                match (request.action, target) {
+                    (Action::Click, Target::Link(n)) => {
+                        tab.app.ask_about_view_link(n);
+                    }
+                    (Action::Focus, Target::Link(n)) => {
+                        tab.app.focus_view_link(n);
+                    }
+                    (Action::Click, Target::Open) => {
+                        let _ = tab.app.answer_link(true);
+                    }
+                    (Action::Click, Target::Cancel) => {
+                        let _ = tab.app.answer_link(false);
+                    }
+                    (Action::Click, Target::Tab(n)) if n != index_now => {
+                        let id = run.window.id();
+                        self.select_tab(id, n);
+                        return;
+                    }
+                    _ => {}
+                }
+                run.window.request_redraw();
+            }
+        }
+    }
+
     /// The wheel or trackpad moved: a program that asked for wheel reports gets
     /// them, and otherwise the output scrolls, by whole rows for a wheel and by
     /// the pixels moved for a trackpad.
@@ -1098,6 +1212,10 @@ impl Host {
         id: WindowId,
         event: WindowEvent,
     ) {
+        if let Some(index) = self.index(id) {
+            let run = &mut self.windows[index];
+            run.access.process_event(&run.window, &event);
+        }
         match event {
             WindowEvent::CloseRequested => self.close_window(event_loop, id),
             WindowEvent::ModifiersChanged(m) => {
@@ -1143,8 +1261,11 @@ impl Host {
         event_loop: &ActiveEventLoop,
         placement: Option<Placement>,
     ) -> Result<WindowId, String> {
-        let mut attributes =
-            Window::default_attributes().with_title(crate::title::window_title(None));
+        // Hidden until the accessibility adapter exists: it must be made before
+        // the window is first shown.
+        let mut attributes = Window::default_attributes()
+            .with_title(crate::title::window_title(None))
+            .with_visible(false);
         if let Some(placement) = placement {
             attributes =
                 attributes.with_inner_size(PhysicalSize::new(placement.size.0, placement.size.1));
@@ -1162,6 +1283,12 @@ impl Host {
                 .create_window(attributes)
                 .map_err(|e| format!("no window: {e}"))?,
         );
+        let access = accesskit_winit::Adapter::with_event_loop_proxy(
+            event_loop,
+            &window,
+            self.proxy.clone(),
+        );
+        window.set_visible(true);
         let context = softbuffer::Context::new(window.clone())
             .map_err(|e| format!("no display context: {e}"))?;
         let surface = softbuffer::Surface::new(&context, window.clone())
@@ -1190,6 +1317,9 @@ impl Host {
             focused: false,
             mouse_capture: None,
             placement: actual,
+            access,
+            access_on: false,
+            access_told: None,
         });
         self.active = Some(id);
         self.state_dirty = true;
@@ -1197,7 +1327,7 @@ impl Host {
     }
 }
 
-impl ApplicationHandler for Host {
+impl ApplicationHandler<UserEvent> for Host {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if !self.windows.is_empty() {
             return;
@@ -1234,9 +1364,14 @@ impl ApplicationHandler for Host {
         self.handle_window_event(event_loop, id, event);
     }
 
-    #[cfg(target_os = "macos")]
-    fn user_event(&mut self, _: &ActiveEventLoop, (): ()) {
-        let _ = self.frame_wake_handled.send(());
+    fn user_event(&mut self, _: &ActiveEventLoop, event: UserEvent) {
+        match event {
+            #[cfg(target_os = "macos")]
+            UserEvent::Wake => {
+                let _ = self.frame_wake_handled.send(());
+            }
+            UserEvent::Access(event) => self.on_access(event),
+        }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -1306,6 +1441,9 @@ impl ApplicationHandler for Host {
             }
             Self::update_window_title(run);
         }
+        for run in &mut self.windows {
+            Self::tell_reader(run);
+        }
         for id in close {
             self.close_window(event_loop, id);
         }
@@ -1329,11 +1467,14 @@ pub fn appearance(theme: Option<WinitTheme>) -> Appearance {
 ///
 /// Returns why the event loop, the window or the program could not start.
 pub fn run(config: Config) -> Result<(), String> {
-    let event_loop = EventLoop::new().map_err(|e| format!("no event loop: {e}"))?;
+    let event_loop = EventLoop::<UserEvent>::with_user_event()
+        .build()
+        .map_err(|e| format!("no event loop: {e}"))?;
+    let proxy = event_loop.create_proxy();
     #[cfg(target_os = "macos")]
     let frame_wake_handled = {
-        let proxy = event_loop.create_proxy();
-        start_frame_wakes(move || proxy.send_event(()).is_ok())
+        let proxy = proxy.clone();
+        start_frame_wakes(move || proxy.send_event(UserEvent::Wake).is_ok())
             .map_err(|e| format!("no window wake thread: {e}"))?
     };
     let window_store = WindowStore::system();
@@ -1342,6 +1483,7 @@ pub fn run(config: Config) -> Result<(), String> {
         windows: Vec::new(),
         active: None,
         started: Instant::now(),
+        proxy,
         error: None,
         window_store,
         state_dirty: false,

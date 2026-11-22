@@ -18,6 +18,8 @@ pub mod actions;
 /// The terminal's user-facing name.
 pub const APP_NAME: &str = "Bright";
 
+#[cfg(feature = "window")]
+pub mod access;
 pub mod app;
 pub mod attention;
 pub mod boundary;

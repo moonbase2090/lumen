@@ -12,7 +12,7 @@ publish.workspace = true
 default = ["zero-width-text", "links-clipboard"]
 # The window: winit and softbuffer. Off by default so the headless crate builds
 # without them; the tests turn it on.
-window = ["dep:winit", "dep:softbuffer", "links-clipboard", "dep:muda"]
+window = ["dep:winit", "dep:softbuffer", "links-clipboard", "dep:muda", "dep:accesskit", "dep:accesskit_winit"]
 # The spec's rules for zero-width and bidi characters in text: a break at a
 # zero width space, no line break beside a joiner, and escapes (not removal) for
 # default-ignorable and bidi code points in notification text. Forwards to
@@ -48,6 +48,22 @@ lumen-decoder = { path = "../lumen-decoder" }
 [target.'cfg(not(windows))'.dependencies]
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland"], optional = true }
 softbuffer = { version = "0.4", default-features = false, features = ["x11", "x11-dlopen", "wayland", "wayland-dlopen"], optional = true }
+
+[dependencies.accesskit]
+# The screen-reader tree: the schema a platform adapter reads. No platform code
+# here, so every target builds it.
+version = "0.25"
+optional = true
+
+[dependencies.accesskit_winit]
+# The platform adapters (macOS and Windows) for the window. Default features
+# off: the Linux adapter would pull an async runtime and a D-Bus stack, so
+# Linux support is its own change. The crates here still build on Linux, and
+# add the schema crate and its uuid dependency to the window build's graph.
+version = "0.34"
+default-features = false
+features = ["rwh_06"]
+optional = true
 
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
 # The macOS menu bar and the context menu on macOS and Windows. Not on Linux, so

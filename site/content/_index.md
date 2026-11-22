@@ -85,6 +85,8 @@ The terminal's colours come from a design system with light, dark and high-contr
 
 The window draws the cursor of the program's live screen as the program set it: block, underline or bar, blinking or steady, shown or hidden. A blinking cursor restarts its cycle on a key, pasted or composed text, or output, and an unfocused window draws it dimmed and steady, with a block as an outline. When the system asks for less motion the cursor does not blink.
 
+On macOS and Windows the window tells a screen reader what it shows, through the platform's accessibility API. The terminal is a text area whose children are the rows the window shows, as text, and the links in them, each with its address: a reader that acts on a link gets the same question a press gets, with the whole address and Open and Cancel buttons, and nothing opens until it is answered. The keyboard's focused link is the reader's focus. With more than one tab the tabs are a list that marks the active one. The terminal is marked as a polite live region; what a screen reader announces as the screen scrolls has not been checked. The tree is built only while a screen reader is connected. Linux does not tell a screen reader anything yet.
+
 A budget model, `lumen-budget`, holds the numbers of the resource-limits table (the pooled document budgets with the local reserve and the producer and unsigned shares, the per-second rates and the limits on a single item, including the largest legal image of 16 megapixels) with language-neutral test vectors run against it; nothing in the terminal calls it yet, so these limits are not newly enforced. Nothing here is released. The progress is listed in the [README](https://github.com/moonbase2090/lumen#status).
 
 </section>

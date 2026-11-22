@@ -99,6 +99,26 @@ pub struct Session {
     replies: Replies,
     /// Where the program has got to in writing a cursor-position query.
     cursor_queries: CursorQueryEnds,
+    /// The rest of a read, not given to the layer yet: the session paused at
+    /// a sealed frame (see [`resume`](Self::resume)).
+    carry: Vec<u8>,
+    /// What the read being taken may still do.
+    read: ReadState,
+    /// Stop after each sealed frame: see [`pause_at_sealed`](Self::pause_at_sealed).
+    pause_at_sealed: bool,
+    /// What the layer gave after a sealed frame, not applied yet.
+    deferred: std::collections::VecDeque<crate::layer::Piece>,
+}
+
+/// The state of one read while it is taken, which can span calls when the
+/// session pauses at a sealed frame.
+#[derive(Debug, Clone, Copy, Default)]
+struct ReadState {
+    ctx: Context,
+    /// What the whole read may still have answered.
+    left: usize,
+    /// How many pieces it was split into at cursor queries.
+    splits: usize,
 }
 
 impl Session {
@@ -115,6 +135,10 @@ impl Session {
             clock: Instant::now(),
             replies: Replies::new(crate::design::theme()),
             cursor_queries: CursorQueryEnds::default(),
+            carry: Vec::new(),
+            read: ReadState::default(),
+            pause_at_sealed: false,
+            deferred: std::collections::VecDeque::new(),
             // The program inherits this environment, so these are the layer's.
             tmux_or_screen: std::env::var_os("TMUX").is_some() || std::env::var_os("STY").is_some(),
         }
@@ -486,7 +510,38 @@ impl Session {
     /// first (they came before the piece's closing cursor query, if it has one).
     /// `left` is what the whole read may still have answered.
     fn give(&mut self, piece: &[u8], ctx: Context, left: &mut usize) {
-        self.document.receive(self.layer.as_mut(), piece, ctx);
+        let pieces = self.layer.feed(piece, ctx);
+        self.apply(pieces);
+        self.answer(ctx, left);
+    }
+
+    /// Apply what the layer gave, stopping after a sealed frame if
+    /// [`pause_at_sealed`](Self::pause_at_sealed) is on. While pieces wait
+    /// behind a sealed frame, these wait after them.
+    fn apply(&mut self, pieces: Vec<crate::layer::Piece>) {
+        if self.paused() {
+            self.deferred.extend(pieces);
+            return;
+        }
+        let mut pieces = pieces.into_iter();
+        while let Some(piece) = pieces.next() {
+            let sealed = matches!(piece, crate::layer::Piece::Sealed { .. });
+            self.document.apply(vec![piece]);
+            if sealed && self.pause_at_sealed {
+                self.deferred.extend(pieces);
+                return;
+            }
+        }
+    }
+
+    /// Whether pieces of a read wait behind a sealed frame.
+    fn paused(&self) -> bool {
+        !self.deferred.is_empty()
+    }
+
+    /// Answer what the document applied since the last answer asked: colour
+    /// queries first, then cursor queries.
+    fn answer(&mut self, ctx: Context, left: &mut usize) {
         let queries = self.document.take_colour_queries();
         #[cfg(feature = "colour-replies")]
         if !queries.is_empty() {
@@ -522,26 +577,71 @@ impl Session {
             return 0;
         }
         self.marks.feed(bytes);
-        let ctx = self.context();
-        // A program may ask a colour question and a cursor question in one
-        // read and expects the answers in that order. Colour queries are taken
-        // out of the stream before the emulator sees it and cursor queries in
-        // it, so the read is given in pieces that each end at a cursor query,
-        // and each piece is answered before the next is given.
-        let mut left = MAX_PER_READ;
+        self.read = ReadState {
+            ctx: self.context(),
+            left: MAX_PER_READ,
+            splits: 0,
+        };
+        self.carry.extend_from_slice(bytes);
+        self.give_carry();
+        bytes.len()
+    }
+
+    /// Give the layer what is carried of the read. A program may ask a colour
+    /// question and a cursor question in one read and expects the answers in
+    /// that order. Colour queries are taken out of the stream before the
+    /// emulator sees it and cursor queries in it, so the read is given in
+    /// pieces that each end at a cursor query, and each piece is answered
+    /// before the next is given. If the session pauses at a sealed frame, the
+    /// rest waits in `carry` for [`resume`](Self::resume).
+    fn give_carry(&mut self) {
+        let bytes = std::mem::take(&mut self.carry);
+        let mut read = self.read;
         let mut start = 0;
-        let mut splits = 0;
         for (at, byte) in bytes.iter().enumerate() {
-            if self.cursor_queries.step(*byte) && splits < MAX_SPLITS_PER_READ {
-                splits += 1;
-                self.give(&bytes[start..=at], ctx, &mut left);
+            if self.cursor_queries.step(*byte) && read.splits < MAX_SPLITS_PER_READ {
+                read.splits += 1;
+                self.give(&bytes[start..=at], read.ctx, &mut read.left);
                 start = at + 1;
+                if self.paused() {
+                    break;
+                }
             }
         }
-        if start < bytes.len() {
-            self.give(&bytes[start..], ctx, &mut left);
+        if self.paused() {
+            self.carry = bytes[start..].to_vec();
+        } else if start < bytes.len() {
+            self.give(&bytes[start..], read.ctx, &mut read.left);
         }
-        bytes.len()
+        self.read = read;
+    }
+
+    /// Stop after each sealed frame the layer gives, so the caller can take
+    /// the frame's event and act on it with the document as it was when the
+    /// frame came, before the output after it in the same read. The caller
+    /// then calls [`resume`](Self::resume) until it returns false. Off (the
+    /// default), a read is applied whole.
+    pub fn pause_at_sealed(&mut self, on: bool) {
+        self.pause_at_sealed = on;
+    }
+
+    /// Go on with a read paused at a sealed frame: apply what followed the
+    /// frame, up to the next one. Returns false when nothing of the read was
+    /// left.
+    pub fn resume(&mut self) -> bool {
+        if self.paused() {
+            let mut read = self.read;
+            let pieces: Vec<_> = self.deferred.drain(..).collect();
+            self.apply(pieces);
+            self.answer(read.ctx, &mut read.left);
+            self.read = read;
+        } else if !self.carry.is_empty() {
+            self.give_carry();
+        } else {
+            return false;
+        }
+        self.document.poll_images();
+        true
     }
 
     /// Take what the program has written, without waiting. Returns the number
@@ -605,6 +705,7 @@ impl Session {
 
     /// The stream ended: release what the layer holds back.
     pub fn finish(&mut self) {
+        while self.resume() {}
         self.document.finish(self.layer.as_mut());
     }
 

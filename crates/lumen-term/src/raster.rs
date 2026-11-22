@@ -1199,6 +1199,53 @@ impl Renderer {
         out
     }
 
+    /// For each row [`Renderer::view_rows`] gives, in the same order, its line in
+    /// the live grid block (negative for a line of its scrollback, counted up
+    /// from the screen's top), or `None` for a row of an earlier grid block. The
+    /// rows are chosen by the same test, so the two lists are the same length
+    /// and index the same rows, a partly visible row at the top or bottom included.
+    #[must_use]
+    pub fn view_row_lines(
+        &self,
+        doc: &Document,
+        columns: usize,
+        view_top: u32,
+        area: u32,
+    ) -> Vec<Option<i64>> {
+        let strips = doc.strips();
+        let newest = strips.last().map(|s| s.cycle);
+        let end = view_top.saturating_add(area);
+        let live = doc.blocks().last().and_then(|b| match b {
+            Block::Grid(x) => Some(&**x),
+            Block::Rich(_) => None,
+        });
+        let mut out = Vec::new();
+        for p in self.placement(doc, columns, &strips, newest) {
+            let Part::Grid(g) = p.part else { continue };
+            let hist = g.history_rows();
+            let is_live = live.is_some_and(|l| std::ptr::eq(l, g));
+            for k in 0..self.placed_rows(&p) {
+                let y = p.top.saturating_add(
+                    u32::try_from(k)
+                        .unwrap_or(u32::MAX)
+                        .saturating_mul(self.cell_h),
+                );
+                if y + self.cell_h <= view_top || y >= end {
+                    continue;
+                }
+                out.push(if is_live {
+                    i64::try_from(k)
+                        .ok()
+                        .zip(i64::try_from(hist).ok())
+                        .map(|(k, hist)| k - hist)
+                } else {
+                    None
+                });
+            }
+        }
+        out
+    }
+
     /// Where the live grid block's screen starts in the flow, in pixels from the
     /// top of the flow: the newest block, when it is a grid. A pointer over
     /// the content area maps into that block's cells from here.

@@ -782,6 +782,34 @@ fn a_record_points_at_the_row_its_line_was_typed_on_until_the_screen_is_cleared(
     assert_eq!(app.typed_row_text(&records[2]), None);
 }
 
+/// The shell's command start and the command's first output in one write: the
+/// shim's own hook is replaced by one that asks for the same sealed frame and
+/// writes it together with a clear of the screen and its history.
+const START_THEN_CLEAR: &str = r"add-zsh-hook -d preexec _lumen_preexec
+_start_then_clear() {
+  (( _lumen_id++, _lumen_ran = 1 ))
+  _lumen_send seal 16 $_lumen_id
+  _lumen_out+=$'\e[H\e[2J\e[3J'
+  _lumen_flush
+}
+add-zsh-hook preexec _start_then_clear
+";
+
+#[test]
+fn a_command_start_is_checked_against_the_screen_as_it_was_when_the_frame_came() {
+    let Some(mut app) = start_with_rc("sealed-input-start-then-clear", START_THEN_CLEAR) else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    // One write, so one read: the frame, then the clear. When the frame came
+    // the row the line was typed on showed it, so the line is recorded; the
+    // clear that came after the frame does not unmake that.
+    run(&mut app, "echo after''-clear", "after-clear");
+    assert_eq!(typed(&app), [("echo after''-clear".to_owned(), Some(0))]);
+    // The clear did come, and took the row with it.
+    assert_eq!(app.typed_row_text(&app.typed_records()[0]), None);
+}
+
 /// How many pixels of the gutter, drawn `cells` cells wide, on the row whose
 /// top is pixel `top`, differ from the gutter's own colour there. Text in the
 /// gutter differs; an empty gutter row has none. A layer with its keys draws
