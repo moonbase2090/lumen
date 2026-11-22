@@ -60,6 +60,10 @@ struct Links {
     press_down: bool,
     /// The link the keyboard has focused: its screen row and what it is.
     focus: Option<LinkStop>,
+    /// The renderer the question is drawn and hit with when the window's own
+    /// does not make it fit (text zoomed so far that the whole question is taller
+    /// than the window).
+    fit: FitCache,
 }
 
 /// A link in the rows the window shows now (the scrolled view, not the live
@@ -125,6 +129,7 @@ impl Default for Links {
             opener: Box::new(crate::linkprompt::SystemOpener),
             press_down: false,
             focus: None,
+            fit: FitCache::default(),
         }
     }
 }
@@ -146,6 +151,62 @@ struct MenuState {
     open: Option<crate::contextmenu::ContextMenu>,
     choice: Option<Action>,
     press_down: bool,
+    /// The renderer the menu is drawn with when the window's does not fit it.
+    fit: FitCache,
+}
+
+/// Which renderer an overlay is drawn with, once worked out: `None` while it
+/// has not been, then either the window's own or a smaller one.
+#[derive(Default)]
+struct FitCache(std::cell::RefCell<Option<Fit>>);
+
+impl FitCache {
+    fn take(&self) {
+        self.0.take();
+    }
+}
+
+enum Fit {
+    Window,
+    Smaller(Box<Renderer>),
+}
+
+/// Run `f` with the renderer an overlay is drawn and hit with. It is `base`
+/// unless the overlay is taller than `height` at that text size, when it is the
+/// largest smaller size at which it fits, or the smallest: text zoomed so far
+/// that the whole overlay is taller than the window must not push its end,
+/// and the buttons or entries there, off the screen. `tall` is the overlay's
+/// height at a renderer. The answer is kept in `cache` until it is cleared.
+fn with_fit<R>(
+    base: &Renderer,
+    scale: u32,
+    cache: &FitCache,
+    height: u32,
+    tall: impl Fn(&Renderer) -> u32,
+    f: impl FnOnce(&Renderer) -> R,
+) -> R {
+    let mut cache = cache.0.borrow_mut();
+    let chosen = cache.get_or_insert_with(|| {
+        if tall(base) <= height {
+            return Fit::Window;
+        }
+        let mut smaller = Fit::Window;
+        for size in (actions::MIN_SCALE..scale).rev() {
+            let Ok(r) = Renderer::with_fonts(size, base.theme().clone(), base.fonts()) else {
+                continue;
+            };
+            let done = tall(&r) <= height || size == actions::MIN_SCALE;
+            smaller = Fit::Smaller(Box::new(r));
+            if done {
+                break;
+            }
+        }
+        smaller
+    });
+    match chosen {
+        Fit::Window => f(base),
+        Fit::Smaller(r) => f(r),
+    }
 }
 
 /// A terminal in a window of `width` by `height` pixels.
@@ -953,9 +1014,29 @@ impl App {
     #[must_use]
     pub fn link_prompt_box(&self) -> Option<crate::raster::PromptBox> {
         let prompt = self.links.prompt.as_ref()?;
-        Some(
-            self.renderer
-                .link_prompt_box(self.width, self.height, prompt),
+        Some(self.with_prompt_renderer(prompt, |r| {
+            r.link_prompt_box(self.width, self.height, prompt)
+        }))
+    }
+
+    /// Run `f` with the renderer the question is drawn and hit with: the
+    /// window's own unless the question is taller than the window at that text
+    /// size (see [`with_fit`]). The question is the user's only look at where a
+    /// link goes, so its whole target and its buttons stay on screen and under
+    /// the pointer.
+    #[cfg(feature = "links-clipboard")]
+    fn with_prompt_renderer<R>(
+        &self,
+        prompt: &crate::linkprompt::Prompt,
+        f: impl FnOnce(&Renderer) -> R,
+    ) -> R {
+        with_fit(
+            &self.renderer,
+            self.scale,
+            &self.links.fit,
+            self.height,
+            |r| r.link_prompt_box(self.width, self.height, prompt).rect.3,
+            f,
         )
     }
 
@@ -1173,6 +1254,7 @@ impl App {
         };
         self.clear_link_focus();
         self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&link.hit));
+        self.links.fit.take();
         self.view_moves = self.view_moves.wrapping_add(1);
         true
     }
@@ -1224,6 +1306,7 @@ impl App {
             return false;
         };
         self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&hit));
+        self.links.fit.take();
         self.links.press_down = true;
         self.view_moves = self.view_moves.wrapping_add(1);
         true
@@ -1240,10 +1323,9 @@ impl App {
             return false;
         };
         self.links.press_down = true;
-        match self
-            .renderer
-            .link_prompt_at(self.width, self.height, prompt, x, y)
-        {
+        match self.with_prompt_renderer(prompt, |r| {
+            r.link_prompt_at(self.width, self.height, prompt, x, y)
+        }) {
             PromptHit::Open => {
                 let _ = self.answer_link(true);
             }
@@ -1267,6 +1349,7 @@ impl App {
         let Some(prompt) = self.links.prompt.take() else {
             return Ok(false);
         };
+        self.links.fit.take();
         self.view_moves = self.view_moves.wrapping_add(1);
         match (open, prompt.target()) {
             (true, Some(target)) => self.links.opener.open(target).map(|()| true),
@@ -1288,6 +1371,7 @@ impl App {
             can_paste,
         };
         self.menu.open = Some(crate::contextmenu::ContextMenu::new((x, y), state));
+        self.menu.fit.take();
         self.menu.press_down = true;
         self.view_moves = self.view_moves.wrapping_add(1);
         true
@@ -1303,10 +1387,14 @@ impl App {
     #[must_use]
     pub fn context_menu_box(&self) -> Option<crate::raster::MenuBox> {
         let menu = self.menu.open.as_ref()?;
-        Some(
-            self.renderer
-                .context_menu_box(self.width, self.height, menu),
-        )
+        Some(with_fit(
+            &self.renderer,
+            self.scale,
+            &self.menu.fit,
+            self.height,
+            |r| r.context_menu_box(self.width, self.height, menu).rect.3,
+            |r| r.context_menu_box(self.width, self.height, menu),
+        ))
     }
 
     /// The action the user chose from the context menu, once, for the window to
@@ -1326,10 +1414,14 @@ impl App {
             return false;
         };
         self.menu.press_down = true;
-        match self
-            .renderer
-            .context_menu_at(self.width, self.height, menu, x, y)
-        {
+        match with_fit(
+            &self.renderer,
+            self.scale,
+            &self.menu.fit,
+            self.height,
+            |r| r.context_menu_box(self.width, self.height, menu).rect.3,
+            |r| r.context_menu_at(self.width, self.height, menu, x, y),
+        ) {
             MenuHit::Item(i) => {
                 if let Some(action) = menu.action_at(i) {
                     self.menu.choice = Some(action);
@@ -1359,10 +1451,14 @@ impl App {
         let Some(menu) = &mut self.menu.open else {
             return false;
         };
-        let at = match self
-            .renderer
-            .context_menu_at(self.width, self.height, menu, x, y)
-        {
+        let at = match with_fit(
+            &self.renderer,
+            self.scale,
+            &self.menu.fit,
+            self.height,
+            |r| r.context_menu_box(self.width, self.height, menu).rect.3,
+            |r| r.context_menu_at(self.width, self.height, menu, x, y),
+        ) {
             MenuHit::Item(i) => Some(i),
             MenuHit::Box | MenuHit::Outside => None,
         };
@@ -2179,6 +2275,9 @@ impl App {
         self.clear_selection();
         self.width = width;
         self.height = height;
+        #[cfg(feature = "links-clipboard")]
+        self.links.fit.take();
+        self.menu.fit.take();
         self.refresh_find();
         Ok(())
     }
@@ -2211,6 +2310,8 @@ impl App {
         renderer.set_gutter_full(self.renderer.gutter_full());
         self.renderer = renderer;
         self.scale = scale;
+        #[cfg(feature = "links-clipboard")]
+        self.links.fit.take();
         self.resize(self.width, self.height)?;
         if let Some(top) = held {
             let (area, _, now) = self.content_metrics();
@@ -2395,6 +2496,7 @@ impl App {
                 (true, Some(stop), Key::Enter | Key::KeypadEnter) if !mods.ctrl && !mods.alt => {
                     self.clear_link_focus();
                     self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&stop.hit));
+                    self.links.fit.take();
                     self.view_moves = self.view_moves.wrapping_add(1);
                     return Ok(());
                 }
@@ -3292,11 +3394,18 @@ impl App {
         #[cfg(feature = "links-clipboard")]
         if let Some(prompt) = &self.links.prompt {
             // Last, over everything: a program's output cannot cover it.
-            self.renderer.paint_link_prompt(&mut frame, prompt);
+            self.with_prompt_renderer(prompt, |r| r.paint_link_prompt(&mut frame, prompt));
         }
         if let Some(menu) = &self.menu.open {
             // Also last, over everything: a program's output cannot cover it.
-            self.renderer.paint_context_menu(&mut frame, menu);
+            with_fit(
+                &self.renderer,
+                self.scale,
+                &self.menu.fit,
+                self.height,
+                |r| r.context_menu_box(self.width, self.height, menu).rect.3,
+                |r| r.paint_context_menu(&mut frame, menu),
+            );
         }
         frame
     }
