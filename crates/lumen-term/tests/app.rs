@@ -61,8 +61,18 @@ fn pixels_make_cells_within_the_limits() {
     );
 }
 
+/// An empty gutter is drawn two cells wide, then the 6 pixel padding.
+const EMPTY_GUTTER_CELLS: u32 = 2;
+/// Pixels at scale 1 the window keeps clear right of the text column.
+const RIGHT_INSET: u32 = 12;
+/// Pixels at scale 1 the window keeps clear below the last row.
+const BOTTOM_INSET: u32 = 8;
+
 #[test]
 fn the_window_size_sets_the_ptys_size() {
+    // 800 pixels: 22 for the empty gutter and its padding and 12 for the
+    // right inset leave 95 cells. 600 pixels: 8 for the bottom inset leave 31
+    // rows, 27 of them the program's.
     let mut app = start("stty size", 800, 600);
     assert!(pump_until(&mut app, |a| text(a).contains("27 95")));
 }
@@ -79,7 +89,9 @@ fn resizing_the_window_resizes_the_program() {
         "the view follows the window"
     );
     assert!(app.key(Key::Enter, Mods::default()).is_ok());
-    assert!(pump_until(&mut app, |a| text(a).contains("16 45")));
+    // 400 by 380: 366 pixels of text are 45 columns; 372 are 19 rows, 15 of
+    // them the program's.
+    assert!(pump_until(&mut app, |a| text(a).contains("15 45")));
 }
 
 #[test]
@@ -204,7 +216,13 @@ fn the_view_draws_the_trust_margin_the_producer_cannot_reach() {
     let view = app.view();
     let (cw, ch) = r.cell();
     let pad = r.gutter_pad();
-    let (cols, rows) = cells_for(640 - pad, 380, (cw, ch));
+    // The layout counts the gutter's four columns; the empty gutter is drawn in two.
+    let gutter = EMPTY_GUTTER_CELLS * cw;
+    let (cols, rows) = cells_for(
+        640 - gutter - pad - RIGHT_INSET + GUTTER_COLUMNS * cw,
+        380 - BOTTOM_INSET,
+        (cw, ch),
+    );
     let win = window_for(cols, rows);
     // The box shows the terminal's own status, never the program's text.
     let ended = lumen_term::raster::InputView {
@@ -224,12 +242,20 @@ fn the_view_draws_the_trust_margin_the_producer_cannot_reach() {
     let lay = lumen_term::layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
     for rect in lay.margin.iter().chain([&lay.editor]) {
         for y in rect.y * ch..(rect.y + rect.h) * ch {
-            // Right of the gutter the window is moved right by the padding.
-            let shift = |col: u32| col * cw + if col > GUTTER_COLUMNS { pad } else { 0 };
+            // Right of the gutter the text column starts past the drawn
+            // gutter and its padding.
+            let content = |col: u32| gutter + pad + (col - GUTTER_COLUMNS) * cw;
+            let shift = |col: u32| {
+                if col > GUTTER_COLUMNS {
+                    content(col)
+                } else {
+                    (col * cw).min(gutter)
+                }
+            };
             let left = if rect.x >= GUTTER_COLUMNS {
-                rect.x * cw + pad
+                content(rect.x)
             } else {
-                rect.x * cw
+                (rect.x * cw).min(gutter)
             };
             for x in left..shift(rect.x + rect.w) {
                 assert_eq!(view.pixel(x, y), expect.pixel(x, y), "pixel {x},{y}");
@@ -259,7 +285,7 @@ fn text_starts_clear_of_the_gutter_divider() {
         };
         let (cw, ch) = r.cell();
         let view = app.view();
-        let divider_right = GUTTER_COLUMNS * cw;
+        let divider_right = EMPTY_GUTTER_CELLS * cw;
         let pad = 6 * scale;
         let bg = lumen_term::design::theme().background;
         // The first row of content: no pixel of text left of the padded column.

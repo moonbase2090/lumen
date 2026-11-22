@@ -559,12 +559,40 @@ impl ThemeChoice {
     /// The palette to draw with when the system shows `appearance`.
     #[must_use]
     pub const fn palette(&self, appearance: Appearance) -> Palette {
+        self.palette_for(appearance, false)
+    }
+
+    /// The palette to draw with when the system shows `appearance` and asks for
+    /// more contrast or not. A look that follows the system takes the built-in
+    /// high-contrast palette when contrast is asked for; a palette the user
+    /// fixed is kept whatever the system asks.
+    #[must_use]
+    pub const fn palette_for(&self, appearance: Appearance, more_contrast: bool) -> Palette {
         match (self, appearance) {
             (Self::Fixed(p), _) => *p,
+            (Self::System, _) if more_contrast => Palette::high_contrast(),
             (Self::System, Appearance::Light) => Palette::light(),
             (Self::System, Appearance::Dark) => Palette::dark(),
         }
     }
+}
+
+/// What a selected pixel becomes: it moves a third of the way towards the
+/// foreground colour, so text in the foreground colour is unchanged and what is
+/// behind it is lifted. The renderer paints a selection with this, and the
+/// contrast audit reads what it gives.
+#[must_use]
+pub fn selected(pixel: Rgb, foreground: Rgb) -> Rgb {
+    std::array::from_fn(|k| {
+        u8::try_from((2 * u16::from(pixel[k]) + u16::from(foreground[k])) / 3).unwrap_or(pixel[k])
+    })
+}
+
+/// The colour of a bar or underline cursor in a window that does not have the
+/// focus: the cursor's colour blended with the cell's own.
+#[must_use]
+pub fn dimmed_cursor(ink: Rgb, under: Rgb) -> Rgb {
+    [0, 1, 2].map(|i| ink[i] / 2 + under[i] / 2)
 }
 
 /// The smallest font size a user may choose, in pixels at scale 1.

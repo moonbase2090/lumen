@@ -782,12 +782,41 @@ fn a_record_points_at_the_row_its_line_was_typed_on_until_the_screen_is_cleared(
     assert_eq!(app.typed_row_text(&records[2]), None);
 }
 
-/// How many pixels of the gutter, on the row whose top is pixel `top`, differ
-/// from the gutter's own colour there. Text in the gutter differs; an empty
-/// gutter row has none.
-fn gutter_ink(frame: &lumen_term::Frame, top: u32) -> usize {
+/// The shell's command start and the command's first output in one write: the
+/// shim's own hook is replaced by one that asks for the same sealed frame and
+/// writes it together with a clear of the screen and its history.
+const START_THEN_CLEAR: &str = r"add-zsh-hook -d preexec _lumen_preexec
+_start_then_clear() {
+  (( _lumen_id++, _lumen_ran = 1 ))
+  _lumen_send seal 16 $_lumen_id
+  _lumen_out+=$'\e[H\e[2J\e[3J'
+  _lumen_flush
+}
+add-zsh-hook preexec _start_then_clear
+";
+
+#[test]
+fn a_command_start_is_checked_against_the_screen_as_it_was_when_the_frame_came() {
+    let Some(mut app) = start_with_rc("sealed-input-start-then-clear", START_THEN_CLEAR) else {
+        return;
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    // One write, so one read: the frame, then the clear. When the frame came
+    // the row the line was typed on showed it, so the line is recorded; the
+    // clear that came after the frame does not unmake that.
+    run(&mut app, "echo after''-clear", "after-clear");
+    assert_eq!(typed(&app), [("echo after''-clear".to_owned(), Some(0))]);
+    // The clear did come, and took the row with it.
+    assert_eq!(app.typed_row_text(&app.typed_records()[0]), None);
+}
+
+/// How many pixels of the gutter, drawn `cells` cells wide, on the row whose
+/// top is pixel `top`, differ from the gutter's own colour there. Text in the
+/// gutter differs; an empty gutter row has none. A layer with its keys draws
+/// the gutter four cells wide, one without them two.
+fn gutter_ink(frame: &lumen_term::Frame, top: u32, cells: u32) -> usize {
     let (cw, ch) = cell();
-    let gutter = cw * lumen_term::GUTTER_COLUMNS - 2;
+    let gutter = cw * cells - 2;
     let plain = frame.pixel(1, top + ch - 1);
     (top..top + ch)
         .flat_map(|y| (0..gutter).map(move |x| (x, y)))
@@ -831,12 +860,12 @@ fn a_typed_line_has_a_gutter_mark_that_explains_itself_and_edits_it_again() {
     let plain = app.view();
     capture(&plain, "typed-mark.png");
     assert!(
-        gutter_ink(&plain, top) > 0,
+        gutter_ink(&plain, top, 4) > 0,
         "the mark is drawn in the gutter"
     );
     let (cw, ch) = cell();
     assert_eq!(
-        gutter_ink(&plain, top + ch),
+        gutter_ink(&plain, top + ch, 4),
         0,
         "the next row's gutter is empty"
     );
@@ -894,7 +923,7 @@ fn a_layer_without_keys_draws_no_mark() {
     let (_, ch) = cell();
     let rows = frame.height / ch;
     for row in 1..rows {
-        assert_eq!(gutter_ink(&frame, row * ch), 0, "gutter row {row}");
+        assert_eq!(gutter_ink(&frame, row * ch, 2), 0, "gutter row {row}");
     }
 }
 
@@ -1131,4 +1160,89 @@ fn a_box_line_queued_behind_a_line_typed_ahead_is_not_recorded_for_it() {
         "{text}"
     );
     assert_eq!(app.typed_marks().len(), 1);
+}
+
+/// The gutter holds the typed-line marks only on a layer with its keys. There
+/// it is drawn four cells wide; on a layer without them it is two, and the
+/// program is given the columns each width leaves.
+#[test]
+fn the_gutter_is_full_width_only_where_it_can_hold_marks() {
+    let (cw, ch) = cell();
+    // A row of the block area above any typed line: no mark is drawn on it.
+    let y = ch * 3 + ch / 2;
+    let divider_at = |app: &App| {
+        let view = app.view();
+        let gutter = view.pixel(1, y);
+        (1..cw * 6).find(|&x| view.pixel(x, y) != gutter)
+    };
+    if let Some(mut app) = start("sealed-input-gutter-full") {
+        assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+        assert_eq!(divider_at(&app), Some(4 * cw - 1), "sealed: full gutter");
+        // 800 pixels less the full gutter, its 6 pixel padding and the 12
+        // pixel right inset leave 97 cells, 93 of them right of the gutter.
+        assert_eq!(app.session().document().columns(), 93);
+    }
+    if let Some(mut app) = start_with("sealed-input-gutter-empty", "", 0) {
+        assert!(matches!(app.session().seal_status(), Status::GridOnly(_)));
+        assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+        assert_eq!(divider_at(&app), Some(2 * cw - 1), "no keys: narrow gutter");
+        // The narrow gutter gives the program two more columns.
+        assert_eq!(app.session().document().columns(), 95);
+    }
+}
+
+/// A layer that loses its keys mid-session is drawn with the narrow gutter
+/// from then on, and the program is told the two columns that frees.
+#[test]
+fn a_layer_that_loses_its_keys_narrows_the_gutter_and_tells_the_program() {
+    let Some(mut app) = start("sealed-input-gutter-narrows") else {
+        return;
+    };
+    let (cw, ch) = cell();
+    let y = ch * 3 + ch / 2;
+    let divider_at = |app: &App| {
+        let view = app.view();
+        let gutter = view.pixel(1, y);
+        (1..cw * 6).find(|&x| view.pixel(x, y) != gutter)
+    };
+    // The width the program reads from its terminal, printed after a marker
+    // the echoed command line does not hold.
+    let told = |app: &App| {
+        let text = grid_text(app);
+        text.lines()
+            .filter_map(|l| l.split("cols=").nth(1))
+            .filter_map(|rest| rest.split_whitespace().nth(1)?.parse::<usize>().ok())
+            .collect::<Vec<_>>()
+    };
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    line(&mut app, "echo co''ls=$(stty size)");
+    assert!(
+        until(&mut app, |a| !told(a).is_empty()),
+        "{}",
+        grid_text(&app)
+    );
+    assert_eq!(told(&app), [93], "sealed: the program has 93 columns");
+    assert_eq!(divider_at(&app), Some(4 * cw - 1), "sealed: full gutter");
+    // The shell replaces itself; the next Enter finds it and the keys go.
+    line(&mut app, "exec env PS1='sh''-ready> ' /bin/sh");
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("\nsh-ready>")),
+        "{}",
+        grid_text(&app)
+    );
+    key(&mut app, Key::Enter);
+    assert!(
+        matches!(app.session().seal_status(), Status::GridOnly(_)),
+        "{:?}",
+        app.session().seal_status()
+    );
+    assert_eq!(divider_at(&app), Some(2 * cw - 1), "no keys: narrow gutter");
+    assert_eq!(app.session().document().columns(), 95);
+    line(&mut app, "echo co''ls=$(stty size)");
+    assert!(
+        until(&mut app, |a| told(a).len() == 2),
+        "{}",
+        grid_text(&app)
+    );
+    assert_eq!(told(&app), [93, 95], "the program is told the wider grid");
 }

@@ -113,3 +113,49 @@ fn a_missing_terminal_is_an_error_not_a_zero() {
     );
     assert!(r.is_err());
 }
+
+/// At every window size the evidence uses, the terminal lays out exactly the
+/// cells the evidence measures: a program in it is told the content columns
+/// and rows those cells leave. If the terminal fitted another column into the
+/// same pixels, the header and editor rectangles would stop short of what it
+/// paints.
+#[test]
+fn the_terminal_lays_out_the_cells_the_evidence_measures() {
+    use lumen_evidence::pixels::window_px;
+    use lumen_evidence::pixels_terminal::WINDOWS;
+    use lumen_term::app::block_cells;
+    use lumen_term::{App, Passthrough, Renderer};
+    use std::time::{Duration, Instant};
+    for scale in [1, 2] {
+        let renderer =
+            Renderer::light(scale).unwrap_or_else(|e| unreachable!("the face loads: {e}"));
+        for (cols, rows) in WINDOWS {
+            let (width, height) = window_px(&renderer, cols, rows);
+            let mut app = App::start(
+                Box::new(Passthrough),
+                "/bin/sh",
+                &["-c", "echo size=$(stty size); sleep 5"],
+                scale,
+                width,
+                height,
+            )
+            .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+            let (want_cols, want_rows) = block_cells(cols as usize, rows as usize);
+            let want = format!("size={want_rows} {want_cols}");
+            let end = Instant::now() + Duration::from_secs(20);
+            let mut seen = Vec::new();
+            while Instant::now() < end {
+                app.pump();
+                seen = app.visible_text();
+                if seen.iter().any(|r| r.contains("size=")) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert!(
+                seen.iter().any(|r| r.trim_end() == want),
+                "scale {scale}, {cols}x{rows} in {width}x{height} px: want {want:?}, saw {seen:?}"
+            );
+        }
+    }
+}

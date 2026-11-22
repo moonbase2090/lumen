@@ -7,7 +7,7 @@
 
 use lumen_term::app::PasteOutcome;
 use lumen_term::mouse::{Button, Held};
-use lumen_term::{App, Block, GUTTER_COLUMNS, HEADER_ROWS, Key, Mods, Passthrough};
+use lumen_term::{App, Block, HEADER_ROWS, Key, Mods, Passthrough};
 use std::time::Duration;
 
 const NONE: Held = Held {
@@ -88,7 +88,8 @@ fn job_sets_modes(modes: &str) -> App {
 fn at(app: &App, col: u32, row: u32) -> (u32, u32) {
     let (cw, ch) = (8, app.cell_height());
     (
-        (GUTTER_COLUMNS + col) * cw + 6 + 1,
+        // An empty gutter is drawn two cells wide.
+        (2 + col) * cw + 6 + 1,
         (HEADER_ROWS + row) * ch + 1,
     )
 }

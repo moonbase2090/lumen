@@ -58,6 +58,63 @@ struct Links {
     prompt: Option<crate::linkprompt::Prompt>,
     opener: Box<dyn crate::linkprompt::LinkOpener + Send>,
     press_down: bool,
+    /// The link the keyboard has focused: its screen row and what it is.
+    focus: Option<LinkStop>,
+}
+
+/// A link in the rows the window shows now (the scrolled view, not the live
+/// screen), as a screen reader hears of it.
+#[cfg(feature = "links-clipboard")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewLink {
+    /// What the link is: its target, its text and where it sits.
+    hit: crate::linkhit::Hit,
+    /// The row of the view it starts on, from the top: the index of the row in
+    /// the text the window gives.
+    pub view_row: usize,
+    /// The row of the view it ends on (past `view_row` when it wraps).
+    last_view_row: usize,
+    /// Where it starts: its line in the live grid (negative in the scrollback)
+    /// and its first column.
+    first: (i64, usize),
+    /// Its last line in the live grid.
+    last_line: i64,
+    /// Whether the keyboard has it focused.
+    pub focused: bool,
+}
+
+#[cfg(feature = "links-clipboard")]
+impl ViewLink {
+    /// Where it goes, as the program wrote it or as the text reads.
+    #[must_use]
+    pub fn target(&self) -> &str {
+        &self.hit.target
+    }
+
+    /// The text on the screen.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.hit.visible
+    }
+}
+
+/// One place the keyboard can stop on: a link, with the screen rows and columns
+/// it starts and ends on. A link the terminal soft-wrapped over several rows is
+/// one stop.
+#[cfg(feature = "links-clipboard")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LinkStop {
+    first: (usize, usize),
+    last: (usize, usize),
+    hit: crate::linkhit::Hit,
+}
+
+#[cfg(feature = "links-clipboard")]
+impl Links {
+    /// Whether the focused stop is still one of `stops`.
+    fn focus_is_current(&self, stops: &[LinkStop]) -> bool {
+        self.focus.as_ref().is_some_and(|f| stops.contains(f))
+    }
 }
 
 #[cfg(feature = "links-clipboard")]
@@ -67,6 +124,7 @@ impl Default for Links {
             prompt: None,
             opener: Box::new(crate::linkprompt::SystemOpener),
             press_down: false,
+            focus: None,
         }
     }
 }
@@ -114,6 +172,8 @@ pub struct App {
     mouse: Reporter,
     theme_choice: ThemeChoice,
     appearance: Appearance,
+    /// Whether the system asks for more contrast.
+    more_contrast: bool,
     selection: Option<Selection>,
     selecting: bool,
     selection_changed: bool,
@@ -493,13 +553,20 @@ pub fn block_cells_for(columns: usize, rows: usize, editor_rows: u32) -> (usize,
 }
 
 /// The columns and rows of a window of `width` by `height` pixels drawn by
-/// `renderer`: what is left of it in whole cells after the gutter padding and
-/// right inset, and the header padding and bottom inset.
-fn window_cells(width: u32, height: u32, renderer: &Renderer) -> (usize, usize) {
-    let (wide, tall) = renderer.insets();
+/// `renderer`, whose text column starts a gutter padding right of the gutter
+/// and ends a right inset short of the window's edge, with a bottom inset
+/// under the last row. The gutter's layout columns are counted at the width
+/// they are drawn in.
+#[must_use]
+pub fn window_cells(width: u32, height: u32, renderer: &Renderer) -> (usize, usize) {
+    let (cell_w, _) = renderer.cell();
+    let (right, bottom) = renderer.insets();
+    let text = width
+        .saturating_sub(renderer.content_left())
+        .saturating_sub(right);
     cells_for(
-        width.saturating_sub(wide),
-        height.saturating_sub(tall),
+        text.saturating_add(GUTTER_COLUMNS.saturating_mul(cell_w)),
+        height.saturating_sub(bottom),
         renderer.cell(),
     )
 }
@@ -568,7 +635,10 @@ impl App {
         (scale, width, height): (u32, u32, u32),
         config: &crate::seal::Config,
     ) -> Result<Self, SpawnError> {
-        let renderer = Renderer::new(scale, crate::design::theme()).map_err(SpawnError)?;
+        let mut renderer = Renderer::new(scale, crate::design::theme()).map_err(SpawnError)?;
+        // Sized for the marks a sealed layer shows; corrected below if the
+        // layer comes up without its keys.
+        renderer.set_gutter_full(true);
         let (columns, rows) = window_cells(width, height, &renderer);
         let (block_columns, block_rows) = block_cells(columns, rows);
         let session =
@@ -577,12 +647,16 @@ impl App {
     }
 
     fn with_session(
-        session: Session,
+        mut session: Session,
         renderer: Renderer,
         scale: u32,
         width: u32,
         height: u32,
     ) -> Self {
+        // Each sealed frame is acted on where it came in the stream: the
+        // checks at a command start see the screen and the shell as they were
+        // then, not after output that came later in the same read.
+        session.pause_at_sealed(true);
         let mut app = Self {
             session,
             renderer,
@@ -601,6 +675,7 @@ impl App {
             mouse: Reporter::default(),
             theme_choice: ThemeChoice::System,
             appearance: Appearance::Light,
+            more_contrast: false,
             selection: None,
             selecting: false,
             selection_changed: false,
@@ -635,6 +710,11 @@ impl App {
             recalling: None,
         };
         app.sealed_keys = app.session.has_sealed_keys();
+        if app.renderer.gutter_full() != app.sealed_keys {
+            app.renderer.set_gutter_full(app.sealed_keys);
+            // A program that cannot be told keeps its size until the next resize.
+            let _ = app.resize(width, height);
+        }
         if let Some(why) = app.session.seal_off_reason() {
             app.seal_notice = Some(SealNotice {
                 text: format!("Shell not sealed: {why}"),
@@ -650,6 +730,15 @@ impl App {
     /// so the window knows to draw again.
     pub fn set_appearance(&mut self, appearance: Appearance) -> bool {
         self.appearance = appearance;
+        self.apply_theme()
+    }
+
+    /// The system now asks for more contrast, or no longer does. With
+    /// [`ThemeChoice::System`] the look is the high-contrast palette while it
+    /// does, at once; a palette the user fixed is kept. Returns whether the look
+    /// changed.
+    pub fn set_more_contrast(&mut self, more: bool) -> bool {
+        self.more_contrast = more;
         self.apply_theme()
     }
 
@@ -677,9 +766,10 @@ impl App {
         if self.renderer.fonts() == fonts {
             return Ok(false);
         }
-        let renderer =
+        let mut renderer =
             Renderer::with_fonts(self.renderer.scale(), self.renderer.theme().clone(), fonts)
                 .map_err(SpawnError)?;
+        renderer.set_gutter_full(self.renderer.gutter_full());
         self.renderer = renderer;
         self.resize(self.width, self.height)?;
         Ok(true)
@@ -688,7 +778,10 @@ impl App {
     /// Draw, and answer colour queries, in the palette the choice and the
     /// appearance give.
     fn apply_theme(&mut self) -> bool {
-        let theme = self.theme_choice.palette(self.appearance).theme();
+        let theme = self
+            .theme_choice
+            .palette_for(self.appearance, self.more_contrast)
+            .theme();
         if *self.renderer.theme() == theme {
             return false;
         }
@@ -876,20 +969,251 @@ impl App {
     #[must_use]
     pub fn link_at(&self, x: u32, y: u32) -> Option<crate::linkhit::Hit> {
         let (col, row) = self.live_point(x, y)?;
-        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
-            return None;
-        };
         let col = usize::try_from(col).ok()?;
-        let hits = if row < 0 {
-            // A line of the scrollback, counted up from the screen's top.
-            let back = live
-                .history_rows()
-                .checked_sub(usize::try_from(row.unsigned_abs()).ok()?)?;
-            crate::linkhit::history_links(live.screen(), back)
-        } else {
-            crate::linkhit::row_links(live.screen(), usize::try_from(row).ok()?)
+        self.hits_in_live_row(row)
+            .into_iter()
+            .find(|hit| hit.columns.contains(&col))
+    }
+
+    /// The links on line `row` of the live grid, left to right; a negative line
+    /// is scrollback, counted up from the screen's top.
+    #[cfg(feature = "links-clipboard")]
+    fn hits_in_live_row(&self, row: i64) -> Vec<crate::linkhit::Hit> {
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return Vec::new();
         };
-        hits.into_iter().find(|hit| hit.columns.contains(&col))
+        if row < 0 {
+            let back = usize::try_from(row.unsigned_abs())
+                .ok()
+                .and_then(|up| live.history_rows().checked_sub(up));
+            return back.map_or_else(Vec::new, |back| {
+                crate::linkhit::history_links(live.screen(), back)
+            });
+        }
+        usize::try_from(row).map_or_else(
+            |_| Vec::new(),
+            |row| crate::linkhit::row_links(live.screen(), row),
+        )
+    }
+
+    /// The top left pixel of cell `(col, row)` of the live screen, if it is in view.
+    #[cfg(feature = "links-clipboard")]
+    fn live_pixel(&self, col: usize, row: usize) -> Option<(u32, u32)> {
+        let (cw, ch) = self.renderer.cell();
+        let doc = self.session.document();
+        let (area, content_columns, total) = self.content_metrics();
+        let screen_top = self.renderer.live_screen_top(doc, content_columns)?;
+        let x = self
+            .renderer
+            .content_left()
+            .saturating_add(u32::try_from(col).ok()?.saturating_mul(cw));
+        let in_flow =
+            u64::from(screen_top) + u64::try_from(row).ok()?.saturating_mul(u64::from(ch));
+        let in_view = in_flow.checked_sub(u64::from(self.scroll.top(total, area)))?;
+        let in_view = u32::try_from(in_view).ok()?;
+        (in_view < area).then(|| (x, HEADER_ROWS.saturating_mul(ch).saturating_add(in_view)))
+    }
+
+    /// Move the keyboard's link focus to the next (or previous) link on the
+    /// screen, in reading order, wrapping at the ends, and show it selected.
+    /// Returns whether a link is now focused.
+    #[cfg(feature = "links-clipboard")]
+    pub fn focus_link(&mut self, forward: bool) -> bool {
+        self.follow();
+        let all = self.link_stops();
+        if all.is_empty() {
+            self.clear_link_focus();
+            return false;
+        }
+        let at = self
+            .links
+            .focus
+            .as_ref()
+            .and_then(|f| all.iter().position(|stop| stop == f));
+        let n = all.len();
+        let next = match (at, forward) {
+            (Some(i), true) => (i + 1) % n,
+            (Some(i), false) => (i + n - 1) % n,
+            (None, true) => 0,
+            (None, false) => n - 1,
+        };
+        let stop = all[next].clone();
+        self.select_cells(stop.first, stop.last);
+        self.links.focus = Some(stop);
+        self.view_moves = self.view_moves.wrapping_add(1);
+        true
+    }
+
+    /// The links on the live screen in reading order, a soft-wrapped link as
+    /// one stop from where it starts to where it ends.
+    #[cfg(feature = "links-clipboard")]
+    fn link_stops(&self) -> Vec<LinkStop> {
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return Vec::new();
+        };
+        let screen = live.screen();
+        let history = screen.max_view_scroll();
+        let mut stops: Vec<LinkStop> = Vec::new();
+        for row in 0..screen.rows() {
+            for hit in crate::linkhit::row_links(screen, row) {
+                let continues = stops.last().is_some_and(|prev| {
+                    prev.last.0 + 1 == row
+                        && prev.last.1 == screen.columns()
+                        && hit.columns.start == 0
+                        && prev.hit.target == hit.target
+                        && prev.hit.visible == hit.visible
+                        && !screen.alt_active()
+                        && screen.history_line_wrapped(history + prev.last.0)
+                });
+                if continues {
+                    if let Some(prev) = stops.last_mut() {
+                        prev.last = (row, hit.columns.end);
+                    }
+                } else {
+                    stops.push(LinkStop {
+                        first: (row, hit.columns.start),
+                        last: (row, hit.columns.end),
+                        hit,
+                    });
+                }
+            }
+        }
+        stops
+    }
+
+    /// Select from cell `(row, column)` `from` to the cell edge `to`, as the
+    /// pointer would drag.
+    #[cfg(feature = "links-clipboard")]
+    fn select_cells(&mut self, from: (usize, usize), to: (usize, usize)) {
+        let (Some((x0, y0)), Some((x1, y1))) =
+            (self.live_pixel(from.1, from.0), self.live_pixel(to.1, to.0))
+        else {
+            return;
+        };
+        self.begin_selection(x0 + 1, y0 + 1);
+        self.extend_selection(x1, y1 + 1);
+        self.selecting = false;
+    }
+
+    /// Drop the keyboard's link focus and the selection that shows it.
+    #[cfg(feature = "links-clipboard")]
+    fn clear_link_focus(&mut self) {
+        if self.links.focus.take().is_some() {
+            self.clear_selection();
+            self.view_moves = self.view_moves.wrapping_add(1);
+        }
+    }
+
+    /// The links in the rows the window shows now, top down, a soft-wrapped link
+    /// once: the same viewport the rows come from, so what a reader is told and
+    /// what it can act on are what is on the screen, scrolled back or not.
+    #[cfg(feature = "links-clipboard")]
+    #[must_use]
+    pub fn view_links(&self) -> Vec<ViewLink> {
+        let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
+            return Vec::new();
+        };
+        let (area, content_columns, total) = self.content_metrics();
+        let lines = self.renderer.view_row_lines(
+            self.session.document(),
+            content_columns,
+            self.scroll.top(total, area),
+            area,
+        );
+        let screen = live.screen();
+        let history = i64::try_from(live.history_rows()).unwrap_or(i64::MAX);
+        let columns = live.size().0;
+        let focus = self.links.focus.as_ref();
+        let mut out: Vec<ViewLink> = Vec::new();
+        for (i, line) in lines.into_iter().enumerate() {
+            let Some(row) = line else { continue };
+            for hit in self.hits_in_live_row(row) {
+                // A link goes on from the row above only across a real soft
+                // wrap: the row above wrapped, the link filled it to the last
+                // column and this row starts with the same link.
+                let continues = out.last().is_some_and(|prev| {
+                    prev.last_view_row + 1 == i
+                        && prev.last_line + 1 == row
+                        && hit.columns.start == 0
+                        && prev.hit.columns.end == columns
+                        && prev.hit.target == hit.target
+                        && prev.hit.visible == hit.visible
+                        && !screen.alt_active()
+                        && screen.history_line_wrapped(
+                            usize::try_from(history + prev.last_line).unwrap_or(usize::MAX),
+                        )
+                });
+                if continues {
+                    if let Some(prev) = out.last_mut() {
+                        prev.last_view_row = i;
+                        prev.last_line = row;
+                        prev.hit.columns = hit.columns;
+                    }
+                    continue;
+                }
+                let focused = focus.is_some_and(|f| {
+                    i64::try_from(f.first.0).is_ok_and(|r| r == row)
+                        && f.first.1 == hit.columns.start
+                });
+                out.push(ViewLink {
+                    view_row: i,
+                    last_view_row: i,
+                    first: (row, hit.columns.start),
+                    last_line: row,
+                    hit,
+                    focused,
+                });
+            }
+        }
+        out
+    }
+
+    /// Ask about the `place`th link of [`App::view_links`], as a press or Enter
+    /// on it does: the terminal's question comes up and nothing opens. Returns
+    /// whether there is one.
+    #[cfg(feature = "links-clipboard")]
+    pub fn ask_about_view_link(&mut self, place: usize) -> bool {
+        let Some(link) = self.view_links().into_iter().nth(place) else {
+            return false;
+        };
+        self.clear_link_focus();
+        self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&link.hit));
+        self.view_moves = self.view_moves.wrapping_add(1);
+        true
+    }
+
+    /// Focus the `place`th link of [`App::view_links`] with the keyboard, as Next
+    /// Link would, when it is a link of the live screen. Returns whether it is.
+    #[cfg(feature = "links-clipboard")]
+    pub fn focus_view_link(&mut self, place: usize) -> bool {
+        let Some(link) = self.view_links().into_iter().nth(place) else {
+            return false;
+        };
+        let Ok(row) = usize::try_from(link.first.0) else {
+            return false;
+        };
+        let Some(at) = self
+            .link_stops()
+            .iter()
+            .position(|stop| stop.first == (row, link.first.1))
+        else {
+            return false;
+        };
+        self.follow();
+        let Some(stop) = self.link_stops().into_iter().nth(at) else {
+            return false;
+        };
+        self.select_cells(stop.first, stop.last);
+        self.links.focus = Some(stop);
+        self.view_moves = self.view_moves.wrapping_add(1);
+        true
+    }
+
+    /// The link the keyboard has focused, if any.
+    #[cfg(feature = "links-clipboard")]
+    #[must_use]
+    pub fn focused_link(&self) -> Option<&crate::linkhit::Hit> {
+        self.links.focus.as_ref().map(|stop| &stop.hit)
     }
 
     /// The user pressed the link modifier with the primary button at pixel
@@ -1080,9 +1404,9 @@ impl App {
         let (cell_w, cell_h) = self.renderer.cell();
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         let win = window_for_box(columns, rows, self.box_rows);
-        let top = self.renderer.px_y(win.editor_row);
-        let left = self.renderer.px_x(GUTTER_COLUMNS) + 3 * cell_w;
-        let inside = y >= top && y < self.renderer.px_y(win.editor_row + win.editor_rows);
+        let top = win.editor_row * cell_h;
+        let left = self.renderer.content_left() + 3 * cell_w;
+        let inside = y >= top && y < (win.editor_row + win.editor_rows) * cell_h;
         if !inside || x < left || cell_h == 0 || cell_w == 0 {
             return false;
         }
@@ -1152,8 +1476,8 @@ impl App {
             return None;
         };
         let (area, content_columns, total) = self.content_metrics();
-        let content_x = self.renderer.px_x(GUTTER_COLUMNS);
-        let content_y = self.renderer.px_y(HEADER_ROWS);
+        let content_x = self.renderer.content_left();
+        let content_y = HEADER_ROWS.saturating_mul(ch);
         let px = x.checked_sub(content_x)?;
         let py = y.checked_sub(content_y)?;
         if py >= area {
@@ -1205,11 +1529,12 @@ impl App {
     /// must be in the content area; without it, a pixel outside is moved to
     /// the nearest line, so a drag past an edge still selects.
     fn pos_at(&self, lines: &[select::FlowLine], x: u32, y: u32, inside: bool) -> Option<Pos> {
+        let (_, ch) = self.renderer.cell();
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
         let win = window_for_box(columns, rows, self.box_rows);
-        let content_x = self.renderer.px_x(GUTTER_COLUMNS);
-        let content_y = self.renderer.px_y(HEADER_ROWS);
-        let area_bottom = self.renderer.px_y(win.editor_row);
+        let content_x = self.renderer.content_left();
+        let content_y = HEADER_ROWS.saturating_mul(ch);
+        let area_bottom = win.editor_row.saturating_mul(ch);
         if inside && (x < content_x || y < content_y || y >= area_bottom) {
             return None;
         }
@@ -1251,6 +1576,11 @@ impl App {
     fn begin_selection(&mut self, x: u32, y: u32) {
         let lines = self.flow();
         let had = self.selection.take().is_some();
+        // A selection the pointer makes is not the keyboard's focused link.
+        #[cfg(feature = "links-clipboard")]
+        {
+            self.links.focus = None;
+        }
         match self.pos_at(&lines, x, y, true) {
             Some(p) => {
                 self.selection = Some(Selection { anchor: p, head: p });
@@ -1311,6 +1641,14 @@ impl App {
     #[must_use]
     pub fn selected_text(&self) -> Option<String> {
         let sel = self.selection?;
+        // A link the keyboard focused copies as the text on the screen now, with
+        // the grid's own text rules, minus the breaks where the terminal wrapped
+        // it over rows (a link has no line break of its own). A focus whose link
+        // is gone copies what is selected, like any selection.
+        #[cfg(feature = "links-clipboard")]
+        if self.links.focus_is_current(&self.link_stops()) {
+            return select::copy_selection(&self.flow(), &sel).map(|c| c.text.replace('\n', ""));
+        }
         select::copy_selection(&self.flow(), &sel).map(|c| c.text)
     }
 
@@ -1334,8 +1672,8 @@ impl App {
         had
     }
 
-    /// Whether the view moved since the last call, for the window to draw again
-    /// after an input that scrolled it.
+    /// Whether input changed the view since the last call, for the window to
+    /// draw again after an edit or a scroll.
     pub fn take_view_changed(&mut self) -> bool {
         std::mem::take(&mut self.view_moves) > 0
     }
@@ -1872,9 +2210,11 @@ impl App {
             Scroll::Pinned(_) => Some(u64::from(self.scroll.top(total, area))),
             Scroll::Follow => None,
         };
-        self.renderer =
+        let mut renderer =
             Renderer::with_fonts(scale, self.renderer.theme().clone(), self.renderer.fonts())
                 .map_err(SpawnError)?;
+        renderer.set_gutter_full(self.renderer.gutter_full());
+        self.renderer = renderer;
         self.scale = scale;
         self.resize(self.width, self.height)?;
         if let Some(top) = held {
@@ -1939,6 +2279,12 @@ impl App {
             // window can still be closed, and a copy sends nothing anywhere.
             return Outcome::Nothing;
         }
+        if !matches!(
+            action,
+            Action::NextLink | Action::PreviousLink | Action::Copy
+        ) {
+            self.clear_link_focus();
+        }
         match action {
             Action::Quit | Action::Close => Outcome::Exit,
             Action::NewWindow
@@ -1946,6 +2292,10 @@ impl App {
             | Action::NextTab
             | Action::PreviousTab
             | Action::Settings => Outcome::Nothing,
+            Action::NextLink | Action::PreviousLink => {
+                self.focus_link(action == Action::NextLink);
+                Outcome::Redraw
+            }
             Action::Find => {
                 self.find_open();
                 Outcome::Redraw
@@ -2034,11 +2384,31 @@ impl App {
             // The prompt owns the keys: Enter opens, Escape closes, and nothing
             // reaches the program until it is answered.
             match key {
-                Key::Enter => self.answer_link(true).map(|_| ()),
+                Key::Enter | Key::KeypadEnter => self.answer_link(true).map(|_| ()),
                 Key::Escape => self.answer_link(false).map(|_| ()),
                 _ => Ok(()),
             }?;
             return Ok(());
+        }
+        #[cfg(feature = "links-clipboard")]
+        if self.links.focus.is_some() {
+            // The focus belongs to the screen it was made on: if the link is gone
+            // or moved, or another input has taken over, it is let go and the
+            // key does its usual work.
+            let live = self.find.is_none() && self.links.focus_is_current(&self.link_stops());
+            match (live, self.links.focus.clone(), key) {
+                (true, Some(stop), Key::Enter | Key::KeypadEnter) if !mods.ctrl && !mods.alt => {
+                    self.clear_link_focus();
+                    self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&stop.hit));
+                    self.view_moves = self.view_moves.wrapping_add(1);
+                    return Ok(());
+                }
+                (true, _, Key::Escape) => {
+                    self.clear_link_focus();
+                    return Ok(());
+                }
+                _ => self.clear_link_focus(),
+            }
         }
         if self.scroll_key(key, mods) {
             return Ok(());
@@ -2143,7 +2513,7 @@ impl App {
         let Some(screen_top) = self.renderer.live_screen_top(doc, content_columns) else {
             return Vec::new();
         };
-        let content_y = i64::from(self.renderer.px_y(HEADER_ROWS));
+        let content_y = i64::from(HEADER_ROWS) * ch;
         let scroll_top = i64::from(self.scroll.top(total, area));
         let history = i64::try_from(live.history_rows()).unwrap_or(i64::MAX);
         let bottom = content_y + i64::from(area);
@@ -2214,6 +2584,7 @@ impl App {
                 self.follow();
                 self.cursor_epoch_ms = self.session.now_ms();
                 self.sync_box();
+                self.view_moves = self.view_moves.wrapping_add(1);
                 Ok(())
             }
             Line::None | Line::Refused | Line::NotMine => Ok(()),
@@ -2334,12 +2705,12 @@ impl App {
         if top.saturating_add(ch) > area {
             return None;
         }
-        let content_x = self.renderer.px_x(GUTTER_COLUMNS);
+        let content_x = self.renderer.content_left();
         let right =
             content_x.saturating_add(u32::try_from(content_columns).ok()?.saturating_mul(cw));
         Some((
             content_x.saturating_add(col.saturating_mul(cw)),
-            self.renderer.px_y(HEADER_ROWS).saturating_add(top),
+            HEADER_ROWS.saturating_mul(ch).saturating_add(top),
             right,
         ))
     }
@@ -2579,9 +2950,9 @@ impl App {
         let line = u32::try_from(line.saturating_sub(first)).unwrap_or(0);
         (
             self.renderer
-                .px_x(GUTTER_COLUMNS)
+                .content_left()
                 .saturating_add(col.saturating_add(3).saturating_mul(cell_w)),
-            self.renderer.px_y(win.editor_row.saturating_add(line)),
+            win.editor_row.saturating_add(line).saturating_mul(cell_h),
             used.max(1).saturating_mul(cell_w),
             cell_h,
         )
@@ -2656,6 +3027,12 @@ impl App {
     fn refresh_seal(&mut self) {
         let had = self.sealed_keys;
         self.sealed_keys = self.session.has_sealed_keys();
+        if had != self.sealed_keys {
+            // The gutter holds marks only on a layer with its keys: it is
+            // drawn full width for them and narrow without them.
+            self.renderer.set_gutter_full(self.sealed_keys);
+            let _ = self.resize(self.width, self.height);
+        }
         if self.exited || self.session.has_exited() {
             self.seal_notice = None;
             return;
@@ -2773,18 +3150,25 @@ impl App {
             Some(wait) => self.session.pump_wait(wait),
             None => self.session.pump(),
         };
+        // The session stops after each sealed frame: route what came up to it,
+        // then go on with the rest of the read.
+        loop {
+            let events = self.session.take_events();
+            if !events.is_empty() {
+                self.route(&events);
+                // A sealed command start ends a line the shell was holding.
+                let facts = self.facts();
+                self.input.observe(facts);
+            }
+            if !self.session.resume() {
+                break;
+            }
+        }
         if bytes > 0 {
             self.hold_view_through_eviction(history);
             self.track_reporting();
             self.cursor_epoch_ms = self.session.now_ms();
             self.refresh_find();
-        }
-        let events = self.session.take_events();
-        if !events.is_empty() {
-            self.route(&events);
-            // A sealed command start ends a line the shell was holding.
-            let facts = self.facts();
-            self.input.observe(facts);
         }
         self.send_queued();
         self.tick();

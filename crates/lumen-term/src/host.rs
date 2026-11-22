@@ -19,9 +19,55 @@ use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalPosition;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+#[cfg(not(target_os = "macos"))]
+use winit::event_loop::ControlFlow;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key as WinitKey, KeyLocation, ModifiersState, NamedKey};
 use winit::window::{Theme as WinitTheme, Window, WindowId};
+
+const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+
+/// What wakes the event loop from outside it.
+#[derive(Debug)]
+enum UserEvent {
+    /// The frame wake thread asks for a redraw pass (macOS).
+    #[cfg(target_os = "macos")]
+    Wake,
+    /// A screen reader or other assistive technology asks something.
+    Access(accesskit_winit::Event),
+}
+
+impl From<accesskit_winit::Event> for UserEvent {
+    fn from(event: accesskit_winit::Event) -> Self {
+        Self::Access(event)
+    }
+}
+
+/// A timed wait on macOS can stall until input arrives. Wake the event loop
+/// from a worker and keep at most one wake queued while the window is busy.
+#[cfg(any(target_os = "macos", all(test, unix)))]
+fn start_frame_wakes(
+    wake: impl Fn() -> bool + Send + 'static,
+) -> std::io::Result<std::sync::mpsc::Sender<()>> {
+    use std::sync::mpsc::{RecvTimeoutError, channel};
+
+    let (handled, pending) = channel();
+    std::thread::Builder::new()
+        .name("window-frame-wake".into())
+        .spawn(move || {
+            while pending.recv_timeout(FRAME_INTERVAL) == Err(RecvTimeoutError::Timeout) {
+                if !wake() || pending.recv().is_err() {
+                    break;
+                }
+            }
+        })?;
+    Ok(handled)
+}
+
+fn pump_frame(app: &mut App) -> bool {
+    let animated = app.tick();
+    app.pump() > 0 || animated
+}
 
 /// A pointer position in physical pixels as whole pixels: negative and
 /// non-finite positions are the edge, and nothing is larger than the window.
@@ -334,9 +380,8 @@ impl ImeSink for WindowSink<'_> {
     }
 }
 
-/// Send `input` to the program. Returns whether the window must draw again
-/// because the user now has something to see: when the input was not sent, the
-/// app has put a notice on screen and the window must show it.
+/// Send `input` to the app. Returns whether an edit, scroll or write failure
+/// needs a new frame.
 pub fn send_input(app: &mut App, input: Input<'_>) -> bool {
     let sent = match input {
         Input::Key(key, mods) => app.key(key, mods),
@@ -395,6 +440,12 @@ struct Running {
     focused: bool,
     mouse_capture: Option<MouseButton>,
     placement: Placement,
+    /// The window's connection to the platform's accessibility.
+    access: accesskit_winit::Adapter,
+    /// Whether an assistive technology is connected and wants the tree.
+    access_on: bool,
+    /// The facts the reader was last told, so an unchanged screen sends nothing.
+    access_told: Option<crate::access::Snapshot>,
 }
 
 struct Host {
@@ -402,6 +453,7 @@ struct Host {
     windows: Vec<Running>,
     active: Option<WindowId>,
     started: Instant,
+    proxy: winit::event_loop::EventLoopProxy<UserEvent>,
     error: Option<String>,
     window_store: WindowStore,
     state_dirty: bool,
@@ -410,8 +462,13 @@ struct Host {
     /// opens and when it gains focus, and kept when a later read gives none. Every
     /// tab, old or new, takes this one value.
     reduce_motion: std::cell::Cell<bool>,
+    /// The last answer the system gave about more contrast, kept like the one
+    /// about motion: read when a window opens and when it gains focus.
+    more_contrast: std::cell::Cell<bool>,
     /// The next time the small settings file is read for a change.
     next_settings_check: Instant,
+    #[cfg(target_os = "macos")]
+    frame_wake_handled: std::sync::mpsc::Sender<()>,
     #[cfg(target_os = "macos")]
     menu: Option<crate::menu::MenuBar>,
 }
@@ -442,6 +499,21 @@ impl Host {
         }
         self.state_dirty = false;
         self.next_state_save = Instant::now() + Duration::from_millis(250);
+    }
+
+    fn refresh_more_contrast(&mut self) {
+        let Some(more) = crate::contrast::system_increases_contrast() else {
+            return;
+        };
+        self.more_contrast.set(more);
+        for run in &mut self.windows {
+            let redraw = run.tabs.iter_mut().fold(false, |changed, tab| {
+                tab.app.set_more_contrast(more) | changed
+            });
+            if redraw {
+                run.window.request_redraw();
+            }
+        }
     }
 
     fn refresh_reduce_motion(&mut self) {
@@ -507,6 +579,7 @@ impl Host {
         // The window reads the system's answer when it opens and when it gains
         // focus; a new tab only takes what the window knows.
         app.set_reduce_motion(self.reduce_motion.get());
+        app.set_more_contrast(self.more_contrast.get());
         app.set_appearance(appearance(window.theme()));
         if let Err(e) = app.set_fonts(&look.fonts) {
             eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
@@ -709,6 +782,97 @@ fn chord(state: ModifiersState) -> actions::Held {
 }
 
 impl Host {
+    /// What the reader should be told about this window now.
+    fn access_snapshot(run: &Running) -> Option<crate::access::Snapshot> {
+        let tab = run.tabs.active()?;
+        let app = &tab.app;
+        let view_links = app.view_links();
+        let focused_link = view_links.iter().position(|l| l.focused);
+        let links = view_links
+            .iter()
+            .map(|l| crate::access::Link {
+                target: l.target().to_owned(),
+                text: l.text().to_owned(),
+            })
+            .collect();
+        Some(crate::access::Snapshot {
+            title: run.shown_title.clone(),
+            rows: app.visible_text(),
+            links,
+            focused_link,
+            question: app
+                .link_prompt()
+                .map(|p| crate::access::Question { lines: p.lines() }),
+            tabs: run.tabs.iter().map(|t| t.title.clone()).collect(),
+            active_tab: run.tabs.active_index(),
+        })
+    }
+
+    /// Send the reader what changed since it was last told, if one is connected.
+    fn tell_reader(run: &mut Running) {
+        if !run.access_on {
+            return;
+        }
+        let Some(now) = Self::access_snapshot(run) else {
+            return;
+        };
+        if run.access_told.as_ref() == Some(&now) {
+            return;
+        }
+        run.access.update_if_active(|| crate::access::build(&now));
+        run.access_told = Some(now);
+    }
+
+    /// An assistive technology asked something.
+    fn on_access(&mut self, event: accesskit_winit::Event) {
+        use accesskit_winit::WindowEvent as Ask;
+        let Some(index) = self.index(event.window_id) else {
+            return;
+        };
+        let run = &mut self.windows[index];
+        match event.window_event {
+            Ask::InitialTreeRequested => {
+                run.access_on = true;
+                run.access_told = None;
+                Self::tell_reader(run);
+            }
+            Ask::AccessibilityDeactivated => {
+                run.access_on = false;
+                run.access_told = None;
+            }
+            Ask::ActionRequested(request) => {
+                use crate::access::{Target, target_of};
+                use accesskit::Action;
+                let target = target_of(request.target_node);
+                let index_now = run.tabs.active_index();
+                let Some(tab) = run.tabs.active_mut() else {
+                    return;
+                };
+                match (request.action, target) {
+                    (Action::Click, Target::Link(n)) => {
+                        tab.app.ask_about_view_link(n);
+                    }
+                    (Action::Focus, Target::Link(n)) => {
+                        tab.app.focus_view_link(n);
+                    }
+                    (Action::Click, Target::Open) => {
+                        let _ = tab.app.answer_link(true);
+                    }
+                    (Action::Click, Target::Cancel) => {
+                        let _ = tab.app.answer_link(false);
+                    }
+                    (Action::Click, Target::Tab(n)) if n != index_now => {
+                        let id = run.window.id();
+                        self.select_tab(id, n);
+                        return;
+                    }
+                    _ => {}
+                }
+                run.window.request_redraw();
+            }
+        }
+    }
+
     /// The wheel or trackpad moved: a program that asked for wheel reports gets
     /// them, and otherwise the output scrolls, by whole rows for a wheel and by
     /// the pixels moved for a trackpad.
@@ -903,6 +1067,7 @@ impl Host {
         // The system setting can change while another window has the focus.
         if focused {
             self.refresh_reduce_motion();
+            self.refresh_more_contrast();
         }
         let reduce = self.reduce_motion.get();
         let Some(index) = self.index(id) else { return };
@@ -1067,6 +1232,10 @@ impl Host {
         id: WindowId,
         event: WindowEvent,
     ) {
+        if let Some(index) = self.index(id) {
+            let run = &mut self.windows[index];
+            run.access.process_event(&run.window, &event);
+        }
         match event {
             WindowEvent::CloseRequested => self.close_window(event_loop, id),
             WindowEvent::ModifiersChanged(m) => {
@@ -1112,8 +1281,11 @@ impl Host {
         event_loop: &ActiveEventLoop,
         placement: Option<Placement>,
     ) -> Result<WindowId, String> {
-        let mut attributes =
-            Window::default_attributes().with_title(crate::title::window_title(None));
+        // Hidden until the accessibility adapter exists: it must be made before
+        // the window is first shown.
+        let mut attributes = Window::default_attributes()
+            .with_title(crate::title::window_title(None))
+            .with_visible(false);
         if let Some(placement) = placement {
             attributes =
                 attributes.with_inner_size(PhysicalSize::new(placement.size.0, placement.size.1));
@@ -1131,12 +1303,19 @@ impl Host {
                 .create_window(attributes)
                 .map_err(|e| format!("no window: {e}"))?,
         );
+        let access = accesskit_winit::Adapter::with_event_loop_proxy(
+            event_loop,
+            &window,
+            self.proxy.clone(),
+        );
+        window.set_visible(true);
         let context = softbuffer::Context::new(window.clone())
             .map_err(|e| format!("no display context: {e}"))?;
         let surface = softbuffer::Surface::new(&context, window.clone())
             .map_err(|e| format!("no surface: {e}"))?;
         window.set_ime_allowed(true);
         self.refresh_reduce_motion();
+        self.refresh_more_contrast();
         let app = self.start_app(&window)?;
         let size = window.inner_size();
         let actual = Placement {
@@ -1159,6 +1338,9 @@ impl Host {
             focused: false,
             mouse_capture: None,
             placement: actual,
+            access,
+            access_on: false,
+            access_told: None,
         });
         self.active = Some(id);
         self.state_dirty = true;
@@ -1166,7 +1348,7 @@ impl Host {
     }
 }
 
-impl ApplicationHandler for Host {
+impl ApplicationHandler<UserEvent> for Host {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if !self.windows.is_empty() {
             return;
@@ -1203,6 +1385,16 @@ impl ApplicationHandler for Host {
         self.handle_window_event(event_loop, id, event);
     }
 
+    fn user_event(&mut self, _: &ActiveEventLoop, event: UserEvent) {
+        match event {
+            #[cfg(target_os = "macos")]
+            UserEvent::Wake => {
+                let _ = self.frame_wake_handled.send(());
+            }
+            UserEvent::Access(event) => self.on_access(event),
+        }
+    }
+
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(limit) = self.config.exit_after
             && self.started.elapsed() >= limit
@@ -1232,8 +1424,7 @@ impl ApplicationHandler for Host {
             let mut request_attention = false;
             let mut cancel_attention = false;
             for (index, tab) in run.tabs.iter_mut().enumerate() {
-                let expired = tab.app.tick();
-                if tab.app.pump() > 0 || expired {
+                if pump_frame(&mut tab.app) {
                     redraw |= index == active;
                 }
                 if let Some(title) = tab.app.take_window_title() {
@@ -1271,12 +1462,14 @@ impl ApplicationHandler for Host {
             }
             Self::update_window_title(run);
         }
+        for run in &mut self.windows {
+            Self::tell_reader(run);
+        }
         for id in close {
             self.close_window(event_loop, id);
         }
-        event_loop.set_control_flow(ControlFlow::WaitUntil(
-            Instant::now() + Duration::from_millis(16),
-        ));
+        #[cfg(not(target_os = "macos"))]
+        event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + FRAME_INTERVAL));
     }
 }
 
@@ -1295,19 +1488,32 @@ pub fn appearance(theme: Option<WinitTheme>) -> Appearance {
 ///
 /// Returns why the event loop, the window or the program could not start.
 pub fn run(config: Config) -> Result<(), String> {
-    let event_loop = EventLoop::new().map_err(|e| format!("no event loop: {e}"))?;
+    let event_loop = EventLoop::<UserEvent>::with_user_event()
+        .build()
+        .map_err(|e| format!("no event loop: {e}"))?;
+    let proxy = event_loop.create_proxy();
+    #[cfg(target_os = "macos")]
+    let frame_wake_handled = {
+        let proxy = proxy.clone();
+        start_frame_wakes(move || proxy.send_event(UserEvent::Wake).is_ok())
+            .map_err(|e| format!("no window wake thread: {e}"))?
+    };
     let window_store = WindowStore::system();
     let mut host = Host {
         config,
         windows: Vec::new(),
         active: None,
         started: Instant::now(),
+        proxy,
         error: None,
         window_store,
         state_dirty: false,
         next_state_save: Instant::now(),
         reduce_motion: std::cell::Cell::new(false),
+        more_contrast: std::cell::Cell::new(false),
         next_settings_check: Instant::now(),
+        #[cfg(target_os = "macos")]
+        frame_wake_handled,
         #[cfg(target_os = "macos")]
         menu: None,
     };
@@ -1326,5 +1532,85 @@ mod tests {
         assert_eq!(content_pointer_y(25, 20, false), Some(5));
         assert_eq!(content_pointer_y(10, 20, false), None);
         assert_eq!(content_pointer_y(10, 20, true), Some(0));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod frame_tests {
+    use super::{Input, ime_event, pump_frame, send_input, start_frame_wakes};
+    use crate::input_line::Mode;
+    use crate::{App, Key, Mods, Passthrough};
+    use std::sync::mpsc::{Receiver, Sender, channel};
+    use std::time::{Duration, Instant};
+    use winit::event::Ime;
+
+    const TIMEOUT: Duration = Duration::from_secs(10);
+
+    fn start(program: &str, args: &[&str]) -> App {
+        App::start(Box::new(Passthrough), program, args, 1, 640, 360)
+            .unwrap_or_else(|e| unreachable!("start {program}: {e}"))
+    }
+
+    fn frame_wakes() -> (Sender<()>, Receiver<()>) {
+        let (wake, events) = channel();
+        let handled = start_frame_wakes(move || wake.send(()).is_ok())
+            .unwrap_or_else(|e| unreachable!("start frame wakes: {e}"));
+        (handled, events)
+    }
+
+    #[test]
+    fn keyboard_and_ime_input_are_visible_on_wakes_without_pointer_events() {
+        let mut app = start("/bin/zsh", &["-f", "-i"]);
+        let end = Instant::now() + TIMEOUT;
+        while app.input_mode() != Mode::Editing {
+            let left = end.saturating_duration_since(Instant::now());
+            assert!(!left.is_zero(), "zsh reaches the input editor");
+            app.pump_wait(left);
+        }
+        let (handled, wakes) = frame_wakes();
+        let empty = app.view();
+        assert!(send_input(
+            &mut app,
+            Input::Key(Key::Char('K'), Mods::default())
+        ));
+        assert!(wakes.recv_timeout(TIMEOUT).is_ok(), "a frame wake arrives");
+        let typed = app.view();
+        assert!(typed != empty, "the key changed the rendered frame");
+        assert_eq!(app.input_text(), "K");
+
+        assert!(ime_event(&mut app, &Ime::Commit("é".into())));
+        assert!(handled.send(()).is_ok());
+        assert!(
+            wakes.recv_timeout(TIMEOUT).is_ok(),
+            "the next frame wake arrives"
+        );
+        assert!(app.view() != typed, "the commit changed the rendered frame");
+        assert_eq!(app.input_text(), "Ké");
+    }
+
+    #[test]
+    fn an_idle_window_repaints_for_pty_output_without_input() {
+        let mut app = start("/bin/sh", &["-c", "printf 'PTY repaint'; read -r keep"]);
+        let empty = app.view();
+        let (handled, wakes) = frame_wakes();
+        let end = Instant::now() + TIMEOUT;
+        loop {
+            assert!(
+                wakes
+                    .recv_timeout(end.saturating_duration_since(Instant::now()))
+                    .is_ok()
+            );
+            let repaint = pump_frame(&mut app);
+            if repaint
+                && app
+                    .visible_text()
+                    .iter()
+                    .any(|row| row.contains("PTY repaint"))
+            {
+                assert!(app.view() != empty, "the PTY changed the rendered frame");
+                break;
+            }
+            assert!(handled.send(()).is_ok());
+        }
     }
 }

@@ -493,6 +493,28 @@
    }
   },
   "lumen-term": {
+   "accesskit 0.25.2": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_items": {
+     "exprs": 0,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "accesskit_winit 0.34.2": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_items": {
+     "exprs": 8,
+     "functions": 0,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
    "adler2 2.0.1": {
     "forbids_unsafe": true,
     "source": "Registry",
@@ -906,6 +928,17 @@
     "unsafe_items": {
      "exprs": 333,
      "functions": 16,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 0
+    }
+   },
+   "getrandom 0.4.3": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_items": {
+     "exprs": 249,
+     "functions": 7,
      "item_impls": 0,
      "item_traits": 0,
      "methods": 0
@@ -1712,6 +1745,17 @@
      "item_impls": 0,
      "item_traits": 0,
      "methods": 0
+    }
+   },
+   "uuid 1.29.3": {
+    "forbids_unsafe": false,
+    "source": "Registry",
+    "unsafe_items": {
+     "exprs": 41,
+     "functions": 1,
+     "item_impls": 0,
+     "item_traits": 0,
+     "methods": 1
     }
    },
    "vte 0.15.0": {

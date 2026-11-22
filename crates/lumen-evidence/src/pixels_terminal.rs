@@ -21,8 +21,8 @@
 //! command container, so Track 0 in these runs is background output.
 
 use crate::Corpus;
-use crate::pixels::{PixelCase, PixelReport, changed_in};
-use lumen_term::app::{cells_for, window_for};
+use crate::pixels::{PixelCase, PixelReport, changed_anywhere, changed_in, changed_in_margin};
+use lumen_term::app::{window_cells, window_for};
 use lumen_term::{Frame, Renderer, layout};
 use sha2::{Digest, Sha256};
 use std::ffi::OsString;
@@ -274,11 +274,14 @@ pub fn run_terminal(
         .filter(|c| !c.alt_screen && !c.tmux_or_screen)
         .collect();
     for (cols, rows) in WINDOWS {
-        let size = (cols * cw, rows * ch);
-        let (c, r) = cells_for(size.0, size.1, (cw, ch));
+        // The window's pixels hold exactly its cells with the gutter as it is
+        // drawn, and the terminal must lay out that many: otherwise the
+        // rectangles would stop short of what it paints, or run past it.
+        let size = crate::pixels::window_px(&renderer, cols, rows);
+        let (c, r) = window_cells(size.0, size.1, &renderer);
         if (u32::try_from(c).ok(), u32::try_from(r).ok()) != (Some(cols), Some(rows)) {
             return Err(format!(
-                "{size:?} pixels is {c}x{r} cells, not {cols}x{rows}"
+                "the terminal lays out {size:?} pixels as {c}x{r} cells, not {cols}x{rows}"
             ));
         }
         let win = window_for(c, r);
@@ -306,18 +309,12 @@ pub fn run_terminal(
                 Stimulus::File(&file),
             )?;
             keep(&format!("{}-{cols}x{rows}.png", case.id), &frame)?;
-            let everything = lumen_term::Rect {
-                x: 0,
-                y: 0,
-                w: cols,
-                h: rows,
-            };
             cases.push(PixelCase {
                 id: case.id.clone(),
                 window: (cols, rows),
-                margin: changed_in(&renderer, &first, &frame, &l.margin),
+                margin: changed_in_margin(&renderer, &first, &frame, &l.margin, (cols, rows)),
                 chrome: changed_in(&renderer, &first, &frame, &[l.editor]),
-                anywhere: changed_in(&renderer, &first, &frame, &[everything]),
+                anywhere: changed_anywhere(&first, &frame),
             });
         }
         baselines.push(first);
@@ -339,20 +336,18 @@ pub fn run_terminal(
 /// The rectangles of the real terminal's layout, as text.
 #[must_use]
 pub fn terminal_rects(renderer: &Renderer) -> String {
-    let (cw, ch) = renderer.cell();
     let mut out = String::new();
     for (cols, rows) in WINDOWS {
         let win = window_for(cols as usize, rows as usize);
         let l = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
-        let px =
-            |r: &lumen_term::Rect| format!("{},{},{},{}", r.x * cw, r.y * ch, r.w * cw, r.h * ch);
+        let px = |r: &lumen_term::Rect| crate::pixels::rect_text(renderer, r);
+        let edge = |r: &lumen_term::Rect| crate::pixels::margin_text(renderer, r, (cols, rows));
+        let (width, height) = crate::pixels::window_px(renderer, cols, rows);
         let _ = writeln!(
             out,
-            "rects {cols}x{rows} cells, {}x{} px: margin=[{}] [{}] chrome=[{}]",
-            cols * cw,
-            rows * ch,
-            px(&l.margin[0]),
-            px(&l.margin[1]),
+            "rects {cols}x{rows} cells, {width}x{height} px: margin=[{}] [{}] chrome=[{}]",
+            edge(&l.margin[0]),
+            edge(&l.margin[1]),
             px(&l.editor)
         );
     }

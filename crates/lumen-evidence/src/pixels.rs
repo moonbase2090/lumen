@@ -178,24 +178,112 @@ impl PixelReport {
     }
 }
 
+/// The pixel box `(x, y, w, h)` of a layout rectangle, worked out here and not
+/// by the renderer. The gutter's four layout columns are drawn four cells wide
+/// when it can hold marks and two when it is empty; a column right of the
+/// gutter starts past the drawn gutter and the gutter padding.
+#[must_use]
+pub fn rect_px(renderer: &Renderer, r: &Rect) -> (u32, u32, u32, u32) {
+    const GUTTER: u32 = 4;
+    let (cw, ch) = renderer.cell();
+    let drawn = if renderer.gutter_full() { 4 } else { 2 } * cw;
+    let content = drawn + renderer.gutter_pad();
+    let left = if r.x >= GUTTER {
+        content + (r.x - GUTTER) * cw
+    } else {
+        (r.x * cw).min(drawn)
+    };
+    let end = r.x + r.w;
+    // The gutter ends at its divider, short of the padding.
+    let right = if end > GUTTER {
+        content + (end - GUTTER) * cw
+    } else {
+        (end * cw).min(drawn)
+    };
+    (left, r.y * ch, right.saturating_sub(left), r.h * ch)
+}
+
+/// The pixel size of a window of `cols` by `rows` cells as `renderer` draws
+/// it: the gutter at its drawn width, then the text column, then the right
+/// and bottom insets. Every rectangle [`rect_px`] gives for the window's
+/// layout ends at or inside it.
+#[must_use]
+pub fn window_px(renderer: &Renderer, cols: u32, rows: u32) -> (u32, u32) {
+    let all = Rect {
+        x: 0,
+        y: 0,
+        w: cols,
+        h: rows,
+    };
+    let (_, _, width, height) = rect_px(renderer, &all);
+    let (right, bottom) = renderer.insets();
+    (width + right, height + bottom)
+}
+
+/// How many pixels differ between `a` and `b` over the whole of both frames;
+/// a pixel one frame has and the other does not counts as changed.
+#[must_use]
+pub fn changed_anywhere(a: &Frame, b: &Frame) -> usize {
+    let (w, h) = (a.width.max(b.width), a.height.max(b.height));
+    (0..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .filter(|&(x, y)| a.pixel(x, y) != b.pixel(x, y))
+        .count()
+}
+
+/// The pixel box of a margin rectangle in a window of `cols` by `rows` cells:
+/// as [`rect_px`], run on through the window's right inset where it reaches
+/// the last column, and through the bottom inset where it reaches the last
+/// row. The terminal paints its margin to the window's edges, so the
+/// rectangles measured are the ones it paints.
+#[must_use]
+pub fn margin_px(
+    renderer: &Renderer,
+    rect: &Rect,
+    (cols, rows): (u32, u32),
+) -> (u32, u32, u32, u32) {
+    let (left, top, mut width, mut height) = rect_px(renderer, rect);
+    let (right, bottom) = renderer.insets();
+    if rect.x + rect.w >= cols {
+        width += right;
+    }
+    if rect.y + rect.h >= rows {
+        height += bottom;
+    }
+    (left, top, width, height)
+}
+
+/// [`margin_px`] as the text the summary and the committed list show.
+#[must_use]
+pub fn margin_text(renderer: &Renderer, r: &Rect, window: (u32, u32)) -> String {
+    let (left, top, width, height) = margin_px(renderer, r, window);
+    format!("{left},{top},{width},{height}")
+}
+
+/// [`rect_px`] as the text the summary and the committed list show.
+#[must_use]
+pub fn rect_text(renderer: &Renderer, r: &Rect) -> String {
+    let (left, top, width, height) = rect_px(renderer, r);
+    format!("{left},{top},{width},{height}")
+}
+
 /// The exact pixel rectangles of the trust margin and the chrome per window, as
 /// text, for the summary and the committed list.
 #[must_use]
 pub fn rects_text(renderer: &Renderer) -> String {
-    let (cw, ch) = renderer.cell();
     let mut out = String::new();
     for w in WINDOWS {
         let l = layout(w.cols, w.rows, w.editor_row, w.editor_rows, None);
-        let px = |r: &Rect| format!("{},{},{},{}", r.x * cw, r.y * ch, r.w * cw, r.h * ch);
+        let px = |r: &Rect| rect_text(renderer, r);
+        let edge = |r: &Rect| margin_text(renderer, r, (w.cols, w.rows));
+        let (width, height) = window_px(renderer, w.cols, w.rows);
         let _ = writeln!(
             out,
-            "rects {}x{} cells, {}x{} px: margin=[{}] [{}] chrome=[{}]",
+            "rects {}x{} cells, {width}x{height} px: margin=[{}] [{}] chrome=[{}]",
             w.cols,
             w.rows,
-            w.cols * cw,
-            w.rows * ch,
-            px(&l.margin[0]),
-            px(&l.margin[1]),
+            edge(&l.margin[0]),
+            edge(&l.margin[1]),
             px(&l.editor)
         );
     }
@@ -212,14 +300,37 @@ fn digest(frames: &[Frame]) -> String {
     format!("{:x}", h.finalize())
 }
 
-/// Pixels that differ between `a` and `b` inside the union of `rects` (in cells).
+/// Pixels that differ between `a` and `b` inside the union of `rects` (in cells,
+/// placed by [`rect_px`]).
 #[must_use]
 pub fn changed_in(renderer: &Renderer, a: &Frame, b: &Frame, rects: &[Rect]) -> usize {
-    let (cw, ch) = renderer.cell();
+    let boxes: Vec<_> = rects.iter().map(|r| rect_px(renderer, r)).collect();
+    changed_in_boxes(a, b, &boxes)
+}
+
+/// Pixels that differ between `a` and `b` inside the union of the margin
+/// `rects` of a window of `window` cells (placed by [`margin_px`]).
+#[must_use]
+pub fn changed_in_margin(
+    renderer: &Renderer,
+    a: &Frame,
+    b: &Frame,
+    rects: &[Rect],
+    window: (u32, u32),
+) -> usize {
+    let boxes: Vec<_> = rects
+        .iter()
+        .map(|r| margin_px(renderer, r, window))
+        .collect();
+    changed_in_boxes(a, b, &boxes)
+}
+
+/// Pixels that differ between `a` and `b` inside the union of pixel `boxes`.
+fn changed_in_boxes(a: &Frame, b: &Frame, boxes: &[(u32, u32, u32, u32)]) -> usize {
     let mut seen = BTreeSet::new();
-    for r in rects {
-        for y in r.y * ch..(r.y + r.h) * ch {
-            for x in r.x * cw..(r.x + r.w) * cw {
+    for &(x0, y0, w, h) in boxes {
+        for y in y0..y0 + h {
+            for x in x0..x0 + w {
                 if a.pixel(x, y) != b.pixel(x, y) {
                     seen.insert((x, y));
                 }
@@ -331,7 +442,8 @@ pub fn run_pixels_with<W: Write>(
             let doc = document(case, &w);
             let frame = draw(&renderer, &doc, &w);
             save(&format!("{}-{}x{}.png", case.id, w.cols, w.rows), &frame)?;
-            let margin = changed_in(&renderer, &first, &frame, &margin_rects);
+            let margin =
+                changed_in_margin(&renderer, &first, &frame, &margin_rects, (w.cols, w.rows));
             let chrome = changed_in(&renderer, &first, &frame, &[l.editor]);
             rec.read(
                 0,
@@ -339,18 +451,12 @@ pub fn run_pixels_with<W: Write>(
                 &[("margin_changed", margin), ("chrome_changed", chrome)],
             )
             .map_err(|e| e.to_string())?;
-            let everything = Rect {
-                x: 0,
-                y: 0,
-                w: w.cols,
-                h: w.rows,
-            };
             cases.push(PixelCase {
                 id: case.id.clone(),
                 window: (w.cols, w.rows),
                 margin,
                 chrome,
-                anywhere: changed_in(&renderer, &first, &frame, &[everything]),
+                anywhere: changed_anywhere(&first, &frame),
             });
         }
         baselines.push(first);

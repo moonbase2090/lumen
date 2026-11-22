@@ -52,11 +52,34 @@ fn two_cycles(first: &[&str], second: &[&str]) -> Document {
     d
 }
 
-fn changed(r: &Renderer, a: &Frame, b: &Frame, rect: &Rect) -> usize {
+/// The pixel box of a rectangle of cells, worked out here and not by the
+/// renderer: the gutter's four layout columns are drawn two cells wide while it
+/// is empty, the columns right of it start past it and the gutter padding, and
+/// the header runs on to the window's edge.
+fn px(r: &Renderer, rect: &Rect) -> (u32, u32, u32, u32) {
     let (cw, ch) = r.cell();
+    let x = |col: u32| {
+        if col >= 4 {
+            (col - 2) * cw + r.gutter_pad()
+        } else {
+            (col * cw).min(2 * cw)
+        }
+    };
+    let left = x(rect.x);
+    // The gutter's right edge is its divider, short of the padding.
+    let right = if rect.x + rect.w > 4 {
+        x(rect.x + rect.w)
+    } else {
+        ((rect.x + rect.w) * cw).min(2 * cw)
+    };
+    (left, rect.y * ch, right.saturating_sub(left), rect.h * ch)
+}
+
+fn changed(r: &Renderer, a: &Frame, b: &Frame, rect: &Rect) -> usize {
+    let (x0, y0, w, h) = px(r, rect);
     let mut n = 0;
-    for y in rect.y * ch..(rect.y + rect.h) * ch {
-        for x in rect.x * cw..(rect.x + rect.w) * cw {
+    for y in y0..y0 + h {
+        for x in x0..x0 + w {
             if a.pixel(x, y) != b.pixel(x, y) {
                 n += 1;
             }

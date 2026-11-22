@@ -37,6 +37,9 @@ use swash::zeno::Format;
 
 /// The bundled monospace face.
 const FACE: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf");
+/// The bundled fallback face for Chinese, Japanese and Korean characters the
+/// monospace face lacks: a subset of Noto Sans CJK (SIL Open Font License).
+const CJK: &[u8] = include_bytes!("../assets/fonts/NotoSansCJK-Subset-Regular.otf");
 /// The bundled proportional face, for text in rich blocks.
 const SANS: &[u8] = include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf");
 /// Proportional advances are measured in 64ths of a pixel, so a line is as
@@ -48,12 +51,11 @@ pub const BASE_PX: f32 = 14.0;
 /// Pixels of padding, at scale 1, between the gutter's divider and the text
 /// column. It is scaled with the render scale, so it follows zoom and DPI.
 pub const GUTTER_PAD_PX: u32 = 6;
-/// Pixels at scale 1 above and below the label in the header strip, so the
-/// label is centred in its band and clear of the divider under it.
-pub const HEADER_LABEL_PAD_PX: u32 = 3;
-/// Pixels at scale 1 between the header's divider and the first row of
-/// content: the same space the text column keeps from the gutter's divider.
-pub const HEADER_GAP_PX: u32 = GUTTER_PAD_PX;
+/// Cells of width the gutter is drawn in while it can hold nothing: on a layer
+/// without sealing keys, which has no typed-line marks. The layout keeps its
+/// [`GUTTER_COLUMNS`] either way; only the pixels the empty gutter takes shrink,
+/// so the text column starts nearer the window's edge.
+pub const GUTTER_EMPTY_COLUMNS: u32 = 2;
 /// Pixels at scale 1 the window keeps clear right of the text column, at the
 /// least. The scroll bar sits in it.
 pub const RIGHT_INSET_PX: u32 = 12;
@@ -78,8 +80,6 @@ pub const RICH_LABEL_STEP: i8 = -1;
 pub use crate::image_draw::IMAGE_MAX_ROWS;
 /// The most lines of text in a toast; the rest is cut.
 pub const TOAST_MAX_LINES: usize = 3;
-/// The terminal's own text in the header strip of the trust margin.
-pub const MARGIN_LABEL: &str = "Bright";
 
 /// The terminal's mark, in the gutter, beside the first row of a line typed in
 /// the input box for a sealed command. Only the terminal draws in the gutter,
@@ -155,6 +155,12 @@ pub enum MenuHit {
     /// Outside the box.
     Outside,
 }
+
+/// Pixels at scale 1 from a context menu's outer edge to its entries: a
+/// one-pixel border and a 3 px inset.
+pub const MENU_INSET_PX: u32 = 4;
+/// Pixels at scale 1 above and below the label of a context menu entry.
+pub const MENU_ENTRY_PAD_PX: u32 = 2;
 
 /// Thickness of a bar or underline cursor, in pixels at scale 1.
 const CURSOR_LINE_PX: u32 = 2;
@@ -282,6 +288,7 @@ enum Part<'a> {
 enum Face {
     Mono,
     Sans,
+    Cjk,
     /// The proportional face at another size, in whole pixels at the render
     /// scale: a step of the type scale other than the body's.
     SansAt(u32),
@@ -309,6 +316,7 @@ struct Glyph {
 pub struct Renderer {
     font: OwnedFace,
     sans: OwnedFace,
+    cjk: OwnedFace,
     scaler: RefCell<ScaleContext>,
     /// Pixel size of the monospace face.
     px: f32,
@@ -322,6 +330,8 @@ pub struct Renderer {
     theme: Theme,
     cache: RefCell<HashMap<(Face, char), Glyph>>,
     advances: RefCell<HashMap<(char, i8), usize>>,
+    /// The gutter is drawn its full width, because it can hold marks.
+    gutter_full: bool,
 }
 
 /// A face the renderer owns: the bundled bytes or a user's font file.
@@ -396,6 +406,7 @@ impl Renderer {
     pub fn with_fonts(scale: u32, theme: Theme, fonts: &Fonts) -> Result<Self, String> {
         let font = OwnedFace::new(&fonts.mono, FACE)?;
         let sans = OwnedFace::new(&fonts.prose, SANS)?;
+        let cjk = OwnedFace::new(&FontFile::Bundled, CJK)?;
         #[allow(
             clippy::cast_precision_loss,
             reason = "a scale and a font size are small whole numbers"
@@ -427,6 +438,7 @@ impl Renderer {
         Ok(Self {
             font,
             sans,
+            cjk,
             scaler: RefCell::new(ScaleContext::new()),
             px,
             sans_px,
@@ -438,6 +450,7 @@ impl Renderer {
             theme,
             cache: RefCell::new(HashMap::new()),
             advances: RefCell::new(HashMap::new()),
+            gutter_full: false,
         })
     }
 
@@ -454,44 +467,63 @@ impl Renderer {
         GUTTER_PAD_PX * self.scale
     }
 
-    /// Pixels the header strip is taller than its row: the label's padding
-    /// above and below it.
-    #[must_use]
-    pub fn header_band_extra(&self) -> u32 {
-        2 * HEADER_LABEL_PAD_PX * self.scale
+    /// Draw the gutter its full width, for a layer whose gutter can hold marks,
+    /// or narrow, for one whose gutter stays empty.
+    pub fn set_gutter_full(&mut self, full: bool) {
+        self.gutter_full = full;
     }
 
-    /// Pixels every row below the header is moved down by: the header's
-    /// padding and the gap under its divider.
+    /// Whether the gutter is drawn its full width.
     #[must_use]
-    pub fn header_pad(&self) -> u32 {
-        self.header_band_extra() + HEADER_GAP_PX * self.scale
+    pub fn gutter_full(&self) -> bool {
+        self.gutter_full
     }
 
-    /// Pixels a window is wider and taller than its cells: the gutter
-    /// padding and the right inset, the header padding and the bottom inset.
+    /// The gutter's width in pixels, up to and including its divider.
+    #[must_use]
+    pub fn gutter_width(&self) -> u32 {
+        let cells = if self.gutter_full {
+            GUTTER_COLUMNS
+        } else {
+            GUTTER_EMPTY_COLUMNS
+        };
+        cells * self.cell_w
+    }
+
+    /// The pixel column the text column starts at: past the gutter and its
+    /// padding.
+    #[must_use]
+    pub fn content_left(&self) -> u32 {
+        self.gutter_width() + self.gutter_pad()
+    }
+
+    /// The pixel column of the left edge of layout column `col`. The gutter's
+    /// columns share its drawn width; a column right of it starts past the
+    /// padding.
+    #[must_use]
+    pub fn col_px(&self, col: u32) -> u32 {
+        if col >= GUTTER_COLUMNS {
+            self.content_left() + (col - GUTTER_COLUMNS) * self.cell_w
+        } else {
+            (col * self.cell_w).min(self.gutter_width())
+        }
+    }
+
+    /// The width in pixels of a window frame `cols` cells wide.
+    #[must_use]
+    pub fn frame_width(&self, cols: u32) -> u32 {
+        if cols > GUTTER_COLUMNS {
+            self.col_px(cols)
+        } else {
+            self.content_left()
+        }
+    }
+
+    /// Pixels a window is wider and taller than its cells: the right inset,
+    /// where the scroll bar sits, and the bottom inset.
     #[must_use]
     pub fn insets(&self) -> (u32, u32) {
-        (
-            self.gutter_pad() + RIGHT_INSET_PX * self.scale,
-            self.header_pad() + BOTTOM_INSET_PX * self.scale,
-        )
-    }
-
-    /// The pixel column where cell column `col` starts. Columns right of the
-    /// gutter start a gutter padding further right.
-    #[must_use]
-    pub fn px_x(&self, col: u32) -> u32 {
-        col.saturating_mul(self.cell_w)
-            .saturating_add(if col >= GUTTER_COLUMNS { self.gutter_pad() } else { 0 })
-    }
-
-    /// The pixel row where cell row `row` starts. Rows below the header start
-    /// a header padding further down.
-    #[must_use]
-    pub fn px_y(&self, row: u32) -> u32 {
-        row.saturating_mul(self.cell_h)
-            .saturating_add(if row >= HEADER_ROWS { self.header_pad() } else { 0 })
+        (RIGHT_INSET_PX * self.scale, BOTTOM_INSET_PX * self.scale)
     }
 
     /// The render scale.
@@ -543,15 +575,35 @@ impl Renderer {
         band: (i64, i64),
         colour: Rgb,
     ) {
-        let (x, y) = at;
+        let (mut x, y) = at;
+        let mut face = face;
+        if face == Face::Mono && ch != ' ' && ch != '\0' && self.font.get().charmap().map(ch) == 0 {
+            face = Face::Cjk;
+        }
         let set = self.face_set(face);
         let (font, size) = match face {
             Face::Mono => (self.font.get(), set.px),
             Face::Sans | Face::SansAt(_) => (self.sans.get(), set.px),
+            Face::Cjk => (self.cjk.get(), set.px),
         };
         let glyph = font.charmap().map(ch);
         if ch == ' ' || ch == '\0' || glyph == 0 {
             return;
+        }
+        if face == Face::Cjk {
+            let advance = font.glyph_metrics(&[]).scale(size).advance_width(glyph);
+            #[allow(
+                clippy::cast_precision_loss,
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a band is a few hundred pixels and the shift is not negative"
+            )]
+            {
+                let room = (band.1 - band.0) as f32;
+                if room > advance {
+                    x += ((room - advance) / 2.0) as u32;
+                }
+            }
         }
         let mut cache = self.cache.borrow_mut();
         let g = cache.entry((face, ch)).or_insert_with(|| {
@@ -751,7 +803,7 @@ impl Renderer {
         let t = self.scale.max(1);
         let ink = self.theme.foreground;
         let under = self.colours(cell.style).1;
-        let dimmed = [0, 1, 2].map(|i| ink[i] / 2 + under[i] / 2);
+        let dimmed = crate::design::dimmed_cursor(ink, under);
         let colour = if state.focused { ink } else { dimmed };
         match view.shape {
             CursorShape::Block if state.focused => {
@@ -993,7 +1045,7 @@ impl Renderer {
     /// How a line of `face` is set.
     fn face_set(&self, face: Face) -> LineSet {
         match face {
-            Face::Mono => LineSet {
+            Face::Mono | Face::Cjk => LineSet {
                 face,
                 px: self.px,
                 ascent: self.ascent,
@@ -1285,6 +1337,53 @@ impl Renderer {
         out
     }
 
+    /// For each row [`Renderer::view_rows`] gives, in the same order, its line in
+    /// the live grid block (negative for a line of its scrollback, counted up
+    /// from the screen's top), or `None` for a row of an earlier grid block. The
+    /// rows are chosen by the same test, so the two lists are the same length
+    /// and index the same rows, a partly visible row at the top or bottom included.
+    #[must_use]
+    pub fn view_row_lines(
+        &self,
+        doc: &Document,
+        columns: usize,
+        view_top: u32,
+        area: u32,
+    ) -> Vec<Option<i64>> {
+        let strips = doc.strips();
+        let newest = strips.last().map(|s| s.cycle);
+        let end = view_top.saturating_add(area);
+        let live = doc.blocks().last().and_then(|b| match b {
+            Block::Grid(x) => Some(&**x),
+            Block::Rich(_) => None,
+        });
+        let mut out = Vec::new();
+        for p in self.placement(doc, columns, &strips, newest) {
+            let Part::Grid(g) = p.part else { continue };
+            let hist = g.history_rows();
+            let is_live = live.is_some_and(|l| std::ptr::eq(l, g));
+            for k in 0..self.placed_rows(&p) {
+                let y = p.top.saturating_add(
+                    u32::try_from(k)
+                        .unwrap_or(u32::MAX)
+                        .saturating_mul(self.cell_h),
+                );
+                if y + self.cell_h <= view_top || y >= end {
+                    continue;
+                }
+                out.push(if is_live {
+                    i64::try_from(k)
+                        .ok()
+                        .zip(i64::try_from(hist).ok())
+                        .map(|(k, hist)| k - hist)
+                } else {
+                    None
+                });
+            }
+        }
+        out
+    }
+
     /// Where the live grid block's screen starts in the flow, in pixels from the
     /// top of the flow: the newest block, when it is a grid. A pointer over
     /// the content area maps into that block's cells from here.
@@ -1437,9 +1536,7 @@ impl Renderer {
                             block: p.index,
                             row: i,
                             top: first.saturating_add(
-                                u32::try_from(i)
-                                    .unwrap_or(u32::MAX)
-                                    .saturating_mul(line_h),
+                                u32::try_from(i).unwrap_or(u32::MAX).saturating_mul(line_h),
                             ),
                             height: line_h,
                             text,
@@ -1760,11 +1857,7 @@ impl Renderer {
             for y in top..bottom {
                 for x in start..end {
                     if let Some(p) = region.pixel(x, y) {
-                        let mixed: Rgb = std::array::from_fn(|k| {
-                            u8::try_from((2 * u16::from(p[k]) + u16::from(fg[k])) / 3)
-                                .unwrap_or(p[k])
-                        });
-                        region.put(x, y, mixed);
+                        region.put(x, y, crate::design::selected(p, fg));
                     }
                 }
             }
@@ -1932,46 +2025,39 @@ impl Renderer {
     /// The pixel box `(x, y, w, h)` of a layout rectangle. What lies right of
     /// the gutter is moved right by the gutter padding, so the text column
     /// starts clear of the divider; the header runs on to the window's edge.
-    /// What lies below the header is moved down by the header padding; the
-    /// header itself ends at the bottom of its band, above the gap.
     fn rect_px(&self, r: &Rect) -> (u32, u32, u32, u32) {
-        let right_edge = |col: u32| {
-            col * self.cell_w + if col > GUTTER_COLUMNS { self.gutter_pad() } else { 0 }
+        // The gutter's right edge is its divider; past it comes the padding.
+        let edge = |col: u32| {
+            if col > GUTTER_COLUMNS {
+                self.col_px(col)
+            } else {
+                (col * self.cell_w).min(self.gutter_width())
+            }
         };
-        let bottom_edge = |row: u32| {
-            row * self.cell_h
-                + match row.cmp(&HEADER_ROWS) {
-                    std::cmp::Ordering::Less => 0,
-                    std::cmp::Ordering::Equal => self.header_band_extra(),
-                    std::cmp::Ordering::Greater => self.header_pad(),
-                }
-        };
-        let (left, top) = (self.px_x(r.x), self.px_y(r.y));
+        let left = self.col_px(r.x);
+        let right = edge(r.x + r.w);
         (
             left,
-            top,
-            right_edge(r.x + r.w).saturating_sub(left),
-            bottom_edge(r.y + r.h).saturating_sub(top),
+            r.y * self.cell_h,
+            right.saturating_sub(left),
+            r.h * self.cell_h,
         )
     }
 
     /// Paint the margin where `frame` is larger than the `drawn` part of it
-    /// (width, height): the header band and its divider right of `drawn.0`,
-    /// and the gutter and its divider below `drawn.1`. A window is rarely a
-    /// whole number of cells, so the margin runs on to the window's edges.
-    /// Only the terminal's colours are used.
+    /// (width, height): the header strip right of `drawn.0`, and the gutter
+    /// and its divider below `drawn.1`. A window is rarely a whole number of
+    /// cells, so the margin runs on to the window's edges. Only the
+    /// terminal's colours are used.
     pub fn extend_margin(&self, frame: &mut Frame, (drawn_w, drawn_h): (u32, u32)) {
         let t = &self.theme;
         let line = self.scale;
-        let band = (self.cell_h * HEADER_ROWS + self.header_band_extra()).min(frame.height);
+        let band = (self.cell_h * HEADER_ROWS).min(frame.height);
         let wide = frame.width.saturating_sub(drawn_w);
         if wide > 0 {
             frame.fill(drawn_w, 0, wide, band, t.margin);
-            if band >= line {
-                frame.fill(drawn_w, band - line, wide, line, t.divider);
-            }
         }
-        let gutter = (self.cell_w * GUTTER_COLUMNS).min(frame.width);
+        let gutter = self.gutter_width().min(frame.width);
         let from = drawn_h.max(band);
         let tall = frame.height.saturating_sub(from);
         if tall > 0 {
@@ -2327,8 +2413,8 @@ impl Renderer {
         );
         let px = |r: &Rect| self.rect_px(r);
         let mut frame = Frame::new(
-            (win.cols * self.cell_w + self.insets().0).max(1),
-            (win.rows * self.cell_h + self.insets().1).max(1),
+            (self.frame_width(win.cols) + RIGHT_INSET_PX * self.scale).max(1),
+            (win.rows * self.cell_h + BOTTOM_INSET_PX * self.scale).max(1),
             t.background,
         );
 
@@ -2391,18 +2477,14 @@ impl Renderer {
             let (mx, my, mw, mh) = px(m);
             frame.fill(mx, my, mw, mh, t.margin);
         }
-        // The divider: one line along the inner edges of the margin, inside
-        // it, under the header and right of the gutter below the header.
+        // The divider: one line on the gutter's right edge, below the header.
+        // The header strip has no line under it, so nothing crosses the gutter.
         let line = self.scale;
         let [gutter, header] = &lay.margin;
         let (gx, gy, gw, gh) = px(gutter);
         let (_, hy, _, hh) = px(header);
         // The header runs the whole width of the window, past the last column.
-        let hw = frame.width;
-        frame.fill(0, hy, hw, hh, t.margin);
-        if hh >= line {
-            frame.fill(0, hy + hh - line, hw, line, t.divider);
-        }
+        frame.fill(0, hy, frame.width, hh, t.margin);
         if gw >= line {
             frame.fill(
                 gx + gw - line,
@@ -2415,13 +2497,6 @@ impl Renderer {
         // Below the last row: the gutter runs on to the bottom of the frame.
         let full_width = frame.width;
         self.extend_margin(&mut frame, (full_width, gy + gh));
-        self.text_line(
-            &mut frame,
-            self.cell_w * GUTTER_COLUMNS.min(win.cols) + self.gutter_pad(),
-            HEADER_LABEL_PAD_PX * self.scale,
-            MARGIN_LABEL,
-            t.margin_text,
-        );
         frame
     }
 
@@ -2435,7 +2510,7 @@ impl Renderer {
     /// pixel `top`: the gutter, short of its divider, on that row.
     #[must_use]
     pub fn on_typed_mark(&self, top: u32, (x, y): (u32, u32)) -> bool {
-        let gutter = self.cell_w * GUTTER_COLUMNS;
+        let gutter = self.gutter_width();
         x < gutter.saturating_sub(self.scale) && y >= top && y < top + self.cell_h
     }
 
@@ -2450,8 +2525,8 @@ impl Renderer {
         let chars = u32::try_from(TYPED_TIP.chars().count()).unwrap_or(0);
         let width = (chars + 2) * self.cell_w;
         let height = self.cell_h + 2 * self.scale;
-        let header = self.px_y(HEADER_ROWS);
-        let content = self.px_x(GUTTER_COLUMNS);
+        let header = self.cell_h * HEADER_ROWS;
+        let content = self.content_left();
         let wanted = content + after * self.cell_w;
         let (left, top) = if wanted + width <= frame.width {
             (wanted, row_top.saturating_sub(self.scale).max(header))
@@ -2660,8 +2735,17 @@ impl Renderer {
             self.text_line(frame, left + self.cell_w, line_top, line, colour);
             line_top += self.cell_h;
         }
+        // A button is a field with a control edge, its label in the body text:
+        // a pair the palette's floors already hold, whatever the box's colour.
         for (label, (bx, by, bw, bh)) in &placed.buttons {
-            frame.fill(*bx, *by, *bw, *bh, theme.toast_border);
+            frame.fill(*bx, *by, *bw, *bh, theme.border);
+            frame.fill(
+                bx + self.scale,
+                by + self.scale,
+                bw.saturating_sub(2 * self.scale),
+                bh.saturating_sub(2 * self.scale),
+                theme.editor,
+            );
             self.text_line(frame, *bx, *by, label, theme.foreground);
         }
     }
@@ -2709,8 +2793,10 @@ impl Renderer {
         menu: &crate::contextmenu::ContextMenu,
     ) -> MenuBox {
         let cw = self.cell_w.max(1);
-        let edge = 2 * self.scale;
-        let entry_h = self.cell_h + 2 * self.scale;
+        // The one-pixel edge and a 3 px inset inside it, so the highlight sits
+        // clear of the edge; each entry is 2 px above and below its label.
+        let edge = MENU_INSET_PX * self.scale;
+        let entry_h = self.cell_h + 2 * MENU_ENTRY_PAD_PX * self.scale;
         let rule_h = self.cell_h / 2 + self.scale;
         let labels = menu
             .items()
@@ -2743,34 +2829,50 @@ impl Renderer {
 
     /// Draw a context menu over `frame`, the whole window. It is painted after
     /// everything else, so nothing a program drew can cover it or pass for it.
+    ///
+    /// The menu is a raised surface with a control edge, not a toast: it is a
+    /// control, not a notice. The highlighted entry is filled with the accent
+    /// and its label drawn in the canvas colour. That is the accent-on-canvas
+    /// pair every palette already holds to its text floor, so the highlighted
+    /// label is as readable as the accent is anywhere.
     pub fn paint_context_menu(&self, frame: &mut Frame, menu: &crate::contextmenu::ContextMenu) {
         let theme = &self.theme;
         let placed = self.context_menu_box(frame.width, frame.height, menu);
         let (left, top, width, height) = placed.rect;
-        frame.fill(left, top, width, height, theme.toast_border);
-        let edge = 2 * self.scale;
+        frame.fill(left, top, width, height, theme.border);
+        let line = self.scale;
         frame.fill(
-            left + edge,
-            top + edge,
-            width.saturating_sub(2 * edge),
-            height.saturating_sub(2 * edge),
-            theme.toast,
+            left + line,
+            top + line,
+            width.saturating_sub(2 * line),
+            height.saturating_sub(2 * line),
+            theme.container,
         );
+        let label_y = |ry: u32, rh: u32| ry + rh.saturating_sub(self.cell_h) / 2;
         for (i, (entry, (rx, ry, rw, rh))) in menu.items().iter().zip(&placed.rows).enumerate() {
             if let Some((_, label, on)) = entry {
-                if menu.hover() == Some(i) {
-                    frame.fill(*rx, *ry, *rw, *rh, theme.toast_border);
-                }
-                let colour = if *on { theme.foreground } else { theme.muted };
-                self.text_line(frame, rx + 2 * self.cell_w, ry + self.scale, label, colour);
+                let colour = if menu.hover() == Some(i) {
+                    frame.fill(*rx, *ry, *rw, *rh, theme.prompt);
+                    theme.background
+                } else if *on {
+                    theme.foreground
+                } else {
+                    theme.muted
+                };
+                self.text_line(
+                    frame,
+                    rx + 2 * self.cell_w,
+                    label_y(*ry, *rh),
+                    label,
+                    colour,
+                );
             } else {
-                let line = (*rh / 2).max(1);
                 frame.fill(
                     rx + self.cell_w,
-                    ry + line,
+                    ry + (*rh / 2).max(1),
                     rw.saturating_sub(2 * self.cell_w),
                     self.scale.max(1),
-                    theme.toast_border,
+                    theme.divider,
                 );
             }
         }
