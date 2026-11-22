@@ -89,8 +89,10 @@ function Palette() {
   $light = [Probe]::Count($bmp, 222, 225, 231)
   $hc = [Probe]::Count($bmp, 140, 140, 140)
   $bmp.Dispose()
-  if ($light -gt 0 -and $hc -eq 0) { return "light" }
-  if ($hc -gt 0 -and $light -eq 0) { return "high-contrast" }
+  # A few stray pixels can match by chance (window frame, glyph edges), so the
+  # palette is the one whose divider colour is at least ten times as common.
+  if ($light -gt 0 -and $light -ge (10 * $hc)) { return "light" }
+  if ($hc -gt 0 -and $hc -ge (10 * $light)) { return "high-contrast" }
   return "unclear (light=$light, high-contrast=$hc)"
 }
 function WaitForPalette($want) {
