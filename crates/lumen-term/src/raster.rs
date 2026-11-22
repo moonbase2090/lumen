@@ -37,6 +37,9 @@ use swash::zeno::Format;
 
 /// The bundled monospace face.
 const FACE: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf");
+/// The bundled fallback face for Chinese, Japanese and Korean characters the
+/// monospace face lacks: a subset of Noto Sans CJK (SIL Open Font License).
+const CJK: &[u8] = include_bytes!("../assets/fonts/NotoSansCJK-Subset-Regular.otf");
 /// The bundled proportional face, for text in rich blocks.
 const SANS: &[u8] = include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf");
 /// Proportional advances are measured in 64ths of a pixel, so a line is as
@@ -263,6 +266,7 @@ enum Part<'a> {
 enum Face {
     Mono,
     Sans,
+    Cjk,
 }
 
 struct Glyph {
@@ -277,6 +281,7 @@ struct Glyph {
 pub struct Renderer {
     font: OwnedFace,
     sans: OwnedFace,
+    cjk: OwnedFace,
     scaler: RefCell<ScaleContext>,
     /// Pixel size of the monospace face.
     px: f32,
@@ -364,6 +369,7 @@ impl Renderer {
     pub fn with_fonts(scale: u32, theme: Theme, fonts: &Fonts) -> Result<Self, String> {
         let font = OwnedFace::new(&fonts.mono, FACE)?;
         let sans = OwnedFace::new(&fonts.prose, SANS)?;
+        let cjk = OwnedFace::new(&FontFile::Bundled, CJK)?;
         #[allow(
             clippy::cast_precision_loss,
             reason = "a scale and a font size are small whole numbers"
@@ -395,6 +401,7 @@ impl Renderer {
         Ok(Self {
             font,
             sans,
+            cjk,
             scaler: RefCell::new(ScaleContext::new()),
             px,
             sans_px,
@@ -471,14 +478,34 @@ impl Renderer {
         band: (i64, i64),
         colour: Rgb,
     ) {
-        let (x, y) = at;
+        let (mut x, y) = at;
+        let mut face = face;
+        if face == Face::Mono && ch != ' ' && ch != '\0' && self.font.get().charmap().map(ch) == 0 {
+            face = Face::Cjk;
+        }
         let (font, size) = match face {
             Face::Mono => (self.font.get(), self.px),
             Face::Sans => (self.sans.get(), self.sans_px),
+            Face::Cjk => (self.cjk.get(), self.px),
         };
         let glyph = font.charmap().map(ch);
         if ch == ' ' || ch == '\0' || glyph == 0 {
             return;
+        }
+        if face == Face::Cjk {
+            let advance = font.glyph_metrics(&[]).scale(size).advance_width(glyph);
+            #[allow(
+                clippy::cast_precision_loss,
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a band is a few hundred pixels and the shift is not negative"
+            )]
+            {
+                let room = (band.1 - band.0) as f32;
+                if room > advance {
+                    x += ((room - advance) / 2.0) as u32;
+                }
+            }
         }
         let mut cache = self.cache.borrow_mut();
         let g = cache.entry((face, ch)).or_insert_with(|| {
@@ -1115,6 +1142,53 @@ impl Renderer {
                     .map(|c| c.character)
                     .collect();
                 out.push(line.trim_end().to_owned());
+            }
+        }
+        out
+    }
+
+    /// For each row [`Renderer::view_rows`] gives, in the same order, its line in
+    /// the live grid block (negative for a line of its scrollback, counted up
+    /// from the screen's top), or `None` for a row of an earlier grid block. The
+    /// rows are chosen by the same test, so the two lists are the same length
+    /// and index the same rows, a partly visible row at the top or bottom included.
+    #[must_use]
+    pub fn view_row_lines(
+        &self,
+        doc: &Document,
+        columns: usize,
+        view_top: u32,
+        area: u32,
+    ) -> Vec<Option<i64>> {
+        let strips = doc.strips();
+        let newest = strips.last().map(|s| s.cycle);
+        let end = view_top.saturating_add(area);
+        let live = doc.blocks().last().and_then(|b| match b {
+            Block::Grid(x) => Some(&**x),
+            Block::Rich(_) => None,
+        });
+        let mut out = Vec::new();
+        for p in self.placement(doc, columns, &strips, newest) {
+            let Part::Grid(g) = p.part else { continue };
+            let hist = g.history_rows();
+            let is_live = live.is_some_and(|l| std::ptr::eq(l, g));
+            for k in 0..self.placed_rows(&p) {
+                let y = p.top.saturating_add(
+                    u32::try_from(k)
+                        .unwrap_or(u32::MAX)
+                        .saturating_mul(self.cell_h),
+                );
+                if y + self.cell_h <= view_top || y >= end {
+                    continue;
+                }
+                out.push(if is_live {
+                    i64::try_from(k)
+                        .ok()
+                        .zip(i64::try_from(hist).ok())
+                        .map(|(k, hist)| k - hist)
+                } else {
+                    None
+                });
             }
         }
         out
