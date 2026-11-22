@@ -90,9 +90,9 @@ pub struct CursorState {
 /// The widest a link prompt is, in cells.
 #[cfg(feature = "links-clipboard")]
 const PROMPT_COLUMNS: u32 = 72;
-/// A selected cell with more colours than this is an image or an emoji, not text
-/// on a background.
-const MANY_COLOURS: usize = 24;
+/// How far, in RGB distance, a pixel may be from the line between a cell's
+/// background and its ink and still be an antialiased edge of one glyph.
+const OFF_LINE: f64 = 36.0;
 
 /// Where a link prompt is drawn.
 #[cfg(feature = "links-clipboard")]
@@ -1782,8 +1782,10 @@ impl Renderer {
     /// the selection colour. The cell's own background is the colour most of its
     /// pixels have, its ink the pixel furthest from that, and each pixel is
     /// placed between the selection colour and the selection's text colour as
-    /// far as it was between the background and the ink. A cell of many colours
-    /// (an image, an emoji) is tinted instead, as it has no one ink.
+    /// far as it was between the background and the ink. A cell whose pixels do
+    /// not lie on that line (an image, an emoji, a colour glyph) is tinted
+    /// instead, as it has no one ink. How many shades the edges have does not
+    /// matter, so a plain glyph at any zoom is recoloured.
     fn recolour_selected(
         &self,
         region: &mut Frame,
@@ -1802,12 +1804,6 @@ impl Renderer {
                 }
             }
         }
-        if seen.len() > MANY_COLOURS {
-            for (x, y, p) in pixels {
-                region.put(x, y, crate::design::selected(p, self.theme.foreground));
-            }
-            return;
-        }
         let Some(bg) = seen.iter().max_by_key(|(c, n)| (**n, **c)).map(|(c, _)| *c) else {
             return;
         };
@@ -1822,6 +1818,32 @@ impl Renderer {
             .max_by(|a, b| away(*a).total_cmp(&away(*b)))
             .unwrap_or(bg);
         let span = away(ink);
+        // The distance of a pixel from the line between the background and the ink.
+        let off = |p: Rgb| -> f64 {
+            if span == 0.0 {
+                return 0.0;
+            }
+            let t: f64 = (0..3)
+                .map(|k| {
+                    (f64::from(p[k]) - f64::from(bg[k])) * (f64::from(ink[k]) - f64::from(bg[k]))
+                })
+                .sum::<f64>()
+                / span;
+            (0..3)
+                .map(|k| {
+                    let on = f64::from(bg[k]) + (f64::from(ink[k]) - f64::from(bg[k])) * t;
+                    (f64::from(p[k]) - on).powi(2)
+                })
+                .sum::<f64>()
+                .sqrt()
+        };
+        let stray = pixels.iter().filter(|(_, _, p)| off(*p) > OFF_LINE).count();
+        if stray * 10 > pixels.len() {
+            for (x, y, p) in pixels {
+                region.put(x, y, crate::design::selected(p, self.theme.foreground));
+            }
+            return;
+        }
         for (x, y, p) in pixels {
             let reach = if span == 0.0 {
                 0.0
