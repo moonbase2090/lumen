@@ -34,7 +34,7 @@ SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO="sudo"
 
 if command -v apt-get >/dev/null 2>&1; then
   $SUDO apt-get update -qq
-  $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential git curl python3 rsync pkg-config procps >/dev/null
+  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential git curl python3 rsync pkg-config procps >/dev/null
 fi
 if ! command -v rustup >/dev/null 2>&1; then
   curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
