@@ -422,6 +422,177 @@ fn a_fixed_choice_ignores_the_appearance() -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
+/// When the system asks for more contrast, a look that follows the system draws
+/// the built-in high-contrast palette at once, with no restart, and goes back
+/// when the system stops asking, to whichever appearance it shows.
+#[cfg(unix)]
+#[test]
+fn the_system_asking_for_more_contrast_draws_the_high_contrast_palette_live()
+-> Result<(), Box<dyn std::error::Error>> {
+    use lumen_term::design::Appearance;
+    use lumen_term::{App, Passthrough};
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", "sleep 3"],
+        1,
+        400,
+        300,
+    )?;
+    let (light, dark, hc) = (Palette::light(), Palette::dark(), Palette::high_contrast());
+    app.set_appearance(Appearance::Dark);
+    assert_eq!(canvas_and_gutter(&app)?, (dark.canvas, dark.chrome));
+    assert!(app.set_more_contrast(true));
+    assert_eq!(canvas_and_gutter(&app)?, (hc.canvas, hc.chrome));
+    // Told again, nothing changes and nothing needs drawing.
+    assert!(!app.set_more_contrast(true));
+    // A change of appearance while contrast is asked for keeps the high-contrast look.
+    assert!(!app.set_appearance(Appearance::Light));
+    assert_eq!(canvas_and_gutter(&app)?, (hc.canvas, hc.chrome));
+    assert!(app.set_more_contrast(false));
+    assert_eq!(canvas_and_gutter(&app)?, (light.canvas, light.chrome));
+    Ok(())
+}
+
+/// A palette the user fixed is kept whatever the system asks for.
+#[cfg(unix)]
+#[test]
+fn a_fixed_choice_ignores_the_system_asking_for_more_contrast()
+-> Result<(), Box<dyn std::error::Error>> {
+    use lumen_term::design::ThemeChoice;
+    use lumen_term::{App, Passthrough};
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", "sleep 3"],
+        1,
+        400,
+        300,
+    )?;
+    let dark = Palette::dark();
+    assert!(app.set_theme_choice(ThemeChoice::Fixed(dark)));
+    assert!(!app.set_more_contrast(true));
+    assert_eq!(canvas_and_gutter(&app)?, (dark.canvas, dark.chrome));
+    Ok(())
+}
+
+/// The least contrast text keeps while selected, and the least an ANSI colour
+/// keeps, over the surfaces and the canvas; the renderer's own selection formula
+/// ([`lumen_term::design::selected`]) is applied to both the text and what is
+/// behind it, as the painted selection does to every pixel.
+fn selected_worst(p: &Palette) -> (f64, f64) {
+    use lumen_term::design::{contrast, selected};
+    let mut text = f64::MAX;
+    for (_, surface) in p.surfaces() {
+        let behind = selected(surface, p.text);
+        for (_, ink) in p.text_roles() {
+            text = text.min(contrast(selected(ink, p.text), behind));
+        }
+    }
+    let exempt: &[usize] = if p.is_dark() { &[0] } else { &[7, 15] };
+    let mut ansi = f64::MAX;
+    for (i, colour) in p.ansi.iter().enumerate() {
+        if exempt.contains(&i) {
+            continue;
+        }
+        for surface in [p.canvas, p.surface] {
+            ansi = ansi.min(contrast(
+                selected(*colour, p.text),
+                selected(surface, p.text),
+            ));
+        }
+    }
+    (text, ansi)
+}
+
+/// Known shortfalls of the selected state, by palette: the least contrast that
+/// text and ANSI colours have under the selection tint where it is under the
+/// palette's floor. A ratchet: a number may only go up, and an entry has to be
+/// removed the moment its palette clears the floor (trial rule 5).
+///
+/// The selection moves every pixel a third of the way to the foreground, so a
+/// text colour other than the foreground loses more than a third of its
+/// contrast. Fixing it needs the selected text redrawn on a selection colour
+/// instead of tinted over, which is its own change.
+const SELECTION_SHORTFALLS: [(&str, Option<f64>, Option<f64>); 3] = [
+    ("light", Some(3.90), None),
+    ("dark", Some(2.69), Some(2.45)),
+    ("high-contrast", Some(4.97), Some(4.01)),
+];
+
+#[test]
+fn the_selected_state_holds_its_known_contrast_and_the_shortfall_list_only_shrinks() {
+    for b in Builtin::ALL {
+        let p = b.palette();
+        let floors = b.floors();
+        let (text, ansi) = selected_worst(&p);
+        let (name, text_known, ansi_known) = SELECTION_SHORTFALLS
+            .iter()
+            .copied()
+            .find(|(n, _, _)| *n == b.name())
+            .unwrap_or_else(|| unreachable!("every built-in is listed"));
+        assert_eq!(name, b.name());
+        match text_known {
+            Some(known) => {
+                assert!(
+                    text < floors.text,
+                    "{name}: selected text is {text:.2}, over its floor {}: remove it from the list",
+                    floors.text
+                );
+                assert!(
+                    text >= known,
+                    "{name}: selected text fell to {text:.2}, under the recorded {known}"
+                );
+            }
+            None => assert!(
+                text >= floors.text,
+                "{name}: selected text is {text:.2}, under {}: list it or fix it",
+                floors.text
+            ),
+        }
+        let ansi_floor = floors.ansi.unwrap_or(0.0);
+        match ansi_known {
+            Some(known) => {
+                assert!(
+                    ansi < ansi_floor,
+                    "{name}: selected ANSI is {ansi:.2}, over its floor {ansi_floor}: remove it from the list"
+                );
+                assert!(
+                    ansi >= known,
+                    "{name}: selected ANSI fell to {ansi:.2}, under the recorded {known}"
+                );
+            }
+            None => assert!(
+                ansi >= ansi_floor,
+                "{name}: selected ANSI is {ansi:.2}, under {ansi_floor}: list it or fix it"
+            ),
+        }
+    }
+}
+
+/// A bar or underline cursor in a window without the focus is a user interface
+/// component: it keeps 3:1 against the canvas and the surfaces it sits on.
+#[test]
+fn the_unfocused_cursor_keeps_three_to_one_on_every_surface() {
+    use lumen_term::design::{contrast, dimmed_cursor};
+    for b in Builtin::ALL {
+        let p = b.palette();
+        for (surface, bg) in [
+            ("canvas", p.canvas),
+            ("surface", p.surface),
+            ("field", p.field),
+            ("sunken", p.sunken),
+        ] {
+            let ratio = contrast(dimmed_cursor(p.text, bg), bg);
+            assert!(
+                ratio >= 3.0,
+                "{}: the dimmed cursor on {surface} is {ratio:.2}:1",
+                b.name()
+            );
+        }
+    }
+}
+
 /// Every built-in palette paints the trust margin in the canvas colour, and
 /// sets it off with a divider that differs from the canvas.
 #[test]

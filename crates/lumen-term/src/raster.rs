@@ -699,7 +699,7 @@ impl Renderer {
         let t = self.scale.max(1);
         let ink = self.theme.foreground;
         let under = self.colours(cell.style).1;
-        let dimmed = [0, 1, 2].map(|i| ink[i] / 2 + under[i] / 2);
+        let dimmed = crate::design::dimmed_cursor(ink, under);
         let colour = if state.focused { ink } else { dimmed };
         match view.shape {
             CursorShape::Block if state.focused => {
@@ -1656,11 +1656,7 @@ impl Renderer {
             for y in top..bottom {
                 for x in start..end {
                     if let Some(p) = region.pixel(x, y) {
-                        let mixed: Rgb = std::array::from_fn(|k| {
-                            u8::try_from((2 * u16::from(p[k]) + u16::from(fg[k])) / 3)
-                                .unwrap_or(p[k])
-                        });
-                        region.put(x, y, mixed);
+                        region.put(x, y, crate::design::selected(p, fg));
                     }
                 }
             }

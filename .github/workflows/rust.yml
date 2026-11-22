@@ -71,7 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --locked -p lumen-term --test shell --test settings --test shell_windows --test settings_userprofile_windows -- --nocapture
+      - run: cargo test --locked -p lumen-term --test shell --test settings --test shell_windows --test settings_userprofile_windows --test contrast_windows -- --nocapture
 
   # The window's accessibility tree on Windows, read through UI Automation, the
   # API a screen reader uses: the terminal's rows and links, acting on a link,
