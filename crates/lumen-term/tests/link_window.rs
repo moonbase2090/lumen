@@ -705,12 +705,18 @@ fn the_button_labels_are_readable_in_every_built_in_palette() {
         let b = app
             .link_prompt_box()
             .unwrap_or_else(|| unreachable!("a prompt"));
+        // The button's edge is one pixel at each scale step. Only its inside
+        // is scanned: the edge differs from the fill, so counting it would pass
+        // a button whose label is not drawn at all.
+        let edge = app.scale();
         for (label, (bx, by, bw, bh)) in &b.buttons {
-            // Inside the button's one-pixel edge, left of its label.
-            let fill = frame.pixel(bx + 2, by + 2).unwrap_or_default();
+            // Inside the edge, left of its label.
+            let fill = frame
+                .pixel(bx + edge + 1, by + edge + 1)
+                .unwrap_or_default();
             let mut ink = 1.0_f64;
-            for py in *by..by + bh {
-                for px in *bx..bx + bw {
+            for py in by + edge..by + bh - edge {
+                for px in bx + edge..bx + bw - edge {
                     if let Some(c) = frame.pixel(px, py) {
                         ink = ink.max(contrast(c, fill));
                     }
