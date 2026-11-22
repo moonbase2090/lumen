@@ -108,7 +108,7 @@ function WaitForPalette($want) {
 function RefocusAndCheck($label) {
   $script:other = Start-Process notepad.exe -PassThru
   WaitFor "notepad to have the focus" { [Probe]::ForegroundPid() -eq $script:other.Id } | Out-Null
-  $window.SetFocus()
+  (New-Object -ComObject WScript.Shell).AppActivate($app.Id) | Out-Null
   WaitFor "the Bright window to have the focus" { [Probe]::ForegroundPid() -eq $app.Id } | Out-Null
   # Read the setting a few more times over a few seconds: a console opened by the
   # read would take the focus, and this would see the other process in front.
@@ -121,7 +121,7 @@ function RefocusAndCheck($label) {
   $script:other = $null
 }
 
-$window.SetFocus()
+(New-Object -ComObject WScript.Shell).AppActivate($app.Id) | Out-Null
 WaitFor "the window to have the focus" { [Probe]::ForegroundPid() -eq $app.Id } | Out-Null
 Write-Output "start (theme off): $(WaitForPalette 'light')"
 
