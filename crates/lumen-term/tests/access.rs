@@ -241,3 +241,114 @@ fn the_links_a_reader_gets_are_those_of_the_rows_it_gets_when_the_view_is_scroll
         "a link in the scrollback is not a keyboard stop"
     );
 }
+
+fn columns_of(app: &App) -> usize {
+    app.session()
+        .document()
+        .blocks()
+        .iter()
+        .find_map(|block| match block {
+            lumen_term::Block::Grid(grid) => Some(grid.size().0),
+            lumen_term::Block::Rich(_) => None,
+        })
+        .unwrap_or_else(|| unreachable!("a live grid"))
+}
+
+/// An app on a program that has printed `printf_args` and then waits, with the
+/// live grid's width, once `marker` is on the screen.
+fn started_with(script_for: impl Fn(usize) -> String, marker: &str) -> App {
+    let mut probe = start("echo probe; sleep 30");
+    assert!(pump_until(&mut probe, |a| shows(a, "probe")));
+    let columns = columns_of(&probe);
+    drop(probe);
+    let mut app = start(&script_for(columns));
+    assert!(pump_until(&mut app, |a| shows(a, marker)));
+    app
+}
+
+#[test]
+fn every_row_of_text_with_an_address_has_its_link_at_every_pixel_of_scroll() {
+    // 150 rows, each with its own address, so most are in the history.
+    let script = "i=0; while [ $i -lt 150 ]; do echo \"row $i https://example.com/r$i\"; i=$((i+1)); done; echo end-marker; sleep 30";
+    let mut app = start(script);
+    assert!(pump_until(&mut app, |a| shows(a, "end-marker")));
+    let ch = i64::from(app.cell_height());
+    app.scroll_end(true);
+    for step in 0..(2 * ch) {
+        let rows = app.visible_text();
+        let links = app.view_links();
+        for (i, row) in rows.iter().enumerate() {
+            if let Some(at) = row.find("https://example.com/") {
+                let want = &row[at..];
+                assert!(
+                    links.iter().any(|l| l.view_row == i && l.target() == want),
+                    "pixel {step}: row {i} ({row:?}) has no link; links: {:?}",
+                    links
+                        .iter()
+                        .map(|l| (l.view_row, l.target().to_owned()))
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+        assert_eq!(
+            links.len(),
+            rows.iter()
+                .filter(|r| r.contains("https://example.com/"))
+                .count(),
+            "pixel {step}: one link for each row with an address"
+        );
+        assert!(app.scroll_pixels(-1), "the view moves down a pixel");
+    }
+}
+
+#[test]
+fn an_address_over_three_rows_is_one_link_that_can_be_focused() {
+    let mut app = started_with(
+        |columns| {
+            let url = format!("https://example.com/{}", "a".repeat(columns * 2 + 10));
+            format!("echo '{url}'; echo tail-marker; sleep 30")
+        },
+        "tail-marker",
+    );
+    let links = app.view_links();
+    assert_eq!(links.len(), 1, "one address over three rows is one link");
+    assert!(links[0].target().starts_with("https://example.com/aaa"));
+    assert!(app.focus_view_link(0), "a wrapped link takes focus");
+    assert_eq!(app.view_links().iter().position(|l| l.focused), Some(0));
+}
+
+#[test]
+fn an_address_over_two_rows_takes_focus_from_a_reader() {
+    let mut app = started_with(
+        |columns| {
+            let url = format!("https://example.com/{}", "b".repeat(columns + 5));
+            format!("echo 'xx {url}'; echo tail-marker; sleep 30")
+        },
+        "tail-marker",
+    );
+    assert_eq!(app.view_links().len(), 1);
+    assert!(app.focus_view_link(0));
+    assert_eq!(app.view_links().iter().position(|l| l.focused), Some(0));
+}
+
+#[test]
+fn identical_addresses_across_a_hard_newline_are_two_links() {
+    let mut app = started_with(
+        |columns| {
+            // Each address fills a whole row, the first ends in the last column,
+            // and a real line break (not a wrap) comes before the second.
+            let url = format!("https://example.com/{}", "c".repeat(columns - 20));
+            format!("echo '{url}'; echo '{url}'; echo tail-marker; sleep 30")
+        },
+        "tail-marker",
+    );
+    let links = app.view_links();
+    assert_eq!(
+        links.len(),
+        2,
+        "{:?}",
+        links.iter().map(|l| l.target().len()).collect::<Vec<_>>()
+    );
+    assert_eq!(links[0].target(), links[1].target());
+    let _ = &mut app;
+}

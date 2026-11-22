@@ -69,10 +69,16 @@ struct Links {
 pub struct ViewLink {
     /// What the link is: its target, its text and where it sits.
     hit: crate::linkhit::Hit,
-    /// The row of the view it starts on, from the top.
+    /// The row of the view it starts on, from the top: the index of the row in
+    /// the text the window gives.
     pub view_row: usize,
-    /// Its line in the live grid (negative in the scrollback) and its columns.
-    live_row: i64,
+    /// The row of the view it ends on (past `view_row` when it wraps).
+    last_view_row: usize,
+    /// Where it starts: its line in the live grid (negative in the scrollback)
+    /// and its first column.
+    first: (i64, usize),
+    /// Its last line in the live grid.
+    last_line: i64,
     /// Whether the keyboard has it focused.
     pub focused: bool,
 }
@@ -1070,54 +1076,57 @@ impl App {
         let Some(Block::Grid(live)) = self.session.document().blocks().last() else {
             return Vec::new();
         };
-        let (cw, ch) = self.renderer.cell();
-        let (ch, cw) = (ch.max(1), cw.max(1));
-        let (area, _, _) = self.content_metrics();
-        let x = GUTTER_COLUMNS
-            .saturating_mul(cw)
-            .saturating_add(self.renderer.gutter_pad())
-            .saturating_add(1);
+        let (area, content_columns, total) = self.content_metrics();
+        let lines = self.renderer.view_row_lines(
+            self.session.document(),
+            content_columns,
+            self.scroll.top(total, area),
+            area,
+        );
+        let screen = live.screen();
+        let history = i64::try_from(live.history_rows()).unwrap_or(i64::MAX);
         let columns = live.size().0;
         let focus = self.links.focus.as_ref();
         let mut out: Vec<ViewLink> = Vec::new();
-        let mut i = 0usize;
-        while let Some(offset) = u32::try_from(i)
-            .ok()
-            .and_then(|n| n.checked_mul(ch))
-            .map(|n| n.saturating_add(ch / 2))
-            .filter(|n| *n < area)
-        {
-            let y = HEADER_ROWS.saturating_mul(ch).saturating_add(offset);
-            if let Some((_, row)) = self.live_point(x, y) {
-                for hit in self.hits_in_live_row(row) {
-                    let continues = out.last().is_some_and(|prev| {
-                        prev.view_row + 1 == i
-                            && prev.live_row + 1 == row
-                            && hit.columns.start == 0
-                            && prev.hit.columns.end == columns
-                            && prev.hit.target == hit.target
-                            && prev.hit.visible == hit.visible
-                    });
-                    if continues {
-                        if let Some(prev) = out.last_mut() {
-                            prev.live_row = row;
-                            prev.hit.columns = hit.columns;
-                        }
-                        continue;
+        for (i, line) in lines.into_iter().enumerate() {
+            let Some(row) = line else { continue };
+            for hit in self.hits_in_live_row(row) {
+                // A link goes on from the row above only across a real soft
+                // wrap: the row above wrapped, the link filled it to the last
+                // column and this row starts with the same link.
+                let continues = out.last().is_some_and(|prev| {
+                    prev.last_view_row + 1 == i
+                        && prev.last_line + 1 == row
+                        && hit.columns.start == 0
+                        && prev.hit.columns.end == columns
+                        && prev.hit.target == hit.target
+                        && prev.hit.visible == hit.visible
+                        && !screen.alt_active()
+                        && screen.history_line_wrapped(
+                            usize::try_from(history + prev.last_line).unwrap_or(usize::MAX),
+                        )
+                });
+                if continues {
+                    if let Some(prev) = out.last_mut() {
+                        prev.last_view_row = i;
+                        prev.last_line = row;
+                        prev.hit.columns = hit.columns;
                     }
-                    let focused = focus.is_some_and(|f| {
-                        i64::try_from(f.first.0).is_ok_and(|r| r == row)
-                            && f.first.1 == hit.columns.start
-                    });
-                    out.push(ViewLink {
-                        view_row: i,
-                        live_row: row,
-                        hit,
-                        focused,
-                    });
+                    continue;
                 }
+                let focused = focus.is_some_and(|f| {
+                    i64::try_from(f.first.0).is_ok_and(|r| r == row)
+                        && f.first.1 == hit.columns.start
+                });
+                out.push(ViewLink {
+                    view_row: i,
+                    last_view_row: i,
+                    first: (row, hit.columns.start),
+                    last_line: row,
+                    hit,
+                    focused,
+                });
             }
-            i += 1;
         }
         out
     }
@@ -1143,13 +1152,13 @@ impl App {
         let Some(link) = self.view_links().into_iter().nth(place) else {
             return false;
         };
-        let Ok(row) = usize::try_from(link.live_row) else {
+        let Ok(row) = usize::try_from(link.first.0) else {
             return false;
         };
         let Some(at) = self
             .link_stops()
             .iter()
-            .position(|stop| stop.first == (row, link.hit.columns.start))
+            .position(|stop| stop.first == (row, link.first.1))
         else {
             return false;
         };
