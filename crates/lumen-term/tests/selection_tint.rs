@@ -251,7 +251,7 @@ fn native_text_and_code_are_redrawn_on_the_selection_colours_at_every_zoom() {
         doc.apply(vec![Piece::Rich(Block::Paragraph("HELLO WORLD".into()))]);
         let lines = r.flow(&doc, 60);
         let line = lines.iter().find(|l| !l.grid).unwrap_or(&lines[0]);
-        let space = x0 + (r.char_left(line, 5) + r.char_left(line, 6)) / 2;
+        let space = x0 + u32::midpoint(r.char_left(line, 5), r.char_left(line, 6));
         assert_eq!(
             after.pixel(space, u32::midpoint(y0, y1)),
             Some(t.selection),
