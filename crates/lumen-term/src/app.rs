@@ -633,12 +633,16 @@ impl App {
     }
 
     fn with_session(
-        session: Session,
+        mut session: Session,
         renderer: Renderer,
         scale: u32,
         width: u32,
         height: u32,
     ) -> Self {
+        // Each sealed frame is acted on where it came in the stream: the
+        // checks at a command start see the screen and the shell as they were
+        // then, not after output that came later in the same read.
+        session.pause_at_sealed(true);
         let mut app = Self {
             session,
             renderer,
@@ -3108,18 +3112,25 @@ impl App {
             Some(wait) => self.session.pump_wait(wait),
             None => self.session.pump(),
         };
+        // The session stops after each sealed frame: route what came up to it,
+        // then go on with the rest of the read.
+        loop {
+            let events = self.session.take_events();
+            if !events.is_empty() {
+                self.route(&events);
+                // A sealed command start ends a line the shell was holding.
+                let facts = self.facts();
+                self.input.observe(facts);
+            }
+            if !self.session.resume() {
+                break;
+            }
+        }
         if bytes > 0 {
             self.hold_view_through_eviction(history);
             self.track_reporting();
             self.cursor_epoch_ms = self.session.now_ms();
             self.refresh_find();
-        }
-        let events = self.session.take_events();
-        if !events.is_empty() {
-            self.route(&events);
-            // A sealed command start ends a line the shell was holding.
-            let facts = self.facts();
-            self.input.observe(facts);
         }
         self.send_queued();
         self.tick();
