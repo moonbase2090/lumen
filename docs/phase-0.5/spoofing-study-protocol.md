@@ -49,7 +49,7 @@ The genuine prompts with real trust UI matter. Without them, a participant could
 Each participant sees all three conditions, one block per condition, so each person is compared with themselves.
 
 - **Block order.** The six orders of A, B and C are used equally: each order is given to 4 participants.
-- **Prompt sets.** Block 1 always shows set S1, block 2 shows S2 and block 3 shows S3. Because every condition appears in every block position equally often across the six orders, each set is shown in each condition to the same number of participants, and no participant sees the same prompt twice.
+- **Prompt sets.** Block 1 always shows set S1, block 2 shows S2 and block 3 shows S3. Because every condition appears in every block position equally often across the six orders, each set is shown in each condition to 8 participants, and no participant sees the same prompt twice. Block position and prompt set are therefore the same factor: a difference between blocks mixes the position with the difficulty of its set. The comparisons between conditions are balanced over both.
 - **Within a block**, the 24 scored frames and 2 attention checks are shown in an order shuffled per participant, from a seed recorded in the log.
 - **Before each block**, the participant reads a short briefing for that condition and does its 3 practice trials with feedback. The briefing for A and B shows one labelled example of the trust margin and of the unverified-output container. The briefing for C says that this terminal draws no status of its own. The briefings are fixed text, committed with the study corpus, and the same for everyone.
 
@@ -80,7 +80,7 @@ An excluded participant is replaced by a new participant with the same block ord
 
 The study page records, per trial: participant code (`P01` and so on), block order, block, condition, set, prompt id, frame SHA-256, answer, confidence, response time in milliseconds, and whether it was a practice, scored or attention-check trial. The screener answers are kept only as pass or fail.
 
-Nothing that identifies a person is recorded with the answers: no names, contact details, network addresses or device details. Contact details needed to pay participants are held apart from the answers and are never committed.
+Nothing that identifies a person is recorded with the answers: no names, contact details, network addresses or device details. Contact details needed to pay participants are held apart from the answers and are never committed. The server that serves the study page sees each participant's network address while the session runs. Its access logs are not kept with the answers, are never committed, and are deleted when the panel is complete.
 
 The raw response log is committed to `docs/phase-0.5/evidence/` with the build commit SHA of the frames, the corpus revision, the manifest digest, the protocol revision and the analysis output.
 
@@ -97,7 +97,9 @@ The analysis is fixed here and run once, after the panel is complete. There are 
 - the one-sided 95% lower confidence bound of d<sub>BC</sub> is above 0 (the data show B is worse than the control);
 - the one-sided 95% lower confidence bound of d<sub>BA</sub> is above 2 percentage points (the data show B is more than 2 points worse than A).
 
-Otherwise arm B passes the study. The result also states the smallest difference the study could detect, so that a pass is not read as stronger evidence than it is.
+Otherwise arm B passes the study. The result also states the difference the study could detect (section 7.1), so that a pass is not read as stronger evidence than it is.
+
+**The control's expected error rate is near zero.** The briefing for C tells participants that this terminal draws no status of its own, so a careful participant can call any status-like text on a control frame forged. We expect the control's error rate to be a few percent at most. The first clause is meant to bind that tightly. It asks the question of criteria 2.2a: whether careful users accept forged status under arm B more often than under a terminal that draws none. If careful users consistently accept some forged status under B and the control shows that they do not, B fails. That is the outcome the clause exists to catch, not an artefact of the rule.
 
 The study cannot instead require B to be shown no worse than the control. That would need an upper bound at or below 0, which a study of any size cannot show when the two conditions are really equal.
 
@@ -105,21 +107,26 @@ The study cannot instead require B to be shown no worse than the control. That w
 
 - error rates and false-alarm rates per condition, with a sensitivity measure (d′) per condition;
 - error rates per spoof class and per technique;
-- the effect of block position, from the six orders;
+- the difference between blocks, which mixes block position with set difficulty (section 4);
 - the same comparisons using only each participant's first block, as a check that seeing one condition did not change answers in the next;
 - confidence ratings and response times per condition.
 
 ### 7.1 What 24 participants can detect
 
-This is planning arithmetic, not a result. It assumes each participant's error rate in each condition behaves like 16 independent trials at the same underlying rate, and that a participant's two rates are uncorrelated. A real correlation between them would narrow the interval.
+This is planning arithmetic, not a result. It assumes each participant's error rate in a condition behaves like 16 independent trials at a fixed underlying rate, and that a participant's rates in two conditions are uncorrelated. A real correlation between them would narrow the intervals. The quantiles are those of the t distribution with one fewer degree of freedom than the panel size, as in the analysis.
 
-| Participants | Half-width of the 95% interval on a difference, at a 10% error rate | at a 20% error rate |
-|---|---|---|
-| 24 | about 4.2 points | about 5.7 points |
-| 60 | about 2.7 points | about 3.6 points |
-| 108 | about 2.0 points | about 2.7 points |
+Two figures are given for each case:
 
-With 24 participants the study shows reliably only differences of about 5 points or more. It cannot settle a 2-point margin either way. A larger panel is a maintainer decision (section 9).
+- **Half-width**: half the width of the two-sided 95% interval on a difference.
+- **Detectable**: how far the true difference must exceed the clause's threshold (0 against the control, 2 points against arm A) for the one-sided rule of section 7 to fail arm B with 80% probability.
+
+| Participants | Both conditions at 10%: half-width | detectable | Both at 20%: half-width | detectable | B at 10%, control at 2%: half-width | detectable |
+|---|---|---|---|---|---|---|
+| 24 | 4.5 points | 5.6 points | 6.0 points | 7.4 points | 3.5 points | 4.3 points |
+| 60 | 2.7 points | 3.5 points | 3.6 points | 4.6 points | 2.1 points | 2.7 points |
+| 108 | 2.0 points | 2.6 points | 2.7 points | 3.4 points | 1.6 points | 2.0 points |
+
+With 24 participants, arm B fails with 80% probability only when it is worse than the threshold by about 4 to 7 points, depending on the error rates. A true excess of 2 points is detected with 80% probability only with about 180 participants at a 10% error rate, or about 310 at 20%. The study at 24 cannot settle a 2-point difference either way. A larger panel is a maintainer decision (section 9).
 
 ## 8. Pilot
 
