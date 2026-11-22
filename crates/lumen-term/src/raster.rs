@@ -1613,12 +1613,11 @@ impl Renderer {
                         } else {
                             g.screen().row(k - hist)
                         };
-                        let text: String = cells
-                            .unwrap_or_default()
-                            .iter()
-                            .filter(|c| !c.wide_cont)
-                            .map(|c| c.character)
-                            .collect();
+                        let cells = cells.unwrap_or_default();
+                        let drawn = || cells.iter().filter(|c| !c.wide_cont);
+                        let text: String = drawn().map(|c| c.character).collect();
+                        let colours: Vec<(Rgb, Rgb)> =
+                            drawn().map(|c| self.colours(c.style)).collect();
                         out.push(FlowLine {
                             block: p.index,
                             top: p.top + u32::try_from(k).unwrap_or(0) * self.cell_h,
@@ -1628,6 +1627,7 @@ impl Renderer {
                             grid: true,
                             kind: CopyKind::Command,
                             join: Join::Break,
+                            colours,
                         });
                     }
                 }
@@ -1695,6 +1695,7 @@ impl Renderer {
                 grid,
                 kind,
                 join,
+                colours: Vec::new(),
             });
         }
     }
@@ -1762,7 +1763,8 @@ impl Renderer {
             for c in from..to {
                 let left = line.left + self.char_left(line, c);
                 let right = line.left + self.char_left(line, c + 1);
-                self.recolour_selected(region, left..right, top..bottom);
+                let known = line.colours.get(c).copied();
+                self.recolour_selected(region, left..right, top..bottom, known);
             }
             if i < last && to >= line.text.chars().count() {
                 // A line the selection runs past is tinted a little beyond its end.
@@ -1778,6 +1780,22 @@ impl Renderer {
         }
     }
 
+    /// How far `p` is from the line between `bg` and `ink`, whose squared
+    /// distance apart is `span`.
+    fn off_line(bg: Rgb, ink: Rgb, span: f64, p: Rgb) -> f64 {
+        let t: f64 = (0..3)
+            .map(|k| (f64::from(p[k]) - f64::from(bg[k])) * (f64::from(ink[k]) - f64::from(bg[k])))
+            .sum::<f64>()
+            / span;
+        (0..3)
+            .map(|k| {
+                let on = f64::from(bg[k]) + (f64::from(ink[k]) - f64::from(bg[k])) * t;
+                (f64::from(p[k]) - on).powi(2)
+            })
+            .sum::<f64>()
+            .sqrt()
+    }
+
     /// Redraw the pixels `xs` by `ys` of `region`, one selected character, on
     /// the selection colour. The cell's own background is the colour most of its
     /// pixels have, its ink the pixel furthest from that, and each pixel is
@@ -1791,6 +1809,7 @@ impl Renderer {
         region: &mut Frame,
         xs: std::ops::Range<u32>,
         ys: std::ops::Range<u32>,
+        known: Option<(Rgb, Rgb)>,
     ) {
         use std::collections::HashMap;
         let (back, text) = (self.theme.selection, self.theme.selection_text);
@@ -1804,59 +1823,53 @@ impl Renderer {
                 }
             }
         }
-        let Some(bg) = seen.iter().max_by_key(|(c, n)| (**n, **c)).map(|(c, _)| *c) else {
+        let Some(common) = seen.iter().max_by_key(|(c, n)| (**n, **c)).map(|(c, _)| *c) else {
             return;
         };
-        let away = |p: Rgb| -> f64 {
+        let away = |from: Rgb, p: Rgb| -> f64 {
             (0..3)
-                .map(|k| (f64::from(p[k]) - f64::from(bg[k])).powi(2))
+                .map(|k| (f64::from(p[k]) - f64::from(from[k])).powi(2))
                 .sum()
         };
-        let ink = pixels
+        let furthest = pixels
             .iter()
             .map(|(_, _, p)| *p)
-            .max_by(|a, b| away(*a).total_cmp(&away(*b)))
-            .unwrap_or(bg);
-        let span = away(ink);
-        // The distance of a pixel from the line between the background and the ink.
-        let off = |p: Rgb| -> f64 {
+            .max_by(|a, b| away(common, *a).total_cmp(&away(common, *b)))
+            .unwrap_or(common);
+        // The cell's own colours, when the grid knows them, say which way round
+        // background and ink are (a block glyph is mostly ink); the pixels
+        // alone only say which colour is commonest. The pair that explains the
+        // pixels is the one used.
+        let explains = |bg: Rgb, ink: Rgb| -> bool {
+            let span = away(bg, ink);
             if span == 0.0 {
-                return 0.0;
+                return false;
             }
-            let t: f64 = (0..3)
+            let stray = pixels
+                .iter()
+                .filter(|(_, _, p)| Self::off_line(bg, ink, span, *p) > OFF_LINE)
+                .count();
+            stray * 10 <= pixels.len()
+        };
+        let (bg, ink) = match known {
+            Some((fg, back)) if explains(back, fg) => (back, fg),
+            _ if explains(common, furthest) => (common, furthest),
+            _ => {
+                for (x, y, p) in pixels {
+                    region.put(x, y, crate::design::selected(p, self.theme.foreground));
+                }
+                return;
+            }
+        };
+        let span = away(bg, ink);
+        for (x, y, p) in pixels {
+            let reach = ((0..3)
                 .map(|k| {
                     (f64::from(p[k]) - f64::from(bg[k])) * (f64::from(ink[k]) - f64::from(bg[k]))
                 })
                 .sum::<f64>()
-                / span;
-            (0..3)
-                .map(|k| {
-                    let on = f64::from(bg[k]) + (f64::from(ink[k]) - f64::from(bg[k])) * t;
-                    (f64::from(p[k]) - on).powi(2)
-                })
-                .sum::<f64>()
-                .sqrt()
-        };
-        let stray = pixels.iter().filter(|(_, _, p)| off(*p) > OFF_LINE).count();
-        if stray * 10 > pixels.len() {
-            for (x, y, p) in pixels {
-                region.put(x, y, crate::design::selected(p, self.theme.foreground));
-            }
-            return;
-        }
-        for (x, y, p) in pixels {
-            let reach = if span == 0.0 {
-                0.0
-            } else {
-                ((0..3)
-                    .map(|k| {
-                        (f64::from(p[k]) - f64::from(bg[k]))
-                            * (f64::from(ink[k]) - f64::from(bg[k]))
-                    })
-                    .sum::<f64>()
-                    / span)
-                    .clamp(0.0, 1.0)
-            };
+                / span)
+                .clamp(0.0, 1.0);
             let mix = |k: usize| {
                 let v = f64::from(back[k]) + (f64::from(text[k]) - f64::from(back[k])) * reach;
                 #[allow(

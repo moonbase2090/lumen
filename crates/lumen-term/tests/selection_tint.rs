@@ -152,3 +152,53 @@ fn every_selected_glyph_is_on_the_selection_colour_at_every_zoom() {
         }
     }
 }
+
+#[test]
+fn block_glyphs_keep_their_fill_when_selected_at_every_zoom() {
+    // A full block and a three-quarter block are mostly ink: the fill must stay
+    // the selection's text colour and the gap the selection colour.
+    let line = "\\033[33m█▊\\033[0m done";
+    for scale in 1..=4 {
+        let t = theme();
+        let yellow = t.ansi[3];
+        let mut app = start_with(line, scale);
+        let before = app.view();
+        let (cell_w, _) = lumen_term::Renderer::light(scale)
+            .unwrap_or_else(|e| unreachable!("renderer: {e}"))
+            .cell();
+        let (mut top, mut bottom, mut first) = (u32::MAX, 0, u32::MAX);
+        for y in 0..before.height {
+            for x in 0..before.width {
+                if before.pixel(x, y) == Some(yellow) {
+                    top = top.min(y);
+                    bottom = bottom.max(y);
+                    first = first.min(x);
+                }
+            }
+        }
+        assert!(top <= bottom, "the blocks are on screen at {scale}x");
+        let mid = u32::midpoint(top, bottom);
+        assert_eq!(
+            app.perform(Action::SelectAll, &NoClipboard),
+            lumen_term::app::Outcome::Redraw
+        );
+        let after = app.view();
+        // The full block's left edge is the cell's: its middle is all ink.
+        assert_eq!(
+            after.pixel(first + cell_w / 2, mid),
+            Some(t.selection_text),
+            "the full block is still the text colour at {scale}x"
+        );
+        // The second cell's left part is ink and its right edge is empty.
+        assert_eq!(
+            after.pixel(first + cell_w + 1, mid),
+            Some(t.selection_text),
+            "the filled part of the three-quarter block is the text colour at {scale}x"
+        );
+        assert_eq!(
+            after.pixel(first + 2 * cell_w - 1, mid),
+            Some(t.selection),
+            "the empty part of the three-quarter block is the selection colour at {scale}x"
+        );
+    }
+}
