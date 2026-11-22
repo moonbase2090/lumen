@@ -236,7 +236,7 @@ fn the_type_scale_rises_and_steps_are_clamped() {
 #[cfg(unix)]
 #[test]
 fn the_app_draws_in_the_design_theme() -> Result<(), Box<dyn std::error::Error>> {
-    use lumen_term::{App, GUTTER_COLUMNS, Passthrough};
+    use lumen_term::{App, Passthrough};
     let app = App::start(
         Box::new(Passthrough),
         "/bin/sh",
@@ -247,9 +247,7 @@ fn the_app_draws_in_the_design_theme() -> Result<(), Box<dyn std::error::Error>>
     )?;
     let frame = app.view();
     let (cell_w, _) = lumen_term::Renderer::light(1)?.cell();
-    let gutter = frame
-        .pixel(cell_w * GUTTER_COLUMNS / 2, frame.height / 2)
-        .ok_or("no pixel")?;
+    let gutter = frame.pixel(cell_w, frame.height / 2).ok_or("no pixel")?;
     assert_eq!(gutter, design::theme().margin);
     assert_ne!(gutter, Theme::light().margin);
     Ok(())
@@ -265,7 +263,9 @@ fn the_editor_prompt_is_drawn_in_the_accent() -> Result<(), Box<dyn std::error::
     let r = lumen_term::Renderer::new(1, design::theme())?;
     let (cw, ch) = r.cell();
     let pad = r.gutter_pad();
-    let (cols, rows) = cells_for(640 - pad, 380, (cw, ch));
+    // An empty gutter is drawn two cells wide; the layout counts four.
+    let content = 2 * cw + pad;
+    let (cols, rows) = cells_for(640 - content + 4 * cw, 380, (cw, ch));
     let win = window_for(cols, rows);
     // The box while the user can type in it: no status, nothing typed yet.
     let editing = lumen_term::raster::InputView {
@@ -287,7 +287,7 @@ fn the_editor_prompt_is_drawn_in_the_accent() -> Result<(), Box<dyn std::error::
     );
     let lay = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
     // The mark sits in the editor's second cell of its first row.
-    let (x0, y0) = ((lay.editor.x + 1) * cw + pad, lay.editor.y * ch);
+    let (x0, y0) = (content + (lay.editor.x + 1 - 4) * cw, lay.editor.y * ch);
     // Find the most inked pixel of the mark. Glyph edges are blended, so it is
     // the accent laid over the field at some coverage: every channel must sit
     // on the line from the field to the accent at the same coverage, which
@@ -326,9 +326,7 @@ fn canvas_and_gutter(
     let (cell_w, cell_h) = lumen_term::Renderer::light(1)?.cell();
     // The gutter, halfway down; and the content area, right of the gutter on
     // the row above the editor, which `sleep` leaves empty.
-    let gutter = frame
-        .pixel(cell_w * lumen_term::GUTTER_COLUMNS / 2, frame.height / 2)
-        .ok_or("no pixel")?;
+    let gutter = frame.pixel(cell_w, frame.height / 2).ok_or("no pixel")?;
     let canvas = frame
         .pixel(frame.width - cell_w, cell_h * 4 + cell_h / 2)
         .ok_or("no pixel")?;
@@ -422,6 +420,177 @@ fn a_fixed_choice_ignores_the_appearance() -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
+/// When the system asks for more contrast, a look that follows the system draws
+/// the built-in high-contrast palette at once, with no restart, and goes back
+/// when the system stops asking, to whichever appearance it shows.
+#[cfg(unix)]
+#[test]
+fn the_system_asking_for_more_contrast_draws_the_high_contrast_palette_live()
+-> Result<(), Box<dyn std::error::Error>> {
+    use lumen_term::design::Appearance;
+    use lumen_term::{App, Passthrough};
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", "sleep 3"],
+        1,
+        400,
+        300,
+    )?;
+    let (light, dark, hc) = (Palette::light(), Palette::dark(), Palette::high_contrast());
+    app.set_appearance(Appearance::Dark);
+    assert_eq!(canvas_and_gutter(&app)?, (dark.canvas, dark.chrome));
+    assert!(app.set_more_contrast(true));
+    assert_eq!(canvas_and_gutter(&app)?, (hc.canvas, hc.chrome));
+    // Told again, nothing changes and nothing needs drawing.
+    assert!(!app.set_more_contrast(true));
+    // A change of appearance while contrast is asked for keeps the high-contrast look.
+    assert!(!app.set_appearance(Appearance::Light));
+    assert_eq!(canvas_and_gutter(&app)?, (hc.canvas, hc.chrome));
+    assert!(app.set_more_contrast(false));
+    assert_eq!(canvas_and_gutter(&app)?, (light.canvas, light.chrome));
+    Ok(())
+}
+
+/// A palette the user fixed is kept whatever the system asks for.
+#[cfg(unix)]
+#[test]
+fn a_fixed_choice_ignores_the_system_asking_for_more_contrast()
+-> Result<(), Box<dyn std::error::Error>> {
+    use lumen_term::design::ThemeChoice;
+    use lumen_term::{App, Passthrough};
+    let mut app = App::start(
+        Box::new(Passthrough),
+        "/bin/sh",
+        &["-c", "sleep 3"],
+        1,
+        400,
+        300,
+    )?;
+    let dark = Palette::dark();
+    assert!(app.set_theme_choice(ThemeChoice::Fixed(dark)));
+    assert!(!app.set_more_contrast(true));
+    assert_eq!(canvas_and_gutter(&app)?, (dark.canvas, dark.chrome));
+    Ok(())
+}
+
+/// The least contrast text keeps while selected, and the least an ANSI colour
+/// keeps, over the surfaces and the canvas; the renderer's own selection formula
+/// ([`lumen_term::design::selected`]) is applied to both the text and what is
+/// behind it, as the painted selection does to every pixel.
+fn selected_worst(p: &Palette) -> (f64, f64) {
+    use lumen_term::design::{contrast, selected};
+    let mut text = f64::MAX;
+    for (_, surface) in p.surfaces() {
+        let behind = selected(surface, p.text);
+        for (_, ink) in p.text_roles() {
+            text = text.min(contrast(selected(ink, p.text), behind));
+        }
+    }
+    let exempt: &[usize] = if p.is_dark() { &[0] } else { &[7, 15] };
+    let mut ansi = f64::MAX;
+    for (i, colour) in p.ansi.iter().enumerate() {
+        if exempt.contains(&i) {
+            continue;
+        }
+        for surface in [p.canvas, p.surface] {
+            ansi = ansi.min(contrast(
+                selected(*colour, p.text),
+                selected(surface, p.text),
+            ));
+        }
+    }
+    (text, ansi)
+}
+
+/// Known shortfalls of the selected state, by palette: the least contrast that
+/// text and ANSI colours have under the selection tint where it is under the
+/// palette's floor. A ratchet: a number may only go up, and an entry has to be
+/// removed the moment its palette clears the floor (trial rule 5).
+///
+/// The selection moves every pixel a third of the way to the foreground, so a
+/// text colour other than the foreground loses more than a third of its
+/// contrast. Fixing it needs the selected text redrawn on a selection colour
+/// instead of tinted over, which is its own change.
+const SELECTION_SHORTFALLS: [(&str, Option<f64>, Option<f64>); 3] = [
+    ("light", Some(3.90), None),
+    ("dark", Some(2.69), Some(2.45)),
+    ("high-contrast", Some(4.97), Some(4.01)),
+];
+
+#[test]
+fn the_selected_state_holds_its_known_contrast_and_the_shortfall_list_only_shrinks() {
+    for b in Builtin::ALL {
+        let p = b.palette();
+        let floors = b.floors();
+        let (text, ansi) = selected_worst(&p);
+        let (name, text_known, ansi_known) = SELECTION_SHORTFALLS
+            .iter()
+            .copied()
+            .find(|(n, _, _)| *n == b.name())
+            .unwrap_or_else(|| unreachable!("every built-in is listed"));
+        assert_eq!(name, b.name());
+        match text_known {
+            Some(known) => {
+                assert!(
+                    text < floors.text,
+                    "{name}: selected text is {text:.2}, over its floor {}: remove it from the list",
+                    floors.text
+                );
+                assert!(
+                    text >= known,
+                    "{name}: selected text fell to {text:.2}, under the recorded {known}"
+                );
+            }
+            None => assert!(
+                text >= floors.text,
+                "{name}: selected text is {text:.2}, under {}: list it or fix it",
+                floors.text
+            ),
+        }
+        let ansi_floor = floors.ansi.unwrap_or(0.0);
+        match ansi_known {
+            Some(known) => {
+                assert!(
+                    ansi < ansi_floor,
+                    "{name}: selected ANSI is {ansi:.2}, over its floor {ansi_floor}: remove it from the list"
+                );
+                assert!(
+                    ansi >= known,
+                    "{name}: selected ANSI fell to {ansi:.2}, under the recorded {known}"
+                );
+            }
+            None => assert!(
+                ansi >= ansi_floor,
+                "{name}: selected ANSI is {ansi:.2}, under {ansi_floor}: list it or fix it"
+            ),
+        }
+    }
+}
+
+/// A bar or underline cursor in a window without the focus is a user interface
+/// component: it keeps 3:1 against the canvas and the surfaces it sits on.
+#[test]
+fn the_unfocused_cursor_keeps_three_to_one_on_every_surface() {
+    use lumen_term::design::{contrast, dimmed_cursor};
+    for b in Builtin::ALL {
+        let p = b.palette();
+        for (surface, bg) in [
+            ("canvas", p.canvas),
+            ("surface", p.surface),
+            ("field", p.field),
+            ("sunken", p.sunken),
+        ] {
+            let ratio = contrast(dimmed_cursor(p.text, bg), bg);
+            assert!(
+                ratio >= 3.0,
+                "{}: the dimmed cursor on {surface} is {ratio:.2}:1",
+                b.name()
+            );
+        }
+    }
+}
+
 /// Every built-in palette paints the trust margin in the canvas colour, and
 /// sets it off with a divider that differs from the canvas.
 #[test]
@@ -454,14 +623,13 @@ fn the_builtin_margin_is_the_canvas_with_a_divider() {
 }
 
 /// In each built-in look the gutter and the header strip are drawn in the
-/// grid's background, with the divider on their inner edges and the label
-/// still drawn.
+/// grid's background, with the divider only on the gutter's right edge.
 #[cfg(unix)]
 #[test]
 fn the_margin_is_drawn_in_the_grid_background_with_a_divider()
 -> Result<(), Box<dyn std::error::Error>> {
     use lumen_term::design::ThemeChoice;
-    use lumen_term::{App, GUTTER_COLUMNS, HEADER_ROWS, Passthrough};
+    use lumen_term::{App, HEADER_ROWS, Passthrough};
     let mut app = App::start(
         Box::new(Passthrough),
         "/bin/sh",
@@ -476,10 +644,11 @@ fn the_margin_is_drawn_in_the_grid_background_with_a_divider()
         let f = app.view();
         let (cw, ch) = lumen_term::Renderer::light(1)?.cell();
         let at = |x: u32, y: u32| f.pixel(x, y).ok_or("outside the frame");
-        let (gutter_right, header_bottom) = (cw * GUTTER_COLUMNS, ch * HEADER_ROWS);
+        // An empty gutter is drawn two cells wide.
+        let (gutter_right, header_bottom) = (cw * 2, ch * HEADER_ROWS);
         let grid = at(f.width - cw, header_bottom + ch * 3 + ch / 2)?;
         assert_eq!(grid, p.canvas, "{b:?} grid");
-        // Inside the gutter and the header strip, clear of the label.
+        // Inside the gutter and the header strip.
         assert_eq!(at(gutter_right / 2, f.height / 2)?, grid, "{b:?} gutter");
         assert_eq!(at(f.width - cw, header_bottom / 2)?, grid, "{b:?} header");
         assert_eq!(
@@ -487,14 +656,13 @@ fn the_margin_is_drawn_in_the_grid_background_with_a_divider()
             grid,
             "{b:?} gutter edge"
         );
-        // The divider: right of the gutter, and under the header.
+        // The divider: right of the gutter only.
         assert_eq!(at(gutter_right - 1, f.height / 2)?, p.divider, "{b:?}");
-        assert_eq!(at(f.width - cw, header_bottom - 1)?, p.divider, "{b:?}");
         assert_eq!(at(gutter_right, f.height / 2)?, grid, "{b:?} content edge");
-        // The label is drawn in the header strip.
-        let inked = (gutter_right..gutter_right + 6 * cw)
-            .any(|x| (0..header_bottom - 1).any(|y| f.pixel(x, y) != Some(grid)));
-        assert!(inked, "{b:?} label");
+        // The header strip carries no title and no line under it: it is the
+        // margin's colour across the whole window, down to its last row.
+        let inked = (0..f.width).find(|&x| (0..header_bottom).any(|y| f.pixel(x, y) != Some(grid)));
+        assert_eq!(inked, None, "{b:?} header text or line");
     }
     Ok(())
 }

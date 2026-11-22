@@ -226,7 +226,8 @@ fn at(col: u32, row: u32) -> (u32, u32) {
     let r = Renderer::light(1).unwrap_or_else(|e| unreachable!("renderer: {e}"));
     let (cw, ch) = r.cell();
     (
-        lumen_term::GUTTER_COLUMNS * cw + r.gutter_pad() + col * cw + 1,
+        // The empty gutter is drawn two cells wide, then the padding.
+        2 * cw + r.gutter_pad() + col * cw + 1,
         lumen_term::HEADER_ROWS * ch + row * ch + ch / 2,
     )
 }

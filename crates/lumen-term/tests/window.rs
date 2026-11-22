@@ -69,14 +69,27 @@ fn doc() -> Document {
     Document::new(76, 18)
 }
 
-fn px(renderer: &Renderer, rect: &Rect) -> (u32, u32, u32, u32) {
-    let (cell_w, cell_h) = renderer.cell();
-    (
-        rect.x * cell_w,
-        rect.y * cell_h,
-        rect.w * cell_w,
-        rect.h * cell_h,
-    )
+/// The pixel box of a rectangle of cells, worked out here and not by the
+/// renderer: the gutter's four layout columns are drawn two cells wide while it
+/// is empty, the columns right of it start past it and the gutter padding, and
+/// the header runs on to the window's edge.
+fn px(r: &Renderer, rect: &Rect) -> (u32, u32, u32, u32) {
+    let (cw, ch) = r.cell();
+    let x = |col: u32| {
+        if col >= 4 {
+            (col - 2) * cw + r.gutter_pad()
+        } else {
+            (col * cw).min(2 * cw)
+        }
+    };
+    let left = x(rect.x);
+    // The gutter's right edge is its divider, short of the padding.
+    let right = if rect.x + rect.w > 4 {
+        x(rect.x + rect.w)
+    } else {
+        ((rect.x + rect.w) * cw).min(2 * cw)
+    };
+    (left, rect.y * ch, right.saturating_sub(left), rect.h * ch)
 }
 
 /// Pixels that differ between `left` and `right` inside `rect` (in cells).
@@ -156,7 +169,8 @@ fn the_window_has_the_size_of_its_cells_and_the_baseline_is_stable() {
     let r = renderer();
     let (cw, ch) = r.cell();
     let a = baseline();
-    assert_eq!((a.width, a.height), (80 * cw + r.gutter_pad(), 24 * ch));
+    // 80 columns: the empty gutter drawn in two cells, the padding and 76 more.
+    assert_eq!((a.width, a.height), (78 * cw + r.gutter_pad(), 24 * ch));
     assert_eq!(a, baseline(), "the baseline taken twice must match exactly");
 }
 
@@ -188,21 +202,26 @@ fn no_producer_output_changes_a_margin_or_editor_pixel() {
 }
 
 #[test]
-fn the_margin_is_the_terminals_colour_with_its_own_text() {
+fn the_margin_is_the_terminals_colour_and_the_header_carries_no_title_or_line() {
     let r = renderer();
     let f = baseline();
     let l = lay(None);
     let (gx, gy, gw, gh) = px(&r, &l.margin[0]);
     let colour = r.theme().margin;
+    let gw = gw.min(r.gutter_width()).saturating_sub(1);
     for y in gy..gy + gh {
         for x in gx..gx + gw {
             assert_eq!(f.pixel(x, y), Some(colour), "gutter pixel {x},{y}");
         }
     }
-    let (hx, hy, hw, hh) = px(&r, &l.margin[1]);
-    let text =
-        (hy..hy + hh).any(|y| (hx..hx + hw).any(|x| f.pixel(x, y) == Some(r.theme().margin_text)));
-    assert!(text, "the header carries the terminal's own label");
+    // The header strip is the margin's colour from edge to edge, down to its
+    // last row: no title is drawn in it and no line runs under it.
+    let (_, hy, _, hh) = px(&r, &l.margin[1]);
+    for y in hy..hy + hh {
+        for x in 0..f.width {
+            assert_eq!(f.pixel(x, y), Some(colour), "header pixel {x},{y}");
+        }
+    }
 }
 
 #[test]
@@ -310,23 +329,37 @@ fn foreground_blocks_stay_above_the_editor() {
     );
 }
 
-/// The header strip carries the product's name, Bright: six letters, so the
-/// last ink in the header row is in the sixth cell after the gutter.
+/// The gutter is drawn two cells wide while it is empty and four when it can
+/// hold marks: its divider moves, the text column starts 6 pixels past it, and
+/// the frame of the same cells is two cells wider.
 #[test]
-fn the_header_strip_reads_bright() {
-    assert_eq!(lumen_term::raster::MARGIN_LABEL, "Bright");
-    let r = renderer();
-    let f = baseline();
+fn the_gutter_is_drawn_narrow_when_empty_and_full_when_it_can_hold_marks() {
+    // The design theme, whose divider stands apart from the margin.
+    let mut r = Renderer::new(1, lumen_term::design::theme())
+        .unwrap_or_else(|e| unreachable!("the bundled face loads: {e}"));
     let (cw, ch) = r.cell();
-    let x0 = cw * layout::GUTTER_COLUMNS + r.gutter_pad();
-    let bg = f.pixel(f.width - 1, 0);
-    let last_ink = (x0..f.width)
-        .filter(|&x| (0..ch).any(|y| f.pixel(x, y) != bg))
-        .max()
-        .unwrap_or(0);
-    assert_eq!(
-        (last_ink - x0) / cw,
-        5,
-        "last ink at x={last_ink}, cell {cw}"
-    );
+    let narrow = r.render_window(&doc(), &WIN);
+    r.set_gutter_full(true);
+    let full = r.render_window(&doc(), &WIN);
+    assert_eq!(full.width, narrow.width + 2 * cw);
+    // Below the header, the first pixel that is not the gutter's colour is the
+    // divider at the gutter's right edge.
+    let y = ch * 3;
+    let divider = |f: &Frame| {
+        let gutter = f.pixel(0, y);
+        (1..f.width).find(|&x| f.pixel(x, y) != gutter)
+    };
+    assert_eq!(divider(&narrow), Some(2 * cw - 1));
+    assert_eq!(divider(&full), Some(4 * cw - 1));
+    assert_eq!(narrow.pixel(2 * cw - 1, y), Some(r.theme().divider));
+    assert_eq!(full.pixel(4 * cw - 1, y), Some(r.theme().divider));
+    // The editor's edge starts at the text column: past the divider and the
+    // padding.
+    let editor_y = WIN.editor_row * ch + 1;
+    let editor_left = |f: &Frame, from: u32| {
+        let bg = f.pixel(from, editor_y);
+        (from..f.width).find(|&x| f.pixel(x, editor_y) != bg)
+    };
+    assert_eq!(editor_left(&narrow, 2 * cw), Some(2 * cw + 6));
+    assert_eq!(editor_left(&full, 4 * cw), Some(4 * cw + 6));
 }

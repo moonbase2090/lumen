@@ -462,6 +462,9 @@ struct Host {
     /// opens and when it gains focus, and kept when a later read gives none. Every
     /// tab, old or new, takes this one value.
     reduce_motion: std::cell::Cell<bool>,
+    /// The last answer the system gave about more contrast, kept like the one
+    /// about motion: read when a window opens and when it gains focus.
+    more_contrast: std::cell::Cell<bool>,
     /// The next time the small settings file is read for a change.
     next_settings_check: Instant,
     #[cfg(target_os = "macos")]
@@ -496,6 +499,21 @@ impl Host {
         }
         self.state_dirty = false;
         self.next_state_save = Instant::now() + Duration::from_millis(250);
+    }
+
+    fn refresh_more_contrast(&mut self) {
+        let Some(more) = crate::contrast::system_increases_contrast() else {
+            return;
+        };
+        self.more_contrast.set(more);
+        for run in &mut self.windows {
+            let redraw = run.tabs.iter_mut().fold(false, |changed, tab| {
+                tab.app.set_more_contrast(more) | changed
+            });
+            if redraw {
+                run.window.request_redraw();
+            }
+        }
     }
 
     fn refresh_reduce_motion(&mut self) {
@@ -561,6 +579,7 @@ impl Host {
         // The window reads the system's answer when it opens and when it gains
         // focus; a new tab only takes what the window knows.
         app.set_reduce_motion(self.reduce_motion.get());
+        app.set_more_contrast(self.more_contrast.get());
         app.set_appearance(appearance(window.theme()));
         if let Err(e) = app.set_fonts(&look.fonts) {
             eprintln!("{}: fonts not used ({e})", crate::APP_NAME);
@@ -1048,6 +1067,7 @@ impl Host {
         // The system setting can change while another window has the focus.
         if focused {
             self.refresh_reduce_motion();
+            self.refresh_more_contrast();
         }
         let reduce = self.reduce_motion.get();
         let Some(index) = self.index(id) else { return };
@@ -1295,6 +1315,7 @@ impl Host {
             .map_err(|e| format!("no surface: {e}"))?;
         window.set_ime_allowed(true);
         self.refresh_reduce_motion();
+        self.refresh_more_contrast();
         let app = self.start_app(&window)?;
         let size = window.inner_size();
         let actual = Placement {
@@ -1489,6 +1510,7 @@ pub fn run(config: Config) -> Result<(), String> {
         state_dirty: false,
         next_state_save: Instant::now(),
         reduce_motion: std::cell::Cell::new(false),
+        more_contrast: std::cell::Cell::new(false),
         next_settings_check: Instant::now(),
         #[cfg(target_os = "macos")]
         frame_wake_handled,
