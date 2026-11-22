@@ -87,10 +87,10 @@ fn zoom_to(app: &mut App, scale: u32) {
 }
 
 /// The pixels of the window over the live cell `(col, row)`.
-fn pixels_of_cell(app: &App, col: u32, row: u32) -> Vec<(u32, u32)> {
+fn pixels_of_cell(app: &App, size: (u32, u32), col: u32, row: u32) -> Vec<(u32, u32)> {
     let mut found = Vec::new();
-    for y in (0..SIZE.1).step_by(2) {
-        for x in (0..SIZE.0).step_by(2) {
+    for y in (0..size.1).step_by(2) {
+        for x in (0..size.0).step_by(2) {
             if app.live_cell(x, y) == Some((col, row)) {
                 found.push((x, y));
             }
@@ -118,7 +118,7 @@ fn a_press_on_a_link_asks_and_the_buttons_answer_at_every_zoom() {
         zoom_to(&mut app, scale);
         let (col, row) = row_with_the_link(&app);
         // Every pixel of a cell in the middle of the address is that cell.
-        let pixels = pixels_of_cell(&app, col + 6, row);
+        let pixels = pixels_of_cell(&app, SIZE, col + 6, row);
         assert!(!pixels.is_empty(), "scale {scale}: the cell has pixels");
         let (cw, ch) = (app.cell_height() / 2, app.cell_height());
         assert!(
@@ -199,6 +199,9 @@ fn the_right_click_menu_stays_in_the_window_and_its_last_entry_answers_at_every_
             placed.rect
         );
         for (i, (rx, ry, rw, rh)) in placed.rows.iter().enumerate() {
+            if *rw == 0 {
+                continue;
+            }
             assert!(
                 *rx >= x && *ry >= y && rx + rw <= x + w && ry + rh <= y + h,
                 "scale {scale}: entry {i} is inside the menu"
@@ -308,7 +311,7 @@ fn a_question_too_long_for_the_window_at_any_size_is_read_and_answered_by_scroll
             u32::try_from(row).unwrap_or(0),
         )
     };
-    let pixels = pixels_of_cell(&app, col + 1, row);
+    let pixels = pixels_of_cell(&app, SIZE, col + 1, row);
     let (x, y) = pixels[pixels.len() / 2];
     assert!(app.link_press(x, y));
     // Page through the text from the top, keeping each line by its place.
@@ -373,7 +376,7 @@ fn the_question_keeps_its_buttons_inside_a_narrow_window() {
         .position(|r| r.contains("go"))
         .unwrap_or_else(|| unreachable!("{rows:?}"));
     let col = u32::try_from(rows[row].find("go").unwrap_or(0)).unwrap_or(0);
-    let pixels = pixels_of_cell(&app, col, u32::try_from(row).unwrap_or(0));
+    let pixels = pixels_of_cell(&app, (360, 800), col, u32::try_from(row).unwrap_or(0));
     assert_ne!(pixels.len(), 0);
     let (x, y) = pixels[pixels.len() / 2];
     assert!(app.link_press(x, y));
@@ -383,6 +386,164 @@ fn the_question_keeps_its_buttons_inside_a_narrow_window() {
             bx + bw <= 360,
             "{label} is inside the window: {:?}",
             b.buttons
+        );
+    }
+}
+
+/// A link on the word `go` in a window of `size` at display scale `scale`.
+fn go_link(scale: u32, size: (u32, u32)) -> Option<App> {
+    let script = "printf '\\033]8;;https://a.io/x\\033\\\\go\\033]8;;\\033\\\\\\n'; sleep 60";
+    let (mut app, _) = start_with(script, scale, (800, 600), "go");
+    app.resize(size.0, size.1)
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    // A window this small shows no row of the screen to press on: the keyboard
+    // reaches the link and asks.
+    if !app.focus_link(true) {
+        eprintln!("PROBE no visible row at {size:?}");
+        return None;
+    }
+    app.key(Key::Enter, Mods::default())
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(
+        app.link_prompt().is_some(),
+        "the question is up at {size:?}"
+    );
+    Some(app)
+}
+
+#[test]
+fn the_question_keeps_both_buttons_in_the_window_at_the_display_scale_in_a_tiny_window() {
+    let mut asked = 0;
+    for size in [
+        (800, 190),
+        (800, 230),
+        (800, 270),
+        (800, 330),
+        (260, 600),
+        (260, 330),
+    ] {
+        let Some(app) = go_link(2, size) else {
+            continue;
+        };
+        asked += 1;
+        let b = app
+            .link_prompt_box()
+            .unwrap_or_else(|| unreachable!("the question is up"));
+        assert_eq!(b.buttons.len(), 2);
+        for (label, (bx, by, bw, bh)) in &b.buttons {
+            assert!(
+                bx + bw <= size.0 && by + bh <= size.1,
+                "{size:?}: {label} is inside the window: {:?}",
+                b.buttons
+            );
+        }
+    }
+    assert!(asked >= 5, "the question was asked at {asked} sizes");
+}
+
+#[test]
+fn every_entry_of_a_menu_taller_than_the_window_is_reached_by_the_wheel() {
+    // A 2x display in a window too short for the menu even at 2x.
+    let (mut app, _) = start_with(SAY, 2, (800, 250), URL);
+    assert!(app.open_context_menu(10, 10, true));
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..40 {
+        let b = app
+            .context_menu_box()
+            .unwrap_or_else(|| unreachable!("open"));
+        assert!(b.scrolls, "the menu does not fit 250 pixels at 2x");
+        assert!(
+            b.rect.0 + b.rect.2 <= 800 && b.rect.1 + b.rect.3 <= 250,
+            "{:?}",
+            b.rect
+        );
+        for (i, (rx, ry, rw, rh)) in b.rows.iter().enumerate() {
+            if *rw > 0 {
+                assert!(ry + rh <= 250 && rx + rw <= 800, "entry {i}: {:?}", b.rows);
+                seen.insert(i);
+            }
+        }
+        if app
+            .mouse_wheel(
+                10,
+                10,
+                lumen_term::mouse::Wheel::Down,
+                lumen_term::mouse::Held::default(),
+            )
+            .map_or(true, |moved| !moved)
+        {
+            break;
+        }
+    }
+    let all = app
+        .context_menu()
+        .unwrap_or_else(|| unreachable!("open"))
+        .items()
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.is_some())
+        .map(|(i, _)| i)
+        .collect::<Vec<_>>();
+    for i in all {
+        assert!(seen.contains(&i), "entry {i} was never on a page: {seen:?}");
+    }
+}
+
+#[test]
+fn a_fitted_overlay_is_redrawn_when_only_the_display_floor_moves() {
+    // 300 pixels hold the menu at 1x and no larger, so a 4x window draws it at 1x.
+    let (mut app, _) = start_with(SAY, 1, (800, 300), URL);
+    zoom_to(&mut app, 4);
+    assert!(app.open_context_menu(10, 10, true));
+    let before = app
+        .context_menu_box()
+        .unwrap_or_else(|| unreachable!("open"))
+        .rows[0]
+        .3;
+    // The window moves to a 2x display: the zoom stays at its cap of 4x, but the
+    // smallest size the menu may be drawn at is now 2x.
+    assert!(app.set_display_scale(2.0).is_ok());
+    assert_eq!(app.scale(), 4);
+    let after = app
+        .context_menu_box()
+        .unwrap_or_else(|| unreachable!("open"))
+        .rows[0]
+        .3;
+    let at_two = menu_in((800, 2000), 2, 2).rows[0].3;
+    assert!(
+        before < at_two && after >= at_two,
+        "{before} {after} {at_two}"
+    );
+}
+
+#[test]
+fn the_question_runs_text_into_the_buttons_when_the_window_has_no_room_for_padding() {
+    let script = "printf '\\033]8;;https://a.io/x\\033\\\\go\\033]8;;\\033\\\\\\n'; sleep 60";
+    let (mut app, _) = start_with(script, 2, (800, 600), "go");
+    assert!(app.focus_link(true));
+    app.key(Key::Enter, Mods::default())
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    let prompt = app
+        .link_prompt()
+        .unwrap_or_else(|| unreachable!("the question is up"))
+        .clone();
+    let renderer = lumen_term::raster::Renderer::new(2, lumen_term::design::theme())
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    let (_, cell_h) = renderer.cell();
+    // From room for a line and the buttons (and the box's edge) upwards.
+    let least = 2 * cell_h + 8;
+    for height in (least..=least + 6 * cell_h).step_by(8) {
+        let b = renderer.link_prompt_box(800, height, &prompt, 0);
+        for (label, (bx, by, bw, bh)) in &b.buttons {
+            assert!(
+                bx + bw <= 800 && by + bh <= height,
+                "{height}: {label} is inside the window: {b:?}"
+            );
+        }
+        assert!(
+            b.rect.1 + b.rect.3 <= height,
+            "{height}: the box fits: {:?}",
+            b.rect
         );
     }
 }

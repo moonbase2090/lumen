@@ -45,6 +45,7 @@ pub struct ContextMenu {
     pub at: (u32, u32),
     items: Vec<Option<Entry>>,
     hover: Option<usize>,
+    first: usize,
 }
 
 impl ContextMenu {
@@ -55,6 +56,7 @@ impl ContextMenu {
             at,
             items: context_items(state),
             hover: None,
+            first: 0,
         }
     }
 
@@ -68,6 +70,18 @@ impl ContextMenu {
     #[must_use]
     pub fn hover(&self) -> Option<usize> {
         self.hover
+    }
+
+    /// The first entry shown when the menu is taller than the window and is
+    /// shown a page at a time; 0 otherwise.
+    #[must_use]
+    pub fn first(&self) -> usize {
+        self.first
+    }
+
+    /// Show the page that starts at entry `first`.
+    pub fn set_first(&mut self, first: usize) {
+        self.first = first;
     }
 
     /// Whether the entry at `index` can be chosen.

@@ -108,6 +108,8 @@ pub struct PromptBox {
     pub first: usize,
     /// How many lines the whole text has.
     pub total: usize,
+    /// The pixel row of the first line of text.
+    pub text_top: u32,
 }
 
 impl PromptBox {
@@ -144,8 +146,23 @@ pub enum PromptHit {
 pub struct MenuBox {
     /// The box: x, y, width and height in pixels.
     pub rect: (u32, u32, u32, u32),
-    /// Each entry's rectangle, in the menu's order (a separator too).
+    /// Each entry's rectangle, in the menu's order (a separator too). An entry
+    /// not on the page shown has an empty rectangle.
     pub rows: Vec<(u32, u32, u32, u32)>,
+    /// Whether the menu is taller than the window and is shown a page at a
+    /// time, with the wheel and the arrow keys moving the page.
+    pub scrolls: bool,
+    /// The first entry on the page.
+    pub first: usize,
+}
+
+impl MenuBox {
+    /// Whether the whole menu is drawn inside a window of `width` by `height`.
+    #[must_use]
+    pub fn fits(&self, width: u32, height: u32) -> bool {
+        let (x, y, w, h) = self.rect;
+        !self.scrolls && x + w <= width && y + h <= height
+    }
 }
 
 /// What a point on a context menu is.
@@ -2479,9 +2496,11 @@ impl Renderer {
         scroll: usize,
     ) -> PromptBox {
         let cw = self.cell_w.max(1);
+        let ch = self.cell_h.max(1);
         let columns = (width / cw).max(1);
         let box_cols =
             usize::try_from(columns.saturating_sub(2).clamp(1, PROMPT_COLUMNS)).unwrap_or(1);
+        let cols = u32::try_from(box_cols).unwrap_or(1);
         let inner = box_cols.saturating_sub(2).max(1);
         let mut all = Vec::new();
         for line in prompt.lines() {
@@ -2492,57 +2511,79 @@ impl Renderer {
             }
         }
         let total = all.len();
+        // The buttons: the labels with their keys when the box is wide enough
+        // for them side by side, then plainer ones, then one above the other.
+        let sets: [&[&str]; 3] = if prompt.target().is_some() {
+            [
+                &[" Open (Enter) ", " Cancel (Esc) "],
+                &[" Open ", " Cancel "],
+                &["Open", "Cancel"],
+            ]
+        } else {
+            [&[" Close (Esc) "], &[" Close "], &["Close"]]
+        };
+        let across = |labels: &[&str]| {
+            let n: Vec<u32> = labels
+                .iter()
+                .map(|l| u32::try_from(l.chars().count()).unwrap_or(0))
+                .collect();
+            1 + n.iter().sum::<u32>() + 2 * u32::try_from(n.len().saturating_sub(1)).unwrap_or(0)
+        };
+        let beside = sets.iter().find(|labels| across(labels) <= cols);
+        let (labels, button_rows) = beside
+            .map_or((sets[1], u32::try_from(sets[1].len()).unwrap_or(1)), |l| {
+                (*l, 1)
+            });
+        let stacked = beside.is_none();
         let chrome = 4 * self.scale;
-        let full_h = (u32::try_from(total).unwrap_or(0) + 3) * self.cell_h + chrome;
-        let scrolls = full_h > height;
-        let (mut lines, mut first) = (all, 0);
+        let rows_avail = height.saturating_sub(chrome) / ch;
+        let full_rows = u32::try_from(total).unwrap_or(0) + 2 + button_rows;
+        let scrolls = full_rows * ch + chrome > height;
+        let (mut lines, mut first, mut compact) = (all, 0usize, false);
         if scrolls {
-            // A page: what is left of the window after the box's own rows and a
-            // line that says where the page is.
-            let room = height.saturating_sub(chrome) / self.cell_h.max(1);
-            let page = usize::try_from(room.saturating_sub(4)).unwrap_or(1).max(1);
+            let with_hint = rows_avail.saturating_sub(3 + button_rows);
+            let page = if with_hint >= 1 {
+                usize::try_from(with_hint).unwrap_or(1)
+            } else {
+                // No room for the box's padding or a line saying where the page
+                // is: the text runs straight into the buttons.
+                compact = true;
+                usize::try_from(rows_avail.saturating_sub(button_rows))
+                    .unwrap_or(1)
+                    .max(1)
+            };
             first = scroll.min(total.saturating_sub(page));
             let last = (first + page).min(total);
             let mut shown: Vec<String> = lines[first..last].to_vec();
-            let hint = format!("Up/Down: {}-{} of {}", first + 1, last, total);
-            shown.push(hint.chars().take(inner).collect());
+            if !compact {
+                let hint = format!("Up/Down: {}-{} of {}", first + 1, last, total);
+                shown.push(hint.chars().take(inner).collect());
+            }
             lines = shown;
         }
-        let rows = u32::try_from(lines.len()).unwrap_or(0) + 2;
-        let box_w = u32::try_from(box_cols).unwrap_or(1) * cw;
-        let box_h = rows * self.cell_h + self.cell_h + chrome;
+        let (pad, gap) = if compact { (0, 0) } else { (ch / 2, ch) };
+        let text_rows = u32::try_from(lines.len()).unwrap_or(0);
+        let box_w = cols * cw;
+        let box_h = 2 * pad + text_rows * ch + gap + button_rows * ch + chrome;
         let x = width.saturating_sub(box_w) / 2;
         let y = height.saturating_sub(box_h) / 2;
-        let buttons_y = y + 2 * self.scale + self.cell_h / 2 + (rows - 1) * self.cell_h;
-        let wide: &[&str] = if prompt.target().is_some() {
-            &[" Open (Enter) ", " Cancel (Esc) "]
-        } else {
-            &[" Close (Esc) "]
-        };
-        let narrow: &[&str] = if prompt.target().is_some() {
-            &[" Open ", " Cancel "]
-        } else {
-            &[" Close "]
-        };
-        let needs = |labels: &[&str]| {
-            labels
-                .iter()
-                .map(|l| u32::try_from(l.chars().count()).unwrap_or(0) + 2)
-                .sum::<u32>()
-        };
-        let labels = if needs(wide) < u32::try_from(box_cols).unwrap_or(0) {
-            wide
-        } else {
-            narrow
-        };
+        let text_top = y + 2 * self.scale + pad;
+        let buttons_y = text_top + text_rows * ch + gap;
         let mut col = 1u32;
         let mut buttons = Vec::new();
-        for label in labels {
+        for (i, label) in labels.iter().enumerate() {
             let n = u32::try_from(label.chars().count()).unwrap_or(0);
-            buttons.push((
-                label.to_string(),
-                (x + col * cw, buttons_y, n * cw, self.cell_h),
-            ));
+            let rect = if stacked {
+                (
+                    x + cw,
+                    buttons_y + u32::try_from(i).unwrap_or(0) * ch,
+                    n * cw,
+                    ch,
+                )
+            } else {
+                (x + col * cw, buttons_y, n * cw, ch)
+            };
+            buttons.push((label.to_string(), rect));
             col += n + 2;
         }
         PromptBox {
@@ -2552,6 +2593,7 @@ impl Renderer {
             scrolls,
             first,
             total,
+            text_top,
         }
     }
 
@@ -2576,7 +2618,7 @@ impl Renderer {
             height.saturating_sub(2 * edge),
             theme.toast,
         );
-        let mut line_top = top + edge + self.cell_h / 2;
+        let mut line_top = placed.text_top;
         for (i, line) in placed.lines.iter().enumerate() {
             let colour = if i == 0 {
                 theme.heading
@@ -2659,25 +2701,61 @@ impl Renderer {
             .map(|(_, label, _)| u32::try_from(label.chars().count()).unwrap_or(0))
             .max()
             .unwrap_or(0);
-        let box_w = (labels + 4) * cw + 2 * edge;
-        let inner_h: u32 = menu
+        let box_w = ((labels + 4) * cw + 2 * edge).min(width.max(1));
+        let heights: Vec<u32> = menu
             .items()
             .iter()
             .map(|e| if e.is_some() { entry_h } else { rule_h })
-            .sum();
+            .collect();
+        let room = height.saturating_sub(2 * edge);
+        let scrolls = heights.iter().sum::<u32>() > room;
+        // The page: the entries from `first` while they fit, moved so the
+        // highlighted entry is on it and the page is full at the end.
+        let n = heights.len();
+        let ends = |first: usize| {
+            let mut used = 0u32;
+            let mut end = first;
+            while end < n && (end == first || used + heights[end] <= room) {
+                used += heights[end];
+                end += 1;
+            }
+            end
+        };
+        let mut first = 0usize;
+        if scrolls {
+            first = menu.first().min(n.saturating_sub(1));
+            if let Some(h) = menu.hover() {
+                if h < first {
+                    first = h;
+                }
+                while ends(first) <= h && first < h {
+                    first += 1;
+                }
+            }
+            while first > 0 && ends(first - 1) >= n {
+                first -= 1;
+            }
+        }
+        let last = if scrolls { ends(first) } else { n };
+        let inner_h: u32 = heights[first..last].iter().sum();
         let box_h = inner_h + 2 * edge;
         let x = menu.at.0.min(width.saturating_sub(box_w));
         let y = menu.at.1.min(height.saturating_sub(box_h));
         let mut top = y + edge;
         let mut rows = Vec::new();
-        for entry in menu.items() {
-            let h = if entry.is_some() { entry_h } else { rule_h };
-            rows.push((x + edge, top, box_w - 2 * edge, h));
-            top += h;
+        for (i, h) in heights.iter().enumerate() {
+            if (first..last).contains(&i) {
+                rows.push((x + edge, top, box_w.saturating_sub(2 * edge), *h));
+                top += h;
+            } else {
+                rows.push((0, 0, 0, 0));
+            }
         }
         MenuBox {
             rect: (x, y, box_w, box_h),
             rows,
+            scrolls,
+            first,
         }
     }
 
@@ -2704,6 +2782,9 @@ impl Renderer {
         );
         let label_y = |ry: u32, rh: u32| ry + rh.saturating_sub(self.cell_h) / 2;
         for (i, (entry, (rx, ry, rw, rh))) in menu.items().iter().zip(&placed.rows).enumerate() {
+            if *rw == 0 {
+                continue;
+            }
             if let Some((_, label, on)) = entry {
                 let colour = if menu.hover() == Some(i) {
                     frame.fill(*rx, *ry, *rw, *rh, theme.prompt);
@@ -2713,11 +2794,14 @@ impl Renderer {
                 } else {
                     theme.muted
                 };
+                let room =
+                    usize::try_from((rw / self.cell_w.max(1)).saturating_sub(2)).unwrap_or(0);
+                let label: String = label.chars().take(room).collect();
                 self.text_line(
                     frame,
                     rx + 2 * self.cell_w,
                     label_y(*ry, *rh),
-                    label,
+                    &label,
                     colour,
                 );
             } else {

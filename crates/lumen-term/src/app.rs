@@ -1445,8 +1445,8 @@ impl App {
             self.base_scale,
             &self.menu.fit,
             |r| {
-                let (x, y, w, h) = r.context_menu_box(self.width, self.height, menu).rect;
-                x + w <= self.width && y + h <= self.height
+                r.context_menu_box(self.width, self.height, menu)
+                    .fits(self.width, self.height)
             },
             |r| r.context_menu_box(self.width, self.height, menu),
         ))
@@ -1475,8 +1475,8 @@ impl App {
             self.base_scale,
             &self.menu.fit,
             |r| {
-                let (x, y, w, h) = r.context_menu_box(self.width, self.height, menu).rect;
-                x + w <= self.width && y + h <= self.height
+                r.context_menu_box(self.width, self.height, menu)
+                    .fits(self.width, self.height)
             },
             |r| r.context_menu_at(self.width, self.height, menu, x, y),
         ) {
@@ -1515,15 +1515,57 @@ impl App {
             self.base_scale,
             &self.menu.fit,
             |r| {
-                let (x, y, w, h) = r.context_menu_box(self.width, self.height, menu).rect;
-                x + w <= self.width && y + h <= self.height
+                r.context_menu_box(self.width, self.height, menu)
+                    .fits(self.width, self.height)
             },
             |r| r.context_menu_at(self.width, self.height, menu, x, y),
         ) {
             MenuHit::Item(i) => Some(i),
             MenuHit::Box | MenuHit::Outside => None,
         };
-        menu.set_hover(at)
+        let changed = menu.set_hover(at);
+        self.sync_menu_page();
+        changed
+    }
+
+    /// Keep the page of a menu taller than the window where the highlighted
+    /// entry is on it.
+    fn sync_menu_page(&mut self) {
+        let Some(shown) = self.context_menu_box() else {
+            return;
+        };
+        if shown.scrolls
+            && let Some(menu) = &mut self.menu.open
+        {
+            menu.set_first(shown.first);
+        }
+    }
+
+    /// Move the page of a menu taller than the window by `by` entries, taking
+    /// the highlight off so it does not hold the page. Returns whether the page
+    /// moved.
+    fn scroll_menu(&mut self, by: isize) -> bool {
+        let Some(shown) = self.context_menu_box() else {
+            return false;
+        };
+        if !shown.scrolls {
+            return false;
+        }
+        let next = isize::try_from(shown.first)
+            .unwrap_or(0)
+            .saturating_add(by)
+            .max(0);
+        let next = usize::try_from(next).unwrap_or(0);
+        if let Some(menu) = &mut self.menu.open {
+            menu.set_hover(None);
+            menu.set_first(next);
+        }
+        let after = self.context_menu_box().map_or(shown.first, |b| b.first);
+        if after != shown.first {
+            self.view_moves = self.view_moves.wrapping_add(1);
+        }
+        self.sync_menu_page();
+        after != shown.first
     }
 
     /// A key while the context menu is open: Up and Down move the highlight,
@@ -1544,6 +1586,7 @@ impl App {
             Key::Escape => self.menu.open = None,
             _ => {}
         }
+        self.sync_menu_page();
         self.view_moves = self.view_moves.wrapping_add(1);
     }
 
@@ -2079,7 +2122,7 @@ impl App {
         held: Held,
     ) -> std::io::Result<bool> {
         if self.menu.open.is_some() {
-            return Ok(false);
+            return Ok(self.scroll_menu(if matches!(step, Wheel::Up) { -1 } else { 1 }));
         }
         self.wheel_step(x, y, step, held, false)
     }
@@ -2100,7 +2143,7 @@ impl App {
         held: Held,
     ) -> std::io::Result<bool> {
         if self.menu.open.is_some() {
-            return Ok(false);
+            return Ok(self.scroll_menu(if matches!(step, Wheel::Up) { -1 } else { 1 }));
         }
         self.wheel_step(x, y, step, held, self.smooth_scroll && !self.reduce_motion)
     }
@@ -2153,7 +2196,7 @@ impl App {
         held: Held,
     ) -> std::io::Result<bool> {
         if self.menu.open.is_some() {
-            return Ok(false);
+            return Ok(pixels != 0 && self.scroll_menu(if pixels > 0 { -1 } else { 1 }));
         }
         if pixels == 0 {
             return Ok(false);
@@ -2411,6 +2454,12 @@ impl App {
         let next = (i64::from(base) + zoom)
             .clamp(i64::from(actions::MIN_SCALE), i64::from(actions::MAX_SCALE));
         let next = u32::try_from(next).unwrap_or(base);
+        if base != self.base_scale {
+            // The floor the overlays are drawn above moved with the display.
+            #[cfg(feature = "links-clipboard")]
+            self.links.fit.take();
+            self.menu.fit.take();
+        }
         self.base_scale = base;
         if next == self.scale {
             return Ok(false);
@@ -3485,8 +3534,8 @@ impl App {
                 self.base_scale,
                 &self.menu.fit,
                 |r| {
-                    let (x, y, w, h) = r.context_menu_box(self.width, self.height, menu).rect;
-                    x + w <= self.width && y + h <= self.height
+                    r.context_menu_box(self.width, self.height, menu)
+                        .fits(self.width, self.height)
                 },
                 |r| r.paint_context_menu(&mut frame, menu),
             );
