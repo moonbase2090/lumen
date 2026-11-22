@@ -666,22 +666,56 @@ fn a_gray_jpeg_is_gray_and_opaque() -> R {
     Ok(())
 }
 
-#[test]
-fn a_four_channel_jpeg_is_decoded_or_refused_but_never_the_wrong_size() -> R {
-    // CMYK and YCCK files exist in the wild (Adobe, print workflows). Either
-    // answer is acceptable to the contract; a wrong size or a panic is not.
-    // Their colours are not checked here: with the same ink values, CMYK gives
-    // the expected colours and YCCK comes out dark, and no reference decoder
-    // is at hand to say which of the encoder and the decoder is at fault.
-    let (w, h) = (16u16, 16u16);
-    let data: Vec<u8> = (0..usize::from(w) * usize::from(h) * 4)
-        .map(|i| u8::try_from(i % 251).unwrap_or(0))
-        .collect();
-    for color in [jpeg_encoder::ColorType::Cmyk, jpeg_encoder::ColorType::Ycck] {
+/// Flat patches of ink, as the colours a viewer shows for them: the ink values
+/// are "amount of ink" (0 is none), so no ink is white and full black ink is
+/// black.
+const INKS: [[u8; 4]; 5] = [
+    [0, 0, 0, 0],
+    [255, 0, 0, 0],
+    [0, 0, 0, 255],
+    [200, 30, 90, 0],
+    [200, 30, 90, 100],
+];
+
+fn ink_colour(ink: [u8; 4]) -> [u8; 3] {
+    let k = u32::from(255 - ink[3]);
+    let c = |v: u8| u8::try_from(u32::from(255 - v) * k / 255).unwrap_or(0);
+    [c(ink[0]), c(ink[1]), c(ink[2])]
+}
+
+fn four_channel_worst_error(color: jpeg_encoder::ColorType) -> Result<u8, Box<dyn Error>> {
+    let mut worst = 0;
+    for ink in INKS {
+        let data: Vec<u8> = ink.iter().copied().cycle().take(16 * 16 * 4).collect();
         let mut file = Vec::new();
-        jpeg_encoder::Encoder::new(&mut file, 90).encode(&data, w, h, color)?;
-        // `decoded` checks the contract on a success; a refusal is fine.
-        let _ = decoded(Format::Jpeg, &file);
+        jpeg_encoder::Encoder::new(&mut file, 100).encode(&data, 16, 16, color)?;
+        let d = decoded(Format::Jpeg, &file).map_err(|s| format!("{ink:?} refused: {s:?}"))?;
+        let want = ink_colour(ink);
+        for px in d.rgba.as_chunks::<4>().0 {
+            assert_eq!(px[3], 255, "{ink:?} is opaque");
+            for c in 0..3 {
+                worst = worst.max(u8::abs_diff(px[c], want[c]));
+            }
+        }
     }
+    Ok(worst)
+}
+
+#[test]
+fn a_cmyk_jpeg_shows_the_colours_of_its_inks() -> R {
+    let worst = four_channel_worst_error(jpeg_encoder::ColorType::Cmyk)?;
+    assert!(worst <= 8, "worst channel error {worst}");
+    Ok(())
+}
+
+/// With the same ink values YCCK decodes dark (no ink gives black), so either
+/// the test encoder or the decoder's YCCK conversion is wrong; no reference
+/// decoder is at hand to say which. Kept as a failing test of the right
+/// answer, to run when one is.
+#[test]
+#[ignore = "known: a YCCK JPEG decodes dark where CMYK with the same inks does not"]
+fn a_ycck_jpeg_shows_the_colours_of_its_inks() -> R {
+    let worst = four_channel_worst_error(jpeg_encoder::ColorType::Ycck)?;
+    assert!(worst <= 8, "worst channel error {worst}");
     Ok(())
 }
