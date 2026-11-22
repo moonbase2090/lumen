@@ -40,7 +40,7 @@ Each metric has a unit, a measurement method, the harness that produces it and a
 - **Unit:** error rate, meaning the fraction of trials in which a participant accepts a spoofed command boundary, exit status or verified badge as genuine.
 - **Method:** a controlled study with the same trial set for three conditions: arm A, arm B and a plain VT control with no rich rendering.
 - **Threshold:** arm B's error rate must be no worse than the plain-VT control, and at most **2 percentage points** worse than arm A.
-- **Not yet fixed:** the sample size, the definition of a trial, participant selection and exclusions, and the statistical comparison (point estimate or confidence bound, and which interval) belong to the study protocol. The protocol is a separate docs PR, merged before the study runs. Until that protocol exists, this clause cannot be evaluated.
+- **Not yet fixed:** the sample size, the definition of a trial, participant selection and exclusions, and the statistical comparison (point estimate or confidence bound, and which interval) belong to the study protocol. The protocol is a separate docs PR, merged before the study runs: [the spoofing study protocol](spoofing-study-protocol.md). Until that protocol is merged and its preconditions hold, this clause cannot be evaluated.
 
 ### 2.2b Simulated-reader spoofing evaluation (proxy, veto only)
 
