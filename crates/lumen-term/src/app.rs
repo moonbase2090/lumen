@@ -172,6 +172,8 @@ pub struct App {
     mouse: Reporter,
     theme_choice: ThemeChoice,
     appearance: Appearance,
+    /// Whether the system asks for more contrast.
+    more_contrast: bool,
     selection: Option<Selection>,
     selecting: bool,
     selection_changed: bool,
@@ -661,6 +663,7 @@ impl App {
             mouse: Reporter::default(),
             theme_choice: ThemeChoice::System,
             appearance: Appearance::Light,
+            more_contrast: false,
             selection: None,
             selecting: false,
             selection_changed: false,
@@ -713,6 +716,15 @@ impl App {
         self.apply_theme()
     }
 
+    /// The system now asks for more contrast, or no longer does. With
+    /// [`ThemeChoice::System`] the look is the high-contrast palette while it
+    /// does, at once; a palette the user fixed is kept. Returns whether the look
+    /// changed.
+    pub fn set_more_contrast(&mut self, more: bool) -> bool {
+        self.more_contrast = more;
+        self.apply_theme()
+    }
+
     /// Use `choice` from now on. Returns whether the look changed.
     pub fn set_theme_choice(&mut self, choice: ThemeChoice) -> bool {
         self.theme_choice = choice;
@@ -748,7 +760,10 @@ impl App {
     /// Draw, and answer colour queries, in the palette the choice and the
     /// appearance give.
     fn apply_theme(&mut self) -> bool {
-        let theme = self.theme_choice.palette(self.appearance).theme();
+        let theme = self
+            .theme_choice
+            .palette_for(self.appearance, self.more_contrast)
+            .theme();
         if *self.renderer.theme() == theme {
             return false;
         }
