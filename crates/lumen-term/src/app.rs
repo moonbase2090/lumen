@@ -1619,11 +1619,48 @@ impl App {
         self.renderer.cell().1
     }
 
+    /// The size in pixels the app was last given to draw in.
+    #[must_use]
+    pub fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    /// The width of a cell in pixels.
+    #[must_use]
+    pub fn cell_width(&self) -> u32 {
+        self.renderer.cell().0
+    }
+
     /// Add the terminal-owned tab strip above this tab's contents.
     #[must_use]
     pub fn view_with_tabs(&self, titles: &[String], active: usize, height: u32) -> Frame {
-        self.renderer
-            .with_tabs(&self.view(), titles, active, height)
+        self.tabs_over(&self.view(), titles, active, height)
+    }
+
+    /// Put the tab strip above `content`, which is the tab's whole drawing: one
+    /// pane's view, or [`compose_panes`](Self::compose_panes).
+    #[must_use]
+    pub fn tabs_over(
+        &self,
+        content: &Frame,
+        titles: &[String],
+        active: usize,
+        height: u32,
+    ) -> Frame {
+        self.renderer.with_tabs(content, titles, active, height)
+    }
+
+    /// Draw `views`, one per pane, in the places `layout` gives them in an area
+    /// of `size`, with the dividers between and a mark on the pane `focus`.
+    #[must_use]
+    pub fn compose_panes(
+        &self,
+        size: (u32, u32),
+        layout: &crate::panes::Layout,
+        views: &[Frame],
+        focus: usize,
+    ) -> Frame {
+        self.renderer.compose_panes(size, layout, views, focus)
     }
 
     /// The content area's height in pixels, the columns it is drawn in and the
@@ -2495,6 +2532,10 @@ impl App {
             | Action::NewTab
             | Action::NextTab
             | Action::PreviousTab
+            | Action::SplitRight
+            | Action::SplitDown
+            | Action::NextPane
+            | Action::PreviousPane
             | Action::Settings => Outcome::Nothing,
             Action::NextLink | Action::PreviousLink => {
                 self.focus_link(action == Action::NextLink);

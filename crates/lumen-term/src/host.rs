@@ -9,6 +9,7 @@ use crate::design::Appearance;
 use crate::keys::{Key, Mods};
 use crate::layer::Layer;
 use crate::mouse::{Button, Held, Wheel};
+use crate::panes::{Layout, Panes, Split};
 use crate::raster::Frame;
 use crate::settings::Watcher as SettingsWatcher;
 use crate::tabs::Tabs;
@@ -87,14 +88,6 @@ pub fn pointer_pixels(x: f64, y: f64) -> (u32, u32) {
         }
     };
     (whole(x), whole(y))
-}
-
-/// A pointer row in the active tab's content. A captured press keeps receiving
-/// motion and its release at the top content row while the pointer is over the
-/// terminal-owned tab strip.
-fn content_pointer_y(y: u32, strip_height: u32, captured: bool) -> Option<u32> {
-    y.checked_sub(strip_height)
-        .or_else(|| captured.then_some(0))
 }
 
 /// Most wheel steps one window event sends.
@@ -368,13 +361,14 @@ pub fn perform_action(
 /// The window as an [`ImeSink`].
 struct WindowSink<'a> {
     window: &'a Window,
+    left: u32,
     top: u32,
 }
 
 impl ImeSink for WindowSink<'_> {
     fn set_area(&mut self, (x, y, w, h): ImeRect) {
         self.window.set_ime_cursor_area(
-            PhysicalPosition::new(x, y.saturating_add(self.top)),
+            PhysicalPosition::new(x.saturating_add(self.left), y.saturating_add(self.top)),
             PhysicalSize::new(w, h),
         );
     }
@@ -425,8 +419,98 @@ pub struct Config {
 }
 
 struct Tab {
-    app: App,
+    panes: Panes<App>,
     title: String,
+}
+
+/// The least a pane may be after a split, in cells.
+const MIN_PANE: (u32, u32) = (20, 5);
+
+impl Tab {
+    fn new(app: App, title: String) -> Self {
+        Self {
+            panes: Panes::new(app),
+            title,
+        }
+    }
+
+    /// The focused pane.
+    fn app(&self) -> &App {
+        self.panes.focused()
+    }
+
+    /// The focused pane, for a change.
+    fn app_mut(&mut self) -> &mut App {
+        self.panes.focused_mut()
+    }
+
+    /// The height of the tab strip above the panes.
+    fn strip(&self) -> u32 {
+        self.app().cell_height()
+    }
+
+    /// The thickness of the divider between panes.
+    fn gap(&self) -> u32 {
+        2 * self.app().scale().max(1)
+    }
+
+    /// Where the panes go in a window of `size`, below the strip.
+    fn layout(&self, size: PhysicalSize<u32>) -> Layout {
+        let height = size.height.saturating_sub(self.strip());
+        self.panes.layout(size.width, height, self.gap())
+    }
+
+    /// The window pixel the focused pane's top left is at.
+    fn origin(&self, size: PhysicalSize<u32>) -> (u32, u32) {
+        let at = self
+            .layout(size)
+            .panes
+            .get(self.panes.focus_index())
+            .map_or((0, 0), |r| (r.x, r.y));
+        (at.0, at.1 + self.strip())
+    }
+
+    /// The pane under window pixel `(x, y)` and the pixel in its own terms.
+    fn pane_at(&self, size: PhysicalSize<u32>, x: u32, y: u32) -> Option<(usize, u32, u32)> {
+        let y = y.checked_sub(self.strip())?;
+        let layout = self.layout(size);
+        let index = layout.panes.iter().position(|r| r.contains(x, y))?;
+        let r = layout.panes[index];
+        Some((index, x - r.x, y - r.y))
+    }
+
+    /// Pane `index`'s own terms for window pixel `(x, y)`, held at its edge
+    /// when the pixel is outside it (a drag that began there).
+    fn pane_clamped(
+        &self,
+        size: PhysicalSize<u32>,
+        index: usize,
+        x: u32,
+        y: u32,
+    ) -> Option<(u32, u32)> {
+        let layout = self.layout(size);
+        let r = layout.panes.get(index)?;
+        let y = y.saturating_sub(self.strip());
+        Some((
+            x.saturating_sub(r.x).min(r.w.saturating_sub(1)),
+            y.saturating_sub(r.y).min(r.h.saturating_sub(1)),
+        ))
+    }
+
+    /// Every pane, for a change.
+    fn apps_mut(&mut self) -> Vec<&mut App> {
+        self.panes.all_mut()
+    }
+
+    /// Size every pane to its place in a window of `size`. Whether any did.
+    fn resize(&mut self, size: PhysicalSize<u32>) -> bool {
+        let layout = self.layout(size);
+        let mut changed = false;
+        for (app, r) in self.panes.all_mut().into_iter().zip(layout.panes) {
+            changed |= app.resize(r.w, r.h).is_ok();
+        }
+        changed
+    }
 }
 
 struct Running {
@@ -439,6 +523,8 @@ struct Running {
     ime: ImeFollower,
     focused: bool,
     mouse_capture: Option<MouseButton>,
+    /// The pane a held button went down in; the drag stays there.
+    capture_pane: usize,
     placement: Placement,
     /// The window's connection to the platform's accessibility.
     access: accesskit_winit::Adapter,
@@ -508,7 +594,9 @@ impl Host {
         self.more_contrast.set(more);
         for run in &mut self.windows {
             let redraw = run.tabs.iter_mut().fold(false, |changed, tab| {
-                tab.app.set_more_contrast(more) | changed
+                tab.apps_mut()
+                    .into_iter()
+                    .fold(changed, |c, app| app.set_more_contrast(more) | c)
             });
             if redraw {
                 run.window.request_redraw();
@@ -523,7 +611,9 @@ impl Host {
         self.reduce_motion.set(reduce);
         for run in &mut self.windows {
             let redraw = run.tabs.iter_mut().fold(false, |changed, tab| {
-                tab.app.set_reduce_motion(reduce) | changed
+                tab.apps_mut()
+                    .into_iter()
+                    .fold(changed, |c, app| app.set_reduce_motion(reduce) | c)
             });
             if redraw {
                 run.window.request_redraw();
@@ -603,13 +693,15 @@ impl Host {
             let mut redraw = false;
             let mut resized = false;
             for tab in run.tabs.iter_mut() {
-                redraw |= tab.app.set_theme_choice(look.theme);
-                match tab.app.set_fonts(&look.fonts) {
-                    Ok(changed) => resized |= changed,
-                    Err(e) => eprintln!("{}: fonts not used ({e})", crate::APP_NAME),
+                for app in tab.apps_mut() {
+                    redraw |= app.set_theme_choice(look.theme);
+                    match app.set_fonts(&look.fonts) {
+                        Ok(changed) => resized |= changed,
+                        Err(e) => eprintln!("{}: fonts not used ({e})", crate::APP_NAME),
+                    }
+                    app.set_copy_on_select(raw.copy_on_select);
+                    app.set_smooth_scroll(raw.smooth_scroll);
                 }
-                tab.app.set_copy_on_select(raw.copy_on_select);
-                tab.app.set_smooth_scroll(raw.smooth_scroll);
             }
             if resized {
                 redraw |= Self::resize_tabs(run, run.window.inner_size());
@@ -641,21 +733,39 @@ impl Host {
         }
     }
 
-    fn refocus(run: &mut Running) {
+    /// Tell every pane whether it has the focus: only the focused pane of the
+    /// active tab does, and only while the window has it.
+    fn set_focus_states(run: &mut Running) {
         let active = run.tabs.active_index();
+        let window_focused = run.focused;
         for (index, tab) in run.tabs.iter_mut().enumerate() {
-            tab.app.set_focused(run.focused && index == active);
-            if index != active {
-                tab.app.clear_preedit();
+            let here = tab.panes.focus_index();
+            for (pane, app) in tab.apps_mut().into_iter().enumerate() {
+                let focused = index == active && pane == here;
+                app.set_focused(window_focused && focused);
+                if !focused || !window_focused {
+                    app.clear_preedit();
+                }
             }
         }
-        run.ime.reset();
+    }
+
+    fn follow_ime(run: &mut Running) {
+        let size = run.window.inner_size();
         let Some(tab) = run.tabs.active() else { return };
+        let (left, top) = tab.origin(size);
         let mut sink = WindowSink {
             window: &run.window,
-            top: tab.app.cell_height(),
+            left,
+            top,
         };
-        run.ime.follow(&tab.app, &mut sink);
+        run.ime.follow(tab.app(), &mut sink);
+    }
+
+    fn refocus(run: &mut Running) {
+        Self::set_focus_states(run);
+        run.ime.reset();
+        Self::follow_ime(run);
         Self::update_window_title(run);
         run.window.request_redraw();
     }
@@ -697,17 +807,82 @@ impl Host {
         };
         if let Some(index) = self.index(id) {
             let run = &mut self.windows[index];
-            run.tabs.push(Tab {
-                app,
-                title: crate::title::window_title(None),
-            });
+            run.tabs
+                .push(Tab::new(app, crate::title::window_title(None)));
+            let size = run.window.inner_size();
+            if let Some(tab) = run.tabs.active_mut() {
+                tab.resize(size);
+            }
             Self::refocus(run);
+        }
+    }
+
+    fn split(&mut self, id: WindowId, how: Split) {
+        let Some(index) = self.index(id) else { return };
+        let window = self.windows[index].window.clone();
+        let size = window.inner_size();
+        let allowed = self.windows[index].tabs.active().is_some_and(|tab| {
+            let (cw, ch) = (tab.app().cell_width(), tab.app().cell_height());
+            let area = (
+                size.width,
+                size.height.saturating_sub(tab.strip()),
+                tab.gap(),
+            );
+            tab.panes
+                .can_split(how, area, (MIN_PANE.0 * cw, MIN_PANE.1 * ch))
+        });
+        if !allowed {
+            return;
+        }
+        let mut app = match self.start_app(&window) {
+            Ok(app) => app,
+            Err(e) => {
+                eprintln!("{}: pane not opened ({e})", crate::APP_NAME);
+                return;
+            }
+        };
+        let run = &mut self.windows[index];
+        let Some(tab) = run.tabs.active_mut() else {
+            return;
+        };
+        // The panes of a tab are drawn at one size.
+        let scale = tab.app().scale();
+        if app.scale() != scale {
+            let _ = app.set_scale(scale);
+        }
+        tab.panes.split(app, how);
+        tab.resize(size);
+        Self::refocus(run);
+    }
+
+    fn cycle_pane(&mut self, id: WindowId, next: bool) {
+        if let Some(run) = self.index(id).map(|index| &mut self.windows[index]) {
+            let changed = run.tabs.active_mut().is_some_and(|tab| {
+                if next {
+                    tab.panes.focus_next()
+                } else {
+                    tab.panes.focus_previous()
+                }
+            });
+            if changed {
+                Self::refocus(run);
+            }
         }
     }
 
     fn close_active(&mut self, event_loop: &ActiveEventLoop, id: WindowId) {
         let empty = self.index(id).is_none_or(|index| {
             let run = &mut self.windows[index];
+            let size = run.window.inner_size();
+            if let Some(tab) = run.tabs.active_mut()
+                && tab.panes.len() > 1
+            {
+                // Closing a pane gives its space to the pane beside it.
+                let at = tab.panes.focus_index();
+                tab.panes.remove(at);
+                tab.resize(size);
+                return false;
+            }
             run.tabs.remove_active();
             run.tabs.is_empty()
         });
@@ -738,8 +913,7 @@ impl Host {
     fn resize_tabs(run: &mut Running, size: PhysicalSize<u32>) -> bool {
         let mut changed = false;
         for tab in run.tabs.iter_mut() {
-            let height = size.height.saturating_sub(tab.app.cell_height());
-            changed |= tab.app.resize(size.width, height).is_ok();
+            changed |= tab.resize(size);
         }
         changed
     }
@@ -759,9 +933,21 @@ impl Host {
         }
         let titles: Vec<String> = run.tabs.iter().map(|tab| tab.title.clone()).collect();
         let Some(tab) = run.tabs.active() else { return };
-        let view = tab
-            .app
-            .view_with_tabs(&titles, run.tabs.active_index(), size.height);
+        let view = if tab.panes.len() == 1 {
+            tab.app()
+                .view_with_tabs(&titles, run.tabs.active_index(), size.height)
+        } else {
+            let layout = tab.layout(size);
+            let views: Vec<Frame> = tab.panes.all().into_iter().map(App::view).collect();
+            let content = tab.app().compose_panes(
+                (size.width, size.height.saturating_sub(tab.strip())),
+                &layout,
+                &views,
+                tab.panes.focus_index(),
+            );
+            tab.app()
+                .tabs_over(&content, &titles, run.tabs.active_index(), size.height)
+        };
         let Ok(mut buffer) = run.surface.buffer_mut() else {
             return;
         };
@@ -785,7 +971,7 @@ impl Host {
     /// What the reader should be told about this window now.
     fn access_snapshot(run: &Running) -> Option<crate::access::Snapshot> {
         let tab = run.tabs.active()?;
-        let app = &tab.app;
+        let app = tab.app();
         let view_links = app.view_links();
         let focused_link = view_links.iter().position(|l| l.focused);
         let links = view_links
@@ -805,6 +991,7 @@ impl Host {
                 .map(|p| crate::access::Question { lines: p.lines() }),
             tabs: run.tabs.iter().map(|t| t.title.clone()).collect(),
             active_tab: run.tabs.active_index(),
+            pane: (tab.panes.len() > 1).then(|| (tab.panes.focus_index() + 1, tab.panes.len())),
         })
     }
 
@@ -850,16 +1037,16 @@ impl Host {
                 };
                 match (request.action, target) {
                     (Action::Click, Target::Link(n)) => {
-                        tab.app.ask_about_view_link(n);
+                        tab.app_mut().ask_about_view_link(n);
                     }
                     (Action::Focus, Target::Link(n)) => {
-                        tab.app.focus_view_link(n);
+                        tab.app_mut().focus_view_link(n);
                     }
                     (Action::Click, Target::Open) => {
-                        let _ = tab.app.answer_link(true);
+                        let _ = tab.app_mut().answer_link(true);
                     }
                     (Action::Click, Target::Cancel) => {
-                        let _ = tab.app.answer_link(false);
+                        let _ = tab.app_mut().answer_link(false);
                     }
                     (Action::Click, Target::Tab(n)) if n != index_now => {
                         let id = run.window.id();
@@ -881,19 +1068,25 @@ impl Host {
         let run = &mut self.windows[index];
         let held = Self::held(run);
         let (x, y) = run.pointer;
+        let size = run.window.inner_size();
         let Some(tab) = run.tabs.active_mut() else {
             return;
         };
-        let top = tab.app.cell_height();
-        let Some(y) = y.checked_sub(top) else { return };
+        let top = tab.strip();
+        // The wheel goes to the pane under the pointer, not the focused one.
+        let Some((pane, x, y)) = tab.pane_at(size, x, y) else {
+            return;
+        };
+        let Some(app) = tab.panes.get_mut(pane) else {
+            return;
+        };
         let line = f64::from(top);
         let redraw = if let MouseScrollDelta::PixelDelta(p) = delta {
-            tab.app
-                .wheel_pixels(x, y, wheel_pixels(p.y), held)
+            app.wheel_pixels(x, y, wheel_pixels(p.y), held)
                 .unwrap_or(false)
         } else if let Some((step, n)) = wheel_steps(delta, line) {
             (0..n).fold(false, |moved, _| {
-                tab.app.mouse_wheel_glide(x, y, step, held).unwrap_or(false) | moved
+                app.mouse_wheel_glide(x, y, step, held).unwrap_or(false) | moved
             })
         } else {
             false
@@ -934,6 +1127,10 @@ impl Host {
             Action::NextTab => return self.cycle_tab(id, true),
             Action::PreviousTab => return self.cycle_tab(id, false),
             Action::Close => return self.close_active(event_loop, id),
+            Action::SplitRight => return self.split(id, Split::Right),
+            Action::SplitDown => return self.split(id, Split::Down),
+            Action::NextPane => return self.cycle_pane(id, true),
+            Action::PreviousPane => return self.cycle_pane(id, false),
             Action::Quit => {
                 return;
             }
@@ -942,27 +1139,37 @@ impl Host {
         }
         let Some(index) = self.index(id) else { return };
         let run = &mut self.windows[index];
+        let size = run.window.inner_size();
         let Some(tab) = run.tabs.active_mut() else {
             return;
         };
-        let top = tab.app.cell_height();
+        let zoom = matches!(action, Action::ZoomIn | Action::ZoomOut | Action::ZoomReset);
+        if zoom {
+            // The panes of a tab are drawn at one size: the others zoom with it.
+            let here = tab.panes.focus_index();
+            for (pane, app) in tab.apps_mut().into_iter().enumerate() {
+                if pane != here {
+                    let _ = app.perform(action, &SystemClipboard);
+                }
+            }
+        }
+        let (left, top) = tab.origin(size);
         let outcome = perform_action(
-            &mut tab.app,
+            tab.app_mut(),
             action,
             &SystemClipboard,
             &mut run.ime,
             &mut WindowSink {
                 window: &run.window,
+                left,
                 top,
             },
         );
-        if matches!(action, Action::ZoomIn | Action::ZoomOut | Action::ZoomReset) {
-            let size = run.window.inner_size();
-            let height = size.height.saturating_sub(tab.app.cell_height());
-            let _ = tab.app.resize(size.width, height);
+        if zoom {
+            tab.resize(size);
         }
         // An open context menu was closed by the action: draw without it.
-        let menu_closed = tab.app.take_view_changed();
+        let menu_closed = tab.app_mut().take_view_changed();
         match outcome {
             Outcome::Exit => event_loop.exit(),
             Outcome::Redraw => run.window.request_redraw(),
@@ -981,7 +1188,7 @@ impl Host {
         if self.windows[index]
             .tabs
             .active()
-            .is_some_and(|tab| tab.app.preedit().is_some())
+            .is_some_and(|tab| tab.app().preedit().is_some())
         {
             // The input method owns the keys while it composes.
             return;
@@ -1004,14 +1211,14 @@ impl Host {
             modifiers,
             event.location,
         ) {
-            if send_input(&mut tab.app, Input::Key(key, mods)) {
+            if send_input(tab.app_mut(), Input::Key(key, mods)) {
                 run.window.request_redraw();
             }
-            choice = tab.app.take_menu_choice();
+            choice = tab.app_mut().take_menu_choice();
         } else if let Some(text) = event.text.as_deref()
             && !modifiers.super_key()
             && text.chars().count() > 1
-            && send_input(&mut tab.app, Input::Text(text))
+            && send_input(tab.app_mut(), Input::Text(text))
         {
             run.window.request_redraw();
         }
@@ -1028,18 +1235,13 @@ impl Host {
         let size = run.window.inner_size();
         let mut changed = false;
         for tab in run.tabs.iter_mut() {
-            changed |= tab.app.set_display_scale(scale_factor).unwrap_or(false);
-            let height = size.height.saturating_sub(tab.app.cell_height());
-            changed |= tab.app.resize(size.width, height).is_ok();
+            for app in tab.apps_mut() {
+                changed |= app.set_display_scale(scale_factor).unwrap_or(false);
+            }
+            changed |= tab.resize(size);
         }
         run.ime.reset();
-        if let Some(tab) = run.tabs.active() {
-            let mut sink = WindowSink {
-                window: &run.window,
-                top: tab.app.cell_height(),
-            };
-            run.ime.follow(&tab.app, &mut sink);
-        }
+        Self::follow_ime(run);
         if changed {
             run.window.request_redraw();
         }
@@ -1051,13 +1253,8 @@ impl Host {
         let Some(tab) = run.tabs.active_mut() else {
             return;
         };
-        let redraw = ime_event(&mut tab.app, event);
-        let top = tab.app.cell_height();
-        let mut sink = WindowSink {
-            window: &run.window,
-            top,
-        };
-        run.ime.follow(&tab.app, &mut sink);
+        let redraw = ime_event(tab.app_mut(), event);
+        Self::follow_ime(run);
         if redraw {
             run.window.request_redraw();
         }
@@ -1073,22 +1270,14 @@ impl Host {
         let Some(index) = self.index(id) else { return };
         let run = &mut self.windows[index];
         run.focused = focused;
-        let active = run.tabs.active_index();
-        for (index, tab) in run.tabs.iter_mut().enumerate() {
-            tab.app.set_reduce_motion(reduce);
-            tab.app.set_focused(focused && index == active);
-            if !focused {
-                tab.app.clear_preedit();
+        for tab in run.tabs.iter_mut() {
+            for app in tab.apps_mut() {
+                app.set_reduce_motion(reduce);
             }
         }
+        Self::set_focus_states(run);
         run.ime.reset();
-        if let Some(tab) = run.tabs.active() {
-            let mut sink = WindowSink {
-                window: &run.window,
-                top: tab.app.cell_height(),
-            };
-            run.ime.follow(&tab.app, &mut sink);
-        }
+        Self::follow_ime(run);
         if focused {
             self.active = Some(id);
         }
@@ -1101,17 +1290,32 @@ impl Host {
         run.pointer = pointer_pixels(position.x, position.y);
         let held = Self::held(run);
         let captured = run.mouse_capture.is_some();
+        let (x, y) = run.pointer;
+        let size = run.window.inner_size();
+        let held_in = run.capture_pane;
         let Some(tab) = run.tabs.active_mut() else {
             return;
         };
-        let redraw = content_pointer_y(run.pointer.1, tab.app.cell_height(), captured)
-            .is_some_and(|y| tab.app.mouse_move(run.pointer.0, y, held).unwrap_or(false))
-            | tab.app.take_selection_redraw();
+        let target = if captured {
+            tab.pane_clamped(size, held_in, x, y)
+                .map(|(x, y)| (held_in, x, y))
+        } else {
+            tab.pane_at(size, x, y)
+        };
+        let Some((pane, x, y)) = target else { return };
+        let Some(app) = tab.panes.get_mut(pane) else {
+            return;
+        };
+        let redraw = app.mouse_move(x, y, held).unwrap_or(false) | app.take_selection_redraw();
         if redraw {
             run.window.request_redraw();
         }
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one press, move or release: the pane it is in, the menus, then the program"
+    )]
     fn on_mouse(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -1124,7 +1328,7 @@ impl Host {
         let (x, y) = self.windows[index].pointer;
         if state == ElementState::Pressed && button == MouseButton::Left {
             let selected = self.windows.get(index).and_then(|run| {
-                let top = run.tabs.active()?.app.cell_height();
+                let top = run.tabs.active()?.strip();
                 (y < top)
                     .then(|| run.tabs.hit(x, run.window.inner_size().width))
                     .flatten()
@@ -1134,22 +1338,42 @@ impl Host {
                 return;
             }
         }
+        let size = self.windows[index].window.inner_size();
+        let captured = self.windows[index].mouse_capture == Some(button);
+        if state == ElementState::Pressed
+            && !captured
+            && let Some(tab) = self.windows[index].tabs.active_mut()
+            && let Some((pane, _, _)) = tab.pane_at(size, x, y)
+            && tab.panes.focus(pane)
+        {
+            // A press in another pane gives it the focus first.
+            Self::refocus(&mut self.windows[index]);
+        }
         let run = &mut self.windows[index];
+        let held_in = run.capture_pane;
         let Some(tab) = run.tabs.active_mut() else {
             return;
         };
-        let captured = run.mouse_capture == Some(button);
-        let Some(y) = content_pointer_y(y, tab.app.cell_height(), captured) else {
+        let target = if captured {
+            tab.pane_clamped(size, held_in, x, y)
+                .map(|(x, y)| (held_in, x, y))
+        } else {
+            tab.pane_at(size, x, y)
+        };
+        let Some((pane, x, y)) = target else {
+            return;
+        };
+        let Some(app) = tab.panes.get_mut(pane) else {
             return;
         };
         #[cfg(any(target_os = "macos", windows))]
         if state == ElementState::Pressed
             && button == MouseButton::Right
-            && !tab.app.is_selecting()
-            && tab.app.owns_context_click(x, y, held)
+            && !app.is_selecting()
+            && app.owns_context_click(x, y, held)
         {
             let menu_state = crate::menu::ContextState {
-                can_copy: tab.app.has_selection(),
+                can_copy: app.has_selection(),
                 can_paste: SystemClipboard.text().is_some(),
             };
             if let Ok(menu) = crate::menu::context_menu(menu_state) {
@@ -1160,14 +1384,11 @@ impl Host {
         #[cfg(not(any(target_os = "macos", windows)))]
         if state == ElementState::Pressed
             && button == MouseButton::Right
-            && !tab.app.is_selecting()
-            && tab.app.owns_context_click(x, y, held)
+            && !app.is_selecting()
+            && app.owns_context_click(x, y, held)
         {
             // There is no system menu here: the terminal draws its own.
-            if tab
-                .app
-                .open_context_menu(x, y, SystemClipboard.text().is_some())
-            {
+            if app.open_context_menu(x, y, SystemClipboard.text().is_some()) {
                 run.window.request_redraw();
             }
             return;
@@ -1175,34 +1396,35 @@ impl Host {
         let mut redraw = false;
         let mut taken = false;
         if state == ElementState::Pressed && button == MouseButton::Left {
-            redraw = tab.app.click(x, y);
+            redraw = app.click(x, y);
             let link_modifier = if cfg!(target_os = "macos") {
                 run.modifiers.super_key()
             } else {
                 run.modifiers.control_key()
             };
-            if tab.app.link_prompt().is_some()
-                || (link_modifier && tab.app.context_menu().is_none())
-            {
-                taken = tab.app.link_press(x, y);
+            if app.link_prompt().is_some() || (link_modifier && app.context_menu().is_none()) {
+                taken = app.link_press(x, y);
                 redraw |= taken;
             }
         }
         if !taken && let Some(b) = map_button(button) {
             redraw |= match state {
-                ElementState::Pressed => tab.app.mouse_press(x, y, b, held),
-                ElementState::Released => tab.app.mouse_release(x, y, b, held),
+                ElementState::Pressed => app.mouse_press(x, y, b, held),
+                ElementState::Released => app.mouse_release(x, y, b, held),
             }
             .unwrap_or(false);
             match state {
-                ElementState::Pressed => run.mouse_capture = Some(button),
+                ElementState::Pressed => {
+                    run.mouse_capture = Some(button);
+                    run.capture_pane = pane;
+                }
                 ElementState::Released if captured => run.mouse_capture = None,
                 ElementState::Released => {}
             }
         }
-        redraw |= tab.app.take_selection_redraw();
-        let copy = tab.app.take_copy_on_select();
-        let choice = tab.app.take_menu_choice();
+        redraw |= app.take_selection_redraw();
+        let copy = app.take_copy_on_select();
+        let choice = app.take_menu_choice();
         if redraw {
             run.window.request_redraw();
         }
@@ -1218,7 +1440,9 @@ impl Host {
         let Some(index) = self.index(id) else { return };
         let run = &mut self.windows[index];
         let changed = run.tabs.iter_mut().fold(false, |changed, tab| {
-            tab.app.set_appearance(appearance(Some(theme))) | changed
+            tab.apps_mut().into_iter().fold(changed, |c, app| {
+                app.set_appearance(appearance(Some(theme))) | c
+            })
         });
         if changed {
             run.window.request_redraw();
@@ -1327,16 +1551,14 @@ impl Host {
         self.windows.push(Running {
             window,
             surface,
-            tabs: Tabs::new(Tab {
-                app,
-                title: crate::title::window_title(None),
-            }),
+            tabs: Tabs::new(Tab::new(app, crate::title::window_title(None))),
             shown_title: crate::title::window_title(None),
             modifiers: ModifiersState::default(),
             pointer: (0, 0),
             ime: ImeFollower::default(),
             focused: false,
             mouse_capture: None,
+            capture_pane: 0,
             placement: actual,
             access,
             access_on: false,
@@ -1423,23 +1645,43 @@ impl ApplicationHandler<UserEvent> for Host {
             let mut refocus = false;
             let mut request_attention = false;
             let mut cancel_attention = false;
+            let mut closed_pane = false;
+            let size = run.window.inner_size();
             for (index, tab) in run.tabs.iter_mut().enumerate() {
-                if pump_frame(&mut tab.app) {
-                    redraw |= index == active;
+                let mut gone = Vec::new();
+                for (pane, app) in tab.panes.all_mut().into_iter().enumerate() {
+                    if pump_frame(app) {
+                        redraw |= index == active;
+                    }
+                    if let Some(title) = app.take_window_title() {
+                        tab.title = title;
+                        redraw = true;
+                    }
+                    match app.attention_step() {
+                        crate::attention::Step::Request => request_attention = true,
+                        crate::attention::Step::Cancel => cancel_attention = true,
+                        crate::attention::Step::Idle => {}
+                    }
+                    if app.has_exited() {
+                        gone.push(pane);
+                    }
                 }
-                if let Some(title) = tab.app.take_window_title() {
-                    tab.title = title;
-                    redraw = true;
-                }
-                match tab.app.attention_step() {
-                    crate::attention::Step::Request => request_attention = true,
-                    crate::attention::Step::Cancel => cancel_attention = true,
-                    crate::attention::Step::Idle => {}
-                }
-                if tab.app.has_exited() {
+                if gone.len() == tab.panes.len() {
                     exited.push(index);
+                } else {
+                    // A program that ended closes its own pane: the neighbour
+                    // takes the space.
+                    for pane in gone.into_iter().rev() {
+                        tab.panes.remove(pane);
+                        closed_pane = true;
+                    }
+                    if closed_pane {
+                        tab.resize(size);
+                        redraw |= index == active;
+                    }
                 }
             }
+            refocus |= closed_pane;
             if request_attention {
                 run.window
                     .request_user_attention(Some(winit::window::UserAttentionType::Informational));
@@ -1523,15 +1765,78 @@ pub fn run(config: Config) -> Result<(), String> {
     host.error.map_or(Ok(()), Err)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::content_pointer_y;
+#[cfg(all(test, unix))]
+mod pane_tests {
+    use super::{Split, Tab};
+    use crate::{App, Passthrough};
+    use winit::dpi::PhysicalSize;
+
+    fn app() -> App {
+        App::start(
+            Box::new(Passthrough),
+            "/bin/sh",
+            &["-c", "sleep 30"],
+            1,
+            640,
+            360,
+        )
+        .unwrap_or_else(|e| unreachable!("start: {e}"))
+    }
+
+    fn split_tab() -> (Tab, PhysicalSize<u32>) {
+        let size = PhysicalSize::new(640, 360);
+        let mut tab = Tab::new(app(), String::new());
+        tab.panes.split(app(), Split::Right);
+        tab.resize(size);
+        (tab, size)
+    }
 
     #[test]
-    fn a_captured_pointer_keeps_the_top_content_row_over_the_tab_strip() {
-        assert_eq!(content_pointer_y(25, 20, false), Some(5));
-        assert_eq!(content_pointer_y(10, 20, false), None);
-        assert_eq!(content_pointer_y(10, 20, true), Some(0));
+    fn a_pointer_is_in_the_pane_under_it_and_in_that_panes_own_terms() {
+        let (tab, size) = split_tab();
+        let strip = tab.strip();
+        let layout = tab.layout(size);
+        let right = layout.panes[1];
+        assert_eq!(tab.pane_at(size, 3, strip + 5), Some((0, 3, 5)));
+        assert_eq!(
+            tab.pane_at(size, right.x + 7, strip + 9),
+            Some((1, 7, 9)),
+            "the second pane's pixel is counted from its own corner"
+        );
+        assert_eq!(
+            tab.pane_at(size, 3, strip - 1),
+            None,
+            "the tab strip is no pane"
+        );
+        assert_eq!(
+            tab.pane_at(size, layout.dividers[0].x, strip + 5),
+            None,
+            "a divider is no pane"
+        );
+    }
+
+    #[test]
+    fn a_drag_stays_in_its_pane_and_is_held_at_its_edge() {
+        let (tab, size) = split_tab();
+        let strip = tab.strip();
+        let left = tab.layout(size).panes[0];
+        // Over the strip: the top row. Far right: the pane's last column.
+        assert_eq!(tab.pane_clamped(size, 0, 5, 0), Some((5, 0)));
+        assert_eq!(
+            tab.pane_clamped(size, 0, 600, strip + 10),
+            Some((left.w - 1, 10))
+        );
+        assert_eq!(tab.pane_clamped(size, 9, 5, 5), None);
+    }
+
+    #[test]
+    fn every_pane_is_sized_to_its_place() {
+        let (tab, size) = split_tab();
+        let layout = tab.layout(size);
+        let sizes: Vec<(u32, u32)> = tab.panes.all().iter().map(|a| a.size()).collect();
+        let places: Vec<(u32, u32)> = layout.panes.iter().map(|r| (r.w, r.h)).collect();
+        assert_eq!(sizes, places);
+        assert!(places[0].0 < 640 / 2 + 1, "the panes share the width");
     }
 }
 
