@@ -120,6 +120,30 @@ pub struct PromptBox {
     pub lines: Vec<String>,
     /// Each button's label and its rectangle.
     pub buttons: Vec<(String, (u32, u32, u32, u32))>,
+    /// Whether the text is taller than the window allows and is shown a page at
+    /// a time: `lines` is then the page, with a last line saying where it is.
+    pub scrolls: bool,
+    /// The first of the whole text's lines on the page, and how many there are.
+    pub first: usize,
+    /// How many lines the whole text has.
+    pub total: usize,
+    /// The pixel row of the first line of text.
+    pub text_top: u32,
+}
+
+impl PromptBox {
+    /// Whether the box and its buttons lie inside a window of `width` by `height`,
+    /// the buttons inside the box, and all the text is shown without scrolling.
+    #[must_use]
+    pub fn fits(&self, width: u32, height: u32) -> bool {
+        let (x, y, w, h) = self.rect;
+        !self.scrolls
+            && x + w <= width
+            && y + h <= height
+            && self.buttons.iter().all(|(_, (bx, by, bw, bh))| {
+                *bx >= x && by >= &y && bx + bw <= x + w && by + bh <= y + h
+            })
+    }
 }
 
 /// What a point on a link prompt is.
@@ -141,8 +165,26 @@ pub enum PromptHit {
 pub struct MenuBox {
     /// The box: x, y, width and height in pixels.
     pub rect: (u32, u32, u32, u32),
-    /// Each entry's rectangle, in the menu's order (a separator too).
+    /// Each entry's rectangle, in the menu's order (a separator too). An entry
+    /// not on the page shown has an empty rectangle.
     pub rows: Vec<(u32, u32, u32, u32)>,
+    /// Whether the menu is taller than the window and is shown a page at a
+    /// time, with the wheel and the arrow keys moving the page.
+    pub scrolls: bool,
+    /// The first entry on the page.
+    pub first: usize,
+    /// Whether the window is narrower than the menu's labels need, so the box
+    /// was cut to the window and its longer labels with it.
+    pub clamped: bool,
+}
+
+impl MenuBox {
+    /// Whether the whole menu is drawn inside a window of `width` by `height`.
+    #[must_use]
+    pub fn fits(&self, width: u32, height: u32) -> bool {
+        let (x, y, w, h) = self.rect;
+        !self.scrolls && !self.clamped && x + w <= width && y + h <= height
+    }
 }
 
 /// What a point on a context menu is.
@@ -2665,54 +2707,121 @@ impl Renderer {
         width: u32,
         height: u32,
         prompt: &crate::linkprompt::Prompt,
+        scroll: usize,
     ) -> PromptBox {
         let cw = self.cell_w.max(1);
+        let ch = self.cell_h.max(1);
         let columns = (width / cw).max(1);
         let box_cols =
             usize::try_from(columns.saturating_sub(2).clamp(1, PROMPT_COLUMNS)).unwrap_or(1);
+        let cols = u32::try_from(box_cols).unwrap_or(1);
         let inner = box_cols.saturating_sub(2).max(1);
-        let mut lines = Vec::new();
+        let mut all = Vec::new();
         for line in prompt.lines() {
             if line.is_empty() {
-                lines.push(String::new());
+                all.push(String::new());
             } else {
-                lines.extend(wrap_by(&line, inner, &cells));
+                all.extend(wrap_by(&line, inner, &cells));
             }
         }
-        let rows = u32::try_from(lines.len()).unwrap_or(0) + 2;
-        let box_w = u32::try_from(box_cols).unwrap_or(1) * cw;
-        let box_h = rows * self.cell_h + self.cell_h + 4 * self.scale;
+        let total = all.len();
+        // The buttons: the labels with their keys when the box is wide enough
+        // for them side by side, then plainer ones, then one above the other.
+        let sets: [&[&str]; 3] = if prompt.target().is_some() {
+            [
+                &[" Open (Enter) ", " Cancel (Esc) "],
+                &[" Open ", " Cancel "],
+                &["Open", "Cancel"],
+            ]
+        } else {
+            [&[" Close (Esc) "], &[" Close "], &["Close"]]
+        };
+        let across = |labels: &[&str]| {
+            let n: Vec<u32> = labels
+                .iter()
+                .map(|l| u32::try_from(l.chars().count()).unwrap_or(0))
+                .collect();
+            1 + n.iter().sum::<u32>() + 2 * u32::try_from(n.len().saturating_sub(1)).unwrap_or(0)
+        };
+        let beside = sets.iter().find(|labels| across(labels) <= cols);
+        let (labels, button_rows) = beside
+            .map_or((sets[1], u32::try_from(sets[1].len()).unwrap_or(1)), |l| {
+                (*l, 1)
+            });
+        let stacked = beside.is_none();
+        let chrome = 4 * self.scale;
+        let rows_avail = height.saturating_sub(chrome) / ch;
+        let full_rows = u32::try_from(total).unwrap_or(0) + 2 + button_rows;
+        let scrolls = full_rows * ch + chrome > height;
+        let (mut lines, mut first, mut compact) = (all, 0usize, false);
+        if scrolls {
+            let with_hint = rows_avail.saturating_sub(3 + button_rows);
+            let page = if with_hint >= 1 {
+                usize::try_from(with_hint).unwrap_or(1)
+            } else {
+                // No room for the box's padding or a line saying where the page
+                // is: the text runs straight into the buttons.
+                compact = true;
+                usize::try_from(rows_avail.saturating_sub(button_rows))
+                    .unwrap_or(1)
+                    .max(1)
+            };
+            first = scroll.min(total.saturating_sub(page));
+            let last = (first + page).min(total);
+            let mut shown: Vec<String> = lines[first..last].to_vec();
+            if !compact {
+                let hint = format!("Up/Down: {}-{} of {}", first + 1, last, total);
+                shown.push(hint.chars().take(inner).collect());
+            }
+            lines = shown;
+        }
+        let (pad, gap) = if compact { (0, 0) } else { (ch / 2, ch) };
+        let text_rows = u32::try_from(lines.len()).unwrap_or(0);
+        let box_w = cols * cw;
+        let box_h = 2 * pad + text_rows * ch + gap + button_rows * ch + chrome;
         let x = width.saturating_sub(box_w) / 2;
         let y = height.saturating_sub(box_h) / 2;
-        let buttons_y = y + 2 * self.scale + self.cell_h / 2 + (rows - 1) * self.cell_h;
-        let labels: &[&str] = if prompt.target().is_some() {
-            &[" Open (Enter) ", " Cancel (Esc) "]
-        } else {
-            &[" Close (Esc) "]
-        };
+        let text_top = y + 2 * self.scale + pad;
+        let buttons_y = text_top + text_rows * ch + gap;
         let mut col = 1u32;
         let mut buttons = Vec::new();
-        for label in labels {
+        for (i, label) in labels.iter().enumerate() {
             let n = u32::try_from(label.chars().count()).unwrap_or(0);
-            buttons.push((
-                label.to_string(),
-                (x + col * cw, buttons_y, n * cw, self.cell_h),
-            ));
+            let rect = if stacked {
+                (
+                    x + cw,
+                    buttons_y + u32::try_from(i).unwrap_or(0) * ch,
+                    n * cw,
+                    ch,
+                )
+            } else {
+                (x + col * cw, buttons_y, n * cw, ch)
+            };
+            buttons.push((label.to_string(), rect));
             col += n + 2;
         }
         PromptBox {
             rect: (x, y, box_w, box_h),
             lines,
             buttons,
+            scrolls,
+            first,
+            total,
+            text_top,
         }
     }
 
     /// Draw a link prompt over `frame`, the whole window. It is the last thing
     /// painted, so nothing a program drew can cover it or pass for it.
     #[cfg(feature = "links-clipboard")]
-    pub fn paint_link_prompt(&self, frame: &mut Frame, prompt: &crate::linkprompt::Prompt) {
+    pub fn paint_link_prompt(
+        &self,
+        frame: &mut Frame,
+        prompt: &crate::linkprompt::Prompt,
+        scroll: usize,
+    ) {
         let theme = &self.theme;
-        let placed = self.link_prompt_box(frame.width, frame.height, prompt);
+        let placed = self.link_prompt_box(frame.width, frame.height, prompt, scroll);
         let (left, top, width, height) = placed.rect;
         frame.fill(left, top, width, height, theme.toast_border);
         let edge = 2 * self.scale;
@@ -2723,7 +2832,7 @@ impl Renderer {
             height.saturating_sub(2 * edge),
             theme.toast,
         );
-        let mut line_top = top + edge + self.cell_h / 2;
+        let mut line_top = placed.text_top;
         for (i, line) in placed.lines.iter().enumerate() {
             let colour = if i == 0 {
                 theme.heading
@@ -2759,10 +2868,11 @@ impl Renderer {
         width: u32,
         height: u32,
         prompt: &crate::linkprompt::Prompt,
+        scroll: usize,
         px: u32,
         py: u32,
     ) -> PromptHit {
-        let b = self.link_prompt_box(width, height, prompt);
+        let b = self.link_prompt_box(width, height, prompt, scroll);
         let inside =
             |(x, y, w, h): (u32, u32, u32, u32)| px >= x && px < x + w && py >= y && py < y + h;
         for (label, rect) in &b.buttons {
@@ -2805,25 +2915,64 @@ impl Renderer {
             .map(|(_, label, _)| u32::try_from(label.chars().count()).unwrap_or(0))
             .max()
             .unwrap_or(0);
-        let box_w = (labels + 4) * cw + 2 * edge;
-        let inner_h: u32 = menu
+        let natural_w = (labels + 4) * cw + 2 * edge;
+        let clamped = natural_w > width;
+        let box_w = natural_w.min(width.max(1));
+        let heights: Vec<u32> = menu
             .items()
             .iter()
             .map(|e| if e.is_some() { entry_h } else { rule_h })
-            .sum();
+            .collect();
+        let room = height.saturating_sub(2 * edge);
+        let scrolls = heights.iter().sum::<u32>() > room;
+        // The page: the entries from `first` while they fit, moved so the
+        // highlighted entry is on it and the page is full at the end.
+        let n = heights.len();
+        let ends = |first: usize| {
+            let mut used = 0u32;
+            let mut end = first;
+            while end < n && (end == first || used + heights[end] <= room) {
+                used += heights[end];
+                end += 1;
+            }
+            end
+        };
+        let mut first = 0usize;
+        if scrolls {
+            first = menu.first().min(n.saturating_sub(1));
+            if let Some(h) = menu.hover() {
+                if h < first {
+                    first = h;
+                }
+                while ends(first) <= h && first < h {
+                    first += 1;
+                }
+            }
+            while first > 0 && ends(first - 1) >= n {
+                first -= 1;
+            }
+        }
+        let last = if scrolls { ends(first) } else { n };
+        let inner_h: u32 = heights[first..last].iter().sum();
         let box_h = inner_h + 2 * edge;
         let x = menu.at.0.min(width.saturating_sub(box_w));
         let y = menu.at.1.min(height.saturating_sub(box_h));
         let mut top = y + edge;
         let mut rows = Vec::new();
-        for entry in menu.items() {
-            let h = if entry.is_some() { entry_h } else { rule_h };
-            rows.push((x + edge, top, box_w - 2 * edge, h));
-            top += h;
+        for (i, h) in heights.iter().enumerate() {
+            if (first..last).contains(&i) {
+                rows.push((x + edge, top, box_w.saturating_sub(2 * edge), *h));
+                top += h;
+            } else {
+                rows.push((0, 0, 0, 0));
+            }
         }
         MenuBox {
             rect: (x, y, box_w, box_h),
             rows,
+            scrolls,
+            first,
+            clamped,
         }
     }
 
@@ -2850,6 +2999,9 @@ impl Renderer {
         );
         let label_y = |ry: u32, rh: u32| ry + rh.saturating_sub(self.cell_h) / 2;
         for (i, (entry, (rx, ry, rw, rh))) in menu.items().iter().zip(&placed.rows).enumerate() {
+            if *rw == 0 {
+                continue;
+            }
             if let Some((_, label, on)) = entry {
                 let colour = if menu.hover() == Some(i) {
                     frame.fill(*rx, *ry, *rw, *rh, theme.prompt);
@@ -2859,11 +3011,14 @@ impl Renderer {
                 } else {
                     theme.muted
                 };
+                let room =
+                    usize::try_from((rw / self.cell_w.max(1)).saturating_sub(2)).unwrap_or(0);
+                let label: String = label.chars().take(room).collect();
                 self.text_line(
                     frame,
                     rx + 2 * self.cell_w,
                     label_y(*ry, *rh),
-                    label,
+                    &label,
                     colour,
                 );
             } else {
