@@ -553,7 +553,8 @@ pub fn block_cells_for(columns: usize, rows: usize, editor_rows: u32) -> (usize,
 /// The columns and rows of a window of `width` by `height` pixels drawn by
 /// `renderer`, whose text column starts a gutter padding right of the gutter.
 /// The gutter's layout columns are counted at the width they are drawn in.
-fn window_cells(width: u32, height: u32, renderer: &Renderer) -> (usize, usize) {
+#[must_use]
+pub fn window_cells(width: u32, height: u32, renderer: &Renderer) -> (usize, usize) {
     let (cell_w, _) = renderer.cell();
     let text = width.saturating_sub(renderer.content_left());
     cells_for(

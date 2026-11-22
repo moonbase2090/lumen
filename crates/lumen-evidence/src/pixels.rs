@@ -203,6 +203,32 @@ pub fn rect_px(renderer: &Renderer, r: &Rect) -> (u32, u32, u32, u32) {
     (left, r.y * ch, right.saturating_sub(left), r.h * ch)
 }
 
+/// The pixel size of a window of `cols` by `rows` cells as `renderer` draws
+/// it: the gutter at its drawn width, then the text column. Every rectangle
+/// [`rect_px`] gives for the window's layout ends at or inside it.
+#[must_use]
+pub fn window_px(renderer: &Renderer, cols: u32, rows: u32) -> (u32, u32) {
+    let all = Rect {
+        x: 0,
+        y: 0,
+        w: cols,
+        h: rows,
+    };
+    let (_, _, width, height) = rect_px(renderer, &all);
+    (width, height)
+}
+
+/// How many pixels differ between `a` and `b` over the whole of both frames;
+/// a pixel one frame has and the other does not counts as changed.
+#[must_use]
+pub fn changed_anywhere(a: &Frame, b: &Frame) -> usize {
+    let (w, h) = (a.width.max(b.width), a.height.max(b.height));
+    (0..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .filter(|&(x, y)| a.pixel(x, y) != b.pixel(x, y))
+        .count()
+}
+
 /// [`rect_px`] as the text the summary and the committed list show.
 #[must_use]
 pub fn rect_text(renderer: &Renderer, r: &Rect) -> String {
@@ -214,18 +240,16 @@ pub fn rect_text(renderer: &Renderer, r: &Rect) -> String {
 /// text, for the summary and the committed list.
 #[must_use]
 pub fn rects_text(renderer: &Renderer) -> String {
-    let (cw, ch) = renderer.cell();
     let mut out = String::new();
     for w in WINDOWS {
         let l = layout(w.cols, w.rows, w.editor_row, w.editor_rows, None);
         let px = |r: &Rect| rect_text(renderer, r);
+        let (width, height) = window_px(renderer, w.cols, w.rows);
         let _ = writeln!(
             out,
-            "rects {}x{} cells, {}x{} px: margin=[{}] [{}] chrome=[{}]",
+            "rects {}x{} cells, {width}x{height} px: margin=[{}] [{}] chrome=[{}]",
             w.cols,
             w.rows,
-            w.cols * cw,
-            w.rows * ch,
             px(&l.margin[0]),
             px(&l.margin[1]),
             px(&l.editor)
@@ -372,18 +396,12 @@ pub fn run_pixels_with<W: Write>(
                 &[("margin_changed", margin), ("chrome_changed", chrome)],
             )
             .map_err(|e| e.to_string())?;
-            let everything = Rect {
-                x: 0,
-                y: 0,
-                w: w.cols,
-                h: w.rows,
-            };
             cases.push(PixelCase {
                 id: case.id.clone(),
                 window: (w.cols, w.rows),
                 margin,
                 chrome,
-                anywhere: changed_in(&renderer, &first, &frame, &[everything]),
+                anywhere: changed_anywhere(&first, &frame),
             });
         }
         baselines.push(first);
