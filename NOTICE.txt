@@ -29,3 +29,16 @@ Noto Sans CJK SC Regular (subset)
   characters and unhinted by scripts/subset-cjk-font.py; no other change.
   SHA-256: bdbdf882cee25de38f930f0f474e1441244fd408572cf83e68f7a527e3334d38
   Use: the fallback for Chinese, Japanese and Korean characters the monospace face lacks.
+
+IBM Plex Math Regular
+  Copyright (c) 2017 IBM Corp. with Reserved Font Name "Plex".
+  Licensed under the SIL Open Font License, Version 1.1. The license text is
+  in crates/lumen-term/assets/fonts/OFL.txt.
+  Source: https://github.com/IBM/plex, release @ibm/plex-math@1.1.0 (revision
+  1da12f02587b630c07e92692d21492d722f53614), file
+  ibm-plex-math/fonts/complete/otf/IBMPlexMath-Regular.otf of ibm-plex-math.zip
+  (SHA-256 d85ed404394ced3a79a519af24611acdee9cc0483363c07cd5ac0656c06db42a)
+  File: crates/lumen-term/assets/fonts/IBMPlexMath-Regular.otf, unmodified
+  SHA-256: 55b36d7d83fe8d319c02bb0dc63749e12a96c910c3aab4e7aaa18b7c176e4d2a
+  Use: the fallback for the brackets of visible escapes (U+27E8 and U+27E9),
+  which the monospace face lacks.
