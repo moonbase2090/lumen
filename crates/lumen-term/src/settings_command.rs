@@ -83,7 +83,7 @@ fn open_on_macos(path: &Path) -> Result<(), String> {
 
 /// Start `program` on `path` and watch it on a thread of its own. The receiver
 /// gets a message if it ends in failure and closes without one on success.
-#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+#[cfg(any(all(test, unix), all(unix, not(target_os = "macos"))))]
 fn start(program: &str, path: &Path) -> Result<Receiver<String>, String> {
     let mut child = std::process::Command::new(program)
         .arg(path)
@@ -106,7 +106,9 @@ fn start(program: &str, path: &Path) -> Result<Receiver<String>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{STARTER, ensure, path, start};
+    #[cfg(unix)]
+    use super::start;
+    use super::{STARTER, ensure, path};
     use crate::settings::{LookSettings, Settings, load_from, parse};
     use std::ffi::OsString;
     use std::path::Path;
@@ -149,6 +151,8 @@ mod tests {
         }
     }
 
+    // Real Unix programs stand in for the opener, which runs only on Unix.
+    #[cfg(unix)]
     #[test]
     fn the_opener_is_given_the_file_and_a_failure_comes_back_as_a_message()
     -> Result<(), Box<dyn std::error::Error>> {
