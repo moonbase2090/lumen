@@ -1613,6 +1613,15 @@ impl App {
         true
     }
 
+    /// Whether a pane of `width` by `height` pixels would give its program at
+    /// least `columns` by `rows` cells, counted as `resize` counts them.
+    #[must_use]
+    pub fn pane_has(&self, width: u32, height: u32, columns: usize, rows: usize) -> bool {
+        let (across, down) = window_cells(width, height, &self.renderer);
+        let (across, down) = block_cells_for(across, down, self.box_rows);
+        across >= columns && down >= rows
+    }
+
     /// The height of a cell in pixels.
     #[must_use]
     pub fn cell_height(&self) -> u32 {

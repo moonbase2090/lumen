@@ -128,3 +128,30 @@ fn closing_a_pane_gives_its_space_back_and_the_last_pane_has_no_divider() {
     );
     assert!(panes.remove(0).is_none(), "the last pane is kept");
 }
+
+#[test]
+fn a_pane_is_big_enough_when_its_program_would_get_the_minimum_cells() {
+    let mut app = start("SIZED");
+    let (mut small, mut large) = (0, 0);
+    for width in (60..900).step_by(13) {
+        for height in (40..500).step_by(17) {
+            app.resize(width, height)
+                .unwrap_or_else(|e| unreachable!("resize: {e}"));
+            let doc = app.session().document();
+            let told = doc.columns() >= 20 && doc.rows() >= 5;
+            assert_eq!(
+                app.pane_has(width, height, 20, 5),
+                told,
+                "{width}x{height} gives the program {}x{}",
+                doc.columns(),
+                doc.rows()
+            );
+            if told {
+                large += 1;
+            } else {
+                small += 1;
+            }
+        }
+    }
+    assert!(small > 0 && large > 0, "the sweep crosses the minimum");
+}

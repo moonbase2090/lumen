@@ -424,7 +424,7 @@ struct Tab {
 }
 
 /// The least a pane may be after a split, in cells.
-const MIN_PANE: (u32, u32) = (20, 5);
+const MIN_PANE: (usize, usize) = (20, 5);
 
 impl Tab {
     fn new(app: App, title: String) -> Self {
@@ -822,14 +822,14 @@ impl Host {
         let window = self.windows[index].window.clone();
         let size = window.inner_size();
         let allowed = self.windows[index].tabs.active().is_some_and(|tab| {
-            let (cw, ch) = (tab.app().cell_width(), tab.app().cell_height());
+            let app = tab.app();
             let area = (
                 size.width,
                 size.height.saturating_sub(tab.strip()),
                 tab.gap(),
             );
             tab.panes
-                .can_split(how, area, (MIN_PANE.0 * cw, MIN_PANE.1 * ch))
+                .can_split(how, area, |w, h| app.pane_has(w, h, MIN_PANE.0, MIN_PANE.1))
         });
         if !allowed {
             return;

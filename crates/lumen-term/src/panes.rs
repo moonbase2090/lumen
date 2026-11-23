@@ -327,23 +327,21 @@ impl<T> Panes<T> {
         out
     }
 
-    /// Whether the focused pane can be split `how` and leave both halves at
-    /// least `min_w` by `min_h` pixels.
+    /// Whether the focused pane can be split `how` and leave both halves
+    /// acceptable to `fits`, which is given a half's size in pixels.
     #[must_use]
     pub fn can_split(
         &self,
         how: Split,
         (width, height, gap): (u32, u32, u32),
-        (min_w, min_h): (u32, u32),
+        fits: impl Fn(u32, u32) -> bool,
     ) -> bool {
         let layout = self.layout(width, height, gap);
         let Some(rect) = layout.panes.get(self.focus) else {
             return false;
         };
-        match how {
-            Split::Right => rect.w >= 2 * min_w + gap && rect.h >= min_h,
-            Split::Down => rect.h >= 2 * min_h + gap && rect.w >= min_w,
-        }
+        let (first, _, second) = divide(*rect, how, gap);
+        fits(first.w, first.h) && fits(second.w, second.h)
     }
 
     /// Split the focused pane: `new` takes the second half and the focus.
@@ -430,7 +428,7 @@ mod tests {
     #[test]
     fn a_split_keeps_both_halves_at_the_minimum_on_both_axes() {
         let p = Panes::new("a");
-        let min = (20, 5);
+        let min = |w: u32, h: u32| w >= 20 && h >= 5;
         assert!(p.can_split(Split::Right, (100, 20, 2), min));
         assert!(!p.can_split(Split::Right, (100, 4, 2), min), "too short");
         assert!(p.can_split(Split::Down, (100, 20, 2), min));
@@ -553,10 +551,10 @@ mod tests {
     #[test]
     fn a_pane_too_small_is_not_split() {
         let p = Panes::new("a");
-        assert!(p.can_split(Split::Right, (100, 40, 2), (49, 10)));
-        assert!(!p.can_split(Split::Right, (100, 40, 2), (50, 10)));
-        assert!(p.can_split(Split::Down, (100, 40, 2), (10, 19)));
-        assert!(!p.can_split(Split::Down, (100, 40, 2), (10, 20)));
+        assert!(p.can_split(Split::Right, (100, 40, 2), |w, h| w >= 49 && h >= 10));
+        assert!(!p.can_split(Split::Right, (100, 40, 2), |w, h| w >= 50 && h >= 10));
+        assert!(p.can_split(Split::Down, (100, 40, 2), |w, h| w >= 10 && h >= 19));
+        assert!(!p.can_split(Split::Down, (100, 40, 2), |w, h| w >= 10 && h >= 20));
     }
 
     #[test]
