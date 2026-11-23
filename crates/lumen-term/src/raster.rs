@@ -803,7 +803,7 @@ impl Renderer {
             ci += 1;
         }
         for (l, r, _) in boxes {
-            self.outline(frame, l, top, r - l);
+            self.outline(frame, (l, top), (r - l, self.cell_h));
         }
     }
 
@@ -816,14 +816,15 @@ impl Renderer {
         }
     }
 
-    /// The outline of the current find match, `width` wide, one cell high.
-    fn outline(&self, frame: &mut Frame, x: u32, y: u32, width: u32) {
-        let t = self.scale.min(self.cell_h).min(width).max(1);
+    /// The outline of the current find match, `width` wide and as high as the
+    /// line it is on: one cell on the grid, the line's own height in a heading.
+    fn outline(&self, frame: &mut Frame, (x, y): (u32, u32), (width, height): (u32, u32)) {
+        let t = self.scale.min(height).min(width).max(1);
         let c = self.theme.find_text;
         frame.fill(x, y, width, t, c);
-        frame.fill(x, y + self.cell_h - t, width, t, c);
-        frame.fill(x, y, t, self.cell_h, c);
-        frame.fill(x + width - t, y, t, self.cell_h, c);
+        frame.fill(x, y + height - t, width, t, c);
+        frame.fill(x, y, t, height, c);
+        frame.fill(x + width - t, y, t, height, c);
     }
 
     /// Paint the cursor of a grid block whose top left is at `x`, `y`: block, bar or underline as
@@ -1044,7 +1045,7 @@ impl Renderer {
             col += w;
         }
         for (l, r, _) in boxes {
-            self.outline(frame, l, y, r - l);
+            self.outline(frame, (l, y), (r - l, self.cell_h));
         }
     }
 
@@ -1212,7 +1213,7 @@ impl Renderer {
             if right > left {
                 frame.fill(left, y, right - left, set.height, self.mark_background(m));
                 if m.current {
-                    self.outline(frame, left, y, right - left);
+                    self.outline(frame, (left, y), (right - left, set.height));
                 }
             }
         }
@@ -1265,6 +1266,23 @@ impl Renderer {
             }
             Style2::Plain => self.proportional_line(frame, at, text, colour, (limit, marks)),
         }
+    }
+
+    /// The one line a strip shows for a block, `width` cells wide: the first
+    /// line of its body. A strip gives each block one row, so a heading is
+    /// set at the body size there, not on its step of the type scale.
+    fn preview(&self, block: &Track0Block, width: usize) -> (String, Style2) {
+        let (lines, kind) = match block {
+            Track0Block::Heading { text, .. } => {
+                let limit = width * self.cell_w as usize * SUBPIXELS;
+                (
+                    wrap_by(text, limit, &|c| self.advance(c)),
+                    Style2::Heading(0),
+                )
+            }
+            other => self.body(other, width),
+        };
+        (lines.into_iter().next().unwrap_or_default(), kind)
     }
 
     /// The lines of a rich block's body, wrapped to `width` cells, with a flag
@@ -2097,11 +2115,17 @@ impl Renderer {
         self.text_line(region, self.cell_w, y, &strip.label(), t.label);
         if strip.open {
             for (i, block) in strip.blocks.iter().enumerate() {
-                let (lines, kind) = self.body(&block.content, inner);
-                let first = lines.first().map_or("", String::as_str);
+                let (first, kind) = self.preview(&block.content, inner);
                 let row = y + u32::try_from(i + 1).unwrap_or(u32::MAX) * self.cell_h;
                 let limit = u32::try_from(inner).unwrap_or(1) * self.cell_w;
-                self.body_line(region, (self.cell_w, row), first, kind, t.foreground, limit);
+                self.body_line(
+                    region,
+                    (self.cell_w, row),
+                    &first,
+                    kind,
+                    t.foreground,
+                    limit,
+                );
             }
         }
         height
@@ -2665,14 +2689,13 @@ impl Renderer {
             self.text_line(&mut region, self.cell_w, 0, &strip.label(), t.label);
             if strip.open {
                 for (i, block) in strip.blocks.iter().enumerate() {
-                    let (lines, kind) = self.body(&block.content, width.max(1));
-                    let first = lines.first().map_or("", String::as_str);
+                    let (first, kind) = self.preview(&block.content, width.max(1));
                     let row = u32::try_from(i + 1).unwrap_or(u32::MAX) * self.cell_h;
                     let limit = u32::try_from(width.max(1)).unwrap_or(1) * self.cell_w;
                     self.body_line(
                         &mut region,
                         (self.cell_w, row),
-                        first,
+                        &first,
                         kind,
                         t.foreground,
                         limit,

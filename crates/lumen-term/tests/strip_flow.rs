@@ -3,7 +3,7 @@
 #![allow(clippy::many_single_char_names)]
 
 use lumen_detector::TAG;
-use lumen_term::{Context, Document, Frame, Layer, Rect, Renderer, Window, layout};
+use lumen_term::{Context, Document, Frame, Layer, Rect, Renderer, StripPlacement, Window, layout};
 
 const WIN: Window = Window {
     cols: 60,
@@ -259,4 +259,98 @@ fn a_strip_that_would_pass_the_editor_is_clipped_and_the_editor_stays() {
         assert_eq!(changed(&r, &base, &f, m), 0, "margin");
     }
     assert_eq!(changed(&r, &base, &f, &lay_.editor), 0, "editor");
+}
+
+/// A heading block of `level` as a program writes it.
+fn heading(level: u8, text: &str) -> Vec<u8> {
+    let mut body = vec![level];
+    body.extend_from_slice(&u16::try_from(text.len()).unwrap_or(0).to_be_bytes());
+    body.extend_from_slice(text.as_bytes());
+    let mut v = b"\x1b_".to_vec();
+    v.extend_from_slice(&TAG);
+    v.push(0x81);
+    v.extend_from_slice(&u32::try_from(body.len()).unwrap_or(0).to_be_bytes());
+    v.extend(body);
+    v
+}
+
+#[test]
+fn a_heading_in_an_open_strip_stays_in_its_one_row() {
+    // A strip gives each block one row. A level 1 heading, set on its own
+    // step, is taller than that row and its descenders would reach the next
+    // block's preview; in a strip it is set at the body size instead.
+    let r = renderer();
+    let open_with = |title: &str| {
+        let mut d = Document::new(56, 14);
+        let mut l = b_layer();
+        d.receive(&mut l, &heading(1, title), Context::default());
+        d.receive(&mut l, &paragraph("next preview"), Context::default());
+        d.begin_prompt_cycle(&mut l);
+        Layer::close_container(&mut l);
+        d.receive(&mut l, &paragraph("newer"), Context::default());
+        assert!(d.user_opens_strip(0));
+        d
+    };
+    let (with, without) = (open_with("gypqjqyy"), open_with(""));
+    let l = lay(&with);
+    let (a, b) = (
+        r.render_window(&with, &WIN),
+        r.render_window(&without, &WIN),
+    );
+    // The strip's label row, then one row per block.
+    let row = |n: u32| Rect {
+        x: l.content.x,
+        y: l.content.y + n,
+        w: l.content.w,
+        h: 1,
+    };
+    assert!(
+        changed(&r, &a, &b, &row(1)) > 0,
+        "the heading is drawn in its row"
+    );
+    assert_eq!(
+        changed(&r, &a, &b, &row(2)),
+        0,
+        "the next block's preview is untouched by the heading"
+    );
+}
+
+#[test]
+fn a_heading_in_the_open_newest_strip_stays_in_its_one_row() {
+    // The same for the newest cycle's strip, drawn below the editor.
+    let r = renderer();
+    let open_with = |title: &str| {
+        let mut d = Document::new(56, 14);
+        let mut l = b_layer();
+        d.begin_prompt_cycle(&mut l);
+        Layer::close_container(&mut l);
+        d.receive(&mut l, &heading(1, title), Context::default());
+        d.receive(&mut l, &paragraph("next preview"), Context::default());
+        let newest = d.strips().last().map_or(0, |s| s.cycle);
+        assert!(d.user_opens_strip(newest));
+        d
+    };
+    let (with, without) = (open_with("gypqjqyy"), open_with(""));
+    let StripPlacement::Placed(strip) = lay(&with).strip else {
+        unreachable!("the open strip has rows below the editor")
+    };
+    assert!(strip.h >= 3, "a label row and a row per block");
+    let (a, b) = (
+        r.render_window(&with, &WIN),
+        r.render_window(&without, &WIN),
+    );
+    let row = |n: u32| Rect {
+        y: strip.y + n,
+        h: 1,
+        ..strip
+    };
+    assert!(
+        changed(&r, &a, &b, &row(1)) > 0,
+        "the heading is drawn in its row"
+    );
+    assert_eq!(
+        changed(&r, &a, &b, &row(2)),
+        0,
+        "the next block's preview is untouched by the heading"
+    );
 }
