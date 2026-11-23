@@ -72,10 +72,19 @@ A user can choose the face and the size of monospace text (grids, code and the e
 
 Runs have a family role (`body`, `heading` or `mono`) and a size step. The type scale is 12, 14, 17, 20 and 24 px at scale 1, with step 0 at 14 px, the body size; each step up is a ratio of about 1.2. Headings default to step 2. Body and mono default to step 0.
 
+In a rich block, a level 1 heading is set at step 3 (24 px), level 2 at step 2 and level 3 at step 1; deeper levels are set as the body. A heading's line is as tall as its face at that size. The container's label is set at step -1 (12 px), a step under the body, so it reads as the terminal's note on the content and not as part of it. These steps scale with the prose size the user chooses.
+
+## Spacing
+
+All values are pixels at scale 1 and grow with the render scale.
+
+- **Rich blocks.** A container has 4 px of margin above and below it, which separates it from the next container or from grid output. Inside its 1 px edge are 6 px of padding above the label and below the last line, and 2 px between the label and the first line.
+- **Window insets.** The window keeps at least 12 px clear right of the text column and 8 px below the last row, painted in the canvas colour; the scroll bar's 4 px thumb sits in the right inset. The columns and rows a window holds are counted after the insets. In a tab split into panes, each pane keeps its own insets.
+
 ## What uses the tokens today
 
 The window is drawn in the palette the theme choice and the system's appearance give. That covers every colour the renderer paints: the canvas, grid text and the ANSI palette, rich-block containers, code, headings, the trust margin, the editor and toasts. The editor's prompt mark is drawn in the accent, so the place to type is the one coloured mark in the chrome. In a tab split into panes, the panes are separated by a band of the `divider` colour two render pixels thick, and the focused pane has a bar of the accent, two render pixels thick, along its top edge; the other panes have none.
 
 The renderer's `Theme` (colours by where they are painted) lives in the design module with the palettes. Its fixed `Theme::light` is kept unchanged for the pinned conditions of the pixel evidence, and the default fonts give the same cells and pixels as before, so baselines stay comparable. Neither the palettes, the theme nor the fonts read decoded image pixels, so none of them is part of the image path's build identity, and changing them never moves it.
 
-Not yet drawn from tokens: the type scale's heading steps (headings use the prose size), spacing and corner radii (the layout is on the cell grid). The user's theme and font choices are read from the [settings file](phase-1/settings-file.md); there is no in-app picker yet.
+Not yet drawn from tokens: corner radii, and spacing outside rich blocks and the window insets (the rest of the layout is on the cell grid). The user's theme and font choices are read from the [settings file](phase-1/settings-file.md); there is no in-app picker yet.
