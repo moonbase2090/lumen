@@ -3370,9 +3370,12 @@ impl App {
     /// stay in the notification area, ahead of every toast, until the next
     /// call. A program cannot dismiss or push them out, and a click does not
     /// hide them. At most [`MAX_CONFIG_NOTICES`] are kept.
-    pub fn set_config_notices(&mut self, mut notices: Vec<String>) {
+    /// Returns whether what is drawn changed, so the window knows to draw again.
+    pub fn set_config_notices(&mut self, mut notices: Vec<String>) -> bool {
         notices.truncate(MAX_CONFIG_NOTICES);
+        let changed = self.config_notices != notices;
         self.config_notices = notices;
+        changed
     }
 
     /// The notices about files that were ignored, in the order drawn.

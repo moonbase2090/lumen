@@ -98,9 +98,9 @@ fn changed(r: &Renderer, a: &Frame, b: &Frame, rect: &Rect) -> usize {
 }
 
 /// What the window does at start: the notices of the files, given to the app.
-fn show(app: &mut App, policy: &Policy, settings: &Settings) {
+fn show(app: &mut App, policy: &Policy, settings: &Settings) -> bool {
     let look = settings.look().resolve();
-    app.set_config_notices(notices(policy.notice().as_deref(), settings, &look));
+    app.set_config_notices(notices(policy.notice().as_deref(), settings, &look))
 }
 
 fn texts(app: &App) -> Vec<String> {
@@ -304,4 +304,56 @@ fn only_a_bounded_number_of_notices_are_kept_and_a_new_list_replaces_the_old() {
     assert_eq!(app.config_notices(), ["one".to_owned()]);
     app.set_config_notices(Vec::new());
     assert_eq!(app.toasts(), []);
+}
+
+#[test]
+fn a_reload_that_changes_only_the_notice_says_the_window_must_draw_again() {
+    let d = dir("reload");
+    let f = d.join("settings.toml");
+    // The edits below leave the theme and the fonts at their defaults: only the
+    // notice differs, so only the notice can ask for a new frame.
+    write(&f, "theme = nonsense\n", 0o600);
+    let mut watcher = Watcher::from_path(f.clone(), Some(d.clone()));
+    let mut app = start("sleep 30");
+    assert!(
+        show(&mut app, &Policy::Defaults, watcher.current()),
+        "the first notice"
+    );
+    assert_eq!(app.config_notices().len(), 1);
+    let ignored_look = watcher.current().look();
+
+    // Fixed to a file that says the defaults: the warning must go.
+    write(&f, "# the defaults\n", 0o600);
+    let fixed = watcher.take_change().cloned();
+    let Some(fixed) = fixed else {
+        unreachable!("the watcher saw the edit")
+    };
+    assert_eq!(fixed.look(), ignored_look, "theme and fonts did not change");
+    assert!(
+        show(&mut app, &Policy::Defaults, &fixed),
+        "clearing it needs a redraw"
+    );
+    assert_eq!(app.toasts(), []);
+    assert!(
+        !show(&mut app, &Policy::Defaults, &fixed),
+        "nothing new, nothing to draw"
+    );
+
+    // And back to malformed: the new warning must be drawn.
+    write(&f, "theme = nonsense\n", 0o600);
+    let broken = watcher.take_change().cloned();
+    let Some(broken) = broken else {
+        unreachable!("the watcher saw the edit")
+    };
+    assert_eq!(
+        broken.look(),
+        ignored_look,
+        "theme and fonts did not change"
+    );
+    assert!(
+        show(&mut app, &Policy::Defaults, &broken),
+        "a new warning needs a redraw"
+    );
+    assert_eq!(app.config_notices().len(), 1);
+    let _ = std::fs::remove_dir_all(&d);
 }

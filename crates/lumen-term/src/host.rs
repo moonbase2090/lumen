@@ -781,7 +781,7 @@ impl Host {
                     }
                     app.set_copy_on_select(raw.copy_on_select);
                     app.set_smooth_scroll(raw.smooth_scroll);
-                    app.set_config_notices(shown.clone());
+                    redraw |= app.set_config_notices(shown.clone());
                 }
             }
             if resized {
