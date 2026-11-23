@@ -141,6 +141,34 @@ impl<T> Node<T> {
         }
     }
 
+    fn leaves(&self) -> usize {
+        match self {
+            Self::Empty => 0,
+            Self::Leaf(_) => 1,
+            Self::Split { first, second, .. } => first.leaves() + second.leaves(),
+        }
+    }
+
+    /// The leaf that takes the space of leaf `target` (counted from `base`)
+    /// when it goes: the nearest one in the sibling that collapses into it.
+    fn heir(&self, target: usize, base: usize) -> Option<usize> {
+        let Self::Split { first, second, .. } = self else {
+            return None;
+        };
+        let before = first.leaves();
+        if target < base + before {
+            match **first {
+                Self::Leaf(_) => Some(base + before),
+                _ => first.heir(target, base),
+            }
+        } else {
+            match **second {
+                Self::Leaf(_) => Some(base + before - 1),
+                _ => second.heir(target, base + before),
+            }
+        }
+    }
+
     /// Take out the leaf `target`; what is left, if anything, and the leaf.
     fn remove(self, target: usize, seen: &mut usize) -> (Option<Self>, Option<T>) {
         match self {
@@ -313,8 +341,8 @@ impl<T> Panes<T> {
             return false;
         };
         match how {
-            Split::Right => rect.w >= 2 * min_w + gap,
-            Split::Down => rect.h >= 2 * min_h + gap,
+            Split::Right => rect.w >= 2 * min_w + gap && rect.h >= min_h,
+            Split::Down => rect.h >= 2 * min_h + gap && rect.w >= min_w,
         }
     }
 
@@ -335,13 +363,17 @@ impl<T> Panes<T> {
         if count < 2 || index >= count {
             return None;
         }
+        let heir = self.root.heir(index, 0).unwrap_or(0);
         let root = std::mem::replace(&mut self.root, Node::Empty);
         let mut seen = 0;
         let (rest, taken) = root.remove(index, &mut seen);
         self.root = rest.unwrap_or(Node::Empty);
-        if self.focus > index || (self.focus == index && index >= count - 1) {
-            self.focus = self.focus.saturating_sub(1);
-        }
+        let shifted = |i: usize| if i > index { i - 1 } else { i };
+        self.focus = if self.focus == index {
+            shifted(heir)
+        } else {
+            shifted(self.focus)
+        };
         taken
     }
 
@@ -373,6 +405,36 @@ mod tests {
 
     fn names(p: &Panes<&'static str>) -> Vec<&'static str> {
         p.all().into_iter().copied().collect()
+    }
+
+    #[test]
+    fn closing_a_pane_focuses_the_pane_that_takes_its_space() {
+        // a | (b over c); close c: b grows, not a.
+        let mut p = Panes::new("a");
+        p.split("b", Split::Right);
+        p.split("c", Split::Down);
+        assert_eq!(p.focus_index(), 2);
+        assert_eq!(p.remove(2), Some("c"));
+        assert_eq!(p.focused(), &"b");
+        // (a over b) | c; close a with focus on a: b grows.
+        let mut p = Panes::new("a");
+        p.split("b", Split::Down);
+        p.split("c", Split::Right);
+        p.focus(0);
+        p.split("d", Split::Down);
+        p.focus(0);
+        assert_eq!(p.remove(0), Some("a"));
+        assert_eq!(p.focused(), &"d");
+    }
+
+    #[test]
+    fn a_split_keeps_both_halves_at_the_minimum_on_both_axes() {
+        let p = Panes::new("a");
+        let min = (20, 5);
+        assert!(p.can_split(Split::Right, (100, 20, 2), min));
+        assert!(!p.can_split(Split::Right, (100, 4, 2), min), "too short");
+        assert!(p.can_split(Split::Down, (100, 20, 2), min));
+        assert!(!p.can_split(Split::Down, (19, 20, 2), min), "too narrow");
     }
 
     #[test]
