@@ -98,6 +98,35 @@ impl Store {
     }
 }
 
+impl Placement {
+    /// Record that the window now shows text at zoom `level`, the zoom of its
+    /// active tab, or nothing when it has no tab left: it keeps the last zoom
+    /// it showed. Returns whether the zoom changed, so the state is saved.
+    pub fn shown(&mut self, level: Option<u32>) -> bool {
+        match level {
+            Some(level) if level != self.zoom => {
+                self.zoom = level;
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+/// The placements to save when the window at `closing` of the `open` ones
+/// closes: the others, or the closing one itself when it is the last, so the
+/// next launch opens it as it was last seen.
+pub fn after_close(open: &[Placement], closing: usize) -> Vec<Placement> {
+    if open.len() <= 1 {
+        return open.to_vec();
+    }
+    open.iter()
+        .enumerate()
+        .filter(|(i, _)| *i != closing)
+        .map(|(_, p)| *p)
+        .collect()
+}
+
 #[derive(Debug)]
 enum ReadError {
     Missing,
@@ -197,7 +226,7 @@ fn encode(placements: &[Placement]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Placement, ReadError, Store, encode, parse, read};
+    use super::{Placement, ReadError, Store, after_close, encode, parse, read};
 
     fn path(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("lumen-window-state-{}-{name}", std::process::id()))
@@ -269,6 +298,35 @@ mod tests {
         assert_eq!(store.save(&[placement]), Ok(()));
         assert_eq!(store.save(&[]), Ok(()));
         assert!(matches!(read(&path), Ok(got) if got == vec![placement]));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn a_window_closed_after_its_shown_tab_changed_zoom_comes_back_at_the_zoom_it_last_showed() {
+        let path = path("last-zoom");
+        let store = Store::from_path(path.clone());
+        let mut window = Placement {
+            position: Some((40, 80)),
+            size: (900, 700),
+            zoom: 2,
+        };
+        assert_eq!(store.save(&[window]), Ok(()));
+        // A new tab at the display's scale is now the one shown.
+        assert!(window.shown(Some(1)));
+        // Its program and then the window's last program end: no tab is left,
+        // and the window keeps the zoom it last showed.
+        assert!(!window.shown(None));
+        assert_eq!(window.zoom, 1);
+        assert_eq!(store.save(&after_close(&[window], 0)), Ok(()));
+        let mut relaunched = Store::from_path(path.clone());
+        assert_eq!(relaunched.take_restored(), vec![window]);
+        // Closing one of two windows keeps only the other.
+        let other = Placement {
+            position: None,
+            size: (640, 480),
+            zoom: 3,
+        };
+        assert_eq!(after_close(&[window, other], 0), vec![other]);
         let _ = std::fs::remove_file(path);
     }
 
