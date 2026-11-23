@@ -232,6 +232,9 @@ pub struct App {
     input_notice: Option<InputNotice>,
     /// The terminal's own notice that the shell layer has no sealing keys.
     seal_notice: Option<SealNotice>,
+    /// The terminal's own notice that something the user asked the window to
+    /// do did not happen, such as opening the settings file.
+    action_notice: Option<ActionNotice>,
     /// The render scale the display asked for, and the one in use now.
     base_scale: u32,
     scale: u32,
@@ -394,7 +397,8 @@ mod find;
 /// Rows of text one wheel step scrolls.
 pub const WHEEL_ROWS: u32 = 3;
 
-/// How long the notice that input was not sent stays after the last refusal.
+/// How long the notice that input was not sent stays after the last refusal,
+/// and how long the notice that a window action did not happen stays.
 pub const INPUT_NOTICE_MS: u64 = 4000;
 
 /// How long a blinking cursor stays on, and then off, in milliseconds. A key or output from the
@@ -528,6 +532,14 @@ impl InputNotice {
 /// a word of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SealNotice {
+    text: String,
+    shown_ms: u64,
+}
+
+/// The terminal's own notice that a window action did not happen. Its text is
+/// the terminal's: no program output reaches it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ActionNotice {
     text: String,
     shown_ms: u64,
 }
@@ -732,6 +744,7 @@ impl App {
             desk: Desk::default(),
             input_notice: None,
             seal_notice: None,
+            action_notice: None,
             base_scale: scale,
             scale,
             scale_pinned: false,
@@ -937,8 +950,8 @@ impl App {
     }
 
     /// The toasts that are drawn, top down: the terminal's own notices first
-    /// (that the shell layer has no sealing keys, then that input was not
-    /// sent), then the notifier's. The terminal's are first so that nothing a
+    /// (that the shell layer has no sealing keys, that input was not sent,
+    /// then that a window action did not happen), then the notifier's. The terminal's are first so that nothing a
     /// program does can push them out of the area.
     #[must_use]
     pub fn toasts(&self) -> Vec<Toast> {
@@ -957,6 +970,14 @@ impl App {
                 text: notice.text(),
                 unsigned: false,
                 shown_ms: notice.last_ms,
+            });
+        }
+        if let Some(notice) = &self.action_notice {
+            toasts.push(Toast {
+                layer: TERMINAL_LAYER,
+                text: notice.text.clone(),
+                unsigned: false,
+                shown_ms: notice.shown_ms,
             });
         }
         toasts.extend_from_slice(self.notifier.shown());
@@ -989,6 +1010,13 @@ impl App {
         if self.input_notice.is_some() {
             if index == 0 {
                 self.input_notice = None;
+                return true;
+            }
+            index -= 1;
+        }
+        if self.action_notice.is_some() {
+            if index == 0 {
+                self.action_notice = None;
                 return true;
             }
             index -= 1;
@@ -1419,6 +1447,7 @@ impl App {
         let state = crate::contextmenu::ContextState {
             can_copy: self.has_selection(),
             can_paste,
+            settings: crate::contextmenu::OFFERS_SETTINGS,
         };
         self.menu.open = Some(crate::contextmenu::ContextMenu::new((x, y), state));
         self.menu.fit.take();
@@ -2365,6 +2394,14 @@ impl App {
             .is_some_and(|n| now.saturating_sub(n.last_ms) >= INPUT_NOTICE_MS)
         {
             self.input_notice = None;
+            changed = true;
+        }
+        if self
+            .action_notice
+            .as_ref()
+            .is_some_and(|n| now.saturating_sub(n.shown_ms) >= INPUT_NOTICE_MS)
+        {
+            self.action_notice = None;
             changed = true;
         }
         let phase = self.blink_on(now);
@@ -3365,6 +3402,17 @@ impl App {
             reason,
             refused,
             last_ms: now,
+        });
+    }
+
+    /// Tell the user, with the terminal's own notice, that something they asked
+    /// the window to do did not happen and why. It is drawn as a toast in the
+    /// notification area, never in the trust margin, and goes when it is
+    /// pressed or after [`INPUT_NOTICE_MS`]. A newer notice replaces it.
+    pub fn show_notice(&mut self, text: &str) {
+        self.action_notice = Some(ActionNotice {
+            text: text.to_owned(),
+            shown_ms: self.session.now_ms(),
         });
     }
 

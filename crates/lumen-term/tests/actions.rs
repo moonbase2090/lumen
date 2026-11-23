@@ -211,6 +211,16 @@ fn the_shortcut_for_each_action_is_the_one_the_platform_uses() {
         action_for(Platform::Other, '+', linux),
         Some(Action::ZoomIn)
     );
+    assert_eq!(
+        action_for(Platform::Other, 's', linux),
+        Some(Action::Settings)
+    );
+    // Control+S alone stays the program's.
+    let control = Held {
+        control: true,
+        ..Held::default()
+    };
+    assert_eq!(action_for(Platform::Other, 's', control), None);
 }
 
 #[cfg(target_os = "macos")]
@@ -263,10 +273,9 @@ fn every_action_has_a_chord_on_each_platform_that_can_reach_it() {
     let other = reach(Platform::Other, linux);
     for action in ALL {
         assert!(mac.contains(&action), "{action:?} has no chord on macOS");
-        // Settings opens a file only where there is a menu to ask for it, and
-        // quitting is closing the window elsewhere: a chord for it would be one
+        // Quitting is closing the window elsewhere: a chord for it would be one
         // slip from losing every tab.
-        if !matches!(action, Action::Settings | Action::Quit) {
+        if action != Action::Quit {
             assert!(other.contains(&action), "{action:?} has no chord elsewhere");
         }
     }

@@ -22,6 +22,7 @@ fn the_menu_offers_copy_paste_select_all_and_zoom_and_turns_off_what_would_do_no
     let all = ContextState {
         can_copy: true,
         can_paste: true,
+        settings: false,
     };
     assert_eq!(
         offered(all),
@@ -37,6 +38,7 @@ fn the_menu_offers_copy_paste_select_all_and_zoom_and_turns_off_what_would_do_no
     let nothing = ContextState {
         can_copy: false,
         can_paste: false,
+        settings: false,
     };
     let off: Vec<Action> = offered(nothing)
         .into_iter()
@@ -53,6 +55,7 @@ fn each_item_comes_back_as_the_action_it_stands_for() {
     for (action, _, _) in context_items(ContextState {
         can_copy: true,
         can_paste: true,
+        settings: false,
     })
     .into_iter()
     .flatten()
