@@ -2684,16 +2684,8 @@ impl Renderer {
         let total = all.len();
         // The buttons: the labels with their keys when the box is wide enough
         // for them side by side, then plainer ones, then one above the other.
-        let sets: [&[&str]; 3] = if prompt.target().is_some() {
-            [
-                &[" Open (Enter) ", " Cancel (Esc) "],
-                &[" Open ", " Cancel "],
-                &["Open", "Cancel"],
-            ]
-        } else {
-            [&[" Close (Esc) "], &[" Close "], &["Close"]]
-        };
-        let across = |labels: &[&str]| {
+        let sets = prompt_button_sets(prompt);
+        let across = |labels: &[String]| {
             let n: Vec<u32> = labels
                 .iter()
                 .map(|l| u32::try_from(l.chars().count()).unwrap_or(0))
@@ -2702,8 +2694,8 @@ impl Renderer {
         };
         let beside = sets.iter().find(|labels| across(labels) <= cols);
         let (labels, button_rows) = beside
-            .map_or((sets[1], u32::try_from(sets[1].len()).unwrap_or(1)), |l| {
-                (*l, 1)
+            .map_or((&sets[1], u32::try_from(sets[1].len()).unwrap_or(1)), |l| {
+                (l, 1)
             });
         let stacked = beside.is_none();
         let chrome = 4 * self.scale;
@@ -2754,7 +2746,7 @@ impl Renderer {
             } else {
                 (x + col * cw, buttons_y, n * cw, ch)
             };
-            buttons.push((label.to_string(), rect));
+            buttons.push((label.clone(), rect));
             col += n + 2;
         }
         PromptBox {
@@ -2834,7 +2826,7 @@ impl Renderer {
             |(x, y, w, h): (u32, u32, u32, u32)| px >= x && px < x + w && py >= y && py < y + h;
         for (label, rect) in &b.buttons {
             if inside(*rect) {
-                return if label.contains("Open") {
+                return if label.contains(prompt.yes_label()) {
                     PromptHit::Open
                 } else {
                     PromptHit::Cancel
@@ -3060,6 +3052,27 @@ enum Style2 {
 
 /// How wide a character is in the unit a layout counts in.
 type Measure<'a> = &'a dyn Fn(char) -> usize;
+
+/// The labels of a link prompt's buttons, as three sets from the fullest (with
+/// their keys) to the plainest: the one that says yes and Cancel for a question
+/// that can be acted on, and Close for one that only informs.
+#[cfg(feature = "links-clipboard")]
+fn prompt_button_sets(prompt: &crate::linkprompt::Prompt) -> [Vec<String>; 3] {
+    let yes = prompt.yes_label();
+    if prompt.target().is_some() {
+        [
+            vec![format!(" {yes} (Enter) "), " Cancel (Esc) ".to_owned()],
+            vec![format!(" {yes} "), " Cancel ".to_owned()],
+            vec![yes.to_owned(), "Cancel".to_owned()],
+        ]
+    } else {
+        [
+            vec![" Close (Esc) ".to_owned()],
+            vec![" Close ".to_owned()],
+            vec!["Close".to_owned()],
+        ]
+    }
+}
 
 fn cells(c: char) -> usize {
     grapheme_display_width(c, &[])

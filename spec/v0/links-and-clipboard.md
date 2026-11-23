@@ -12,7 +12,7 @@ weight = 130
 - **No auto-open.** Links never open automatically.
 - **Confirmation.** Activation requires a confirmation drawn by the terminal. It shows the full decoded target (punycode shown, host never truncated), the producer, and a mismatch flag when the visible text looks like a URL that differs from the target.
 - **Schemes.** Only `https`, `http` and `mailto` are allowed. Every other scheme is refused. A `file:` link renders as inert text with a "copy path" action.
-- **Copy.** Plain copy of a link gives its visible text. "Copy link target" requires the same confirmation. Paste-as-command never takes a link target without that confirmation.
+- **Copy.** Plain copy of a link gives its visible text. "Copy link target" requires the same confirmation: the right-click menu's Copy Address asks it for a copy, and what it copies is the checked target the question showed, never the visible text. Paste-as-command never takes a link target without that confirmation.
 - **Decoding.** A target that does not decode cleanly is refused.
 
 ## mailto {#links.mailto}

@@ -42,6 +42,7 @@ Images in unsigned output are decoded only by the out-of-process sandboxed decod
 - A link never opens automatically.
 - Activation always needs an out-of-content confirmation drawn by the terminal. It shows the full decoded target (punycode shown, host never truncated), the producer (unverified output) and a mismatch flag when link text that looks like a URL differs from the target. This applies even where policy would skip the confirmation for sealed layers.
 - Only `https`, `http` and `mailto` are allowed. `file:` and every other scheme are refused.
+- The right-click menu on a link offers **Open Link** and **Copy Address**, turned on only for an allowed target and off for `file:` and refused ones. Open Link raises the same confirmation and never opens by itself. Copy Address raises that confirmation for a copy and puts only the checked target on the clipboard, as the confirmation showed it, never the text the link displays.
 - Further rules are in [Links](@/spec/v0/links-and-clipboard.md#links).
 
 ## MUST 4: budgets {#trust.must4-budgets}

@@ -9,6 +9,20 @@
 
 use crate::actions::Action;
 
+/// What a right click on a link adds to the menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkItems {
+    /// The pointer is not over a link: the menu has no link items.
+    Absent,
+    /// The pointer is over a link the terminal will not act on (a `file` link
+    /// or a refused target): the items are shown turned off, so it is clear why
+    /// nothing can be done with it.
+    Off,
+    /// The pointer is over a link with an allowed target: Open Link and Copy
+    /// Address ask the terminal's question about that target.
+    On,
+}
+
 /// What the context menu offers: an item is turned off when its action would
 /// do nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,6 +31,8 @@ pub struct ContextState {
     pub can_copy: bool,
     /// The clipboard holds text, so Paste has something to paste.
     pub can_paste: bool,
+    /// Whether the pointer is over a link, and whether it can be acted on.
+    pub link: LinkItems,
 }
 
 /// One entry of the menu: the action, its label and whether it is on.
@@ -26,7 +42,14 @@ pub type Entry = (Action, &'static str, bool);
 /// whether it is on. A separator is `None`.
 #[must_use]
 pub fn context_items(state: ContextState) -> Vec<Option<Entry>> {
-    vec![
+    let mut items = Vec::new();
+    if state.link != LinkItems::Absent {
+        let on = state.link == LinkItems::On;
+        items.push(Some((Action::OpenLink, "Open Link", on)));
+        items.push(Some((Action::CopyLinkAddress, "Copy Address", on)));
+        items.push(None);
+    }
+    items.extend([
         Some((Action::Copy, "Copy", state.can_copy)),
         Some((Action::Paste, "Paste", state.can_paste)),
         Some((Action::SelectAll, "Select All", true)),
@@ -34,7 +57,8 @@ pub fn context_items(state: ContextState) -> Vec<Option<Entry>> {
         Some((Action::ZoomIn, "Zoom In", true)),
         Some((Action::ZoomOut, "Zoom Out", true)),
         Some((Action::ZoomReset, "Actual Size", true)),
-    ]
+    ]);
+    items
 }
 
 /// A context menu that is open: where it was asked for, what it offers, and
@@ -152,6 +176,7 @@ mod tests {
             ContextState {
                 can_copy,
                 can_paste,
+                link: LinkItems::Absent,
             },
         )
     }

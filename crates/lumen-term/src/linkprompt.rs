@@ -24,6 +24,16 @@ pub enum Body {
     Refused(Refusal),
 }
 
+/// What a yes to the question does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Purpose {
+    /// Hand the target to the system's opener.
+    Open,
+    /// Put the checked target on the clipboard. The question shows the same
+    /// target the copy carries.
+    Copy,
+}
+
 /// A question the terminal draws about one link.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prompt {
@@ -33,12 +43,24 @@ pub struct Prompt {
     pub visible: String,
     /// What the check said about the target.
     pub body: Body,
+    /// What a yes does.
+    pub purpose: Purpose,
 }
 
 impl Prompt {
-    /// The prompt for `hit`.
+    /// The prompt for `hit`, asking whether to open it.
     #[must_use]
     pub fn for_hit(hit: &Hit) -> Self {
+        Self::for_purpose(hit, Purpose::Open)
+    }
+
+    /// The prompt for `hit`, asking whether to copy its address.
+    #[must_use]
+    pub fn for_copy(hit: &Hit) -> Self {
+        Self::for_purpose(hit, Purpose::Copy)
+    }
+
+    fn for_purpose(hit: &Hit, purpose: Purpose) -> Self {
         let body = match link::check(&hit.target, &hit.visible) {
             Verdict::Confirm(checked) => Body::Confirm(checked),
             Verdict::Inert { path } => Body::Inert { path },
@@ -48,6 +70,27 @@ impl Prompt {
             producer: hit.producer,
             visible: hit.visible.clone(),
             body,
+            purpose,
+        }
+    }
+
+    /// The label of the button that says yes.
+    #[must_use]
+    pub fn yes_label(&self) -> &'static str {
+        match self.purpose {
+            Purpose::Open => "Open",
+            Purpose::Copy => "Copy",
+        }
+    }
+
+    /// What a yes puts on the clipboard: the checked target of a copy
+    /// question, as the question showed it, and nothing for any other
+    /// question. Call it only once the user has said yes.
+    #[must_use]
+    pub fn copy_text(&self) -> Option<&str> {
+        match (&self.body, self.purpose) {
+            (Body::Confirm(checked), Purpose::Copy) => link::copy_target(checked, true),
+            _ => None,
         }
     }
 
@@ -68,7 +111,13 @@ impl Prompt {
         let mut out = Vec::new();
         match &self.body {
             Body::Confirm(checked) => {
-                out.push("Open this link?".to_owned());
+                out.push(
+                    match self.purpose {
+                        Purpose::Open => "Open this link?",
+                        Purpose::Copy => "Copy this address?",
+                    }
+                    .to_owned(),
+                );
                 out.push(String::new());
                 out.push(checked.shown.clone());
                 out.push(String::new());
