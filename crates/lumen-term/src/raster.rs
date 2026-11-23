@@ -40,6 +40,13 @@ const FACE: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf");
 /// The bundled fallback face for Chinese, Japanese and Korean characters the
 /// monospace face lacks: a subset of Noto Sans CJK (SIL Open Font License).
 const CJK: &[u8] = include_bytes!("../assets/fonts/NotoSansCJK-Subset-Regular.otf");
+/// The bundled face the brackets of a visible escape such as `⟨U+200B⟩` are
+/// drawn from when the monospace face lacks them: IBM Plex Math (SIL Open Font
+/// License), unmodified. Only [`ESCAPE_BRACKETS`] are drawn from it.
+const MATH: &[u8] = include_bytes!("../assets/fonts/IBMPlexMath-Regular.otf");
+/// The characters drawn from [`MATH`]: the brackets the trust surfaces put
+/// round a code point that would otherwise draw nothing.
+const ESCAPE_BRACKETS: [char; 2] = ['\u{27e8}', '\u{27e9}'];
 /// The bundled proportional face, for text in rich blocks.
 const SANS: &[u8] = include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf");
 /// Proportional advances are measured in 64ths of a pixel, so a line is as
@@ -315,6 +322,7 @@ enum Face {
     Mono,
     Sans,
     Cjk,
+    Math,
 }
 
 struct Glyph {
@@ -330,6 +338,7 @@ pub struct Renderer {
     font: OwnedFace,
     sans: OwnedFace,
     cjk: OwnedFace,
+    math: OwnedFace,
     scaler: RefCell<ScaleContext>,
     /// Pixel size of the monospace face.
     px: f32,
@@ -420,6 +429,7 @@ impl Renderer {
         let font = OwnedFace::new(&fonts.mono, FACE)?;
         let sans = OwnedFace::new(&fonts.prose, SANS)?;
         let cjk = OwnedFace::new(&FontFile::Bundled, CJK)?;
+        let math = OwnedFace::new(&FontFile::Bundled, MATH)?;
         #[allow(
             clippy::cast_precision_loss,
             reason = "a scale and a font size are small whole numbers"
@@ -452,6 +462,7 @@ impl Renderer {
             font,
             sans,
             cjk,
+            math,
             scaler: RefCell::new(ScaleContext::new()),
             px,
             sans_px,
@@ -584,18 +595,25 @@ impl Renderer {
         let (mut x, y) = at;
         let mut face = face;
         if face == Face::Mono && ch != ' ' && ch != '\0' && self.font.get().charmap().map(ch) == 0 {
-            face = Face::Cjk;
+            face = if ESCAPE_BRACKETS.contains(&ch) {
+                Face::Math
+            } else {
+                Face::Cjk
+            };
         }
         let (font, size) = match face {
             Face::Mono => (self.font.get(), self.px),
             Face::Sans => (self.sans.get(), self.sans_px),
             Face::Cjk => (self.cjk.get(), self.px),
+            Face::Math => (self.math.get(), self.px),
         };
         let glyph = font.charmap().map(ch);
         if ch == ' ' || ch == '\0' || glyph == 0 {
             return;
         }
-        if face == Face::Cjk {
+        // A fallback glyph is centred in its cells: its advance is not the
+        // monospace face's.
+        if matches!(face, Face::Cjk | Face::Math) {
             let advance = font.glyph_metrics(&[]).scale(size).advance_width(glyph);
             #[allow(
                 clippy::cast_precision_loss,
