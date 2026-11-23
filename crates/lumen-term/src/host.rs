@@ -579,7 +579,15 @@ impl Host {
     }
 
     fn save_window_state(&mut self) {
-        let placements: Vec<Placement> = self.windows.iter().map(|run| run.placement).collect();
+        // Each window keeps the zoom of the tab it shows.
+        let placements: Vec<Placement> = self
+            .windows
+            .iter()
+            .map(|run| Placement {
+                zoom: run.tabs.active().map_or(1, |tab| tab.app().zoom_level()),
+                ..run.placement
+            })
+            .collect();
         if let Err(e) = self.window_store.save(&placements) {
             eprintln!("{}: window state not saved ({e})", crate::APP_NAME);
         }
@@ -1167,6 +1175,7 @@ impl Host {
         );
         if zoom {
             tab.resize(size);
+            self.state_dirty = true;
         }
         // An open context menu was closed by the action: draw without it.
         let menu_closed = tab.app_mut().take_view_changed();
@@ -1540,18 +1549,34 @@ impl Host {
         window.set_ime_allowed(true);
         self.refresh_reduce_motion();
         self.refresh_more_contrast();
-        let app = self.start_app(&window)?;
+        let mut app = self.start_app(&window)?;
+        // A restored window comes back at its own zoom; the others are not
+        // touched, and Zoom Reset still goes back to the display's scale.
+        let zoom = placement.map_or(1, |p| p.zoom);
+        if zoom > 1
+            && let Err(e) = app.set_zoom_level(zoom)
+        {
+            eprintln!("{}: zoom not restored ({e})", crate::APP_NAME);
+        }
         let size = window.inner_size();
         let actual = Placement {
             position: window.outer_position().ok().map(|p| (p.x, p.y)),
             size: (size.width, size.height),
+            zoom: app.zoom_level(),
         };
         let id = window.id();
         window.request_redraw();
+        let mut tabs = Tabs::new(Tab::new(app, crate::title::window_title(None)));
+        if zoom > 1
+            && let Some(tab) = tabs.active_mut()
+        {
+            // Laid out again at the zoomed cell size.
+            tab.resize(size);
+        }
         self.windows.push(Running {
             window,
             surface,
-            tabs: Tabs::new(Tab::new(app, crate::title::window_title(None))),
+            tabs,
             shown_title: crate::title::window_title(None),
             modifiers: ModifiersState::default(),
             pointer: (0, 0),

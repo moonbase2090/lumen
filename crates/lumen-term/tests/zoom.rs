@@ -142,6 +142,40 @@ fn zoom_in_out_and_reset_re_lay_the_window_out_as_a_window_started_at_that_size_
 }
 
 #[test]
+fn a_zoom_level_kept_for_the_next_launch_restores_the_same_zoom_and_reset_still_goes_back() {
+    let script = rich_and_grid_script();
+    let none = NoClipboard;
+    // On a display of scale 2, the user zooms in one step.
+    let mut zoomed = start(2, &script, "grid line");
+    assert_eq!(zoomed.zoom_level(), 1, "at the display's scale");
+    assert_eq!(zoomed.perform(Action::ZoomIn, &none), Outcome::Redraw);
+    assert_eq!(zoomed.zoom_level(), 2);
+    // The next launch starts the window at the display's scale and gives it
+    // the level that was kept: it is the same zoom, drawn the same.
+    let mut restored = start(2, &script, "grid line");
+    assert!(matches!(
+        restored.set_zoom_level(zoomed.zoom_level()),
+        Ok(true)
+    ));
+    assert_eq!(restored.scale(), 3);
+    assert_eq!(restored.zoom_level(), 2);
+    for app in [&mut zoomed, &mut restored] {
+        assert!(pump_until(app, |a| a
+            .visible_text()
+            .iter()
+            .any(|l| l == "grid line")));
+    }
+    assert_eq!(
+        restored.view().to_png().unwrap_or_default(),
+        zoomed.view().to_png().unwrap_or_default()
+    );
+    // Zoom Reset goes back to the display's scale, not to the restored one.
+    assert_eq!(restored.perform(Action::ZoomReset, &none), Outcome::Redraw);
+    assert_eq!(restored.scale(), 2);
+    assert_eq!(restored.zoom_level(), 1);
+}
+
+#[test]
 fn zoom_re_wraps_the_grid_and_holds_the_place_in_the_output() {
     let none = NoClipboard;
     let count = "i=1; while [ $i -le 300 ]; do echo line$i; i=$((i+1)); done;";

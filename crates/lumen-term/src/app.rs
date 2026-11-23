@@ -2474,6 +2474,28 @@ impl App {
         Ok(())
     }
 
+    /// The zoom level of this window's text: 1 at the display's own scale, one
+    /// more for each step zoomed in (see [`actions::zoom_level`]).
+    #[must_use]
+    pub fn zoom_level(&self) -> u32 {
+        actions::zoom_level(self.scale, self.base_scale)
+    }
+
+    /// Zoom to `level` steps from the display's own scale, as a zoom the user
+    /// makes does: Zoom Reset still goes back to the display's scale. Does
+    /// nothing for a pinned scale. Returns whether the scale changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the renderer could not be made or the program could not be told.
+    pub fn set_zoom_level(&mut self, level: u32) -> Result<bool, SpawnError> {
+        let scale = actions::scale_for_zoom(level, self.base_scale);
+        if self.scale_pinned || scale == self.scale {
+            return Ok(false);
+        }
+        self.set_scale(scale).map(|()| true)
+    }
+
     /// Keep the scale as given: a display's scale no longer changes it. For a
     /// scale the user fixed with an option.
     pub fn pin_scale(&mut self) {
