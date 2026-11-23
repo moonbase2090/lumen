@@ -5,6 +5,10 @@
 //! [`App`](crate::App)) and says where each one goes in an area, so it is
 //! tested without a window. The panes are kept in reading order, left to right
 //! and top to bottom, and focus moves along that order.
+//!
+//! A split starts at half and keeps its share of the space when the area
+//! changes size. Dragging a divider changes the share of the split it belongs
+//! to, as far as every pane on both sides stays acceptable.
 
 /// Which way a split divides a pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +47,16 @@ pub struct Layout {
     pub panes: Vec<Rect>,
     /// The dividers drawn between panes.
     pub dividers: Vec<Rect>,
+    /// For each divider, in the same order, the split it belongs to and the
+    /// area that split divides.
+    pub splits: Vec<(Split, Rect)>,
 }
+
+/// A whole share of a split's space: a split's share is the part of it, in
+/// these units, that goes to its first side.
+const SHARE_WHOLE: u32 = 10_000;
+/// The share a new split starts at.
+const SHARE_HALF: u32 = SHARE_WHOLE / 2;
 
 enum Node<T> {
     /// What a tree is while it is being rebuilt; never seen from outside.
@@ -51,6 +64,7 @@ enum Node<T> {
     Leaf(T),
     Split {
         split: Split,
+        share: u32,
         first: Box<Node<T>>,
         second: Box<Node<T>>,
     },
@@ -99,12 +113,14 @@ impl<T> Node<T> {
             Self::Leaf(_) => out.panes.push(area),
             Self::Split {
                 split,
+                share,
                 first,
                 second,
             } => {
-                let (a, line, b) = divide(area, *split, gap);
+                let (a, line, b) = divide(area, *split, gap, *share);
                 first.place(a, gap, out);
                 out.dividers.push(line);
+                out.splits.push((*split, area));
                 second.place(b, gap, out);
             }
         }
@@ -120,6 +136,7 @@ impl<T> Node<T> {
                 match new.take() {
                     Some(n) if here => Self::Split {
                         split: how,
+                        share: SHARE_HALF,
                         first: Box::new(Self::Leaf(t)),
                         second: Box::new(Self::Leaf(n)),
                     },
@@ -131,10 +148,12 @@ impl<T> Node<T> {
             }
             Self::Split {
                 split,
+                share,
                 first,
                 second,
             } => Self::Split {
                 split,
+                share,
                 first: Box::new(first.insert(target, seen, new, how)),
                 second: Box::new(second.insert(target, seen, new, how)),
             },
@@ -184,6 +203,7 @@ impl<T> Node<T> {
             }
             Self::Split {
                 split,
+                share,
                 first,
                 second,
             } => {
@@ -194,6 +214,7 @@ impl<T> Node<T> {
                     (Some(a), Some(b)) => (
                         Some(Self::Split {
                             split,
+                            share,
                             first: Box::new(a),
                             second: Box::new(b),
                         }),
@@ -204,13 +225,43 @@ impl<T> Node<T> {
             }
         }
     }
+
+    /// The share of the split whose divider is `target` in layout order
+    /// (counting from `seen`), for a change.
+    fn share_mut(&mut self, target: usize, seen: &mut usize) -> Option<&mut u32> {
+        let Self::Split {
+            share,
+            first,
+            second,
+            ..
+        } = self
+        else {
+            return None;
+        };
+        if let Some(found) = first.share_mut(target, seen) {
+            return Some(found);
+        }
+        let here = *seen == target;
+        *seen += 1;
+        if here {
+            return Some(share);
+        }
+        second.share_mut(target, seen)
+    }
 }
 
-/// Cut `area` in two along `split`, leaving `gap` pixels for the divider.
-fn divide(area: Rect, split: Split, gap: u32) -> (Rect, Rect, Rect) {
+/// The part of `avail` pixels that a split of `share` gives its first side.
+fn first_part(avail: u32, share: u32) -> u32 {
+    u32::try_from(u64::from(avail) * u64::from(share.min(SHARE_WHOLE)) / u64::from(SHARE_WHOLE))
+        .unwrap_or(avail)
+}
+
+/// Cut `area` in two along `split`, `share` of it to the first side, leaving
+/// `gap` pixels for the divider.
+fn divide(area: Rect, split: Split, gap: u32, share: u32) -> (Rect, Rect, Rect) {
     match split {
         Split::Right => {
-            let first = area.w.saturating_sub(gap) / 2;
+            let first = first_part(area.w.saturating_sub(gap), share);
             let second = area.w.saturating_sub(gap).saturating_sub(first);
             (
                 Rect { w: first, ..area },
@@ -227,7 +278,7 @@ fn divide(area: Rect, split: Split, gap: u32) -> (Rect, Rect, Rect) {
             )
         }
         Split::Down => {
-            let first = area.h.saturating_sub(gap) / 2;
+            let first = first_part(area.h.saturating_sub(gap), share);
             let second = area.h.saturating_sub(gap).saturating_sub(first);
             (
                 Rect { h: first, ..area },
@@ -340,8 +391,116 @@ impl<T> Panes<T> {
         let Some(rect) = layout.panes.get(self.focus) else {
             return false;
         };
-        let (first, _, second) = divide(*rect, how, gap);
+        let (first, _, second) = divide(*rect, how, gap, SHARE_HALF);
         fits(first.w, first.h) && fits(second.w, second.h)
+    }
+
+    /// The divider under the point `(x, y)` of a `width` by `height` area with
+    /// dividers `gap` pixels thick, counting `grab` pixels on either side of it
+    /// as on it, so a thin line can be taken hold of.
+    #[must_use]
+    pub fn divider_at(
+        &self,
+        (width, height, gap): (u32, u32, u32),
+        x: u32,
+        y: u32,
+        grab: u32,
+    ) -> Option<usize> {
+        let layout = self.layout(width, height, gap);
+        layout
+            .dividers
+            .iter()
+            .zip(&layout.splits)
+            .position(|(line, (split, _))| {
+                let near =
+                    |at: u32, start: u32, len: u32| at + grab >= start && at < start + len + grab;
+                match split {
+                    Split::Right => near(x, line.x, line.w) && y >= line.y && y < line.y + line.h,
+                    Split::Down => near(y, line.y, line.h) && x >= line.x && x < line.x + line.w,
+                }
+            })
+    }
+
+    /// Move divider `index` towards `at`, a pixel of the area along the
+    /// divider's axis (across for a vertical one, down for a horizontal one),
+    /// as far as every pane stays acceptable to `fits`, which is given a pane
+    /// and the size in pixels it would have. Whether the divider moved.
+    pub fn drag(
+        &mut self,
+        index: usize,
+        at: u32,
+        (width, height, gap): (u32, u32, u32),
+        fits: impl Fn(&T, u32, u32) -> bool,
+    ) -> bool {
+        let layout = self.layout(width, height, gap);
+        let Some(&(split, area)) = layout.splits.get(index) else {
+            return false;
+        };
+        let (start, len) = match split {
+            Split::Right => (area.x, area.w),
+            Split::Down => (area.y, area.h),
+        };
+        let avail = len.saturating_sub(gap);
+        if avail == 0 {
+            return false;
+        }
+        // The divider's middle follows the pointer.
+        let first = at.saturating_sub(start).saturating_sub(gap / 2).min(avail);
+        let target =
+            u32::try_from((u64::from(first) * u64::from(SHARE_WHOLE)).div_ceil(u64::from(avail)))
+                .unwrap_or(SHARE_WHOLE)
+                .min(SHARE_WHOLE);
+        let Some(now) = self.share(index) else {
+            return false;
+        };
+        if target == now {
+            return false;
+        }
+        let ok = |panes: &mut Self, share: u32| {
+            panes.set_share(index, share);
+            let layout = panes.layout(width, height, gap);
+            panes
+                .all()
+                .into_iter()
+                .zip(layout.panes)
+                .all(|(pane, r)| fits(pane, r.w, r.h))
+        };
+        if ok(self, target) {
+            return true;
+        }
+        if !ok(self, now) {
+            // Already too small, as after the area shrank: no drag makes it
+            // worse, and none is taken that does not fix it.
+            return false;
+        }
+        // Every pane fits at `now` and some pane does not at `target`; each
+        // pane only grows or only shrinks on the way, so the last share that
+        // fits is found by halving.
+        let (mut good, mut bad) = (now, target);
+        while good.abs_diff(bad) > 1 {
+            let mid = if good < bad {
+                good + (bad - good) / 2
+            } else {
+                bad + (good - bad) / 2
+            };
+            if ok(self, mid) {
+                good = mid;
+            } else {
+                bad = mid;
+            }
+        }
+        self.set_share(index, good);
+        good != now
+    }
+
+    fn share(&mut self, index: usize) -> Option<u32> {
+        self.root.share_mut(index, &mut 0).map(|s| *s)
+    }
+
+    fn set_share(&mut self, index: usize, share: u32) {
+        if let Some(s) = self.root.share_mut(index, &mut 0) {
+            *s = share;
+        }
     }
 
     /// Split the focused pane: `new` takes the second half and the focus.
@@ -555,6 +714,90 @@ mod tests {
         assert!(!p.can_split(Split::Right, (100, 40, 2), |w, h| w >= 50 && h >= 10));
         assert!(p.can_split(Split::Down, (100, 40, 2), |w, h| w >= 10 && h >= 19));
         assert!(!p.can_split(Split::Down, (100, 40, 2), |w, h| w >= 10 && h >= 20));
+    }
+
+    /// The panes and dividers cover the area exactly, with no overlap.
+    fn tiles(l: &Layout, width: u32, height: u32) -> bool {
+        let area: u32 = l.panes.iter().chain(&l.dividers).map(|r| r.w * r.h).sum();
+        let apart = |a: &Rect, b: &Rect| {
+            a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y
+        };
+        let all: Vec<&Rect> = l.panes.iter().chain(&l.dividers).collect();
+        area == width * height
+            && all
+                .iter()
+                .enumerate()
+                .all(|(i, a)| all[i + 1..].iter().all(|b| apart(a, b)))
+    }
+
+    #[test]
+    fn dragging_a_divider_moves_it_live_and_the_panes_still_tile_the_area() {
+        let mut p = Panes::new("a");
+        p.split("b", Split::Right);
+        let fits = |_: &&str, w: u32, h: u32| w >= 20 && h >= 5;
+        // The divider's middle follows the pointer.
+        assert!(p.drag(0, 31, (101, 40, 2), fits));
+        let l = p.layout(101, 40, 2);
+        assert_eq!((l.panes[0].w, l.dividers[0].x, l.panes[1].w), (30, 30, 69));
+        assert!(tiles(&l, 101, 40));
+        assert!(!p.drag(0, 31, (101, 40, 2), fits), "already there");
+        // The share is kept when the area changes size, as on a window resize
+        // or a zoom that changes the strip above the panes.
+        let l = p.layout(202, 33, 4);
+        assert_eq!(l.panes[0].w, 60, "30 of 99 is 60 of 198");
+        assert!(tiles(&l, 202, 33));
+        // The focus is not the drag's to change.
+        assert_eq!(*p.focused(), "b");
+    }
+
+    #[test]
+    fn a_drag_stops_where_a_pane_on_either_side_would_go_below_its_minimum() {
+        // a | (b over c): the outer divider holds back for b and c together.
+        let mut p = Panes::new("a");
+        p.split("b", Split::Right);
+        p.split("c", Split::Down);
+        let fits = |_: &&str, w: u32, h: u32| w >= 20 && h >= 5;
+        let area = (100, 40, 2);
+        // Dividers are in layout order: the vertical one first, then the one
+        // between b and c.
+        assert!(p.drag(0, 0, area, fits), "towards the left edge");
+        let l = p.layout(100, 40, 2);
+        assert_eq!(l.panes[0].w, 20, "a stops at the minimum");
+        assert!(p.drag(0, 99, area, fits), "towards the right edge");
+        let l = p.layout(100, 40, 2);
+        assert_eq!(
+            (l.panes[1].w, l.panes[2].w),
+            (20, 20),
+            "b and c stop together"
+        );
+        assert!(tiles(&l, 100, 40));
+        // The inner divider, stacked: c cannot be made shorter than 5.
+        assert!(p.drag(1, 39, area, fits));
+        assert_eq!(p.layout(100, 40, 2).panes[2].h, 5);
+        // An area already too small for the minimum takes no drag at all.
+        assert!(!p.drag(0, 50, (30, 40, 2), fits));
+    }
+
+    #[test]
+    fn a_press_on_a_divider_takes_hold_of_it_and_a_press_in_a_pane_does_not() {
+        let mut p = Panes::new("a");
+        p.split("b", Split::Right);
+        p.split("c", Split::Down);
+        let area = (100, 40, 2);
+        // The vertical divider is at 49 and 50; two pixels either side count.
+        assert_eq!(p.divider_at(area, 49, 10, 2), Some(0));
+        assert_eq!(p.divider_at(area, 47, 10, 2), Some(0));
+        assert_eq!(p.divider_at(area, 52, 10, 2), Some(0));
+        assert_eq!(p.divider_at(area, 46, 10, 2), None, "inside a");
+        assert_eq!(p.divider_at(area, 53, 10, 2), None, "inside b");
+        // The horizontal one runs only across b and c.
+        let line = p.layout(100, 40, 2).dividers[1];
+        assert_eq!(p.divider_at(area, 75, line.y, 2), Some(1));
+        assert_eq!(
+            p.divider_at(area, 20, line.y, 2),
+            None,
+            "a has no divider there"
+        );
     }
 
     #[test]

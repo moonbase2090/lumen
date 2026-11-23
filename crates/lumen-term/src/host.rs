@@ -24,7 +24,7 @@ use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, W
 use winit::event_loop::ControlFlow;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key as WinitKey, KeyLocation, ModifiersState, NamedKey};
-use winit::window::{Theme as WinitTheme, Window, WindowId};
+use winit::window::{CursorIcon, Theme as WinitTheme, Window, WindowId};
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
@@ -479,6 +479,51 @@ impl Tab {
         Some((index, x - r.x, y - r.y))
     }
 
+    /// How many pixels either side of a divider a press still takes hold of it.
+    fn grab(&self) -> u32 {
+        2 * self.app().scale().max(1)
+    }
+
+    /// The divider under window pixel `(x, y)`, and which way it divides.
+    fn divider_at(&self, size: PhysicalSize<u32>, x: u32, y: u32) -> Option<(usize, Split)> {
+        let y = y.checked_sub(self.strip())?;
+        let height = size.height.saturating_sub(self.strip());
+        let area = (size.width, height, self.gap());
+        let index = self.panes.divider_at(area, x, y, self.grab())?;
+        let layout = self.panes.layout(area.0, area.1, area.2);
+        layout.splits.get(index).map(|(split, _)| (index, *split))
+    }
+
+    /// Move divider `index` towards window pixel `(x, y)`, as far as every
+    /// pane keeps the least a split leaves it, and size the panes to their new
+    /// places. Whether it moved.
+    fn drag_divider(&mut self, size: PhysicalSize<u32>, index: usize, x: u32, y: u32) -> bool {
+        let height = size.height.saturating_sub(self.strip());
+        let gap = self.gap();
+        let Some((split, _)) = self
+            .panes
+            .layout(size.width, height, gap)
+            .splits
+            .get(index)
+            .copied()
+        else {
+            return false;
+        };
+        let at = match split {
+            Split::Right => x,
+            Split::Down => y.saturating_sub(self.strip()),
+        };
+        let moved = self
+            .panes
+            .drag(index, at, (size.width, height, gap), |app, w, h| {
+                app.pane_has(w, h, MIN_PANE.0, MIN_PANE.1)
+            });
+        if moved {
+            self.resize(size);
+        }
+        moved
+    }
+
     /// Pane `index`'s own terms for window pixel `(x, y)`, held at its edge
     /// when the pixel is outside it (a drag that began there).
     fn pane_clamped(
@@ -525,6 +570,11 @@ struct Running {
     mouse_capture: Option<MouseButton>,
     /// The pane a held button went down in; the drag stays there.
     capture_pane: usize,
+    /// The divider of the active tab being dragged, while the button is held.
+    divider_drag: Option<usize>,
+    /// The divider the pointer is over, by the way it divides, for the
+    /// pointer's shape.
+    divider_hover: Option<Split>,
     placement: Placement,
     /// The window's connection to the platform's accessibility.
     access: accesskit_winit::Adapter,
@@ -784,6 +834,8 @@ impl Host {
     }
 
     fn refocus(run: &mut Running) {
+        // Another tab or pane set: a divider held until now may not be there.
+        run.divider_drag = None;
         Self::set_focus_states(run);
         run.ime.reset();
         Self::follow_ime(run);
@@ -1324,6 +1376,26 @@ impl Host {
         let Some(tab) = run.tabs.active_mut() else {
             return;
         };
+        if let Some(divider) = run.divider_drag {
+            // A live resize: the panes follow the pointer while it is held.
+            if tab.drag_divider(size, divider, x, y) {
+                run.window.request_redraw();
+            }
+            return;
+        }
+        let hover = if captured {
+            None
+        } else {
+            tab.divider_at(size, x, y).map(|(_, split)| split)
+        };
+        if hover != run.divider_hover {
+            run.divider_hover = hover;
+            run.window.set_cursor(match hover {
+                Some(Split::Right) => CursorIcon::ColResize,
+                Some(Split::Down) => CursorIcon::RowResize,
+                None => CursorIcon::Default,
+            });
+        }
         let target = if captured {
             tab.pane_clamped(size, held_in, x, y)
                 .map(|(x, y)| (held_in, x, y))
@@ -1368,6 +1440,22 @@ impl Host {
         }
         let size = self.windows[index].window.inner_size();
         let captured = self.windows[index].mouse_capture == Some(button);
+        if button == MouseButton::Left {
+            let run = &mut self.windows[index];
+            if state == ElementState::Released && run.divider_drag.take().is_some() {
+                return;
+            }
+            // A press on a divider takes hold of it: it neither focuses a pane
+            // nor reaches a program.
+            if state == ElementState::Pressed
+                && run.mouse_capture.is_none()
+                && let Some((divider, _)) =
+                    run.tabs.active().and_then(|tab| tab.divider_at(size, x, y))
+            {
+                run.divider_drag = Some(divider);
+                return;
+            }
+        }
         if state == ElementState::Pressed
             && !captured
             && let Some(tab) = self.windows[index].tabs.active_mut()
@@ -1603,6 +1691,8 @@ impl Host {
             focused: false,
             mouse_capture: None,
             capture_pane: 0,
+            divider_drag: None,
+            divider_hover: None,
             placement: actual,
             access,
             access_on: false,
