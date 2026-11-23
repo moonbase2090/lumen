@@ -1,9 +1,13 @@
 //! The windows restored on the next launch.
 //!
 //! This is application state, not a user setting. It is a small bounded list
-//! beside the settings file. Each line is `x y width height`; `- -` means the
-//! platform did not expose a position. A bad file is ignored whole.
+//! beside the settings file. Each line is `x y width height zoom`; `- -` means
+//! the platform did not expose a position, and `zoom` is the window's zoom
+//! level, 1 (the display's own scale) to 4 (see [`crate::actions::zoom_level`]).
+//! A line of the first four fields alone, as earlier versions wrote, is a
+//! window at zoom level 1. A bad file is ignored whole.
 
+use crate::actions::MAX_ZOOM_LEVEL;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -12,11 +16,13 @@ const MAX_BYTES: u64 = 4096;
 const MAX_WINDOWS: usize = 32;
 const MAX_DIMENSION: u32 = 16_384;
 
-/// One window's outer position and inner size, in physical pixels.
+/// One window's outer position and inner size, in physical pixels, and its
+/// zoom level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Placement {
     pub position: Option<(i32, i32)>,
     pub size: (u32, u32),
+    pub zoom: u32,
 }
 
 /// The state file and what it restored.
@@ -92,6 +98,35 @@ impl Store {
     }
 }
 
+impl Placement {
+    /// Record that the window now shows text at zoom `level`, the zoom of its
+    /// active tab, or nothing when it has no tab left: it keeps the last zoom
+    /// it showed. Returns whether the zoom changed, so the state is saved.
+    pub fn shown(&mut self, level: Option<u32>) -> bool {
+        match level {
+            Some(level) if level != self.zoom => {
+                self.zoom = level;
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+/// The placements to save when the window at `closing` of the `open` ones
+/// closes: the others, or the closing one itself when it is the last, so the
+/// next launch opens it as it was last seen.
+pub fn after_close(open: &[Placement], closing: usize) -> Vec<Placement> {
+    if open.len() <= 1 {
+        return open.to_vec();
+    }
+    open.iter()
+        .enumerate()
+        .filter(|(i, _)| *i != closing)
+        .map(|(_, p)| *p)
+        .collect()
+}
+
 #[derive(Debug)]
 enum ReadError {
     Missing,
@@ -133,8 +168,18 @@ fn parse(text: &str) -> Result<Vec<Placement>, &'static str> {
             return Err("too many windows");
         }
         let fields: Vec<&str> = line.split_ascii_whitespace().collect();
-        let [x, y, width, height] = fields.as_slice() else {
-            return Err("bad line");
+        let (x, y, width, height, zoom) = match fields.as_slice() {
+            [x, y, width, height] => (x, y, width, height, None),
+            [x, y, width, height, zoom] => (x, y, width, height, Some(zoom)),
+            _ => return Err("bad line"),
+        };
+        let zoom = match zoom {
+            None => 1,
+            Some(zoom) => zoom
+                .parse()
+                .ok()
+                .filter(|z| (1..=MAX_ZOOM_LEVEL).contains(z))
+                .ok_or("bad zoom")?,
         };
         let position = match (*x, *y) {
             ("-", "-") => None,
@@ -152,6 +197,7 @@ fn parse(text: &str) -> Result<Vec<Placement>, &'static str> {
         out.push(Placement {
             position,
             size: (width, height),
+            zoom,
         });
     }
     Ok(out)
@@ -171,6 +217,8 @@ fn encode(placements: &[Placement]) -> String {
         out.push_str(&placement.size.0.to_string());
         out.push(' ');
         out.push_str(&placement.size.1.to_string());
+        out.push(' ');
+        out.push_str(&placement.zoom.clamp(1, MAX_ZOOM_LEVEL).to_string());
         out.push('\n');
     }
     out
@@ -178,7 +226,7 @@ fn encode(placements: &[Placement]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Placement, ReadError, Store, encode, parse, read};
+    use super::{Placement, ReadError, Store, after_close, encode, parse, read};
 
     fn path(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("lumen-window-state-{}-{name}", std::process::id()))
@@ -190,20 +238,52 @@ mod tests {
             Placement {
                 position: Some((-40, 80)),
                 size: (900, 700),
+                zoom: 3,
             },
             Placement {
                 position: None,
                 size: (640, 480),
+                zoom: 1,
             },
         ];
         assert_eq!(parse(&encode(&placements)), Ok(placements.to_vec()));
     }
 
     #[test]
+    fn a_state_written_before_zoom_was_kept_reads_at_zoom_level_1() {
+        assert_eq!(
+            parse("10 20 800 600\n- - 640 480 4\n"),
+            Ok(vec![
+                Placement {
+                    position: Some((10, 20)),
+                    size: (800, 600),
+                    zoom: 1,
+                },
+                Placement {
+                    position: None,
+                    size: (640, 480),
+                    zoom: 4,
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn a_zoom_outside_1_to_4_refuses_the_whole_state() {
+        for bad in ["0", "5", "x", "-1", "2.5"] {
+            assert_eq!(
+                parse(&format!("0 0 800 600 2\n0 0 800 600 {bad}\n")),
+                Err("bad zoom"),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
     fn one_bad_value_refuses_the_whole_state() {
         assert_eq!(parse("0 0 800 600\n- 2 640 480\n"), Err("bad position"));
         assert_eq!(parse("0 0 0 600\n"), Err("bad size"));
-        assert_eq!(parse("0 0 800 600 extra\n"), Err("bad line"));
+        assert_eq!(parse("0 0 800 600 2 extra\n"), Err("bad line"));
     }
 
     #[test]
@@ -213,10 +293,40 @@ mod tests {
         let placement = Placement {
             position: Some((40, 80)),
             size: (900, 700),
+            zoom: 2,
         };
         assert_eq!(store.save(&[placement]), Ok(()));
         assert_eq!(store.save(&[]), Ok(()));
         assert!(matches!(read(&path), Ok(got) if got == vec![placement]));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn a_window_closed_after_its_shown_tab_changed_zoom_comes_back_at_the_zoom_it_last_showed() {
+        let path = path("last-zoom");
+        let store = Store::from_path(path.clone());
+        let mut window = Placement {
+            position: Some((40, 80)),
+            size: (900, 700),
+            zoom: 2,
+        };
+        assert_eq!(store.save(&[window]), Ok(()));
+        // A new tab at the display's scale is now the one shown.
+        assert!(window.shown(Some(1)));
+        // Its program and then the window's last program end: no tab is left,
+        // and the window keeps the zoom it last showed.
+        assert!(!window.shown(None));
+        assert_eq!(window.zoom, 1);
+        assert_eq!(store.save(&after_close(&[window], 0)), Ok(()));
+        let mut relaunched = Store::from_path(path.clone());
+        assert_eq!(relaunched.take_restored(), vec![window]);
+        // Closing one of two windows keeps only the other.
+        let other = Placement {
+            position: None,
+            size: (640, 480),
+            zoom: 3,
+        };
+        assert_eq!(after_close(&[window, other], 0), vec![other]);
         let _ = std::fs::remove_file(path);
     }
 
@@ -244,6 +354,7 @@ mod tests {
         let placement = Placement {
             position: None,
             size: (800, 600),
+            zoom: 1,
         };
         assert_eq!(encode(&vec![placement; 33]).lines().count(), 32);
     }

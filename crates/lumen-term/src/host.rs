@@ -628,9 +628,30 @@ impl Host {
             .or_else(|| self.windows.last().map(|run| run.window.id()))
     }
 
+    /// Record the zoom each window shows now, its active tab's, and mark the
+    /// state to be saved when one changed: a zoom, and a new, switched or
+    /// closed tab, can each change it.
+    fn track_zoom(&mut self) {
+        for run in &mut self.windows {
+            let shown = run.tabs.active().map(|tab| tab.app().zoom_level());
+            if run.placement.shown(shown) {
+                self.state_dirty = true;
+            }
+        }
+    }
+
+    fn placements(&self) -> Vec<Placement> {
+        self.windows.iter().map(|run| run.placement).collect()
+    }
+
     fn save_window_state(&mut self) {
-        let placements: Vec<Placement> = self.windows.iter().map(|run| run.placement).collect();
-        if let Err(e) = self.window_store.save(&placements) {
+        self.track_zoom();
+        let placements = self.placements();
+        self.write_window_state(&placements);
+    }
+
+    fn write_window_state(&mut self, placements: &[Placement]) {
+        if let Err(e) = self.window_store.save(placements) {
             eprintln!("{}: window state not saved ({e})", crate::APP_NAME);
         }
         self.state_dirty = false;
@@ -923,6 +944,8 @@ impl Host {
     }
 
     fn close_active(&mut self, event_loop: &ActiveEventLoop, id: WindowId) {
+        // The zoom shown until now, before the tab that shows it goes.
+        self.track_zoom();
         let empty = self.index(id).is_none_or(|index| {
             let run = &mut self.windows[index];
             let size = run.window.inner_size();
@@ -947,6 +970,10 @@ impl Host {
 
     fn close_window(&mut self, event_loop: &ActiveEventLoop, id: WindowId) {
         let Some(index) = self.index(id) else { return };
+        // The last window to close is still the one to restore, as it was last
+        // seen: its placement is taken before it goes.
+        self.track_zoom();
+        let kept = crate::window_state::after_close(&self.placements(), index);
         self.windows.remove(index);
         if self.active == Some(id) {
             self.active = self
@@ -956,7 +983,7 @@ impl Host {
                 .or_else(|| self.windows.last())
                 .map(|run| run.window.id());
         }
-        self.save_window_state();
+        self.write_window_state(&kept);
         if self.windows.is_empty() {
             event_loop.exit();
         }
@@ -1219,6 +1246,7 @@ impl Host {
         );
         if zoom {
             tab.resize(size);
+            self.state_dirty = true;
         }
         // An open context menu was closed by the action: draw without it.
         let menu_closed = tab.app_mut().take_view_changed();
@@ -1628,18 +1656,34 @@ impl Host {
         window.set_ime_allowed(true);
         self.refresh_reduce_motion();
         self.refresh_more_contrast();
-        let app = self.start_app(&window)?;
+        let mut app = self.start_app(&window)?;
+        // A restored window comes back at its own zoom; the others are not
+        // touched, and Zoom Reset still goes back to the display's scale.
+        let zoom = placement.map_or(1, |p| p.zoom);
+        if zoom > 1
+            && let Err(e) = app.set_zoom_level(zoom)
+        {
+            eprintln!("{}: zoom not restored ({e})", crate::APP_NAME);
+        }
         let size = window.inner_size();
         let actual = Placement {
             position: window.outer_position().ok().map(|p| (p.x, p.y)),
             size: (size.width, size.height),
+            zoom: app.zoom_level(),
         };
         let id = window.id();
         window.request_redraw();
+        let mut tabs = Tabs::new(Tab::new(app, crate::title::window_title(None)));
+        if zoom > 1
+            && let Some(tab) = tabs.active_mut()
+        {
+            // Laid out again at the zoomed cell size.
+            tab.resize(size);
+        }
         self.windows.push(Running {
             window,
             surface,
-            tabs: Tabs::new(Tab::new(app, crate::title::window_title(None))),
+            tabs,
             shown_title: crate::title::window_title(None),
             modifiers: ModifiersState::default(),
             pointer: (0, 0),
@@ -1715,6 +1759,9 @@ impl ApplicationHandler<UserEvent> for Host {
             event_loop.exit();
             return;
         }
+        // A tab opened, switched to or closed since the last pass may show
+        // another zoom; record it before a program's end can close its tab.
+        self.track_zoom();
         let now = Instant::now();
         if self.state_dirty && now >= self.next_state_save {
             self.save_window_state();

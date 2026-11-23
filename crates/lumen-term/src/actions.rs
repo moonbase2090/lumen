@@ -181,9 +181,49 @@ pub fn zoomed(action: Action, current: u32, base: u32) -> Option<u32> {
     (next != current).then_some(next)
 }
 
+/// The zoom levels a window keeps between launches: 1 is the display's own
+/// scale, and each level above it one whole render scale more.
+pub const MAX_ZOOM_LEVEL: u32 = MAX_SCALE;
+
+/// The zoom level of text drawn at `scale` on a display whose own scale is
+/// `base`: how many whole steps it is set above the display's scale, counting
+/// the display's scale as 1. Text set smaller than the display's scale is at
+/// level 1.
+#[must_use]
+pub fn zoom_level(scale: u32, base: u32) -> u32 {
+    (scale.saturating_sub(base) + 1).min(MAX_ZOOM_LEVEL)
+}
+
+/// The render scale for zoom `level` on a display whose own scale is `base`,
+/// held to the scales there are.
+#[must_use]
+pub fn scale_for_zoom(level: u32, base: u32) -> u32 {
+    base.saturating_add(level.clamp(1, MAX_ZOOM_LEVEL) - 1)
+        .clamp(MIN_SCALE, MAX_SCALE)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_zoom_level_counts_steps_from_the_display_scale_and_comes_back_to_the_same_scale() {
+        // On a display of scale 1 the levels are the scales; on one of scale 2
+        // the first level is 2 and the steps run out at the largest scale.
+        assert_eq!(zoom_level(1, 1), 1);
+        assert_eq!(zoom_level(4, 1), 4);
+        assert_eq!(zoom_level(2, 2), 1);
+        assert_eq!(zoom_level(3, 2), 2);
+        assert_eq!(zoom_level(1, 2), 1, "smaller than the display is level 1");
+        for base in MIN_SCALE..=MAX_SCALE {
+            for scale in base..=MAX_SCALE {
+                assert_eq!(scale_for_zoom(zoom_level(scale, base), base), scale);
+            }
+        }
+        // A level made on a display of scale 1, restored on one of scale 2.
+        assert_eq!(scale_for_zoom(2, 2), 3);
+        assert_eq!(scale_for_zoom(4, 2), MAX_SCALE);
+    }
 
     const CMD: Held = Held {
         command: true,
