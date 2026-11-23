@@ -971,7 +971,6 @@ dependencies = [
  "lumen-detector",
  "lumen-harness",
  "lumen-panes",
- "lumen-seal",
  "lumen-sealed",
  "lumen-sinks",
  "lumen-term",

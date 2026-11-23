@@ -9,8 +9,7 @@
 
 use lumen_evidence::readers::{load_prompts, render_prompts_with};
 use lumen_evidence::sessions::Sessions;
-use lumen_seal::{FsProbe, Probe, Sealer};
-use lumen_term::seal::{Config, LISTED};
+use lumen_term::seal::{Config, FsProbe, LISTED, PidFd, Probe, Sealer};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -38,7 +37,7 @@ impl Probe for Sysctls {
     fn initial_user_namespace(&self, pid: u32) -> Option<bool> {
         self.0.initial_user_namespace(pid)
     }
-    fn shell_alive(&self, pidfd: Option<lumen_seal::PidFd>) -> Option<bool> {
+    fn shell_alive(&self, pidfd: Option<PidFd>) -> Option<bool> {
         self.0.shell_alive(pidfd)
     }
 }
