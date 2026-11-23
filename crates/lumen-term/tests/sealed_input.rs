@@ -333,11 +333,23 @@ fn a_program_the_shell_executes_in_place_loses_the_keys_at_its_command_start() {
     assert!(std::fs::write(&script, REPLACEMENT).is_ok());
     assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
     // The same program under another name: the pid and start time stay, the
-    // name it was run under does not. No Enter follows.
+    // name it was run under does not. The shell's own command start comes
+    // while zsh waits in `read`, so its check never meets the exec half done;
+    // the marker is quoted in two parts so the command line does not hold it.
     line(
         &mut app,
-        "exec -a replaced zsh -f ~/replace.zsh $_lumen_fd $((_lumen_id + 1))",
+        "echo exec''-next; read -r go; \
+         exec -a replaced zsh -f ~/replace.zsh $_lumen_fd $((_lumen_id + 1))",
     );
+    assert!(until(&mut app, |a| grid_text(a).contains("exec-next\n")));
+    assert_eq!(
+        app.session().seal_status(),
+        Status::Sealed,
+        "the shell's command start was checked while it was still zsh"
+    );
+    // The Enter that answers `read` is checked before it is written, while zsh
+    // is still zsh; the exec follows it. No Enter follows the exec.
+    line(&mut app, "go");
     assert!(
         until(&mut app, |a| grid_text(a).contains("replaced-sent\n")),
         "the replacement ran: {}",
@@ -1160,6 +1172,59 @@ fn a_box_line_queued_behind_a_line_typed_ahead_is_not_recorded_for_it() {
         "{text}"
     );
     assert_eq!(app.typed_marks().len(), 1);
+}
+
+/// At the first prompt after `~/gate` exists, the shell's line editor runs a
+/// hook that waits on `~/gate` with a builtin (the shell stays in front), then
+/// on `~/gate2` with a program (the program is in front until it is written).
+/// The program says `held` first: the shell hands it the terminal before it
+/// starts, so that output is the test's signal that it is in front.
+const HOOK_RUNS_A_PROGRAM: &str = "zle-line-init() {\n  if [[ -p ~/gate && -z $_held ]]; then\n    _held=1\n    read -r _ < ~/gate\n    sh -c 'echo held; exec cat ~/gate2 > /dev/null'\n  fi\n}\nzle -N zle-line-init\n";
+
+#[test]
+fn keys_typed_while_a_prompt_hook_runs_a_program_finish_the_line_in_the_box() {
+    let Some(mut app) = start_with_rc("sealed-input-hook-program", HOOK_RUNS_A_PROGRAM) else {
+        return;
+    };
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("sealed-input-hook-program");
+    assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
+    mkfifo(&dir.join("gate"));
+    mkfifo(&dir.join("gate2"));
+    // The next prompt holds in the hook.
+    line(&mut app, "true");
+    assert!(until(&mut app, |a| typed(a)
+        == [("true".to_owned(), Some(0))]
+        && a.input_mode() == Mode::Editing));
+    for c in "echo bo".chars() {
+        key(&mut app, Key::Char(c));
+    }
+    assert_eq!(app.input_text(), "echo bo");
+    // The hook goes on to its program, which takes the tty.
+    let gate = dir.join("gate");
+    let opener = std::thread::spawn(move || std::fs::write(gate, "x\n").is_ok());
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("held")
+            && a.session().tty_state().shell_in_front == Some(false)),
+        "the hook's program is in front"
+    );
+    assert!(opener.join().unwrap_or(false), "the hook read the gate");
+    // The rest of the line, typed while the program is in front.
+    line(&mut app, "x''-y");
+    let gate2 = dir.join("gate2");
+    let opener = std::thread::spawn(move || std::fs::write(gate2, "x\n").is_ok());
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("box-y\n")
+            && a.input_mode() == Mode::Editing),
+        "the whole line ran: {}",
+        grid_text(&app)
+    );
+    assert!(opener.join().unwrap_or(false), "the program read its gate");
+    assert_eq!(app.input_text(), "", "nothing was left in the box");
+    assert!(
+        !grid_text(&app).contains("not found"),
+        "no part of the line ran alone: {}",
+        grid_text(&app)
+    );
 }
 
 /// The gutter holds the typed-line marks only on a layer with its keys. There

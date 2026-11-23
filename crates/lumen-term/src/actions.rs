@@ -22,6 +22,14 @@ pub enum Action {
     Copy,
     /// Paste the system clipboard's text into the program.
     Paste,
+    /// Split the focused pane, the new one beside it.
+    SplitRight,
+    /// Split the focused pane, the new one below it.
+    SplitDown,
+    /// Move the focus to the next pane of the tab, wrapping at the end.
+    NextPane,
+    /// Move the focus to the previous pane of the tab, wrapping at the start.
+    PreviousPane,
     /// Select all the text in the window.
     SelectAll,
     /// Draw the text larger.
@@ -42,7 +50,7 @@ pub enum Action {
     PreviousLink,
     /// Open the settings file.
     Settings,
-    /// Close the window and end the session.
+    /// Close the focused pane, and the tab and the window with the last one.
     Close,
     /// Quit the application.
     Quit,
@@ -102,6 +110,10 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 ('t', false) => Some(Action::NewTab),
                 (']' | '}', true) => Some(Action::NextTab),
                 ('[' | '{', true) => Some(Action::PreviousTab),
+                (']', false) => Some(Action::NextPane),
+                ('[', false) => Some(Action::PreviousPane),
+                ('d', false) => Some(Action::SplitRight),
+                ('d', true) => Some(Action::SplitDown),
                 ('c', false) => Some(Action::Copy),
                 ('v', false) => Some(Action::Paste),
                 ('a', false) => Some(Action::SelectAll),
@@ -128,6 +140,10 @@ pub fn action_for(platform: Platform, key: char, held: Held) -> Option<Action> {
                 't' => Some(Action::NewTab),
                 ']' | '}' => Some(Action::NextTab),
                 '[' | '{' => Some(Action::PreviousTab),
+                'd' => Some(Action::SplitRight),
+                'e' => Some(Action::SplitDown),
+                '.' | '>' => Some(Action::NextPane),
+                ',' | '<' => Some(Action::PreviousPane),
                 'w' => Some(Action::Close),
                 'c' => Some(Action::Copy),
                 'v' => Some(Action::Paste),
@@ -165,9 +181,49 @@ pub fn zoomed(action: Action, current: u32, base: u32) -> Option<u32> {
     (next != current).then_some(next)
 }
 
+/// The zoom levels a window keeps between launches: 1 is the display's own
+/// scale, and each level above it one whole render scale more.
+pub const MAX_ZOOM_LEVEL: u32 = MAX_SCALE;
+
+/// The zoom level of text drawn at `scale` on a display whose own scale is
+/// `base`: how many whole steps it is set above the display's scale, counting
+/// the display's scale as 1. Text set smaller than the display's scale is at
+/// level 1.
+#[must_use]
+pub fn zoom_level(scale: u32, base: u32) -> u32 {
+    (scale.saturating_sub(base) + 1).min(MAX_ZOOM_LEVEL)
+}
+
+/// The render scale for zoom `level` on a display whose own scale is `base`,
+/// held to the scales there are.
+#[must_use]
+pub fn scale_for_zoom(level: u32, base: u32) -> u32 {
+    base.saturating_add(level.clamp(1, MAX_ZOOM_LEVEL) - 1)
+        .clamp(MIN_SCALE, MAX_SCALE)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_zoom_level_counts_steps_from_the_display_scale_and_comes_back_to_the_same_scale() {
+        // On a display of scale 1 the levels are the scales; on one of scale 2
+        // the first level is 2 and the steps run out at the largest scale.
+        assert_eq!(zoom_level(1, 1), 1);
+        assert_eq!(zoom_level(4, 1), 4);
+        assert_eq!(zoom_level(2, 2), 1);
+        assert_eq!(zoom_level(3, 2), 2);
+        assert_eq!(zoom_level(1, 2), 1, "smaller than the display is level 1");
+        for base in MIN_SCALE..=MAX_SCALE {
+            for scale in base..=MAX_SCALE {
+                assert_eq!(scale_for_zoom(zoom_level(scale, base), base), scale);
+            }
+        }
+        // A level made on a display of scale 1, restored on one of scale 2.
+        assert_eq!(scale_for_zoom(2, 2), 3);
+        assert_eq!(scale_for_zoom(4, 2), MAX_SCALE);
+    }
 
     const CMD: Held = Held {
         command: true,
@@ -198,6 +254,25 @@ mod tests {
         assert_eq!(action_for(Platform::Mac, '-', CMD), Some(Action::ZoomOut));
         assert_eq!(action_for(Platform::Mac, '0', CMD), Some(Action::ZoomReset));
         assert_eq!(action_for(Platform::Mac, ',', CMD), Some(Action::Settings));
+        assert_eq!(
+            action_for(Platform::Mac, 'd', CMD),
+            Some(Action::SplitRight)
+        );
+        let shifted_d = Held { shift: true, ..CMD };
+        assert_eq!(
+            action_for(Platform::Mac, 'd', shifted_d),
+            Some(Action::SplitDown)
+        );
+        assert_eq!(action_for(Platform::Mac, ']', CMD), Some(Action::NextPane));
+        assert_eq!(
+            action_for(Platform::Mac, '[', CMD),
+            Some(Action::PreviousPane)
+        );
+        assert_eq!(
+            action_for(Platform::Mac, ']', shifted_d),
+            Some(Action::NextTab),
+            "with shift the bracket still changes tab"
+        );
         let with_control = Held {
             control: true,
             ..CMD
@@ -212,7 +287,9 @@ mod tests {
             control: true,
             ..Held::default()
         };
-        for key in ['v', 'w', 'c', 'q', '=', '-', '0', 'f', 'g', 't', '[', ']'] {
+        for key in [
+            'v', 'w', 'c', 'q', '=', '-', '0', 'f', 'g', 't', '[', ']', 'd', 'e', '.', ',',
+        ] {
             assert_eq!(action_for(Platform::Other, key, ctrl), None, "{key}");
         }
         assert_eq!(
@@ -228,6 +305,22 @@ mod tests {
             Some(Action::FindNext)
         );
         assert_eq!(action_for(Platform::Other, 'q', CTRL_SHIFT), None);
+        assert_eq!(
+            action_for(Platform::Other, 'd', CTRL_SHIFT),
+            Some(Action::SplitRight)
+        );
+        assert_eq!(
+            action_for(Platform::Other, 'e', CTRL_SHIFT),
+            Some(Action::SplitDown)
+        );
+        assert_eq!(
+            action_for(Platform::Other, '.', CTRL_SHIFT),
+            Some(Action::NextPane)
+        );
+        assert_eq!(
+            action_for(Platform::Other, ',', CTRL_SHIFT),
+            Some(Action::PreviousPane)
+        );
         assert_eq!(
             action_for(Platform::Other, 'w', CTRL_SHIFT),
             Some(Action::Close)

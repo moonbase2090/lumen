@@ -71,6 +71,11 @@ pub struct Palette {
     pub find_current: Rgb,
     /// Text inside a find match, on either background.
     pub find_text: Rgb,
+    /// The background of selected text.
+    pub selection: Rgb,
+    /// Selected text: every selected glyph is drawn in it, whatever colour it
+    /// had, on [`Self::selection`].
+    pub selection_text: Rgb,
     /// The sixteen ANSI colours of grid blocks.
     pub ansi: [Rgb; 16],
 }
@@ -99,6 +104,8 @@ impl Palette {
             find_match: [255, 230, 130],
             find_current: [255, 160, 60],
             find_text: [17, 24, 39],
+            selection: [190, 210, 250],
+            selection_text: [17, 24, 39],
             ansi: [
                 [24, 26, 32],
                 [190, 36, 36],
@@ -143,6 +150,8 @@ impl Palette {
             find_match: [100, 80, 20],
             find_current: [150, 84, 16],
             find_text: [255, 255, 255],
+            selection: [58, 84, 140],
+            selection_text: [255, 255, 255],
             ansi: [
                 [36, 40, 48],
                 [255, 110, 110],
@@ -187,6 +196,8 @@ impl Palette {
             find_match: [255, 240, 120],
             find_current: [255, 140, 0],
             find_text: [0, 0, 0],
+            selection: [0, 0, 128],
+            selection_text: [255, 255, 255],
             ansi: [
                 [0, 0, 0],
                 [160, 0, 0],
@@ -268,6 +279,13 @@ impl Palette {
                 ));
             }
         }
+        let ratio = contrast(self.selection_text, self.selection);
+        if ratio < floors.text {
+            misses.push(format!(
+                "selection_text on selection is {ratio:.2}:1, under {}:1",
+                floors.text
+            ));
+        }
         if let Some(floor) = floors.ansi {
             let exempt: &[usize] = if self.is_dark() { &[0] } else { &[7, 15] };
             for (i, colour) in self.ansi.iter().enumerate() {
@@ -345,6 +363,8 @@ impl Palette {
             find_match: self.find_match,
             find_current: self.find_current,
             find_text: self.find_text,
+            selection: self.selection,
+            selection_text: self.selection_text,
         }
     }
 }
@@ -394,6 +414,10 @@ pub struct Theme {
     pub find_current: Rgb,
     /// Text inside a find match.
     pub find_text: Rgb,
+    /// The background of selected text.
+    pub selection: Rgb,
+    /// Selected text, in place of the colour it had.
+    pub selection_text: Rgb,
 }
 
 impl Theme {
@@ -438,6 +462,8 @@ impl Theme {
             find_match: [255, 230, 130],
             find_current: [255, 160, 60],
             find_text: [28, 28, 28],
+            selection: [190, 210, 250],
+            selection_text: [28, 28, 28],
         }
     }
 }
@@ -577,10 +603,9 @@ impl ThemeChoice {
     }
 }
 
-/// What a selected pixel becomes: it moves a third of the way towards the
-/// foreground colour, so text in the foreground colour is unchanged and what is
-/// behind it is lifted. The renderer paints a selection with this, and the
-/// contrast audit reads what it gives.
+/// What a selected pixel becomes when it is not text on a plain background
+/// (an image, an emoji): it moves a third of the way towards the foreground
+/// colour. Text is redrawn on the palette's selection colour instead.
 #[must_use]
 pub fn selected(pixel: Rgb, foreground: Rgb) -> Rgb {
     std::array::from_fn(|k| {

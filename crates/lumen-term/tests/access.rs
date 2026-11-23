@@ -33,6 +33,14 @@ fn root(update: &TreeUpdate) -> NodeId {
         .map_or_else(|| unreachable!("a root"), |t| t.root)
 }
 
+fn label(update: &TreeUpdate) -> String {
+    let terminal = roles(update, Role::Terminal);
+    terminal
+        .first()
+        .and_then(|n| n.label())
+        .map_or_else(String::new, str::to_owned)
+}
+
 fn snapshot() -> Snapshot {
     Snapshot {
         title: "Bright".to_owned(),
@@ -113,6 +121,14 @@ fn the_question_about_a_link_is_a_modal_dialog_with_open_and_cancel_and_takes_th
     for button in roles(&update, Role::Button) {
         assert!(button.supports_action(Action::Click));
     }
+}
+
+#[test]
+fn a_split_tab_tells_the_reader_which_pane_it_is_in() {
+    let mut split = snapshot();
+    assert_eq!(label(&build(&split)), "Terminal", "one pane has no number");
+    split.pane = Some((2, 3));
+    assert_eq!(label(&build(&split)), "Terminal, pane 2 of 3");
 }
 
 #[test]

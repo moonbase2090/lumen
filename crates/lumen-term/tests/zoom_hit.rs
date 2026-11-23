@@ -557,3 +557,34 @@ fn the_question_runs_text_into_the_buttons_when_the_window_has_no_room_for_paddi
         );
     }
 }
+
+#[test]
+fn a_new_question_starts_at_the_top_after_an_earlier_one_was_scrolled() {
+    let target = long_link(2000);
+    let script = format!("printf '\\033]8;;{target}\\033\\\\click\\033]8;;\\033\\\\\\n'; sleep 60");
+    let (mut app, _) = start_with(&script, 1, SIZE, "click");
+    zoom_to(&mut app, 3);
+    let rows = app.visible_text();
+    let row = rows
+        .iter()
+        .position(|r| r.contains("click"))
+        .unwrap_or_else(|| unreachable!("{rows:?}"));
+    let col = u32::try_from(rows[row].find("click").unwrap_or(0)).unwrap_or(0);
+    let pixels = pixels_of_cell(&app, SIZE, col + 1, u32::try_from(row).unwrap_or(0));
+    let (x, y) = pixels[pixels.len() / 2];
+    assert!(app.link_press(x, y));
+    let top = |app: &App| {
+        app.link_prompt_box()
+            .unwrap_or_else(|| unreachable!("the question is up"))
+            .first
+    };
+    assert_eq!(top(&app), 0, "a question starts at the top");
+    app.key(Key::PageDown, Mods::default())
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(top(&app) > 0, "it was scrolled down");
+    app.key(Key::Escape, Mods::default())
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(app.link_prompt().is_none());
+    assert!(app.link_press(x, y));
+    assert_eq!(top(&app), 0, "the next question starts at the top again");
+}

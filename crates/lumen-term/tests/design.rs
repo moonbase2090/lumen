@@ -474,97 +474,35 @@ fn a_fixed_choice_ignores_the_system_asking_for_more_contrast()
     Ok(())
 }
 
-/// The least contrast text keeps while selected, and the least an ANSI colour
-/// keeps, over the surfaces and the canvas; the renderer's own selection formula
-/// ([`lumen_term::design::selected`]) is applied to both the text and what is
-/// behind it, as the painted selection does to every pixel.
-fn selected_worst(p: &Palette) -> (f64, f64) {
-    use lumen_term::design::{contrast, selected};
-    let mut text = f64::MAX;
-    for (_, surface) in p.surfaces() {
-        let behind = selected(surface, p.text);
-        for (_, ink) in p.text_roles() {
-            text = text.min(contrast(selected(ink, p.text), behind));
-        }
-    }
-    let exempt: &[usize] = if p.is_dark() { &[0] } else { &[7, 15] };
-    let mut ansi = f64::MAX;
-    for (i, colour) in p.ansi.iter().enumerate() {
-        if exempt.contains(&i) {
-            continue;
-        }
-        for surface in [p.canvas, p.surface] {
-            ansi = ansi.min(contrast(
-                selected(*colour, p.text),
-                selected(surface, p.text),
-            ));
-        }
-    }
-    (text, ansi)
-}
-
-/// Known shortfalls of the selected state, by palette: the least contrast that
-/// text and ANSI colours have under the selection tint where it is under the
-/// palette's floor. A ratchet: a number may only go up, and an entry has to be
-/// removed the moment its palette clears the floor (trial rule 5).
-///
-/// The selection moves every pixel a third of the way to the foreground, so a
-/// text colour other than the foreground loses more than a third of its
-/// contrast. Fixing it needs the selected text redrawn on a selection colour
-/// instead of tinted over, which is its own change.
-const SELECTION_SHORTFALLS: [(&str, Option<f64>, Option<f64>); 3] = [
-    ("light", Some(3.90), None),
-    ("dark", Some(2.69), Some(2.45)),
-    ("high-contrast", Some(4.97), Some(4.01)),
-];
-
+/// Selected text is drawn in one colour on the palette's selection colour, so
+/// the one pair holds the text floor in every built-in palette, and the
+/// selection can be told from the page it is on.
 #[test]
-fn the_selected_state_holds_its_known_contrast_and_the_shortfall_list_only_shrinks() {
+fn selected_text_holds_the_text_floor_and_the_selection_shows_on_the_page() {
+    use lumen_term::design::contrast;
     for b in Builtin::ALL {
         let p = b.palette();
         let floors = b.floors();
-        let (text, ansi) = selected_worst(&p);
-        let (name, text_known, ansi_known) = SELECTION_SHORTFALLS
-            .iter()
-            .copied()
-            .find(|(n, _, _)| *n == b.name())
-            .unwrap_or_else(|| unreachable!("every built-in is listed"));
-        assert_eq!(name, b.name());
-        match text_known {
-            Some(known) => {
-                assert!(
-                    text < floors.text,
-                    "{name}: selected text is {text:.2}, over its floor {}: remove it from the list",
-                    floors.text
-                );
-                assert!(
-                    text >= known,
-                    "{name}: selected text fell to {text:.2}, under the recorded {known}"
-                );
-            }
-            None => assert!(
-                text >= floors.text,
-                "{name}: selected text is {text:.2}, under {}: list it or fix it",
-                floors.text
-            ),
-        }
-        let ansi_floor = floors.ansi.unwrap_or(0.0);
-        match ansi_known {
-            Some(known) => {
-                assert!(
-                    ansi < ansi_floor,
-                    "{name}: selected ANSI is {ansi:.2}, over its floor {ansi_floor}: remove it from the list"
-                );
-                assert!(
-                    ansi >= known,
-                    "{name}: selected ANSI fell to {ansi:.2}, under the recorded {known}"
-                );
-            }
-            None => assert!(
-                ansi >= ansi_floor,
-                "{name}: selected ANSI is {ansi:.2}, under {ansi_floor}: list it or fix it"
-            ),
-        }
+        let pair = contrast(p.selection_text, p.selection);
+        assert!(
+            pair >= floors.text,
+            "{}: selected text is {pair:.2}:1, under {}:1",
+            b.name(),
+            floors.text
+        );
+        let shows = contrast(p.selection, p.canvas);
+        let least = if floors.text >= 7.0 { 3.0 } else { 1.4 };
+        assert!(
+            shows >= least,
+            "{}: the selection is {shows:.2}:1 against the page, under {least}:1",
+            b.name()
+        );
+        assert!(
+            p.check(&floors).is_empty(),
+            "{}: {:?}",
+            b.name(),
+            p.check(&floors)
+        );
     }
 }
 

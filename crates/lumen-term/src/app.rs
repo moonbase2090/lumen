@@ -1308,7 +1308,6 @@ impl App {
         self.clear_link_focus();
         self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&link.hit));
         self.links.fit.take();
-        self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&link.hit));
         self.links.scroll = 0;
         self.view_moves = self.view_moves.wrapping_add(1);
         true
@@ -1362,7 +1361,6 @@ impl App {
         };
         self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&hit));
         self.links.fit.take();
-        self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&hit));
         self.links.scroll = 0;
         self.links.press_down = true;
         self.view_moves = self.view_moves.wrapping_add(1);
@@ -1620,17 +1618,63 @@ impl App {
         true
     }
 
+    /// Whether a pane of `width` by `height` pixels would give its program at
+    /// least `columns` by `rows` cells, counted as `resize` counts them.
+    #[must_use]
+    pub fn pane_has(&self, width: u32, height: u32, columns: usize, rows: usize) -> bool {
+        let (across, down) = window_cells(width, height, &self.renderer);
+        let (across, down) = block_cells_for(across, down, self.box_rows);
+        across >= columns && down >= rows
+    }
+
     /// The height of a cell in pixels.
     #[must_use]
     pub fn cell_height(&self) -> u32 {
         self.renderer.cell().1
     }
 
+    /// The size in pixels the app was last given to draw in.
+    #[must_use]
+    pub fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    /// The width of a cell in pixels.
+    #[must_use]
+    pub fn cell_width(&self) -> u32 {
+        self.renderer.cell().0
+    }
+
     /// Add the terminal-owned tab strip above this tab's contents.
     #[must_use]
     pub fn view_with_tabs(&self, titles: &[String], active: usize, height: u32) -> Frame {
-        self.renderer
-            .with_tabs(&self.view(), titles, active, height)
+        self.tabs_over(&self.view(), titles, active, height)
+    }
+
+    /// Put the tab strip above `content`, which is the tab's whole drawing: one
+    /// pane's view, or [`compose_panes`](Self::compose_panes).
+    #[must_use]
+    pub fn tabs_over(
+        &self,
+        content: &Frame,
+        titles: &[String],
+        active: usize,
+        height: u32,
+    ) -> Frame {
+        self.renderer.with_tabs(content, titles, active, height)
+    }
+
+    /// Draw `views`, one per pane, in the places `layout` gives them in an area
+    /// of `size`, with the dividers between and a mark on the pane `focus`.
+    #[must_use]
+    pub fn compose_panes(
+        &self,
+        size: (u32, u32),
+        layout: &crate::panes::Layout,
+        views: &[Frame],
+        focus: usize,
+    ) -> Frame {
+        self.renderer.compose_panes(size, layout, views, focus)
     }
 
     /// The content area's height in pixels, the columns it is drawn in and the
@@ -2435,6 +2479,28 @@ impl App {
         Ok(())
     }
 
+    /// The zoom level of this window's text: 1 at the display's own scale, one
+    /// more for each step zoomed in (see [`actions::zoom_level`]).
+    #[must_use]
+    pub fn zoom_level(&self) -> u32 {
+        actions::zoom_level(self.scale, self.base_scale)
+    }
+
+    /// Zoom to `level` steps from the display's own scale, as a zoom the user
+    /// makes does: Zoom Reset still goes back to the display's scale. Does
+    /// nothing for a pinned scale. Returns whether the scale changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the renderer could not be made or the program could not be told.
+    pub fn set_zoom_level(&mut self, level: u32) -> Result<bool, SpawnError> {
+        let scale = actions::scale_for_zoom(level, self.base_scale);
+        if self.scale_pinned || scale == self.scale {
+            return Ok(false);
+        }
+        self.set_scale(scale).map(|()| true)
+    }
+
     /// Keep the scale as given: a display's scale no longer changes it. For a
     /// scale the user fixed with an option.
     pub fn pin_scale(&mut self) {
@@ -2502,6 +2568,10 @@ impl App {
             | Action::NewTab
             | Action::NextTab
             | Action::PreviousTab
+            | Action::SplitRight
+            | Action::SplitDown
+            | Action::NextPane
+            | Action::PreviousPane
             | Action::Settings => Outcome::Nothing,
             Action::NextLink | Action::PreviousLink => {
                 self.focus_link(action == Action::NextLink);
@@ -2628,7 +2698,6 @@ impl App {
                     self.clear_link_focus();
                     self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&stop.hit));
                     self.links.fit.take();
-                    self.links.prompt = Some(crate::linkprompt::Prompt::for_hit(&stop.hit));
                     self.links.scroll = 0;
                     self.view_moves = self.view_moves.wrapping_add(1);
                     return Ok(());

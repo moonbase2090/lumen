@@ -40,6 +40,13 @@ const FACE: &[u8] = include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf");
 /// The bundled fallback face for Chinese, Japanese and Korean characters the
 /// monospace face lacks: a subset of Noto Sans CJK (SIL Open Font License).
 const CJK: &[u8] = include_bytes!("../assets/fonts/NotoSansCJK-Subset-Regular.otf");
+/// The bundled face the brackets of a visible escape such as `⟨U+200B⟩` are
+/// drawn from when the monospace face lacks them: IBM Plex Math (SIL Open Font
+/// License), unmodified. Only [`ESCAPE_BRACKETS`] are drawn from it.
+const MATH: &[u8] = include_bytes!("../assets/fonts/IBMPlexMath-Regular.otf");
+/// The characters drawn from [`MATH`]: the brackets the trust surfaces put
+/// round a code point that would otherwise draw nothing.
+const ESCAPE_BRACKETS: [char; 2] = ['\u{27e8}', '\u{27e9}'];
 /// The bundled proportional face, for text in rich blocks.
 const SANS: &[u8] = include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf");
 /// Proportional advances are measured in 64ths of a pixel, so a line is as
@@ -109,6 +116,9 @@ pub struct CursorState {
 /// The widest a link prompt is, in cells.
 #[cfg(feature = "links-clipboard")]
 const PROMPT_COLUMNS: u32 = 72;
+/// How far, in RGB distance, a pixel may be from the line between a cell's
+/// background and its ink and still be an antialiased edge of one glyph.
+const OFF_LINE: f64 = 36.0;
 
 /// Where a link prompt is drawn.
 #[cfg(feature = "links-clipboard")]
@@ -331,6 +341,7 @@ enum Face {
     Mono,
     Sans,
     Cjk,
+    Math,
     /// The proportional face at another size, in whole pixels at the render
     /// scale: a step of the type scale other than the body's.
     SansAt(u32),
@@ -359,6 +370,7 @@ pub struct Renderer {
     font: OwnedFace,
     sans: OwnedFace,
     cjk: OwnedFace,
+    math: OwnedFace,
     scaler: RefCell<ScaleContext>,
     /// Pixel size of the monospace face.
     px: f32,
@@ -449,6 +461,7 @@ impl Renderer {
         let font = OwnedFace::new(&fonts.mono, FACE)?;
         let sans = OwnedFace::new(&fonts.prose, SANS)?;
         let cjk = OwnedFace::new(&FontFile::Bundled, CJK)?;
+        let math = OwnedFace::new(&FontFile::Bundled, MATH)?;
         #[allow(
             clippy::cast_precision_loss,
             reason = "a scale and a font size are small whole numbers"
@@ -481,6 +494,7 @@ impl Renderer {
             font,
             sans,
             cjk,
+            math,
             scaler: RefCell::new(ScaleContext::new()),
             px,
             sans_px,
@@ -620,19 +634,26 @@ impl Renderer {
         let (mut x, y) = at;
         let mut face = face;
         if face == Face::Mono && ch != ' ' && ch != '\0' && self.font.get().charmap().map(ch) == 0 {
-            face = Face::Cjk;
+            face = if ESCAPE_BRACKETS.contains(&ch) {
+                Face::Math
+            } else {
+                Face::Cjk
+            };
         }
         let set = self.face_set(face);
         let (font, size) = match face {
             Face::Mono => (self.font.get(), set.px),
             Face::Sans | Face::SansAt(_) => (self.sans.get(), set.px),
             Face::Cjk => (self.cjk.get(), set.px),
+            Face::Math => (self.math.get(), set.px),
         };
         let glyph = font.charmap().map(ch);
         if ch == ' ' || ch == '\0' || glyph == 0 {
             return;
         }
-        if face == Face::Cjk {
+        // A fallback glyph is centred in its cells: its advance is not the
+        // monospace face's.
+        if matches!(face, Face::Cjk | Face::Math) {
             let advance = font.glyph_metrics(&[]).scale(size).advance_width(glyph);
             #[allow(
                 clippy::cast_precision_loss,
@@ -880,6 +901,32 @@ impl Renderer {
         self.text_line_marked(frame, x, y, text, colour, &[]);
     }
 
+    /// Draw the panes of a tab: each pane's view in its place, the dividers
+    /// between them, and, when there is more than one pane, a bar of the
+    /// accent along the top of the focused one.
+    #[must_use]
+    pub fn compose_panes(
+        &self,
+        (width, height): (u32, u32),
+        layout: &crate::panes::Layout,
+        views: &[Frame],
+        focus: usize,
+    ) -> Frame {
+        let mut frame = Frame::new(width, height, self.theme.background);
+        for line in &layout.dividers {
+            frame.fill(line.x, line.y, line.w, line.h, self.theme.divider);
+        }
+        for (rect, view) in layout.panes.iter().zip(views) {
+            Self::blit(&mut frame, view, rect.x, rect.y);
+        }
+        if views.len() > 1
+            && let Some(rect) = layout.panes.get(focus)
+        {
+            frame.fill(rect.x, rect.y, rect.w, 2 * self.scale, self.theme.prompt);
+        }
+        frame
+    }
+
     /// Put `content` below a terminal-owned tab strip. Each tab gets the same
     /// share of the width; its number stays visible when its title is clipped.
     #[must_use]
@@ -1087,7 +1134,7 @@ impl Renderer {
     /// How a line of `face` is set.
     fn face_set(&self, face: Face) -> LineSet {
         match face {
-            Face::Mono | Face::Cjk => LineSet {
+            Face::Mono | Face::Cjk | Face::Math => LineSet {
                 face,
                 px: self.px,
                 ascent: self.ascent,
@@ -1737,12 +1784,11 @@ impl Renderer {
                         } else {
                             g.screen().row(k - hist)
                         };
-                        let text: String = cells
-                            .unwrap_or_default()
-                            .iter()
-                            .filter(|c| !c.wide_cont)
-                            .map(|c| c.character)
-                            .collect();
+                        let cells = cells.unwrap_or_default();
+                        let drawn = || cells.iter().filter(|c| !c.wide_cont);
+                        let text: String = drawn().map(|c| c.character).collect();
+                        let colours: Vec<(Rgb, Rgb)> =
+                            drawn().map(|c| self.colours(c.style)).collect();
                         out.push(FlowLine {
                             block: p.index,
                             top: p.top + u32::try_from(k).unwrap_or(0) * self.cell_h,
@@ -1753,6 +1799,7 @@ impl Renderer {
                             step: 0,
                             kind: CopyKind::Command,
                             join: Join::Break,
+                            colours,
                         });
                     }
                 }
@@ -1815,9 +1862,17 @@ impl Renderer {
             }
             Track0Block::ImageData { .. } => {}
         }
+        // What the painter draws these lines with: the text on the container, a
+        // heading in the heading colour, code on the code background.
+        let pair = match content {
+            Track0Block::Heading { .. } => (self.theme.heading, self.theme.container),
+            Track0Block::Code { .. } => (self.theme.foreground, self.theme.code),
+            _ => (self.theme.foreground, self.theme.container),
+        };
         let mut top = first;
         for (text, grid, kind, join) in rows {
             let height = if grid { self.cell_h } else { line_h };
+            let colours = vec![pair; text.chars().count()];
             out.push(FlowLine {
                 block,
                 top,
@@ -1828,6 +1883,7 @@ impl Renderer {
                 step: if grid { 0 } else { step },
                 kind,
                 join,
+                colours,
             });
             top += height;
         }
@@ -1879,30 +1935,142 @@ impl Renderer {
         sel: &Selection,
         view_top: u32,
     ) {
-        let fg = self.theme.foreground;
+        let back = self.theme.selection;
         let last = sel.ordered().1.line;
         for (i, line) in lines.iter().enumerate() {
             let Some((from, to)) = sel.span_in(lines, i) else {
                 continue;
             };
-            let start = line.left + self.char_left(line, from);
-            let mut end = line.left + self.char_left(line, to);
-            if i < last && to >= line.text.chars().count() {
-                // A line the selection runs past is tinted a little beyond its end.
-                end += self.cell_w / 2;
-            }
             if line.top + line.height <= view_top {
                 continue;
             }
             let top = line.top.saturating_sub(view_top);
             let bottom = line.top + line.height - view_top;
-            for y in top..bottom {
-                for x in start..end {
-                    if let Some(p) = region.pixel(x, y) {
-                        region.put(x, y, crate::design::selected(p, fg));
+            // Each character is redrawn on its own: its background becomes the
+            // selection colour and its ink the selection's text colour, with the
+            // glyph's edges kept.
+            for c in from..to {
+                let left = line.left + self.char_left(line, c);
+                let right = line.left + self.char_left(line, c + 1);
+                let known = line.colours.get(c).copied();
+                self.recolour_selected(region, left..right, top..bottom, known);
+            }
+            if i < last && to >= line.text.chars().count() {
+                // A line the selection runs past is tinted a little beyond its end.
+                let end = line.left + self.char_left(line, to);
+                for y in top..bottom {
+                    for x in end..end + self.cell_w / 2 {
+                        if region.pixel(x, y).is_some() {
+                            region.put(x, y, back);
+                        }
                     }
                 }
             }
+        }
+    }
+
+    /// How far `p` is from the line between `bg` and `ink`, whose squared
+    /// distance apart is `span`.
+    fn off_line(bg: Rgb, ink: Rgb, span: f64, p: Rgb) -> f64 {
+        let t: f64 = (0..3)
+            .map(|k| (f64::from(p[k]) - f64::from(bg[k])) * (f64::from(ink[k]) - f64::from(bg[k])))
+            .sum::<f64>()
+            / span;
+        (0..3)
+            .map(|k| {
+                let on = f64::from(bg[k]) + (f64::from(ink[k]) - f64::from(bg[k])) * t;
+                (f64::from(p[k]) - on).powi(2)
+            })
+            .sum::<f64>()
+            .sqrt()
+    }
+
+    /// Redraw the pixels `xs` by `ys` of `region`, one selected character, on
+    /// the selection colour. The cell's own background is the colour most of its
+    /// pixels have, its ink the pixel furthest from that, and each pixel is
+    /// placed between the selection colour and the selection's text colour as
+    /// far as it was between the background and the ink. A cell whose pixels do
+    /// not lie on that line (an image, an emoji, a colour glyph) is tinted
+    /// instead, as it has no one ink. How many shades the edges have does not
+    /// matter, so a plain glyph at any zoom is recoloured.
+    fn recolour_selected(
+        &self,
+        region: &mut Frame,
+        xs: std::ops::Range<u32>,
+        ys: std::ops::Range<u32>,
+        known: Option<(Rgb, Rgb)>,
+    ) {
+        use std::collections::HashMap;
+        let (back, text) = (self.theme.selection, self.theme.selection_text);
+        let mut seen: HashMap<Rgb, u32> = HashMap::new();
+        let mut pixels = Vec::new();
+        for y in ys {
+            for x in xs.clone() {
+                if let Some(p) = region.pixel(x, y) {
+                    *seen.entry(p).or_default() += 1;
+                    pixels.push((x, y, p));
+                }
+            }
+        }
+        let Some(common) = seen.iter().max_by_key(|(c, n)| (**n, **c)).map(|(c, _)| *c) else {
+            return;
+        };
+        let away = |from: Rgb, p: Rgb| -> f64 {
+            (0..3)
+                .map(|k| (f64::from(p[k]) - f64::from(from[k])).powi(2))
+                .sum()
+        };
+        let furthest = pixels
+            .iter()
+            .map(|(_, _, p)| *p)
+            .max_by(|a, b| away(common, *a).total_cmp(&away(common, *b)))
+            .unwrap_or(common);
+        // The cell's own colours, when the grid knows them, say which way round
+        // background and ink are (a block glyph is mostly ink); the pixels
+        // alone only say which colour is commonest. The pair that explains the
+        // pixels is the one used.
+        let explains = |bg: Rgb, ink: Rgb| -> bool {
+            let span = away(bg, ink);
+            if span == 0.0 {
+                return false;
+            }
+            let stray = pixels
+                .iter()
+                .filter(|(_, _, p)| Self::off_line(bg, ink, span, *p) > OFF_LINE)
+                .count();
+            stray * 10 <= pixels.len()
+        };
+        let (bg, ink) = match known {
+            Some((fg, back)) if explains(back, fg) => (back, fg),
+            _ if explains(common, furthest) => (common, furthest),
+            _ => {
+                for (x, y, p) in pixels {
+                    region.put(x, y, crate::design::selected(p, self.theme.foreground));
+                }
+                return;
+            }
+        };
+        let span = away(bg, ink);
+        for (x, y, p) in pixels {
+            let reach = ((0..3)
+                .map(|k| {
+                    (f64::from(p[k]) - f64::from(bg[k])) * (f64::from(ink[k]) - f64::from(bg[k]))
+                })
+                .sum::<f64>()
+                / span)
+                .clamp(0.0, 1.0);
+            let mix = |k: usize| {
+                let v = f64::from(back[k]) + (f64::from(text[k]) - f64::from(back[k])) * reach;
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "clamped to 0 to 255 first"
+                )]
+                {
+                    v.round().clamp(0.0, 255.0) as u8
+                }
+            };
+            region.put(x, y, [mix(0), mix(1), mix(2)]);
         }
     }
 

@@ -265,6 +265,15 @@ impl InputLine {
         if facts.icanon == Some(true) && facts.echo == Some(false) {
             return Mode::Hidden;
         }
+        // A line the user is writing in the box stays the box's while the
+        // shell's frames say it is still at that prompt. The line cannot have
+        // been accepted without the box's Enter, so a program in front now was
+        // started by the shell's own hook (`zle-line-init`, a widget), not for
+        // this line: the keys typed meanwhile are the rest of the line, and
+        // sending them to the program would split it.
+        if facts.sealed_prompt == Some(true) && self.writing_line() {
+            return Mode::Editing;
+        }
         if facts.shell_in_front != Some(true) || facts.icanon != Some(false) {
             return Mode::Raw;
         }
@@ -281,6 +290,15 @@ impl InputLine {
             return Mode::Raw;
         }
         Mode::Editing
+    }
+
+    /// The box holds a line the user is writing that no key has handed to the
+    /// shell and that is not waiting behind an Enter or typeahead.
+    fn writing_line(&self) -> bool {
+        !self.text.is_empty()
+            && !self.handed_off
+            && self.typeahead == Typeahead::None
+            && !self.awaiting_shell()
     }
 
     /// The tty was looked at: when the shell is not at a prompt any more (a

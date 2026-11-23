@@ -48,6 +48,9 @@ pub struct Snapshot {
     pub tabs: Vec<String>,
     /// The active tab.
     pub active_tab: usize,
+    /// Which pane of the tab has the focus and how many there are, when the
+    /// tab is split.
+    pub pane: Option<(usize, usize)>,
 }
 
 const WINDOW: u64 = 1;
@@ -124,7 +127,10 @@ pub fn build(snapshot: &Snapshot) -> TreeUpdate {
     }
 
     let mut terminal = Node::new(Role::Terminal);
-    terminal.set_label("Terminal");
+    match snapshot.pane {
+        Some((at, of)) => terminal.set_label(format!("Terminal, pane {at} of {of}")),
+        None => terminal.set_label("Terminal"),
+    }
     terminal.set_live(Live::Polite);
     let mut kids = Vec::new();
     for (i, row) in snapshot.rows.iter().enumerate() {

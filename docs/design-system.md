@@ -26,6 +26,7 @@ The [text runs](../spec/v0/text-runs.md#runs.colour) section of the spec names c
 | `control_border` | The edge of the input editor and of the unverified output container |
 | `notice`, `notice_border` | A toast's box and border |
 | `find_match`, `find_current`, `find_text` | The backgrounds of a find match and of the one the user is on, and the text inside either |
+| `selection`, `selection_text` | The background of selected text and the one colour its glyphs are drawn in; the pair holds the text floor |
 | `ansi[0..16]` | The sixteen ANSI colours of grid blocks |
 
 ## Built-in palettes
@@ -73,7 +74,7 @@ Runs have a family role (`body`, `heading` or `mono`) and a size step. The type 
 
 ## What uses the tokens today
 
-The window is drawn in the palette the theme choice and the system's appearance give. That covers every colour the renderer paints: the canvas, grid text and the ANSI palette, rich-block containers, code, headings, the trust margin, the editor and toasts. The editor's prompt mark is drawn in the accent, so the place to type is the one coloured mark in the chrome.
+The window is drawn in the palette the theme choice and the system's appearance give. That covers every colour the renderer paints: the canvas, grid text and the ANSI palette, rich-block containers, code, headings, the trust margin, the editor and toasts. The editor's prompt mark is drawn in the accent, so the place to type is the one coloured mark in the chrome. In a tab split into panes, the panes are separated by a band of the `divider` colour two render pixels thick, and the focused pane has a bar of the accent, two render pixels thick, along its top edge; the other panes have none.
 
 The renderer's `Theme` (colours by where they are painted) lives in the design module with the palettes. Its fixed `Theme::light` is kept unchanged for the pinned conditions of the pixel evidence, and the default fonts give the same cells and pixels as before, so baselines stay comparable. Neither the palettes, the theme nor the fonts read decoded image pixels, so none of them is part of the image path's build identity, and changing them never moves it.
 
