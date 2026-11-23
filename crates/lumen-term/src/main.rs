@@ -83,6 +83,7 @@ fn window(o: &Options, policy: &Policy, settings: SettingsWatcher) -> Result<(),
         notifications: policy.settings(),
         images: policy.images(),
         settings,
+        policy_notice: policy.notice(),
     })
 }
 

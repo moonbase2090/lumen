@@ -230,6 +230,9 @@ pub struct App {
     sink: Box<dyn OsSink + Send>,
     desk: Desk,
     input_notice: Option<InputNotice>,
+    /// What the user's policy, settings and theme files said that could not be
+    /// used. Drawn first and kept until the files change: nothing dismisses it.
+    config_notices: Vec<String>,
     /// The terminal's own notice that the shell layer has no sealing keys.
     seal_notice: Option<SealNotice>,
     /// The render scale the display asked for, and the one in use now.
@@ -535,6 +538,9 @@ struct SealNotice {
 /// The layer id of the terminal's own toast: not the id of any layer.
 const TERMINAL_LAYER: u32 = 0;
 
+/// The most notices about ignored files that are drawn at once.
+pub const MAX_CONFIG_NOTICES: usize = 4;
+
 /// The label of the one layer a window has: its position in the layout, which a
 /// program cannot choose.
 pub const PANE_LABEL: &str = "pane 1";
@@ -731,6 +737,7 @@ impl App {
             // would be an OS one needs the window to be shown unfocused.
             desk: Desk::default(),
             input_notice: None,
+            config_notices: Vec::new(),
             seal_notice: None,
             base_scale: scale,
             scale,
@@ -942,7 +949,16 @@ impl App {
     /// program does can push them out of the area.
     #[must_use]
     pub fn toasts(&self) -> Vec<Toast> {
-        let mut toasts = Vec::with_capacity(self.notifier.shown().len() + 2);
+        let mut toasts =
+            Vec::with_capacity(self.notifier.shown().len() + self.config_notices.len() + 2);
+        for text in &self.config_notices {
+            toasts.push(Toast {
+                layer: TERMINAL_LAYER,
+                text: text.clone(),
+                unsigned: false,
+                shown_ms: 0,
+            });
+        }
         if let Some(notice) = &self.seal_notice {
             toasts.push(Toast {
                 layer: TERMINAL_LAYER,
@@ -979,6 +995,12 @@ impl App {
             }
             return self.click_box(x, y);
         };
+        if index < self.config_notices.len() {
+            // A file the terminal ignored stays on screen until the file is
+            // fixed: a click does not hide it.
+            return false;
+        }
+        index -= self.config_notices.len();
         if self.seal_notice.is_some() {
             if index == 0 {
                 self.seal_notice = None;
@@ -3341,6 +3363,22 @@ impl App {
                 shown_ms: self.session.now_ms(),
             });
         }
+    }
+
+    /// Show what the user's files said that the terminal could not use, in
+    /// place of what was shown before: an empty list clears it. The notices
+    /// stay in the notification area, ahead of every toast, until the next
+    /// call. A program cannot dismiss or push them out, and a click does not
+    /// hide them. At most [`MAX_CONFIG_NOTICES`] are kept.
+    pub fn set_config_notices(&mut self, mut notices: Vec<String>) {
+        notices.truncate(MAX_CONFIG_NOTICES);
+        self.config_notices = notices;
+    }
+
+    /// The notices about files that were ignored, in the order drawn.
+    #[must_use]
+    pub fn config_notices(&self) -> &[String] {
+        &self.config_notices
     }
 
     /// The terminal's notice that the shell layer has no sealing keys, if it
