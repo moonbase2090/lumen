@@ -183,8 +183,16 @@ fn a_rich_block_is_drawn_in_a_labelled_container() {
     d.apply(vec![Piece::Rich(Track0Block::Paragraph("hello".into()))]);
     let f = r.render(&d);
     let t = r.theme();
-    assert_eq!(f.pixel(0, RICH_BORDER_TOP_2X - 1), Some(t.background), "the margin above");
-    assert_eq!(f.pixel(0, RICH_BORDER_TOP_2X), Some(t.border), "the container's edge");
+    assert_eq!(
+        f.pixel(0, RICH_BORDER_TOP_2X - 1),
+        Some(t.background),
+        "the margin above"
+    );
+    assert_eq!(
+        f.pixel(0, RICH_BORDER_TOP_2X),
+        Some(t.border),
+        "the container's edge"
+    );
     assert_eq!(f.pixel(2, RICH_BORDER_TOP_2X + 2), Some(t.container));
     assert!(
         !has_pixel(&f, cw, RICH_BORDER_TOP_2X + 2, 20 * cw, 12, t.label),
@@ -195,18 +203,39 @@ fn a_rich_block_is_drawn_in_a_labelled_container() {
         "the label {CONTAINER_LABEL:?} is painted in the label colour"
     );
     assert!(
-        !has_pixel(&f, cw, RICH_LABEL_TOP_2X, 10 * cw, RICH_BODY_TOP_2X - RICH_LABEL_TOP_2X, INK),
+        !has_pixel(
+            &f,
+            cw,
+            RICH_LABEL_TOP_2X,
+            10 * cw,
+            RICH_BODY_TOP_2X - RICH_LABEL_TOP_2X,
+            INK
+        ),
         "no body text above the body's line"
     );
-    assert!(has_pixel(&f, cw, RICH_BODY_TOP_2X, 10 * cw, ch, INK), "the body text");
+    assert!(
+        has_pixel(&f, cw, RICH_BODY_TOP_2X, 10 * cw, ch, INK),
+        "the body text"
+    );
     let Block::Rich(b) = &d.blocks()[0] else {
         unreachable!("a rich block")
     };
     assert_eq!(f.height, r.rich_height(b, 30));
-    assert_eq!(f.height, 117, "margins, border, padding, label, gap and one body row");
+    assert_eq!(
+        f.height, 117,
+        "margins, border, padding, label, gap and one body row"
+    );
     assert_eq!(f.height, RICH_BODY_TOP_2X + ch + RICH_BELOW_2X);
-    assert_eq!(f.pixel(0, f.height - 9), Some(t.border), "the container's bottom edge");
-    assert_eq!(f.pixel(0, f.height - 8), Some(t.background), "the margin below");
+    assert_eq!(
+        f.pixel(0, f.height - 9),
+        Some(t.border),
+        "the container's bottom edge"
+    );
+    assert_eq!(
+        f.pixel(0, f.height - 8),
+        Some(t.background),
+        "the margin below"
+    );
 }
 
 #[test]
@@ -215,12 +244,14 @@ fn the_container_label_is_set_a_step_under_the_body() {
     let r = renderer(2);
     let (cw, ch) = r.cell();
     let mut d = Document::new(40, 1);
-    d.apply(vec![Piece::Rich(Track0Block::Paragraph(CONTAINER_LABEL.into()))]);
+    d.apply(vec![Piece::Rich(Track0Block::Paragraph(
+        CONTAINER_LABEL.into(),
+    ))]);
     let f = r.render(&d);
     let bg = r.theme().container;
     let span = (cw, 39 * cw);
-    let label = ink_right(&f, span, (RICH_LABEL_TOP_2X, RICH_BODY_TOP_2X), bg)
-        .map_or(0, |x| x + 1 - cw);
+    let label =
+        ink_right(&f, span, (RICH_LABEL_TOP_2X, RICH_BODY_TOP_2X), bg).map_or(0, |x| x + 1 - cw);
     let body = ink_right(&f, span, (RICH_BODY_TOP_2X, RICH_BODY_TOP_2X + ch), bg)
         .map_or(0, |x| x + 1 - cw);
     assert!(label > 0 && body > 0, "both are drawn");
@@ -317,13 +348,20 @@ fn headings_code_and_the_stripped_count_are_drawn() {
         30,
     );
     assert_eq!(y0, 143, "a level 1 heading's line is 63 px at 2x");
-    assert_eq!(f.pixel(3, y0 + RICH_BODY_TOP_2X + 1), Some(t.code), "code background");
+    assert_eq!(
+        f.pixel(3, y0 + RICH_BODY_TOP_2X + 1),
+        Some(t.code),
+        "code background"
+    );
     assert_eq!(
         f.height,
         y0 + r.rich_height(code, 30),
         "two code lines plus the stripped note"
     );
-    assert_eq!(r.rich_height(code, 30), RICH_BODY_TOP_2X + 3 * ch + RICH_BELOW_2X);
+    assert_eq!(
+        r.rich_height(code, 30),
+        RICH_BODY_TOP_2X + 3 * ch + RICH_BELOW_2X
+    );
 }
 
 /// The lines a paragraph takes in a rich block `columns` cells wide, at scale 1:
