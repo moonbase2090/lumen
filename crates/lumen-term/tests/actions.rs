@@ -250,7 +250,7 @@ fn every_action_has_a_chord_on_each_platform_that_can_reach_it() {
         shift: true,
         ..Held::default()
     };
-    let keys = "abcdefghijklmnopqrstuvwxyz=-0,[]";
+    let keys = "abcdefghijklmnopqrstuvwxyz=-0,.[]";
     let reach = |platform: Platform, held: Held| -> Vec<Action> {
         keys.chars()
             .filter_map(|k| action_for(platform, k, held))
@@ -272,13 +272,17 @@ fn every_action_has_a_chord_on_each_platform_that_can_reach_it() {
     }
 }
 
-const ALL: [Action; 18] = [
+const ALL: [Action; 22] = [
     Action::NewWindow,
     Action::NewTab,
     Action::NextTab,
     Action::PreviousTab,
     Action::Copy,
     Action::Paste,
+    Action::SplitRight,
+    Action::SplitDown,
+    Action::NextPane,
+    Action::PreviousPane,
     Action::SelectAll,
     Action::ZoomIn,
     Action::ZoomOut,
@@ -303,6 +307,10 @@ fn all_is_complete(a: Action) {
         | Action::PreviousTab
         | Action::Copy
         | Action::Paste
+        | Action::SplitRight
+        | Action::SplitDown
+        | Action::NextPane
+        | Action::PreviousPane
         | Action::SelectAll
         | Action::ZoomIn
         | Action::ZoomOut

@@ -843,6 +843,32 @@ impl Renderer {
         self.text_line_marked(frame, x, y, text, colour, &[]);
     }
 
+    /// Draw the panes of a tab: each pane's view in its place, the dividers
+    /// between them, and, when there is more than one pane, a bar of the
+    /// accent along the top of the focused one.
+    #[must_use]
+    pub fn compose_panes(
+        &self,
+        (width, height): (u32, u32),
+        layout: &crate::panes::Layout,
+        views: &[Frame],
+        focus: usize,
+    ) -> Frame {
+        let mut frame = Frame::new(width, height, self.theme.background);
+        for line in &layout.dividers {
+            frame.fill(line.x, line.y, line.w, line.h, self.theme.divider);
+        }
+        for (rect, view) in layout.panes.iter().zip(views) {
+            Self::blit(&mut frame, view, rect.x, rect.y);
+        }
+        if views.len() > 1
+            && let Some(rect) = layout.panes.get(focus)
+        {
+            frame.fill(rect.x, rect.y, rect.w, 2 * self.scale, self.theme.prompt);
+        }
+        frame
+    }
+
     /// Put `content` below a terminal-owned tab strip. Each tab gets the same
     /// share of the width; its number stays visible when its title is clipped.
     #[must_use]

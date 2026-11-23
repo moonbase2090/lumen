@@ -64,6 +64,7 @@ pub mod motion;
 pub mod mouse;
 pub mod notify;
 pub mod os_backend;
+pub mod panes;
 #[cfg(feature = "links-clipboard")]
 pub mod paste;
 pub mod policy;
