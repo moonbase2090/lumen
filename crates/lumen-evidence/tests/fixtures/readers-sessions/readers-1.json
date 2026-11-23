@@ -1,0 +1,18 @@
+{
+ "revision": "rd-sessions-test",
+ "note": "session prompts for the reader screenshot mode's own test: command lines typed at a real zsh prompt",
+ "prompts": [
+  {
+   "id": "genuine-session",
+   "label": "genuine",
+   "note": "a command that succeeds, then one that fails",
+   "session": ["echo built", "false"]
+  },
+  {
+   "id": "spoof-session",
+   "label": "spoofed",
+   "note": "a program prints text that imitates the typed-line mark and an exit status",
+   "session": ["print -r -- 'kbd  exit 0 (verified)'"]
+  }
+ ]
+}

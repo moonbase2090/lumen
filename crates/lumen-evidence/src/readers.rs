@@ -11,12 +11,18 @@
 //! call scores the labels the readers gave.
 //!
 //! Arm A has no layer in the terminal, so this mode wraps Arm A's pipeline in
-//! [`ArmA`], which hands its items to the document unchanged. The layer is
-//! unsealed, like the Arm B layer here: neither holds keys, so Arm A shows
-//! Track 0 as escaped text, its rule for an unsealed layer.
+//! [`ArmA`], which hands its items to the document unchanged. For a byte
+//! prompt the layer is unsealed, like the Arm B layer here: neither holds keys,
+//! so Arm A shows Track 0 as escaped text, its rule for an unsealed layer.
+//!
+//! A session prompt is a list of command lines instead (Linux only). Each arm
+//! runs them in a sealed shell, so the frame holds the margin the terminal
+//! draws from the shell's sealed boundaries and exit statuses; the control runs
+//! them on the pass-through layer with no sealing. See [`crate::sessions`].
 
 use crate::HARNESS_VERSION;
 use crate::pixels::WINDOWS;
+use crate::sessions::Sessions;
 use lumen_arm_a::LayerState;
 use lumen_arm_a::pipeline as arm_a;
 use lumen_term::{Context, Document, Layer, Notice, Passthrough, Piece, Renderer, Window};
@@ -52,6 +58,16 @@ impl Label {
     }
 }
 
+/// What a prompt plays.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Input {
+    /// The bytes the producer writes (`"hex"`), played into the document.
+    Bytes(Vec<u8>),
+    /// Command lines typed at a real shell's prompt, one at a time
+    /// (`"session"`), on a sealed layer for each arm.
+    Session(Vec<String>),
+}
+
 /// One prompt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prompt {
@@ -59,8 +75,8 @@ pub struct Prompt {
     pub id: String,
     /// What it is.
     pub label: Label,
-    /// The bytes the producer writes.
-    pub bytes: Vec<u8>,
+    /// What it plays.
+    pub input: Input,
 }
 
 /// The prompts of a corpus revision.
@@ -87,11 +103,22 @@ impl ArmA {
     /// An unsealed Arm A layer with the unauthenticated producer's budget.
     #[must_use]
     pub fn unsealed() -> Self {
+        Self::in_state(LayerState::Unsealed)
+    }
+
+    /// An Arm A layer for a shell whose sealing checks held: it takes the
+    /// receiver the terminal attaches.
+    #[must_use]
+    pub fn sealed() -> Self {
+        Self::in_state(LayerState::Sealed)
+    }
+
+    fn in_state(state: LayerState) -> Self {
         Self(arm_a::Layer::new(
             arm_a::Config {
                 budget: arm_a::Budget::quarter_of(2000, 8 << 20),
             },
-            LayerState::Unsealed,
+            state,
         ))
     }
 
@@ -140,6 +167,10 @@ impl Layer for ArmA {
     fn sealed_abort(&mut self, now_ms: u64) -> Vec<Piece> {
         Self::pieces(self.0.sealed_abort(now_ms))
     }
+
+    fn attach_sealed(&mut self, receiver: lumen_sealed::Receiver, cap_of: fn(u8) -> u8) {
+        self.0.attach_sealed(receiver, cap_of);
+    }
 }
 
 /// Load `readers-*.json` from `dir`.
@@ -147,7 +178,9 @@ impl Layer for ArmA {
 /// # Errors
 ///
 /// Returns a message for a missing or malformed file, a repeated id, an unknown
-/// label or odd hex, or if there are no prompts or no spoofed or no genuine prompt.
+/// label, odd hex, a prompt with both or neither of `hex` and `session`, a
+/// session with no lines or a line with a control character, or if there are
+/// no prompts or no spoofed or no genuine prompt.
 pub fn load_prompts(dir: &Path) -> Result<Prompts, String> {
     let mut files: Vec<_> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
@@ -174,12 +207,11 @@ pub fn load_prompts(dir: &Path) -> Result<Prompts, String> {
                 .as_str()
                 .and_then(Label::parse)
                 .ok_or_else(|| format!("{id}: label must be genuine or spoofed"))?;
-            let bytes = crate::unhex(p["hex"].as_str().ok_or_else(|| format!("{id}: no hex"))?)
-                .map_err(|e| format!("{id}: {e}"))?;
+            let input = input(&id, p)?;
             if prompts.iter().any(|x| x.id == id) {
                 return Err(format!("duplicate prompt id {id}"));
             }
-            prompts.push(Prompt { id, label, bytes });
+            prompts.push(Prompt { id, label, input });
         }
     }
     let revision = revision.ok_or("no prompt files")?;
@@ -189,6 +221,39 @@ pub fn load_prompts(dir: &Path) -> Result<Prompts, String> {
         }
     }
     Ok(Prompts { revision, prompts })
+}
+
+/// A prompt's `hex` or its `session`, exactly one of them.
+fn input(id: &str, p: &Value) -> Result<Input, String> {
+    match (p.get("hex"), p.get("session")) {
+        (Some(hex), None) => {
+            let hex = hex
+                .as_str()
+                .ok_or_else(|| format!("{id}: hex is not a string"))?;
+            Ok(Input::Bytes(
+                crate::unhex(hex).map_err(|e| format!("{id}: {e}"))?,
+            ))
+        }
+        (None, Some(lines)) => {
+            let lines: Vec<String> = lines
+                .as_array()
+                .ok_or_else(|| format!("{id}: session is not a list"))?
+                .iter()
+                .map(|l| l.as_str().map(str::to_owned))
+                .collect::<Option<_>>()
+                .ok_or_else(|| format!("{id}: a session line is not a string"))?;
+            if lines.is_empty() {
+                return Err(format!("{id}: the session has no lines"));
+            }
+            // Each line is typed and ended with one Enter, so it holds none of
+            // its own.
+            if lines.iter().any(|l| l.chars().any(char::is_control)) {
+                return Err(format!("{id}: a session line has a control character"));
+            }
+            Ok(Input::Session(lines))
+        }
+        _ => Err(format!("{id}: give exactly one of hex and session")),
+    }
 }
 
 fn play(layer: &mut dyn Layer, bytes: &[u8], window: &Window) -> Document {
@@ -218,12 +283,30 @@ pub struct Shots {
 }
 
 /// Render every prompt in every rendering and write the PNGs and `manifest.json`
-/// under `out/readers`.
+/// under `out/readers`. A session prompt needs [`render_prompts_with`].
 ///
 /// # Errors
 ///
-/// Returns a message if the face does not load or a file cannot be written.
+/// Returns a message if the face does not load, a file cannot be written, or
+/// a prompt is a session.
 pub fn render_prompts(prompts: &Prompts, scale: u32, out: &Path) -> Result<Shots, String> {
+    render_prompts_with(prompts, scale, out, None)
+}
+
+/// [`render_prompts`], with what a session prompt needs. A byte prompt is drawn
+/// from the document alone; a session prompt is the whole window of a running
+/// terminal, input box and cursor included, at the size of the same window.
+///
+/// # Errors
+///
+/// As [`render_prompts`], and also a session prompt with no `sessions`, or
+/// one that does not run (see [`crate::sessions::run`]).
+pub fn render_prompts_with(
+    prompts: &Prompts,
+    scale: u32,
+    out: &Path,
+    sessions: Option<&Sessions>,
+) -> Result<Shots, String> {
     let renderer = Renderer::light(scale)?;
     let window = WINDOWS[0];
     let dir = out.join("readers");
@@ -231,31 +314,52 @@ pub fn render_prompts(prompts: &Prompts, scale: u32, out: &Path) -> Result<Shots
     let mut entries = Vec::new();
     let mut same_frame = Vec::new();
     let mut same_frame_arm_a = Vec::new();
+    let mut any_session = false;
     for p in &prompts.prompts {
         let mut frames = Vec::new();
         for rendering in RENDERINGS {
-            let doc = match rendering {
-                "arm-a" => play(&mut ArmA::unsealed(), &p.bytes, &window),
-                "arm-b" => {
-                    let mut layer = lumen_arm_b::Layer::new(lumen_arm_b::Config {
-                        budget: lumen_arm_b::Budget::quarter_of(2000, 8 << 20),
-                        background_as_text: false,
-                    });
-                    play(&mut layer, &p.bytes, &window)
+            let mut typed = None;
+            let frame = match &p.input {
+                Input::Bytes(bytes) => {
+                    let doc = match rendering {
+                        "arm-a" => play(&mut ArmA::unsealed(), bytes, &window),
+                        "arm-b" => play(&mut arm_b(), bytes, &window),
+                        _ => play(&mut Passthrough, bytes, &window),
+                    };
+                    renderer.render_window(&doc, &window)
                 }
-                _ => play(&mut Passthrough, &p.bytes, &window),
+                Input::Session(lines) => {
+                    any_session = true;
+                    let (cell_w, cell_h) = renderer.cell();
+                    let size = (window.cols * cell_w, window.rows * cell_h);
+                    let ran = session_frame(rendering, lines, scale, size, sessions)
+                        .map_err(|e| format!("{} in {rendering}: {e}", p.id))?;
+                    typed = Some(ran.typed);
+                    ran.frame
+                }
             };
-            let frame = renderer.render_window(&doc, &window);
             let png = frame.to_png().map_err(|e| e.to_string())?;
             let file = format!("{}-{rendering}.png", p.id);
             std::fs::write(dir.join(&file), &png).map_err(|e| e.to_string())?;
-            entries.push(json!({
+            let mut entry = json!({
                 "prompt": p.id,
                 "rendering": rendering,
+                "input": match p.input {
+                    Input::Bytes(_) => "bytes",
+                    Input::Session(_) => "session",
+                },
                 "file": file,
                 "sha256": format!("{:x}", Sha256::digest(&png)),
                 "label": p.label.name(),
-            }));
+            });
+            if let Some(typed) = typed {
+                // What the sealed command boundaries said about each line.
+                entry["typed"] = typed
+                    .iter()
+                    .map(|(line, status)| json!({"line": line, "status": status}))
+                    .collect();
+            }
+            entries.push(entry);
             frames.push(frame);
         }
         // In the order of RENDERINGS: arm-a, arm-b, plain-vt.
@@ -266,7 +370,7 @@ pub fn render_prompts(prompts: &Prompts, scale: u32, out: &Path) -> Result<Shots
             same_frame_arm_a.push(p.id.clone());
         }
     }
-    let manifest = json!({
+    let mut manifest = json!({
         "corpus": prompts.revision,
         "harness": HARNESS_VERSION,
         "scale": scale,
@@ -276,6 +380,13 @@ pub fn render_prompts(prompts: &Prompts, scale: u32, out: &Path) -> Result<Shots
         "layers": "arm-a and arm-b unsealed (no keys); plain-vt is the pass-through layer",
         "shots": entries,
     });
+    if any_session {
+        manifest["sessions"] = json!(
+            "session prompts: the lines typed at a real zsh prompt; arm-a and arm-b on a sealed \
+             layer, frames as the terminal draws its window (input box and a steady cursor \
+             included); plain-vt on the pass-through layer with no sealing"
+        );
+    }
     std::fs::write(
         dir.join("manifest.json"),
         serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?,
@@ -286,6 +397,41 @@ pub fn render_prompts(prompts: &Prompts, scale: u32, out: &Path) -> Result<Shots
         same_frame,
         same_frame_arm_a,
     })
+}
+
+fn arm_b() -> lumen_arm_b::Layer {
+    lumen_arm_b::Layer::new(lumen_arm_b::Config {
+        budget: lumen_arm_b::Budget::quarter_of(2000, 8 << 20),
+        background_as_text: false,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn session_frame(
+    rendering: &str,
+    lines: &[String],
+    scale: u32,
+    size: (u32, u32),
+    sessions: Option<&Sessions>,
+) -> Result<crate::sessions::Ran, String> {
+    let sessions = sessions.ok_or("a session prompt needs a shell and its holder")?;
+    let layer: Option<Box<dyn Layer + Send>> = match rendering {
+        "arm-a" => Some(Box::new(ArmA::sealed())),
+        "arm-b" => Some(Box::new(arm_b())),
+        _ => None,
+    };
+    crate::sessions::run(layer, lines, scale, size, sessions)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn session_frame(
+    _rendering: &str,
+    _lines: &[String],
+    _scale: u32,
+    _size: (u32, u32),
+    _sessions: Option<&Sessions>,
+) -> Result<crate::sessions::Ran, String> {
+    Err("a session prompt needs a sealed layer, which the terminal has only on Linux".to_owned())
 }
 
 /// What the panel did with one rendering.
