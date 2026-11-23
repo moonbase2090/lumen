@@ -1177,6 +1177,19 @@ impl Host {
 
     /// Do one of the window's own actions, from a menu item or a shortcut.
     fn act(&mut self, event_loop: &ActiveEventLoop, target: Option<WindowId>, action: Action) {
+        self.act_with(event_loop, target, action, &SystemClipboard);
+    }
+
+    /// Do one of the window's own actions with `clipboard` as the place Copy
+    /// puts text and Paste takes it from: the system clipboard, or on Linux
+    /// the primary selection for a middle click and a finished mouse selection.
+    fn act_with(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        target: Option<WindowId>,
+        action: Action,
+        clipboard: &dyn Clipboard,
+    ) {
         match action {
             Action::NewWindow => {
                 if let Err(e) = self.open_window(event_loop, None) {
@@ -1228,7 +1241,7 @@ impl Host {
             let here = tab.panes.focus_index();
             for (pane, app) in tab.apps_mut().into_iter().enumerate() {
                 if pane != here {
-                    let _ = app.perform(action, &SystemClipboard);
+                    let _ = app.perform(action, clipboard);
                 }
             }
         }
@@ -1236,7 +1249,7 @@ impl Host {
         let outcome = perform_action(
             tab.app_mut(),
             action,
-            &SystemClipboard,
+            clipboard,
             &mut run.ime,
             &mut WindowSink {
                 window: &run.window,
@@ -1509,6 +1522,22 @@ impl Host {
             }
             return;
         }
+        // A middle click the terminal owns pastes the primary selection, with
+        // the same rules as Paste. One the program asked for is reported to it.
+        #[cfg(not(any(target_os = "macos", windows)))]
+        if state == ElementState::Pressed
+            && button == MouseButton::Middle
+            && !app.is_selecting()
+            && app.owns_middle_click(x, y, held)
+        {
+            self.act_with(
+                event_loop,
+                Some(id),
+                Action::Paste,
+                &crate::clipboard::PrimarySelection,
+            );
+            return;
+        }
         let mut redraw = false;
         let mut taken = false;
         if state == ElementState::Pressed && button == MouseButton::Left {
@@ -1540,12 +1569,23 @@ impl Host {
         }
         redraw |= app.take_selection_redraw();
         let copy = app.take_copy_on_select();
+        let finished = app.take_finished_selection();
         let choice = app.take_menu_choice();
         if redraw {
             run.window.request_redraw();
         }
         if copy {
             self.act(event_loop, Some(id), Action::Copy);
+        }
+        // A finished mouse selection becomes the primary selection, whatever
+        // the copy setting, as in other terminals there.
+        if finished && cfg!(not(any(target_os = "macos", windows))) {
+            self.act_with(
+                event_loop,
+                Some(id),
+                Action::Copy,
+                &crate::clipboard::PrimarySelection,
+            );
         }
         if let Some(action) = choice {
             self.act(event_loop, Some(id), action);

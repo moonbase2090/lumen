@@ -5,6 +5,10 @@
 //! `Get-Clipboard` and `Set-Clipboard` on Windows, and `wl-paste`, `xclip` or
 //! `xsel` elsewhere (the first one found). Only text is read, with a size
 //! limit, and a missing tool or an empty clipboard is no text.
+//!
+//! On Linux and the other Unix desktops there is also the primary selection:
+//! the text last selected with the mouse, which a middle click pastes. It is
+//! read and written with the same tools, asked for the primary selection.
 
 use std::io::Read;
 use std::process::{Command, Stdio};
@@ -27,6 +31,12 @@ pub trait Clipboard {
 /// The operating system's clipboard.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemClipboard;
+
+/// The primary selection of Linux and the other Unix desktops: what a finished
+/// mouse selection puts there and a middle click pastes. Where there is none
+/// (macOS and Windows) it holds no text and takes none.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct PrimarySelection;
 
 /// Windows PowerShell reading the clipboard as UTF-8 text with no byte order
 /// mark. `-Raw` keeps the text as one string; an empty clipboard prints nothing.
@@ -93,6 +103,62 @@ fn writers() -> &'static [(&'static str, &'static [&'static str])] {
     }
 }
 
+/// The tools that read the primary selection, as [`candidates`] are for the
+/// clipboard.
+fn primary_readers() -> &'static [(&'static str, &'static [&'static str])] {
+    if cfg!(any(target_os = "macos", windows)) {
+        &[]
+    } else {
+        &[
+            ("wl-paste", &["--primary", "--no-newline"]),
+            ("xclip", &["-o", "-selection", "primary"]),
+            ("xsel", &["--primary", "--output"]),
+        ]
+    }
+}
+
+/// The tools that write the primary selection.
+fn primary_writers() -> &'static [(&'static str, &'static [&'static str])] {
+    if cfg!(any(target_os = "macos", windows)) {
+        &[]
+    } else {
+        &[
+            ("wl-copy", &["--primary"]),
+            ("xclip", &["-i", "-selection", "primary"]),
+            ("xsel", &["--primary", "--input"]),
+        ]
+    }
+}
+
+/// The text of the first of `tools` that prints some, up to
+/// [`MAX_PASTE_BYTES`]. A tool that is missing, prints nothing or prints what
+/// is not UTF-8 is passed over.
+fn read_with(tools: &[(&str, &[&str])]) -> Option<String> {
+    for (program, args) in tools {
+        let Ok(mut child) = tool(program, args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            continue;
+        };
+        let mut bytes = Vec::new();
+        if let Some(out) = child.stdout.take() {
+            let limit = u64::try_from(MAX_PASTE_BYTES).unwrap_or(u64::MAX);
+            let _ = out.take(limit).read_to_end(&mut bytes);
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        if let Ok(text) = String::from_utf8(bytes)
+            && !text.is_empty()
+        {
+            return Some(text);
+        }
+    }
+    None
+}
+
 /// Give `text` to the first of `tools` that takes it and exits successfully.
 fn write_with(tools: &[(&str, &[&str])], text: &str) -> bool {
     use std::io::Write as _;
@@ -124,35 +190,43 @@ impl Clipboard for SystemClipboard {
     }
 
     fn text(&self) -> Option<String> {
-        for (program, args) in candidates() {
-            let Ok(mut child) = tool(program, args)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn()
-            else {
-                continue;
-            };
-            let mut bytes = Vec::new();
-            if let Some(out) = child.stdout.take() {
-                let limit = u64::try_from(MAX_PASTE_BYTES).unwrap_or(u64::MAX);
-                let _ = out.take(limit).read_to_end(&mut bytes);
-            }
-            let _ = child.kill();
-            let _ = child.wait();
-            if let Ok(text) = String::from_utf8(bytes)
-                && !text.is_empty()
-            {
-                return Some(text);
-            }
-        }
-        None
+        read_with(candidates())
+    }
+}
+
+impl Clipboard for PrimarySelection {
+    fn set_text(&self, text: &str) -> bool {
+        write_with(primary_writers(), text)
+    }
+
+    fn text(&self) -> Option<String> {
+        read_with(primary_readers())
     }
 }
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::write_with;
+    use super::{read_with, write_with};
+
+    #[test]
+    fn a_read_takes_the_first_tool_that_prints_text_and_passes_over_the_rest() {
+        let tools: &[(&str, &[&str])] = &[
+            ("lumen-no-such-clipboard-tool", &[]),
+            ("sh", &["-c", "exit 1"]),
+            ("sh", &["-c", "printf 'from the primary selection'"]),
+            ("sh", &["-c", "printf 'never asked'"]),
+        ];
+        assert_eq!(
+            read_with(tools).as_deref(),
+            Some("from the primary selection")
+        );
+        let none: &[(&str, &[&str])] = &[("sh", &["-c", "printf '\\377'"])];
+        assert_eq!(
+            read_with(none),
+            None,
+            "bytes that are not UTF-8 are no text"
+        );
+    }
 
     #[test]
     fn a_writer_that_exits_with_an_error_is_a_failed_copy() {
