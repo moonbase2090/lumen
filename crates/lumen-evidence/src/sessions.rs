@@ -57,8 +57,9 @@ pub struct Ran {
     pub typed: Vec<(String, Option<i32>)>,
 }
 
-/// The prompt every session's shell draws.
-pub const PROMPT: &str = "% ";
+/// The prompt every session's shell draws. It has no `%`, which zsh would read
+/// as the start of a prompt escape.
+pub const PROMPT: &str = "$ ";
 
 impl Sessions {
     /// Sessions in the home directory `home`, made afresh with startup files
@@ -238,13 +239,36 @@ enum Progress {
 
 /// The cursor's row of the live grid is the prompt and nothing after it.
 fn prompt_drawn(app: &App, prompt: &str) -> bool {
+    cursor_row(app).is_some_and(|text| text == prompt.trim_end())
+}
+
+/// The text of the live grid's cursor row, trailing blanks removed.
+fn cursor_row(app: &App) -> Option<String> {
     let Some(Block::Grid(grid)) = app.session().document().blocks().last() else {
-        return false;
+        return None;
     };
-    let row = grid.cursor().row;
-    grid.text_rows()
-        .get(row)
-        .is_some_and(|text| text == prompt.trim_end())
+    grid.text_rows().get(grid.cursor().row).cloned()
+}
+
+/// What the shell and the box were doing, for a wait that ran out.
+fn state(app: &mut App) -> String {
+    let ends = app
+        .session()
+        .marks()
+        .iter()
+        .filter(|m| **m == Mark::PromptEnd)
+        .count();
+    format!(
+        "box {:?}, {} recorded line(s) {:?}, {ends} prompt-end mark(s), cursor row {:?}, layer {:?}",
+        app.input_mode(),
+        app.typed_records().len(),
+        app.typed_records()
+            .iter()
+            .map(|r| r.status)
+            .collect::<Vec<_>>(),
+        cursor_row(app),
+        app.session().seal_status(),
+    )
 }
 
 fn wait(
@@ -261,7 +285,8 @@ fn wait(
         let left = end.saturating_duration_since(Instant::now());
         if left.is_zero() {
             return Err(format!(
-                "the shell did not come back to its prompt after {what:?}"
+                "the shell did not come back to its prompt after {what:?}: {}",
+                state(app)
             ));
         }
         let step = if now == Progress::Settling {
