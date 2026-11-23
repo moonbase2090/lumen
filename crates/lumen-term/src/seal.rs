@@ -24,7 +24,9 @@ use crate::pty::{Pty, SpawnError};
 use lumen_holder::ffi_linux::pidfd_open;
 use lumen_holder::spawn::{Channels, Running};
 use lumen_holder::terminal::start_layer_on;
-use lumen_seal::{Decision, FsProbe, Probe, Sealer, Shell};
+use lumen_seal::{Decision, Shell};
+/// The types [`Config`]'s fields are made of, so a caller can build one.
+pub use lumen_seal::{FsProbe, PidFd, Probe, Sealer};
 use lumen_sealed::Receiver;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;

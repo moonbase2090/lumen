@@ -66,6 +66,24 @@ pub mod readers;
 pub mod render;
 pub mod rt2;
 pub mod rt4;
+#[cfg(target_os = "linux")]
+pub mod sessions;
+/// Sealed sessions need a sealed layer, which the terminal has only on Linux.
+#[cfg(not(target_os = "linux"))]
+pub mod sessions {
+    /// Never made off Linux: there is no sealed layer to run a session on.
+    #[derive(Debug)]
+    pub enum Sessions {}
+
+    /// What one run showed; never made off Linux.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Ran {
+        /// The window as the terminal drew it.
+        pub frame: lumen_term::Frame,
+        /// Each line the box sent with its sealed exit status.
+        pub typed: Vec<(String, Option<i32>)>,
+    }
+}
 
 use lumen_arm_a::pipeline::ITEM_KINDS as ARM_A_KINDS;
 use lumen_arm_b::ITEM_KINDS as ARM_B_KINDS;

@@ -1,6 +1,6 @@
 //! Reader screenshot mode: the committed prompt set renders, and the score is exact.
 
-use lumen_evidence::readers::{load_prompts, render_prompts, score};
+use lumen_evidence::readers::{Input, load_prompts, render_prompts, score};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -216,4 +216,61 @@ fn labels_that_are_missing_unknown_or_not_a_label_are_refused() {
     assert!(score(&shots.manifest, &bad).is_err_and(|e| e.contains("genuine or spoofed")));
     assert!(score(&shots.manifest, &json!({})).is_err());
     let _ = std::fs::remove_dir_all(&o);
+}
+
+#[test]
+fn a_prompt_is_either_bytes_or_a_session_of_typed_lines() {
+    let write = |name: &str, prompts: Value| {
+        let d = out(name);
+        assert!(std::fs::create_dir_all(&d).is_ok());
+        let doc = json!({"revision": "rd-t", "prompts": prompts});
+        assert!(std::fs::write(d.join("readers-1.json"), doc.to_string()).is_ok());
+        d
+    };
+    let spoof = json!({"id": "spoof", "label": "spoofed", "hex": "41"});
+    let d = write(
+        "session-ok",
+        json!([{"id": "s", "label": "genuine", "session": ["echo built", "false"]}, spoof]),
+    );
+    let Ok(prompts) = load_prompts(&d) else {
+        unreachable!("a session prompt loads")
+    };
+    assert_eq!(
+        prompts.prompts[0].input,
+        Input::Session(vec!["echo built".to_owned(), "false".to_owned()])
+    );
+    assert_eq!(prompts.prompts[1].input, Input::Bytes(b"A".to_vec()));
+    // Without a shell and its holder, a session has nothing to run in.
+    assert!(render_prompts(&prompts, 2, &d.join("out")).is_err_and(|e| e.starts_with("s in ")));
+    let _ = std::fs::remove_dir_all(&d);
+    for (name, bad, why) in [
+        (
+            "both",
+            json!({"id": "s", "label": "genuine", "hex": "41", "session": ["true"]}),
+            "exactly one of hex and session",
+        ),
+        (
+            "neither",
+            json!({"id": "s", "label": "genuine"}),
+            "exactly one of hex and session",
+        ),
+        (
+            "empty",
+            json!({"id": "s", "label": "genuine", "session": []}),
+            "no lines",
+        ),
+        (
+            "two-lines-in-one",
+            json!({"id": "s", "label": "genuine", "session": ["true\nfalse"]}),
+            "control character",
+        ),
+    ] {
+        let d = write(name, json!([bad, spoof]));
+        assert!(
+            load_prompts(&d).is_err_and(|e| e.contains(why)),
+            "{name} is refused: {:?}",
+            load_prompts(&d)
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }

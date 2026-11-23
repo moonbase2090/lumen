@@ -45,13 +45,15 @@
 //! against a baseline, over the corpus. Exits 0 for a measured zero, 1 for a
 //! non-zero count and 3 when the baseline was not stable or nothing was measured.
 //!
-//! `lumen-evidence --readers DIR [--scale N] [--labels FILE] --commit SHA --out DIR`
+//! `lumen-evidence --readers DIR [--scale N] [--labels FILE] [--holder PATH] --commit SHA --out DIR`
 //!
-//! Reader screenshot mode (criteria 2.2b): renders the prompt set in Arm B and in
-//! a plain-VT control and writes the screenshots and `readers/manifest.json`. With
+//! Reader screenshot mode (criteria 2.2b): renders the prompt set in Arm A, Arm B
+//! and a plain-VT control and writes the screenshots and `readers/manifest.json`.
+//! A session prompt runs in a sealed zsh (Linux only), with the holder at
+//! `--holder` or next to this program, and a home made under `DIR`'s output. With
 //! `--labels`, scores the simulated readers' labels. Exits 3 without labels (the
-//! screenshots are inputs, not a measurement), 1 when Arm B is above the control
-//! and 0 otherwise.
+//! screenshots are inputs, not a measurement), 1 when either arm is above the
+//! control and 0 otherwise.
 //!
 //! `lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]`
 //!
@@ -70,7 +72,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
-const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR\n       lumen-evidence --parity --channels FILE --commit SHA --out DIR\n       lumen-evidence --screenshots --corpus DIR [--corpus DIR ...] [--scale N] [--terminal PATH] --commit SHA --out DIR\n       lumen-evidence --readers DIR [--scale N] [--labels FILE] --commit SHA --out DIR\n       lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR\n       lumen-evidence --render-log [--log FILE] --commit SHA --out DIR\n       lumen-evidence --panes DIR --placement a|b --commit SHA --out DIR";
+const USAGE: &str = "usage: lumen-evidence --corpus DIR --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --flood --seconds N --commit SHA --out DIR [--arm b|a-sealed|a-unsealed]\n       lumen-evidence --matrix FILE --commit SHA --out DIR [--arm b|a]\n       lumen-evidence --cost --root DIR --base REF --commit SHA --out DIR\n       lumen-evidence --parity --channels FILE --commit SHA --out DIR\n       lumen-evidence --screenshots --corpus DIR [--corpus DIR ...] [--scale N] [--terminal PATH] --commit SHA --out DIR\n       lumen-evidence --readers DIR [--scale N] [--labels FILE] [--holder PATH] --commit SHA --out DIR\n       lumen-evidence --decoder [--ledger FILE] --commit SHA --out DIR\n       lumen-evidence --render-log [--log FILE] --commit SHA --out DIR\n       lumen-evidence --panes DIR --placement a|b --commit SHA --out DIR";
 
 /// Write the log and summary for a finished run and print the summary.
 fn finish(out: &std::path::Path, summary: &str) -> Result<(), String> {
@@ -294,9 +296,32 @@ fn screenshots(
     Ok(ExitCode::from(report.exit_code()))
 }
 
+/// The sealed sessions of a reader run: the shipped sealing settings, with the
+/// holder at `holder` if given, and a fresh home under `out`.
+#[cfg(target_os = "linux")]
+fn sessions(
+    out: &std::path::Path,
+    holder: Option<&str>,
+) -> Result<lumen_evidence::sessions::Sessions, String> {
+    let mut config = lumen_term::seal::Config::default();
+    if let Some(holder) = holder {
+        config.holder = PathBuf::from(holder);
+    }
+    lumen_evidence::sessions::Sessions::in_home(&out.join("readers-home"), config)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn sessions(
+    _out: &std::path::Path,
+    _holder: Option<&str>,
+) -> Result<lumen_evidence::sessions::Sessions, String> {
+    Err("a session prompt needs a sealed layer, which the terminal has only on Linux".to_owned())
+}
+
 fn readers(
     dir: &str,
     labels: Option<&str>,
+    holder: Option<&str>,
     commit: &str,
     out: &std::path::Path,
     scale: &str,
@@ -308,12 +333,27 @@ fn readers(
         .ok_or_else(|| format!("--scale {scale:?} must be 1 to 4 (criteria 2.3 names 2)"))?;
     let prompts = lumen_evidence::readers::load_prompts(&PathBuf::from(dir))?;
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
-    let shots = lumen_evidence::readers::render_prompts(&prompts, scale, out)?;
+    let has_session = prompts
+        .prompts
+        .iter()
+        .any(|p| matches!(p.input, lumen_evidence::readers::Input::Session(_)));
+    let sessions = if has_session {
+        Some(sessions(out, holder)?)
+    } else {
+        None
+    };
+    let shots =
+        lumen_evidence::readers::render_prompts_with(&prompts, scale, out, sessions.as_ref())?;
     let mut text = format!(
-        "commit={commit} harness={} corpus={} scale={scale}\n{} shots written under readers/ (arm-a, arm-b and plain-vt; both arms unsealed)\n",
+        "commit={commit} harness={} corpus={} scale={scale}\n{} shots written under readers/ (arm-a, arm-b and plain-vt; {})\n",
         lumen_evidence::HARNESS_VERSION,
         prompts.revision,
         shots.manifest["shots"].as_array().map_or(0, Vec::len),
+        if has_session {
+            "both arms unsealed for byte prompts, sealed for session prompts"
+        } else {
+            "both arms unsealed"
+        },
     );
     for id in &shots.same_frame {
         let _ = writeln!(text, "same frame in arm-b and plain-vt: {id}");
@@ -394,6 +434,7 @@ fn main() -> ExitCode {
                 readers(
                     &dir,
                     arg(&args, "--labels").as_deref(),
+                    arg(&args, "--holder").as_deref(),
                     &commit,
                     &out,
                     &scale,
