@@ -124,3 +124,60 @@ fn a_middle_click_is_the_terminal_s_unless_the_program_asked_for_the_mouse_and_s
     };
     assert!(mouse.owns_middle_click(x, y, shift));
 }
+
+#[cfg(feature = "window")]
+#[test]
+fn the_copies_come_from_the_pane_that_made_the_selection_when_the_focus_moved_during_the_drag() {
+    use lumen_term::host::copy_finished_selection;
+    use lumen_term::panes::{Panes, Split};
+
+    let mut left = start("echo LEFT; sleep 30");
+    ready(&mut left, "LEFT");
+    let mut right = start("echo RIGHT; sleep 30");
+    ready(&mut right, "RIGHT");
+    let held = Held::default();
+    let (x0, y0) = at(0, 0);
+    let (x1, _) = at(5, 0);
+
+    // The right pane has an earlier selection of its own.
+    right.mouse_press(x0, y0, Button::Left, held).ok();
+    right.mouse_move(x1, y0, held).ok();
+    right.mouse_release(x1, y0, Button::Left, held).ok();
+    assert_eq!(right.selected_text().as_deref(), Some("RIGHT"));
+    let _ = right.take_copy_on_select();
+    let _ = right.take_finished_selection();
+
+    let mut panes = Panes::new(left);
+    panes.split(right, Split::Right);
+    assert!(panes.focus(0));
+
+    // A drag starts in the left pane, the focus moves to the right one while
+    // the button is held, and the release goes to the left pane, which
+    // captured the drag.
+    let left = panes
+        .get_mut(0)
+        .unwrap_or_else(|| unreachable!("two panes"));
+    left.mouse_press(x0, y0, Button::Left, held).ok();
+    left.mouse_move(x1, y0, held).ok();
+    assert!(panes.focus_next(), "the focus moves during the drag");
+    assert_eq!(panes.focus_index(), 1);
+    let left = panes
+        .get_mut(0)
+        .unwrap_or_else(|| unreachable!("two panes"));
+    left.mouse_release(x1, y0, Button::Left, held).ok();
+
+    let clipboard = Primary(RefCell::new(None));
+    let primary = Primary(RefCell::new(None));
+    copy_finished_selection(&mut panes, 0, &clipboard, Some(&primary));
+    assert_eq!(primary.0.borrow().as_deref(), Some("LEFT"));
+    assert_eq!(
+        clipboard.0.borrow().as_deref(),
+        Some("LEFT"),
+        "copy on select, on by default, copies the same pane's text"
+    );
+
+    // Each finished selection is copied once.
+    let again = Primary(RefCell::new(None));
+    copy_finished_selection(&mut panes, 0, &again, Some(&again));
+    assert_eq!(*again.0.borrow(), None);
+}

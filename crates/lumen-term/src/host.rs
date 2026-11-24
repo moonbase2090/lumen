@@ -344,6 +344,41 @@ pub fn apply_window_event(
     redraw
 }
 
+/// The primary selection, where there is one: Linux and the other Unix
+/// desktops.
+fn primary_selection() -> Option<&'static dyn Clipboard> {
+    if cfg!(any(target_os = "macos", windows)) {
+        None
+    } else {
+        Some(&crate::clipboard::PrimarySelection)
+    }
+}
+
+/// After a mouse release in pane `released` of `panes`, copy the selection
+/// that release finished there: to `clipboard` when the copy-on-select setting
+/// asks for it, and to `primary` (the primary selection, where there is one)
+/// whenever a mouse selection finished. Both copies come from that pane, the
+/// one that captured the drag, and not from the focused pane: the focus can
+/// move while the button is held. Each copy has the same rules as Copy.
+pub fn copy_finished_selection(
+    panes: &mut Panes<App>,
+    released: usize,
+    clipboard: &dyn Clipboard,
+    primary: Option<&dyn Clipboard>,
+) {
+    let Some(app) = panes.get_mut(released) else {
+        return;
+    };
+    if app.take_copy_on_select() {
+        let _ = app.perform(Action::Copy, clipboard);
+    }
+    if app.take_finished_selection()
+        && let Some(primary) = primary
+    {
+        let _ = app.perform(Action::Copy, primary);
+    }
+}
+
 /// Do a window action (a zoom changes the cell size), then keep the candidate
 /// rectangle with it.
 pub fn perform_action(
@@ -1568,24 +1603,12 @@ impl Host {
             }
         }
         redraw |= app.take_selection_redraw();
-        let copy = app.take_copy_on_select();
-        let finished = app.take_finished_selection();
         let choice = app.take_menu_choice();
+        // The copies come from the pane the release went to, which made the
+        // selection, even if the focus moved while the button was held.
+        copy_finished_selection(&mut tab.panes, pane, &SystemClipboard, primary_selection());
         if redraw {
             run.window.request_redraw();
-        }
-        if copy {
-            self.act(event_loop, Some(id), Action::Copy);
-        }
-        // A finished mouse selection becomes the primary selection, whatever
-        // the copy setting, as in other terminals there.
-        if finished && cfg!(not(any(target_os = "macos", windows))) {
-            self.act_with(
-                event_loop,
-                Some(id),
-                Action::Copy,
-                &crate::clipboard::PrimarySelection,
-            );
         }
         if let Some(action) = choice {
             self.act(event_loop, Some(id), action);
