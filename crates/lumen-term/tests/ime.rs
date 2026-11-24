@@ -136,8 +136,14 @@ fn a_committed_string_cannot_carry_an_escape_sequence() {
 fn expected_anchor(app: &App, cell_w: u32) -> (u32, u32) {
     let cell_h = app.cell_height();
     let pad = GUTTER_PAD_PX * app.scale();
-    // An empty gutter is drawn two cells wide; the layout counts four.
-    let (columns, rows) = cells_for(640 - pad + 2 * cell_w, 380, (cell_w, cell_h));
+    // An empty gutter is drawn two cells wide; the layout counts four. The
+    // window keeps a 12 pixel inset at its right and 8 at its bottom.
+    let (right, bottom) = (12 * app.scale(), 8 * app.scale());
+    let (columns, rows) = cells_for(
+        640 - pad - right + 2 * cell_w,
+        380 - bottom,
+        (cell_w, cell_h),
+    );
     (
         2 * cell_w + pad + 3 * cell_w,
         window_for(columns, rows).editor_row * cell_h,

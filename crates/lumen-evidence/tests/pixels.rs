@@ -3,7 +3,9 @@
 // Short names for frames, windows and rectangles keep the comparisons readable.
 #![allow(clippy::many_single_char_names)]
 
-use lumen_evidence::pixels::{PixelReport, changed_in, rects_text, run_pixels, run_pixels_with};
+use lumen_evidence::pixels::{
+    PixelReport, changed_in, changed_in_margin, rects_text, run_pixels, run_pixels_with,
+};
 use lumen_evidence::{Corpus, Renderer, load_corpus};
 use lumen_term::{Block, Document, Frame, Window, layout};
 use std::cell::Cell;
@@ -44,6 +46,51 @@ fn changed_pixels_are_counted_once_even_where_two_rectangles_overlap() {
     );
     assert_eq!(changed_in(&r, &a, &b, &[l.editor]), 0);
     assert_eq!(changed_in(&r, &a, &a, &l.margin), 0);
+}
+
+/// The terminal paints its margin on through the right and bottom insets to
+/// the window's edges, and the margin measured is the margin painted: a pixel
+/// at the header's far end or the gutter's foot counts, and one in the right
+/// inset beside the content does not.
+#[test]
+fn the_margin_measured_runs_to_the_window_edges_it_is_painted_to() {
+    let r = renderer();
+    let w = Window {
+        cols: 40,
+        rows: 12,
+        editor_row: 8,
+        editor_rows: 2,
+    };
+    let a = r.render_window(&Document::new(1, 1), &w);
+    let l = layout(w.cols, w.rows, w.editor_row, w.editor_rows, None);
+    let (cw, ch) = r.cell();
+    assert!(
+        a.width > 40 * cw && a.height > 12 * ch,
+        "the window is wider and taller than its cells: {}x{}",
+        a.width,
+        a.height
+    );
+    let margin = r.theme().margin;
+    let header_end = (a.width - 1, 0);
+    let gutter_foot = (0, a.height - 1);
+    let beside_content = (a.width - 1, a.height / 2);
+    for (x, y) in [header_end, gutter_foot] {
+        assert_eq!(a.pixel(x, y), Some(margin), "{x},{y} is painted margin");
+    }
+    assert_ne!(a.pixel(beside_content.0, beside_content.1), Some(margin));
+    let flip = |(x, y): (u32, u32)| {
+        let mut b = a.clone();
+        let i = ((y * a.width + x) * 4) as usize;
+        b.rgba[i] ^= 0xff;
+        changed_in_margin(&r, &a, &b, &l.margin, (w.cols, w.rows))
+    };
+    assert_eq!(flip(header_end), 1, "the header's far end");
+    assert_eq!(flip(gutter_foot), 1, "the gutter's foot");
+    assert_eq!(
+        flip(beside_content),
+        0,
+        "the right inset beside the content"
+    );
 }
 
 #[test]

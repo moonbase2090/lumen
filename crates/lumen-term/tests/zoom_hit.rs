@@ -422,9 +422,11 @@ fn go_link(scale: u32, size: (u32, u32)) -> Option<App> {
 #[test]
 fn the_question_keeps_both_buttons_in_the_window_at_the_display_scale_in_a_tiny_window() {
     let mut asked = 0;
+    // 246 pixels tall is six rows at 2x after the window's 16 pixel bottom
+    // inset: the shortest of these that still shows a row to press on.
     for size in [
         (800, 190),
-        (800, 230),
+        (800, 246),
         (800, 270),
         (800, 330),
         (260, 600),

@@ -1243,16 +1243,16 @@ fn the_gutter_is_full_width_only_where_it_can_hold_marks() {
     if let Some(mut app) = start("sealed-input-gutter-full") {
         assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
         assert_eq!(divider_at(&app), Some(4 * cw - 1), "sealed: full gutter");
-        // 800 pixels less the full gutter and its 6 pixel padding leave 99
-        // cells, 95 of them right of the gutter.
-        assert_eq!(app.session().document().columns(), 95);
+        // 800 pixels less the full gutter, its 6 pixel padding and the 12
+        // pixel right inset leave 97 cells, 93 of them right of the gutter.
+        assert_eq!(app.session().document().columns(), 93);
     }
     if let Some(mut app) = start_with("sealed-input-gutter-empty", "", 0) {
         assert!(matches!(app.session().seal_status(), Status::GridOnly(_)));
         assert!(until(&mut app, |a| a.input_mode() == Mode::Editing));
         assert_eq!(divider_at(&app), Some(2 * cw - 1), "no keys: narrow gutter");
         // The narrow gutter gives the program two more columns.
-        assert_eq!(app.session().document().columns(), 97);
+        assert_eq!(app.session().document().columns(), 95);
     }
 }
 
@@ -1286,7 +1286,7 @@ fn a_layer_that_loses_its_keys_narrows_the_gutter_and_tells_the_program() {
         "{}",
         grid_text(&app)
     );
-    assert_eq!(told(&app), [95], "sealed: the program has 95 columns");
+    assert_eq!(told(&app), [93], "sealed: the program has 93 columns");
     assert_eq!(divider_at(&app), Some(4 * cw - 1), "sealed: full gutter");
     // The shell replaces itself; the next Enter finds it and the keys go.
     line(&mut app, "exec env PS1='sh''-ready> ' /bin/sh");
@@ -1302,12 +1302,12 @@ fn a_layer_that_loses_its_keys_narrows_the_gutter_and_tells_the_program() {
         app.session().seal_status()
     );
     assert_eq!(divider_at(&app), Some(2 * cw - 1), "no keys: narrow gutter");
-    assert_eq!(app.session().document().columns(), 97);
+    assert_eq!(app.session().document().columns(), 95);
     line(&mut app, "echo co''ls=$(stty size)");
     assert!(
         until(&mut app, |a| told(a).len() == 2),
         "{}",
         grid_text(&app)
     );
-    assert_eq!(told(&app), [95, 97], "the program is told the wider grid");
+    assert_eq!(told(&app), [93, 95], "the program is told the wider grid");
 }

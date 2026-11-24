@@ -21,7 +21,7 @@
 //! command container, so Track 0 in these runs is background output.
 
 use crate::Corpus;
-use crate::pixels::{PixelCase, PixelReport, changed_anywhere, changed_in};
+use crate::pixels::{PixelCase, PixelReport, changed_anywhere, changed_in, changed_in_margin};
 use lumen_term::app::{window_cells, window_for};
 use lumen_term::{Frame, Renderer, layout};
 use sha2::{Digest, Sha256};
@@ -312,7 +312,7 @@ pub fn run_terminal(
             cases.push(PixelCase {
                 id: case.id.clone(),
                 window: (cols, rows),
-                margin: changed_in(&renderer, &first, &frame, &l.margin),
+                margin: changed_in_margin(&renderer, &first, &frame, &l.margin, (cols, rows)),
                 chrome: changed_in(&renderer, &first, &frame, &[l.editor]),
                 anywhere: changed_anywhere(&first, &frame),
             });
@@ -341,12 +341,13 @@ pub fn terminal_rects(renderer: &Renderer) -> String {
         let win = window_for(cols as usize, rows as usize);
         let l = layout(win.cols, win.rows, win.editor_row, win.editor_rows, None);
         let px = |r: &lumen_term::Rect| crate::pixels::rect_text(renderer, r);
+        let edge = |r: &lumen_term::Rect| crate::pixels::margin_text(renderer, r, (cols, rows));
         let (width, height) = crate::pixels::window_px(renderer, cols, rows);
         let _ = writeln!(
             out,
             "rects {cols}x{rows} cells, {width}x{height} px: margin=[{}] [{}] chrome=[{}]",
-            px(&l.margin[0]),
-            px(&l.margin[1]),
+            edge(&l.margin[0]),
+            edge(&l.margin[1]),
             px(&l.editor)
         );
     }

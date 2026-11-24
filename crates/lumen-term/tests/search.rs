@@ -432,3 +432,53 @@ fn a_real_line_break_still_separates_a_match() {
     type_in(&mut app, "needle");
     assert_eq!(app.find_count(), 0);
 }
+
+#[test]
+fn the_current_match_in_a_heading_is_outlined_at_the_headings_height() {
+    // A level 1 heading's line is 63 px at 2x, against a 37 px body row. The
+    // current match's outline runs round the whole line, as its background does.
+    let r = Renderer::light(2).unwrap_or_else(|e| unreachable!("the face loads: {e}"));
+    let mut doc = Document::new(76, 18);
+    doc.apply(vec![lumen_term::Piece::Rich(
+        lumen_track0::Block::Heading {
+            level: 1,
+            text: "Heading".into(),
+        },
+    )]);
+    let columns = usize::try_from(WIN.cols - 4).unwrap_or(1);
+    let rows = r.search_rows(&doc, columns);
+    let mut find = Find::new();
+    find.push("Heading");
+    find.refresh(&rows, 0);
+    assert_eq!(find.hits().len(), 1);
+    let overlay = find.overlay();
+    let total = r.content_height(&doc, columns);
+    let (_, ch) = r.cell();
+    let scroll = Scroll::to(total, (WIN.editor_row - 1) * ch, 0);
+    let f = r.render_window_scrolled(&doc, &WIN, &[], scroll, (None, Some(&overlay)));
+    let ink = r.theme().find_text;
+    // The outline's top and bottom edges are the only rows drawn across the
+    // match's whole width; the glyphs in the same colour have gaps.
+    let per_row: Vec<(u32, u32)> = (0..f.height)
+        .map(|y| {
+            (
+                y,
+                (0..f.width).filter(|&x| f.pixel(x, y) == Some(ink)).count(),
+            )
+        })
+        .map(|(y, n)| (y, u32::try_from(n).unwrap_or(0)))
+        .collect();
+    let widest = per_row.iter().map(|&(_, n)| n).max().unwrap_or(0);
+    let edges: Vec<u32> = per_row
+        .iter()
+        .filter(|&&(_, n)| n > 0 && n * 10 >= widest * 9)
+        .map(|&(y, _)| y)
+        .collect();
+    let (top, bottom) = (edges.first().copied(), edges.last().copied());
+    assert!(widest > 0, "the current match is outlined");
+    assert_eq!(
+        bottom.zip(top).map(|(b, t)| b + 1 - t),
+        Some(63),
+        "the outline spans the heading's line"
+    );
+}

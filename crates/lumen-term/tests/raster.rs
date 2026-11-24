@@ -165,6 +165,16 @@ fn underline_paints_the_bottom_rows_of_the_cell() {
     assert_ne!(plain.pixel(0, ch - 1), Some(INK));
 }
 
+/// Where a rich block's parts sit at scale 2, in pixels from the block's top:
+/// a 4 px margin, a 1 px border and 6 px of padding above the label, the
+/// label's 12 px line (32 px tall at 2x), a 2 px gap, then the body. Below the
+/// body come 6 px of padding, the border and the margin again.
+const RICH_BORDER_TOP_2X: u32 = 8;
+const RICH_LABEL_TOP_2X: u32 = 22;
+const RICH_BODY_TOP_2X: u32 = 58;
+/// Padding, border and margin below a block's last line at scale 2.
+const RICH_BELOW_2X: u32 = 22;
+
 #[test]
 fn a_rich_block_is_drawn_in_a_labelled_container() {
     let r = renderer(2);
@@ -173,21 +183,135 @@ fn a_rich_block_is_drawn_in_a_labelled_container() {
     d.apply(vec![Piece::Rich(Track0Block::Paragraph("hello".into()))]);
     let f = r.render(&d);
     let t = r.theme();
-    assert_eq!(f.pixel(0, 0), Some(t.border));
-    assert_eq!(f.pixel(2, 2), Some(t.container));
+    assert_eq!(
+        f.pixel(0, RICH_BORDER_TOP_2X - 1),
+        Some(t.background),
+        "the margin above"
+    );
+    assert_eq!(
+        f.pixel(0, RICH_BORDER_TOP_2X),
+        Some(t.border),
+        "the container's edge"
+    );
+    assert_eq!(f.pixel(2, RICH_BORDER_TOP_2X + 2), Some(t.container));
     assert!(
-        has_pixel(&f, cw, 2, 40 * cw / 2, ch, t.label),
+        !has_pixel(&f, cw, RICH_BORDER_TOP_2X + 2, 20 * cw, 12, t.label),
+        "the padding above the label is clear"
+    );
+    assert!(
+        has_pixel(&f, cw, RICH_LABEL_TOP_2X, 20 * cw, 32, t.label),
         "the label {CONTAINER_LABEL:?} is painted in the label colour"
     );
-    assert!(has_pixel(&f, cw, 2 + ch, 10 * cw, ch, INK), "the body text");
+    assert!(
+        !has_pixel(
+            &f,
+            cw,
+            RICH_LABEL_TOP_2X,
+            10 * cw,
+            RICH_BODY_TOP_2X - RICH_LABEL_TOP_2X,
+            INK
+        ),
+        "no body text above the body's line"
+    );
+    assert!(
+        has_pixel(&f, cw, RICH_BODY_TOP_2X, 10 * cw, ch, INK),
+        "the body text"
+    );
     let Block::Rich(b) = &d.blocks()[0] else {
         unreachable!("a rich block")
     };
     assert_eq!(f.height, r.rich_height(b, 30));
     assert_eq!(
-        f.height,
-        2 * 2 + 2 * ch,
-        "border, label row and one body row"
+        f.height, 117,
+        "margins, border, padding, label, gap and one body row"
+    );
+    assert_eq!(f.height, RICH_BODY_TOP_2X + ch + RICH_BELOW_2X);
+    assert_eq!(
+        f.pixel(0, f.height - 9),
+        Some(t.border),
+        "the container's bottom edge"
+    );
+    assert_eq!(
+        f.pixel(0, f.height - 8),
+        Some(t.background),
+        "the margin below"
+    );
+}
+
+#[test]
+fn the_container_label_is_set_a_step_under_the_body() {
+    // The label's own words set as the body: the label is the smaller of the two.
+    let r = renderer(2);
+    let (cw, ch) = r.cell();
+    let mut d = Document::new(40, 1);
+    d.apply(vec![Piece::Rich(Track0Block::Paragraph(
+        CONTAINER_LABEL.into(),
+    ))]);
+    let f = r.render(&d);
+    let bg = r.theme().container;
+    let span = (cw, 39 * cw);
+    let label =
+        ink_right(&f, span, (RICH_LABEL_TOP_2X, RICH_BODY_TOP_2X), bg).map_or(0, |x| x + 1 - cw);
+    let body = ink_right(&f, span, (RICH_BODY_TOP_2X, RICH_BODY_TOP_2X + ch), bg)
+        .map_or(0, |x| x + 1 - cw);
+    assert!(label > 0 && body > 0, "both are drawn");
+    // 12 px against 14 px: about six sevenths as long.
+    assert!(
+        label * 10 < body * 9 && label * 4 > body * 3,
+        "the label ({label} px) is a step under the body ({body} px)"
+    );
+}
+
+#[test]
+fn headings_are_set_on_larger_steps_of_the_type_scale() {
+    // At scale 1 a body row is 19 px; a heading's line is as tall as its face
+    // at 24, 20 and 17 px for levels 1 to 3. Level 4 is set as the body.
+    let r = renderer(1);
+    let height = |piece: Track0Block| {
+        let mut d = Document::new(30, 1);
+        d.apply(vec![Piece::Rich(piece)]);
+        let Block::Rich(b) = &d.blocks()[0] else {
+            unreachable!("rich")
+        };
+        r.rich_height(b, 30)
+    };
+    let heading = |level| {
+        height(Track0Block::Heading {
+            level,
+            text: "Title".into(),
+        })
+    };
+    let body = height(Track0Block::Paragraph("Title".into()));
+    assert_eq!(body, 59);
+    assert_eq!(
+        [heading(1), heading(2), heading(3), heading(4)],
+        [72, 66, 63, 59],
+        "each level's line, against the body's"
+    );
+
+    // And the glyphs are drawn larger, not only spaced further apart.
+    let r = renderer(2);
+    let (cw, _) = r.cell();
+    let ink_rows = |piece: Track0Block, colour: [u8; 3]| {
+        let mut d = Document::new(30, 1);
+        d.apply(vec![Piece::Rich(piece)]);
+        let f = r.render(&d);
+        (RICH_BODY_TOP_2X..f.height)
+            .filter(|&y| (cw..29 * cw).any(|x| f.pixel(x, y) == Some(colour)))
+            .count()
+    };
+    let t = r.theme().clone();
+    let tall = ink_rows(
+        Track0Block::Heading {
+            level: 1,
+            text: "Title".into(),
+        },
+        t.heading,
+    );
+    let plain = ink_rows(Track0Block::Paragraph("Title".into()), INK);
+    assert!(
+        tall * 3 > plain * 4,
+        "a level 1 heading's ink ({tall} rows) is well over the body's ({plain} rows)"
     );
 }
 
@@ -210,7 +334,7 @@ fn headings_code_and_the_stripped_count_are_drawn() {
     ]);
     let f = r.render(&d);
     assert!(
-        has_pixel(&f, cw, 2 + ch, 6 * cw, ch, t.heading),
+        has_pixel(&f, cw, RICH_BODY_TOP_2X, 6 * cw, ch, t.heading),
         "heading colour"
     );
     let Block::Rich(code) = &d.blocks()[1] else {
@@ -223,17 +347,25 @@ fn headings_code_and_the_stripped_count_are_drawn() {
         },
         30,
     );
-    assert_eq!(f.pixel(3, y0 + 2 + ch + 1), Some(t.code), "code background");
+    assert_eq!(y0, 143, "a level 1 heading's line is 63 px at 2x");
+    assert_eq!(
+        f.pixel(3, y0 + RICH_BODY_TOP_2X + 1),
+        Some(t.code),
+        "code background"
+    );
     assert_eq!(
         f.height,
         y0 + r.rich_height(code, 30),
         "two code lines plus the stripped note"
     );
-    assert_eq!(r.rich_height(code, 30), 2 * 2 + (1 + 3) * ch);
+    assert_eq!(
+        r.rich_height(code, 30),
+        RICH_BODY_TOP_2X + 3 * ch + RICH_BELOW_2X
+    );
 }
 
-/// The lines a paragraph takes in a rich block `columns` cells wide, at scale 1
-/// (a border of one pixel).
+/// The lines a paragraph takes in a rich block `columns` cells wide, at scale 1:
+/// 29 px above the body and 11 px below it.
 fn paragraph_lines(r: &Renderer, text: &str, columns: usize) -> u32 {
     let (_, ch) = r.cell();
     let mut d = Document::new(columns, 1);
@@ -241,7 +373,7 @@ fn paragraph_lines(r: &Renderer, text: &str, columns: usize) -> u32 {
     let Block::Rich(b) = &d.blocks()[0] else {
         unreachable!("rich")
     };
-    (r.rich_height(b, columns) - 2) / ch - 1
+    (r.rich_height(b, columns) - 40) / ch
 }
 
 #[test]
@@ -290,8 +422,8 @@ fn rich_paragraph_text_is_drawn_with_proportional_advances() {
         d.apply(vec![Piece::Rich(Track0Block::Paragraph(text.into()))]);
         let f = r.render(&d);
         let bg = r.theme().container;
-        // The body row is the second row of the container, inside its border.
-        let body = (2 + ch, 2 + 2 * ch);
+        // The body's first line, under the label.
+        let body = (RICH_BODY_TOP_2X, RICH_BODY_TOP_2X + ch);
         let right = ink_right(&f, (cw, 29 * cw), body, bg);
         right.map_or(0, |x| x + 1 - cw)
     };
@@ -325,7 +457,7 @@ fn code_blocks_stay_on_the_cell_grid() {
             stripped: 0,
         })]);
         let f = r.render(&d);
-        let body = (2 + ch, 2 + 2 * ch);
+        let body = (RICH_BODY_TOP_2X, RICH_BODY_TOP_2X + ch);
         ink_right(&f, (cw, 29 * cw), body, r.theme().code).map_or(0, |x| x + 1 - cw)
     };
     let (narrow, wide) = (width("iiiiiiii"), width("mmmmmmmm"));
@@ -343,14 +475,21 @@ fn a_document_stacks_its_blocks_top_to_bottom() {
     d.apply(vec![Piece::Rich(Track0Block::Paragraph("mid".into()))]);
     d.receive(&mut Passthrough, b"bottom", Context::default());
     let f = r.render(&d);
-    let rich = 2 + 2 * ch;
+    // At scale 1: the margin, border, padding, label and gap, one body row,
+    // then the padding, border and margin.
+    let rich = 59;
     assert_eq!(f.width, 20 * cw);
     assert_eq!(f.height, 2 * ch + rich + 2 * ch);
     assert!(has_pixel(&f, 0, 0, 3 * cw, ch, INK), "top text");
     assert_eq!(
-        f.pixel(0, 2 * ch),
+        f.pixel(0, 2 * ch + 3),
+        Some(r.theme().background),
+        "a margin separates the container from the grid block"
+    );
+    assert_eq!(
+        f.pixel(0, 2 * ch + 4),
         Some(r.theme().border),
-        "the container starts after the grid block"
+        "the container starts after the grid block and its margin"
     );
     assert!(
         has_pixel(&f, 0, 2 * ch + rich, 6 * cw, ch, INK),
