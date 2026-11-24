@@ -67,6 +67,8 @@ jobs:
         run: scripts/test-decoder-fuzz-vm.sh
       - name: Default-ignorable table generator tests
         run: scripts/test-gen-default-ignorable.sh
+      - name: In-repo link check tests
+        run: scripts/test-check-repo-links.sh
       - name: PII / secret scan (repo text and built site)
         env:
           PUBLIC_TEXT_DENYLIST: ${{ secrets.PUBLIC_TEXT_DENYLIST }}

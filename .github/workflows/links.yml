@@ -16,6 +16,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      # This repository's own files on github.com are checked against the
+      # tree here, not over the network: github.com answers CI runners with
+      # 429 and 503 under load, which turned a required check red with no
+      # broken link, and a link to a file added in the same change cannot be
+      # fetched from main before it merges.
+      - name: In-repo github.com links resolve in the tree
+        run: scripts/check-repo-links.sh
       - uses: moonbase2090/.github/actions/package-links@0f192a5bb8fa198ab154fb4f721bdd8ca0813946
         with:
           # domterm.org answers some GitHub-hosted runners at once and others
@@ -26,3 +33,4 @@ jobs:
           # which scans spec/**/*.md and does not block a merge.
           link-excludes: >-
             --exclude '^https?://domterm\.org/'
+            --exclude '^https://github\.com/moonbase2090/lumen/(blob|tree)/main/'
