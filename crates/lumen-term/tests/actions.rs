@@ -236,6 +236,8 @@ fn every_macos_menu_item_stands_for_one_action_and_back() {
         Action::ZoomIn,
         Action::ZoomOut,
         Action::ZoomReset,
+        Action::OpenLink,
+        Action::CopyLinkAddress,
         Action::Settings,
         Action::Close,
         Action::Quit,
@@ -306,7 +308,40 @@ const ALL: [Action; 22] = [
     Action::Quit,
 ];
 
-/// A new action must be added to `ALL`, or this stops compiling.
+/// The actions only the right-click menu on a link asks for. They have no chord
+/// on any platform: a keystroke must not be able to open or copy a link without
+/// the pointer having chosen it.
+const LINK_MENU: [Action; 2] = [Action::OpenLink, Action::CopyLinkAddress];
+
+#[test]
+fn the_link_menu_actions_have_no_chord() {
+    let every_held = [false, true].into_iter().flat_map(|command| {
+        [false, true].into_iter().flat_map(move |control| {
+            [false, true].into_iter().flat_map(move |shift| {
+                [false, true].into_iter().map(move |alt| Held {
+                    command,
+                    control,
+                    shift,
+                    alt,
+                })
+            })
+        })
+    });
+    for held in every_held {
+        for platform in [Platform::Mac, Platform::Other] {
+            for key in "abcdefghijklmnopqrstuvwxyz0123456789=-,.[]".chars() {
+                let action = action_for(platform, key, held);
+                assert!(
+                    !action.is_some_and(|a| LINK_MENU.contains(&a)),
+                    "{key:?} with {held:?} must not reach a link action"
+                );
+            }
+        }
+    }
+}
+
+/// A new action must be added to `ALL` (if it has a chord) or `LINK_MENU` (if
+/// only the right-click menu on a link asks for it), or this stops compiling.
 #[allow(dead_code)]
 fn all_is_complete(a: Action) {
     match a {
@@ -331,6 +366,8 @@ fn all_is_complete(a: Action) {
         | Action::PreviousLink
         | Action::Settings
         | Action::Close
-        | Action::Quit => {}
+        | Action::Quit
+        | Action::OpenLink
+        | Action::CopyLinkAddress => {}
     }
 }

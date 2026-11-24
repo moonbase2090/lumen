@@ -54,6 +54,12 @@ Every decision listed here is **Adopted**: the specification follows it.
 - **Effect:** A program in a grid that asks where the cursor is (`CSI 6 n`) is told the row and column the cursor was at when it asked, as `CSI row ; column R` built from two numbers the terminal parsed. Line editors such as PowerShell's need this to draw. No other query is answered by this change, and these replies share the same rate limits as the colour replies.
 - **Where:** [Terminal replies](@/spec/v0/sealed-layers.md#sealed.replies).
 
+### An ignored policy or settings file is shown in the window
+
+- **Status:** Adopted, on by default.
+- **Effect:** When the policy file fails its checks, or the settings file or a theme or font file it names cannot be used, the terminal draws a notice in its notification area, ahead of any toast, and the defaults apply. The notice stays while the defaults apply: program output cannot dismiss it or push it out, and it is never drawn in the trust margin. Until now the text only went to standard error.
+- **Where:** [Policy file](@/spec/v0/capabilities.md#caps.policy).
+
 ### tmux and screen are post-v0; one multiplexer path exists
 
 - **Status:** Adopted.

@@ -48,6 +48,12 @@ pub enum Action {
     NextLink,
     /// Move the focus to the previous link on the screen.
     PreviousLink,
+    /// Ask whether to open the link the context menu was opened on. The
+    /// terminal's question always comes first.
+    OpenLink,
+    /// Ask whether to copy the address of the link the context menu was opened
+    /// on. What is copied is the checked target, never the text shown.
+    CopyLinkAddress,
     /// Open the settings file.
     Settings,
     /// Close the focused pane, and the tab and the window with the last one.

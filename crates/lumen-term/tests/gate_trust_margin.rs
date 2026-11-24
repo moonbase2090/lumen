@@ -369,15 +369,17 @@ fn the_frame_size_and_the_baseline_do_not_depend_on_the_input() {
     for (scale, full) in [(1, false), (1, true), (2, false), (2, true)] {
         let r = renderer_with(scale, full);
         let (cw, ch) = r.cell();
-        // The drawn gutter, the padding, then the columns right of the gutter.
+        // The drawn gutter, the padding, then the columns right of the gutter,
+        // then the 12 pixel right inset; the rows, then the 8 pixel bottom inset.
         let left = if full { 4 * cw } else { 2 * cw } + r.gutter_pad();
+        let (right, bottom) = (12 * scale, 8 * scale);
         for win in &WINDOWS {
             let base = r.render_window(&doc_for(win), win);
             assert_eq!(
                 (base.width, base.height),
                 (
-                    left + win.cols.saturating_sub(4) * cw,
-                    (win.rows * ch).max(1)
+                    left + win.cols.saturating_sub(4) * cw + right,
+                    (win.rows * ch).max(1) + bottom
                 ),
                 "scale {scale}, gutter full {full}, {}x{}",
                 win.cols,

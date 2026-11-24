@@ -57,6 +57,8 @@ pub enum Outcome {
 struct Links {
     prompt: Option<crate::linkprompt::Prompt>,
     opener: Box<dyn crate::linkprompt::LinkOpener + Send>,
+    /// Where a confirmed copy of a link's address goes.
+    clipboard: Box<dyn Clipboard + Send>,
     press_down: bool,
     /// The link the keyboard has focused: its screen row and what it is.
     focus: Option<LinkStop>,
@@ -130,6 +132,7 @@ impl Default for Links {
         Self {
             prompt: None,
             opener: Box::new(crate::linkprompt::SystemOpener),
+            clipboard: Box::new(crate::clipboard::SystemClipboard),
             press_down: false,
             focus: None,
             fit: FitCache::default(),
@@ -155,6 +158,12 @@ struct MenuState {
     open: Option<crate::contextmenu::ContextMenu>,
     choice: Option<Action>,
     press_down: bool,
+    /// The link under the pointer when the menu was asked for, which Open Link
+    /// and Copy Address act on. It is set at every right click (to nothing off
+    /// a link), so a choice from the menu that click built always has the link
+    /// that click was on.
+    #[cfg(feature = "links-clipboard")]
+    link: Option<crate::linkhit::Hit>,
     /// The renderer the menu is drawn with when the window's does not fit it.
     fit: FitCache,
 }
@@ -230,6 +239,9 @@ pub struct App {
     sink: Box<dyn OsSink + Send>,
     desk: Desk,
     input_notice: Option<InputNotice>,
+    /// What the user's policy, settings and theme files said that could not be
+    /// used. Drawn first and kept until the files change: nothing dismisses it.
+    config_notices: Vec<String>,
     /// The terminal's own notice that the shell layer has no sealing keys.
     seal_notice: Option<SealNotice>,
     /// The terminal's own notice that something the user asked the window to
@@ -547,6 +559,9 @@ struct ActionNotice {
 /// The layer id of the terminal's own toast: not the id of any layer.
 const TERMINAL_LAYER: u32 = 0;
 
+/// The most notices about ignored files that are drawn at once.
+pub const MAX_CONFIG_NOTICES: usize = 4;
+
 /// The label of the one layer a window has: its position in the layout, which a
 /// program cannot choose.
 pub const PANE_LABEL: &str = "pane 1";
@@ -633,15 +648,20 @@ pub fn block_cells_for(columns: usize, rows: usize, editor_rows: u32) -> (usize,
 }
 
 /// The columns and rows of a window of `width` by `height` pixels drawn by
-/// `renderer`, whose text column starts a gutter padding right of the gutter.
-/// The gutter's layout columns are counted at the width they are drawn in.
+/// `renderer`, whose text column starts a gutter padding right of the gutter
+/// and ends a right inset short of the window's edge, with a bottom inset
+/// under the last row. The gutter's layout columns are counted at the width
+/// they are drawn in.
 #[must_use]
 pub fn window_cells(width: u32, height: u32, renderer: &Renderer) -> (usize, usize) {
     let (cell_w, _) = renderer.cell();
-    let text = width.saturating_sub(renderer.content_left());
+    let (right, bottom) = renderer.insets();
+    let text = width
+        .saturating_sub(renderer.content_left())
+        .saturating_sub(right);
     cells_for(
         text.saturating_add(GUTTER_COLUMNS.saturating_mul(cell_w)),
-        height,
+        height.saturating_sub(bottom),
         renderer.cell(),
     )
 }
@@ -743,6 +763,7 @@ impl App {
             // would be an OS one needs the window to be shown unfocused.
             desk: Desk::default(),
             input_notice: None,
+            config_notices: Vec::new(),
             seal_notice: None,
             action_notice: None,
             base_scale: scale,
@@ -955,7 +976,16 @@ impl App {
     /// program does can push them out of the area.
     #[must_use]
     pub fn toasts(&self) -> Vec<Toast> {
-        let mut toasts = Vec::with_capacity(self.notifier.shown().len() + 2);
+        let mut toasts =
+            Vec::with_capacity(self.notifier.shown().len() + self.config_notices.len() + 2);
+        for text in &self.config_notices {
+            toasts.push(Toast {
+                layer: TERMINAL_LAYER,
+                text: text.clone(),
+                unsigned: false,
+                shown_ms: 0,
+            });
+        }
         if let Some(notice) = &self.seal_notice {
             toasts.push(Toast {
                 layer: TERMINAL_LAYER,
@@ -1000,6 +1030,12 @@ impl App {
             }
             return self.click_box(x, y);
         };
+        if index < self.config_notices.len() {
+            // A file the terminal ignored stays on screen until the file is
+            // fixed: a click does not hide it.
+            return false;
+        }
+        index -= self.config_notices.len();
         if self.seal_notice.is_some() {
             if index == 0 {
                 self.seal_notice = None;
@@ -1039,6 +1075,12 @@ impl App {
     #[cfg(feature = "links-clipboard")]
     pub fn use_link_opener(&mut self, opener: Box<dyn crate::linkprompt::LinkOpener + Send>) {
         self.links.opener = opener;
+    }
+
+    /// Use `clipboard` for the address of a link the user confirms copying.
+    #[cfg(feature = "links-clipboard")]
+    pub fn use_link_clipboard(&mut self, clipboard: Box<dyn Clipboard + Send>) {
+        self.links.clipboard = clipboard;
     }
 
     /// The question the terminal is drawing about a link, if there is one.
@@ -1429,10 +1471,44 @@ impl App {
         };
         self.links.fit.take();
         self.view_moves = self.view_moves.wrapping_add(1);
+        if open && prompt.purpose == crate::linkprompt::Purpose::Copy {
+            // Only the checked target the question showed is copied, never the
+            // text the link displayed, and only after a yes.
+            return match prompt.copy_text() {
+                Some(text) if self.links.clipboard.set_text(text) => Ok(false),
+                Some(_) => Err(std::io::Error::other("the clipboard could not be written")),
+                None => Ok(false),
+            };
+        }
         match (open, prompt.target()) {
             (true, Some(target)) => self.links.opener.open(target).map(|()| true),
             _ => Ok(false),
         }
+    }
+
+    /// Ask about the link the last right click was on, which a menu item chose.
+    /// Asking never opens or copies by itself: the terminal's question comes
+    /// first, every time.
+    #[cfg(feature = "links-clipboard")]
+    fn ask_about_menu_link(&mut self, purpose: crate::linkprompt::Purpose) -> Outcome {
+        let Some(hit) = self.menu.link.take() else {
+            return Outcome::Nothing;
+        };
+        self.ask_about_link(&hit, purpose);
+        Outcome::Redraw
+    }
+
+    /// Ask the user about `hit` for `purpose`: the terminal's question comes up
+    /// and nothing opens or is copied until it is answered.
+    #[cfg(feature = "links-clipboard")]
+    fn ask_about_link(&mut self, hit: &crate::linkhit::Hit, purpose: crate::linkprompt::Purpose) {
+        self.links.prompt = Some(match purpose {
+            crate::linkprompt::Purpose::Open => crate::linkprompt::Prompt::for_hit(hit),
+            crate::linkprompt::Purpose::Copy => crate::linkprompt::Prompt::for_copy(hit),
+        });
+        self.links.fit.take();
+        self.links.scroll = 0;
+        self.view_moves = self.view_moves.wrapping_add(1);
     }
 
     /// Open the context menu at pixel `(x, y)`, turned on for what is true now
@@ -1444,16 +1520,50 @@ impl App {
         if self.links.prompt.is_some() {
             return false;
         }
-        let state = crate::contextmenu::ContextState {
-            can_copy: self.has_selection(),
-            can_paste,
-            settings: crate::contextmenu::OFFERS_SETTINGS,
-        };
+        let state = self.context_state(x, y, can_paste);
         self.menu.open = Some(crate::contextmenu::ContextMenu::new((x, y), state));
         self.menu.fit.take();
         self.menu.press_down = true;
         self.view_moves = self.view_moves.wrapping_add(1);
         true
+    }
+
+    /// What the context menu offers for a right click at pixel `(x, y)`: Copy
+    /// needs a selection, Paste needs `can_paste`, and over a link Open Link
+    /// and Copy Address are added, on only when the terminal would act on the
+    /// link's target. The link is remembered for the choice that follows, whether
+    /// the menu is the terminal's own or the system's.
+    pub fn context_state(
+        &mut self,
+        x: u32,
+        y: u32,
+        can_paste: bool,
+    ) -> crate::contextmenu::ContextState {
+        use crate::contextmenu::LinkItems;
+        #[cfg(feature = "links-clipboard")]
+        let link = {
+            let hit = self.link_at(x, y);
+            let items = match &hit {
+                None => LinkItems::Absent,
+                Some(hit) => match crate::link::check(&hit.target, &hit.visible) {
+                    crate::link::Verdict::Confirm(_) => LinkItems::On,
+                    _ => LinkItems::Off,
+                },
+            };
+            self.menu.link = hit;
+            items
+        };
+        #[cfg(not(feature = "links-clipboard"))]
+        let link = {
+            let _ = (x, y);
+            LinkItems::Absent
+        };
+        crate::contextmenu::ContextState {
+            can_copy: self.has_selection(),
+            can_paste,
+            link,
+            settings: crate::contextmenu::OFFERS_SETTINGS,
+        }
     }
 
     /// The context menu the terminal is drawing, if one is open.
@@ -2609,6 +2719,8 @@ impl App {
                 self.focus_link(action == Action::NextLink);
                 Outcome::Redraw
             }
+            Action::OpenLink => self.ask_about_menu_link(crate::linkprompt::Purpose::Open),
+            Action::CopyLinkAddress => self.ask_about_menu_link(crate::linkprompt::Purpose::Copy),
             Action::Find => {
                 self.find_open();
                 Outcome::Redraw
@@ -3380,6 +3492,25 @@ impl App {
         }
     }
 
+    /// Show what the user's files said that the terminal could not use, in
+    /// place of what was shown before: an empty list clears it. The notices
+    /// stay in the notification area, ahead of every toast, until the next
+    /// call. A program cannot dismiss or push them out, and a click does not
+    /// hide them. At most [`MAX_CONFIG_NOTICES`] are kept.
+    /// Returns whether what is drawn changed, so the window knows to draw again.
+    pub fn set_config_notices(&mut self, mut notices: Vec<String>) -> bool {
+        notices.truncate(MAX_CONFIG_NOTICES);
+        let changed = self.config_notices != notices;
+        self.config_notices = notices;
+        changed
+    }
+
+    /// The notices about files that were ignored, in the order drawn.
+    #[must_use]
+    pub fn config_notices(&self) -> &[String] {
+        &self.config_notices
+    }
+
     /// The terminal's notice that the shell layer has no sealing keys, if it
     /// is shown. For tests and the window.
     #[must_use]
@@ -3635,7 +3766,10 @@ impl App {
             self.renderer
                 .paint_preedit(&mut frame, (x, y), right, &preedit, self.desk.focused);
         }
+        let drawn = (frame.width, frame.height);
         let mut frame = frame.viewport(self.width, self.height, self.renderer.theme().background);
+        // The window is rarely a whole number of cells: the margin runs on to its edges.
+        self.renderer.extend_margin(&mut frame, drawn);
         #[cfg(feature = "links-clipboard")]
         if let Some(prompt) = &self.links.prompt {
             // Last, over everything: a program's output cannot cover it.

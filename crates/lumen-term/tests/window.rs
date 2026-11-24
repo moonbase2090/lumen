@@ -169,8 +169,13 @@ fn the_window_has_the_size_of_its_cells_and_the_baseline_is_stable() {
     let r = renderer();
     let (cw, ch) = r.cell();
     let a = baseline();
-    // 80 columns: the empty gutter drawn in two cells, the padding and 76 more.
-    assert_eq!((a.width, a.height), (78 * cw + r.gutter_pad(), 24 * ch));
+    // 80 columns: the empty gutter drawn in two cells, the padding and 76
+    // more, then the 12 pixel right inset; 24 rows, then the 8 pixel bottom
+    // inset (pixels at scale 1).
+    assert_eq!(
+        (a.width, a.height),
+        (78 * cw + r.gutter_pad() + 12, 24 * ch + 8)
+    );
     assert_eq!(a, baseline(), "the baseline taken twice must match exactly");
 }
 

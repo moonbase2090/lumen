@@ -416,6 +416,9 @@ pub struct Config {
     pub images: bool,
     /// The user's settings file and its current value.
     pub settings: SettingsWatcher,
+    /// The notice for a policy file that was ignored, if it was. It stays on
+    /// screen while the defaults apply.
+    pub policy_notice: Option<String>,
 }
 
 struct Tab {
@@ -776,6 +779,11 @@ impl Host {
         if self.config.scale.is_some() {
             app.pin_scale();
         }
+        app.set_config_notices(crate::settings::notices(
+            self.config.policy_notice.as_deref(),
+            self.config.settings.current(),
+            &look,
+        ));
         app.use_settings(self.config.notifications);
         app.use_images(self.config.images);
         app.set_theme_choice(look.theme);
@@ -804,6 +812,7 @@ impl Host {
         for notice in settings.notice().iter().chain(&look.notices) {
             eprintln!("{}: {notice}", crate::APP_NAME);
         }
+        let shown = crate::settings::notices(self.config.policy_notice.as_deref(), settings, &look);
         for run in &mut self.windows {
             let mut redraw = false;
             let mut resized = false;
@@ -816,6 +825,7 @@ impl Host {
                     }
                     app.set_copy_on_select(raw.copy_on_select);
                     app.set_smooth_scroll(raw.smooth_scroll);
+                    redraw |= app.set_config_notices(shown.clone());
                 }
             }
             if resized {
@@ -1529,11 +1539,7 @@ impl Host {
             && !app.is_selecting()
             && app.owns_context_click(x, y, held)
         {
-            let menu_state = crate::menu::ContextState {
-                can_copy: app.has_selection(),
-                can_paste: SystemClipboard.text().is_some(),
-                settings: false,
-            };
+            let menu_state = app.context_state(x, y, SystemClipboard.text().is_some());
             if let Ok(menu) = crate::menu::context_menu(menu_state) {
                 crate::ffi_context_menu::show(&menu, &*run.window);
             }

@@ -63,12 +63,18 @@ fn pixels_make_cells_within_the_limits() {
 
 /// An empty gutter is drawn two cells wide, then the 6 pixel padding.
 const EMPTY_GUTTER_CELLS: u32 = 2;
+/// Pixels at scale 1 the window keeps clear right of the text column.
+const RIGHT_INSET: u32 = 12;
+/// Pixels at scale 1 the window keeps clear below the last row.
+const BOTTOM_INSET: u32 = 8;
 
 #[test]
 fn the_window_size_sets_the_ptys_size() {
-    // 800 pixels: 22 for the empty gutter and its padding leave 97 cells.
+    // 800 pixels: 22 for the empty gutter and its padding and 12 for the
+    // right inset leave 95 cells. 600 pixels: 8 for the bottom inset leave 31
+    // rows, 27 of them the program's.
     let mut app = start("stty size", 800, 600);
-    assert!(pump_until(&mut app, |a| text(a).contains("27 97")));
+    assert!(pump_until(&mut app, |a| text(a).contains("27 95")));
 }
 
 #[test]
@@ -83,7 +89,9 @@ fn resizing_the_window_resizes_the_program() {
         "the view follows the window"
     );
     assert!(app.key(Key::Enter, Mods::default()).is_ok());
-    assert!(pump_until(&mut app, |a| text(a).contains("16 47")));
+    // 400 by 380: 366 pixels of text are 45 columns; 372 are 19 rows, 15 of
+    // them the program's.
+    assert!(pump_until(&mut app, |a| text(a).contains("15 45")));
 }
 
 #[test]
@@ -210,7 +218,11 @@ fn the_view_draws_the_trust_margin_the_producer_cannot_reach() {
     let pad = r.gutter_pad();
     // The layout counts the gutter's four columns; the empty gutter is drawn in two.
     let gutter = EMPTY_GUTTER_CELLS * cw;
-    let (cols, rows) = cells_for(640 - gutter - pad + GUTTER_COLUMNS * cw, 380, (cw, ch));
+    let (cols, rows) = cells_for(
+        640 - gutter - pad - RIGHT_INSET + GUTTER_COLUMNS * cw,
+        380 - BOTTOM_INSET,
+        (cw, ch),
+    );
     let win = window_for(cols, rows);
     // The box shows the terminal's own status, never the program's text.
     let ended = lumen_term::raster::InputView {

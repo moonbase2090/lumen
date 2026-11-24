@@ -1,3 +1,3 @@
 corpus px-1, scale 2
-rects 80x24 cells, 1338x888 px: margin=[0,0,34,888] [0,0,1338,37] chrome=[46,703,1292,74]
-rects 40x12 cells, 658x444 px: margin=[0,0,34,444] [0,0,658,37] chrome=[46,296,612,74]
+rects 80x24 cells, 1362x904 px: margin=[0,0,34,904] [0,0,1362,37] chrome=[46,703,1292,74]
+rects 40x12 cells, 682x460 px: margin=[0,0,34,460] [0,0,682,37] chrome=[46,296,612,74]

@@ -4,6 +4,7 @@
 #![cfg(all(unix, any(target_os = "macos", windows)))]
 
 use lumen_term::actions::Action;
+use lumen_term::contextmenu::LinkItems;
 use lumen_term::menu::{ContextState, action_of, context_items, id_of};
 use lumen_term::mouse::Held;
 use lumen_term::{App, Passthrough, Renderer};
@@ -23,6 +24,7 @@ fn the_menu_offers_copy_paste_select_all_and_zoom_and_turns_off_what_would_do_no
         can_copy: true,
         can_paste: true,
         settings: false,
+        link: LinkItems::Absent,
     };
     assert_eq!(
         offered(all),
@@ -39,6 +41,7 @@ fn the_menu_offers_copy_paste_select_all_and_zoom_and_turns_off_what_would_do_no
         can_copy: false,
         can_paste: false,
         settings: false,
+        link: LinkItems::Absent,
     };
     let off: Vec<Action> = offered(nothing)
         .into_iter()
@@ -56,6 +59,7 @@ fn each_item_comes_back_as_the_action_it_stands_for() {
         can_copy: true,
         can_paste: true,
         settings: false,
+        link: LinkItems::On,
     })
     .into_iter()
     .flatten()

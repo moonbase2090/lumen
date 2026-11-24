@@ -9,6 +9,20 @@
 
 use crate::actions::Action;
 
+/// What a right click on a link adds to the menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkItems {
+    /// The pointer is not over a link: the menu has no link items.
+    Absent,
+    /// The pointer is over a link the terminal will not act on (a `file` link
+    /// or a refused target): the items are shown turned off, so it is clear why
+    /// nothing can be done with it.
+    Off,
+    /// The pointer is over a link with an allowed target: Open Link and Copy
+    /// Address ask the terminal's question about that target.
+    On,
+}
+
 /// What the context menu offers: an item is turned off when its action would
 /// do nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,6 +34,8 @@ pub struct ContextState {
     /// The menu offers Settings, last: where there is no menu bar to ask for
     /// it (Linux and the other Unix desktops).
     pub settings: bool,
+    /// Whether the pointer is over a link, and whether it can be acted on.
+    pub link: LinkItems,
 }
 
 /// Whether the menu the terminal draws offers Settings. macOS has it in the
@@ -33,7 +49,14 @@ pub type Entry = (Action, &'static str, bool);
 /// whether it is on. A separator is `None`.
 #[must_use]
 pub fn context_items(state: ContextState) -> Vec<Option<Entry>> {
-    let mut items = vec![
+    let mut items = Vec::new();
+    if state.link != LinkItems::Absent {
+        let on = state.link == LinkItems::On;
+        items.push(Some((Action::OpenLink, "Open Link", on)));
+        items.push(Some((Action::CopyLinkAddress, "Copy Address", on)));
+        items.push(None);
+    }
+    items.extend([
         Some((Action::Copy, "Copy", state.can_copy)),
         Some((Action::Paste, "Paste", state.can_paste)),
         Some((Action::SelectAll, "Select All", true)),
@@ -41,7 +64,7 @@ pub fn context_items(state: ContextState) -> Vec<Option<Entry>> {
         Some((Action::ZoomIn, "Zoom In", true)),
         Some((Action::ZoomOut, "Zoom Out", true)),
         Some((Action::ZoomReset, "Actual Size", true)),
-    ];
+    ]);
     if state.settings {
         items.extend([None, Some((Action::Settings, "Settings…", true))]);
     }
@@ -164,6 +187,7 @@ mod tests {
                 can_copy,
                 can_paste,
                 settings: false,
+                link: LinkItems::Absent,
             },
         )
     }
@@ -218,6 +242,7 @@ mod tests {
                 can_copy: false,
                 can_paste: false,
                 settings: true,
+                link: LinkItems::Absent,
             },
         );
         let items = m.items();
