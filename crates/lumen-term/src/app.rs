@@ -57,6 +57,8 @@ pub enum Outcome {
 struct Links {
     prompt: Option<crate::linkprompt::Prompt>,
     opener: Box<dyn crate::linkprompt::LinkOpener + Send>,
+    /// Where a confirmed copy of a link's address goes.
+    clipboard: Box<dyn Clipboard + Send>,
     press_down: bool,
     /// The link the keyboard has focused: its screen row and what it is.
     focus: Option<LinkStop>,
@@ -130,6 +132,7 @@ impl Default for Links {
         Self {
             prompt: None,
             opener: Box::new(crate::linkprompt::SystemOpener),
+            clipboard: Box::new(crate::clipboard::SystemClipboard),
             press_down: false,
             focus: None,
             fit: FitCache::default(),
@@ -155,6 +158,12 @@ struct MenuState {
     open: Option<crate::contextmenu::ContextMenu>,
     choice: Option<Action>,
     press_down: bool,
+    /// The link under the pointer when the menu was asked for, which Open Link
+    /// and Copy Address act on. It is set at every right click (to nothing off
+    /// a link), so a choice from the menu that click built always has the link
+    /// that click was on.
+    #[cfg(feature = "links-clipboard")]
+    link: Option<crate::linkhit::Hit>,
     /// The renderer the menu is drawn with when the window's does not fit it.
     fit: FitCache,
 }
@@ -1040,6 +1049,12 @@ impl App {
         self.links.opener = opener;
     }
 
+    /// Use `clipboard` for the address of a link the user confirms copying.
+    #[cfg(feature = "links-clipboard")]
+    pub fn use_link_clipboard(&mut self, clipboard: Box<dyn Clipboard + Send>) {
+        self.links.clipboard = clipboard;
+    }
+
     /// The question the terminal is drawing about a link, if there is one.
     #[cfg(feature = "links-clipboard")]
     #[must_use]
@@ -1428,10 +1443,44 @@ impl App {
         };
         self.links.fit.take();
         self.view_moves = self.view_moves.wrapping_add(1);
+        if open && prompt.purpose == crate::linkprompt::Purpose::Copy {
+            // Only the checked target the question showed is copied, never the
+            // text the link displayed, and only after a yes.
+            return match prompt.copy_text() {
+                Some(text) if self.links.clipboard.set_text(text) => Ok(false),
+                Some(_) => Err(std::io::Error::other("the clipboard could not be written")),
+                None => Ok(false),
+            };
+        }
         match (open, prompt.target()) {
             (true, Some(target)) => self.links.opener.open(target).map(|()| true),
             _ => Ok(false),
         }
+    }
+
+    /// Ask about the link the last right click was on, which a menu item chose.
+    /// Asking never opens or copies by itself: the terminal's question comes
+    /// first, every time.
+    #[cfg(feature = "links-clipboard")]
+    fn ask_about_menu_link(&mut self, purpose: crate::linkprompt::Purpose) -> Outcome {
+        let Some(hit) = self.menu.link.take() else {
+            return Outcome::Nothing;
+        };
+        self.ask_about_link(&hit, purpose);
+        Outcome::Redraw
+    }
+
+    /// Ask the user about `hit` for `purpose`: the terminal's question comes up
+    /// and nothing opens or is copied until it is answered.
+    #[cfg(feature = "links-clipboard")]
+    fn ask_about_link(&mut self, hit: &crate::linkhit::Hit, purpose: crate::linkprompt::Purpose) {
+        self.links.prompt = Some(match purpose {
+            crate::linkprompt::Purpose::Open => crate::linkprompt::Prompt::for_hit(hit),
+            crate::linkprompt::Purpose::Copy => crate::linkprompt::Prompt::for_copy(hit),
+        });
+        self.links.fit.take();
+        self.links.scroll = 0;
+        self.view_moves = self.view_moves.wrapping_add(1);
     }
 
     /// Open the context menu at pixel `(x, y)`, turned on for what is true now
@@ -1443,15 +1492,49 @@ impl App {
         if self.links.prompt.is_some() {
             return false;
         }
-        let state = crate::contextmenu::ContextState {
-            can_copy: self.has_selection(),
-            can_paste,
-        };
+        let state = self.context_state(x, y, can_paste);
         self.menu.open = Some(crate::contextmenu::ContextMenu::new((x, y), state));
         self.menu.fit.take();
         self.menu.press_down = true;
         self.view_moves = self.view_moves.wrapping_add(1);
         true
+    }
+
+    /// What the context menu offers for a right click at pixel `(x, y)`: Copy
+    /// needs a selection, Paste needs `can_paste`, and over a link Open Link
+    /// and Copy Address are added, on only when the terminal would act on the
+    /// link's target. The link is remembered for the choice that follows, whether
+    /// the menu is the terminal's own or the system's.
+    pub fn context_state(
+        &mut self,
+        x: u32,
+        y: u32,
+        can_paste: bool,
+    ) -> crate::contextmenu::ContextState {
+        use crate::contextmenu::LinkItems;
+        #[cfg(feature = "links-clipboard")]
+        let link = {
+            let hit = self.link_at(x, y);
+            let items = match &hit {
+                None => LinkItems::Absent,
+                Some(hit) => match crate::link::check(&hit.target, &hit.visible) {
+                    crate::link::Verdict::Confirm(_) => LinkItems::On,
+                    _ => LinkItems::Off,
+                },
+            };
+            self.menu.link = hit;
+            items
+        };
+        #[cfg(not(feature = "links-clipboard"))]
+        let link = {
+            let _ = (x, y);
+            LinkItems::Absent
+        };
+        crate::contextmenu::ContextState {
+            can_copy: self.has_selection(),
+            can_paste,
+            link,
+        }
     }
 
     /// The context menu the terminal is drawing, if one is open.
@@ -2599,6 +2682,8 @@ impl App {
                 self.focus_link(action == Action::NextLink);
                 Outcome::Redraw
             }
+            Action::OpenLink => self.ask_about_menu_link(crate::linkprompt::Purpose::Open),
+            Action::CopyLinkAddress => self.ask_about_menu_link(crate::linkprompt::Purpose::Copy),
             Action::Find => {
                 self.find_open();
                 Outcome::Redraw

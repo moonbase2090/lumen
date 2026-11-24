@@ -1498,10 +1498,7 @@ impl Host {
             && !app.is_selecting()
             && app.owns_context_click(x, y, held)
         {
-            let menu_state = crate::menu::ContextState {
-                can_copy: app.has_selection(),
-                can_paste: SystemClipboard.text().is_some(),
-            };
+            let menu_state = app.context_state(x, y, SystemClipboard.text().is_some());
             if let Ok(menu) = crate::menu::context_menu(menu_state) {
                 crate::ffi_context_menu::show(&menu, &*run.window);
             }
