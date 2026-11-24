@@ -248,6 +248,19 @@ impl Watcher {
     }
 }
 
+/// What the window tells the user about the files it could not use: the
+/// policy file, then the settings file, then each theme or font file the
+/// settings name that was left out. Empty when every file was used or absent.
+#[must_use]
+pub fn notices(policy: Option<&str>, settings: &Settings, look: &Look) -> Vec<String> {
+    policy
+        .map(str::to_owned)
+        .into_iter()
+        .chain(settings.notice())
+        .chain(look.notices.iter().cloned())
+        .collect()
+}
+
 impl Settings {
     /// The look settings that apply.
     #[must_use]

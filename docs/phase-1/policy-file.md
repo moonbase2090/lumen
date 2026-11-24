@@ -23,6 +23,8 @@ os_text = false
 
 On a platform without Unix file modes the file is not read yet and the defaults apply.
 
-**Checking it.** `bright --show-policy` prints the file that was read and the settings it gave, the defaults, or why the file was ignored, and exits. A normal run prints the same notice on standard error when the file is ignored; the window does not draw chrome notices yet.
+**Checking it.** `bright --show-policy` prints the file that was read and the settings it gave, the defaults, or why the file was ignored, and exits. A normal run prints the same notice on standard error when the file is ignored.
+
+**The notice in the window.** When the file is ignored the window also draws the notice, as the spec's chrome notice, in the notification area at the top, ahead of every toast. It names the file and why it was ignored, and says the defaults apply. It stays while the defaults apply: a click does not hide it, program output cannot dismiss it, and a flood of toasts from a program cannot push it out. It is never drawn in the trust margin. The settings file works the same way: a settings file that is ignored, or a theme or font file it names that cannot be used, shows its notice in the window, and the notice goes when the file is fixed (the settings file is read again as it changes; the policy file is read once at start, so fixing it takes a restart). Up to four notices are drawn at once.
 
 **What the settings do today.** They only widen what the notification rules allow. In a real run an unsigned toast and an operating-system notification still need a layer shown to be local, which the terminal cannot show yet, so neither appears; see [the notification rules](../../spec/v0/trust.md#trust.notifications).
