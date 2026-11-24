@@ -39,7 +39,7 @@ A path is a value with a `/` in it: absolute (`"/Library/Fonts/Mine.otf"`), unde
 
 **When part of it is left out.** A theme file that is refused (see the [design system](../design-system.md#theme-files) note), or a font file that cannot be read, is not a font with Latin letters, or is over 32 MiB, is left out with a notice. Its default stands in for it alone, and the rest of the settings still apply.
 
-**Copy on select.** The copy is the same one the copy command makes, with the same rules, and it happens only for a selection the terminal made itself: a program that asked for mouse reports gets the clicks and nothing is selected (hold Shift to select). A click with no drag selects nothing and copies nothing. A selection made by select all is not copied until the copy command.
+**Copy on select.** The copy is the same one the copy command makes, with the same rules, and it happens only for a selection the terminal made itself: a program that asked for mouse reports gets the clicks and nothing is selected (hold Shift to select). A click with no drag selects nothing and copies nothing. A selection made by select all is not copied until the copy command. The setting covers the clipboard only: on Linux a finished mouse selection becomes the primary selection whether the setting is on or off, so a middle click can paste it.
 
 **Not policy.** The look settings change how things look and never what a program may do, and the shell is the user's own choice of what to run, not something a program can set, so unlike the policy file they have no owner or mode checks. A theme cannot make text unreadable: a theme whose text falls under the spec's 3:1 visibility floor is refused.
 

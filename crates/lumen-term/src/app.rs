@@ -262,6 +262,9 @@ pub struct App {
     selection_changed: bool,
     copy_on_select: bool,
     copy_pending: bool,
+    /// A mouse selection finished and has not been asked about yet: on Linux
+    /// it goes to the primary selection, whatever the copy setting.
+    selection_finished: bool,
     scroll: Scroll,
     /// The program's reporting modes as last seen, and the foreground process
     /// group when they came on: reports and bracketed paste go only while the
@@ -778,6 +781,7 @@ impl App {
             selection_changed: false,
             copy_on_select: true,
             copy_pending: false,
+            selection_finished: false,
             scroll: Scroll::Follow,
             reporting: Reporting::default(),
             glide: Glide::new(),
@@ -1890,6 +1894,16 @@ impl App {
         self.pointer_selects(x, y, held)
     }
 
+    /// Whether a middle click at `(x, y)` is the terminal's, to paste the
+    /// primary selection on Linux. It is by the same rule as a right click:
+    /// unless the program asked for mouse reports and the live block is where
+    /// the click is, in which case the program gets it; holding Shift always
+    /// takes it back.
+    #[must_use]
+    pub fn owns_middle_click(&self, x: u32, y: u32, held: Held) -> bool {
+        self.pointer_selects(x, y, held)
+    }
+
     /// The columns of the content area, in cells.
     fn content_columns(&self) -> usize {
         let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
@@ -1991,6 +2005,7 @@ impl App {
             self.selection_changed = true;
         } else if self.selection.is_some() {
             self.copy_pending = self.copy_on_select;
+            self.selection_finished = true;
         }
     }
 
@@ -2006,6 +2021,15 @@ impl App {
     /// selection is made.
     pub fn take_copy_on_select(&mut self) -> bool {
         std::mem::take(&mut self.copy_pending)
+    }
+
+    /// Whether a mouse selection just finished, whatever the copy setting. On
+    /// Linux the window then puts it in the primary selection, through a copy
+    /// with the same rules as an explicit one. As with
+    /// [`take_copy_on_select`](Self::take_copy_on_select), only a selection the
+    /// terminal made with the mouse counts: not select all, and not a click.
+    pub fn take_finished_selection(&mut self) -> bool {
+        std::mem::take(&mut self.selection_finished)
     }
 
     /// Whether the selection changed since the last call, so the window draws
