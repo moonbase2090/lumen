@@ -621,15 +621,20 @@ pub fn block_cells_for(columns: usize, rows: usize, editor_rows: u32) -> (usize,
 }
 
 /// The columns and rows of a window of `width` by `height` pixels drawn by
-/// `renderer`, whose text column starts a gutter padding right of the gutter.
-/// The gutter's layout columns are counted at the width they are drawn in.
+/// `renderer`, whose text column starts a gutter padding right of the gutter
+/// and ends a right inset short of the window's edge, with a bottom inset
+/// under the last row. The gutter's layout columns are counted at the width
+/// they are drawn in.
 #[must_use]
 pub fn window_cells(width: u32, height: u32, renderer: &Renderer) -> (usize, usize) {
     let (cell_w, _) = renderer.cell();
-    let text = width.saturating_sub(renderer.content_left());
+    let (right, bottom) = renderer.insets();
+    let text = width
+        .saturating_sub(renderer.content_left())
+        .saturating_sub(right);
     cells_for(
         text.saturating_add(GUTTER_COLUMNS.saturating_mul(cell_w)),
-        height,
+        height.saturating_sub(bottom),
         renderer.cell(),
     )
 }
@@ -3587,7 +3592,10 @@ impl App {
             self.renderer
                 .paint_preedit(&mut frame, (x, y), right, &preedit, self.desk.focused);
         }
+        let drawn = (frame.width, frame.height);
         let mut frame = frame.viewport(self.width, self.height, self.renderer.theme().background);
+        // The window is rarely a whole number of cells: the margin runs on to its edges.
+        self.renderer.extend_margin(&mut frame, drawn);
         #[cfg(feature = "links-clipboard")]
         if let Some(prompt) = &self.links.prompt {
             // Last, over everything: a program's output cannot cover it.
