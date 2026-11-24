@@ -344,6 +344,41 @@ pub fn apply_window_event(
     redraw
 }
 
+/// The primary selection, where there is one: Linux and the other Unix
+/// desktops.
+fn primary_selection() -> Option<&'static dyn Clipboard> {
+    if cfg!(any(target_os = "macos", windows)) {
+        None
+    } else {
+        Some(&crate::clipboard::PrimarySelection)
+    }
+}
+
+/// After a mouse release in pane `released` of `panes`, copy the selection
+/// that release finished there: to `clipboard` when the copy-on-select setting
+/// asks for it, and to `primary` (the primary selection, where there is one)
+/// whenever a mouse selection finished. Both copies come from that pane, the
+/// one that captured the drag, and not from the focused pane: the focus can
+/// move while the button is held. Each copy has the same rules as Copy.
+pub fn copy_finished_selection(
+    panes: &mut Panes<App>,
+    released: usize,
+    clipboard: &dyn Clipboard,
+    primary: Option<&dyn Clipboard>,
+) {
+    let Some(app) = panes.get_mut(released) else {
+        return;
+    };
+    if app.take_copy_on_select() {
+        let _ = app.perform(Action::Copy, clipboard);
+    }
+    if app.take_finished_selection()
+        && let Some(primary) = primary
+    {
+        let _ = app.perform(Action::Copy, primary);
+    }
+}
+
 /// Do a window action (a zoom changes the cell size), then keep the candidate
 /// rectangle with it.
 pub fn perform_action(
@@ -1187,6 +1222,19 @@ impl Host {
 
     /// Do one of the window's own actions, from a menu item or a shortcut.
     fn act(&mut self, event_loop: &ActiveEventLoop, target: Option<WindowId>, action: Action) {
+        self.act_with(event_loop, target, action, &SystemClipboard);
+    }
+
+    /// Do one of the window's own actions with `clipboard` as the place Copy
+    /// puts text and Paste takes it from: the system clipboard, or on Linux
+    /// the primary selection for a middle click and a finished mouse selection.
+    fn act_with(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        target: Option<WindowId>,
+        action: Action,
+        clipboard: &dyn Clipboard,
+    ) {
         match action {
             Action::NewWindow => {
                 if let Err(e) = self.open_window(event_loop, None) {
@@ -1238,7 +1286,7 @@ impl Host {
             let here = tab.panes.focus_index();
             for (pane, app) in tab.apps_mut().into_iter().enumerate() {
                 if pane != here {
-                    let _ = app.perform(action, &SystemClipboard);
+                    let _ = app.perform(action, clipboard);
                 }
             }
         }
@@ -1246,7 +1294,7 @@ impl Host {
         let outcome = perform_action(
             tab.app_mut(),
             action,
-            &SystemClipboard,
+            clipboard,
             &mut run.ime,
             &mut WindowSink {
                 window: &run.window,
@@ -1516,6 +1564,22 @@ impl Host {
             }
             return;
         }
+        // A middle click the terminal owns pastes the primary selection, with
+        // the same rules as Paste. One the program asked for is reported to it.
+        #[cfg(not(any(target_os = "macos", windows)))]
+        if state == ElementState::Pressed
+            && button == MouseButton::Middle
+            && !app.is_selecting()
+            && app.owns_middle_click(x, y, held)
+        {
+            self.act_with(
+                event_loop,
+                Some(id),
+                Action::Paste,
+                &crate::clipboard::PrimarySelection,
+            );
+            return;
+        }
         let mut redraw = false;
         let mut taken = false;
         if state == ElementState::Pressed && button == MouseButton::Left {
@@ -1546,13 +1610,12 @@ impl Host {
             }
         }
         redraw |= app.take_selection_redraw();
-        let copy = app.take_copy_on_select();
         let choice = app.take_menu_choice();
+        // The copies come from the pane the release went to, which made the
+        // selection, even if the focus moved while the button was held.
+        copy_finished_selection(&mut tab.panes, pane, &SystemClipboard, primary_selection());
         if redraw {
             run.window.request_redraw();
-        }
-        if copy {
-            self.act(event_loop, Some(id), Action::Copy);
         }
         if let Some(action) = choice {
             self.act(event_loop, Some(id), action);
