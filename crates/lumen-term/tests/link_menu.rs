@@ -391,3 +391,61 @@ fn the_state_a_system_menu_is_built_from_follows_the_pointer() {
     let (ox, oy) = pixel_off_links(&app);
     assert_eq!(app.context_state(ox, oy, true).link, LinkItems::Absent);
 }
+
+/// Where the terminal draws the menu itself (Linux and the other Unix
+/// desktops), a right click on a link adds the link items at the top and
+/// Settings stays the last entry, and the keys reach both ends.
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn over_a_link_the_drawn_menu_keeps_settings_last_and_the_keys_reach_it() {
+    let (mut app, opened, copied) = start(&osc8("https://real.example/docs", "read the docs"));
+    assert!(pump_until(&mut app, |a| shows(a, "AFTER")));
+    let (x, y) = pixel_of_link(&app, "https://real.example/docs");
+    assert!(app.open_context_menu(x, y, true));
+    let entries: Vec<Option<Action>> = app
+        .context_menu()
+        .unwrap_or_else(|| unreachable!("a menu is open"))
+        .items()
+        .iter()
+        .map(|entry| entry.map(|(action, _, _)| action))
+        .collect();
+    assert_eq!(
+        entries,
+        vec![
+            Some(Action::OpenLink),
+            Some(Action::CopyLinkAddress),
+            None,
+            Some(Action::Copy),
+            Some(Action::Paste),
+            Some(Action::SelectAll),
+            None,
+            Some(Action::ZoomIn),
+            Some(Action::ZoomOut),
+            Some(Action::ZoomReset),
+            None,
+            Some(Action::Settings),
+        ]
+    );
+    let chosen = |app: &App| {
+        app.context_menu()
+            .and_then(lumen_term::contextmenu::ContextMenu::chosen)
+    };
+    let up = |app: &mut App| {
+        app.key(Key::Up, lumen_term::Mods::default())
+            .unwrap_or_else(|e| unreachable!("{e}"));
+    };
+    // Up from nothing highlighted lands on the last entry, Settings; Down
+    // from there wraps to the first, Open Link.
+    up(&mut app);
+    assert_eq!(chosen(&app), Some(Action::Settings));
+    app.key(Key::Down, lumen_term::Mods::default())
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert_eq!(chosen(&app), Some(Action::OpenLink));
+    // Back up to Settings, and Enter chooses it: the window then opens the file.
+    up(&mut app);
+    enter(&mut app);
+    assert_eq!(app.take_menu_choice(), Some(Action::Settings));
+    assert!(app.context_menu().is_none());
+    assert_eq!(opened.all(), no_text(), "the link was not opened");
+    assert_eq!(copied.all(), no_text(), "nothing was copied");
+}
