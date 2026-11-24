@@ -46,6 +46,12 @@ jobs:
         run: command -v zsh >/dev/null || sudo apt-get install -y zsh
       - run: cargo test --locked --workspace
       - run: cargo test --locked --workspace --all-features
+      # A fresh machine sets no locale, and the runner's is UTF-8. Run the terminal's tests (the
+      # sealed-shell ones start a real zsh) the way a fresh machine would, so a test cannot lean on
+      # the runner's environment.
+      - name: Terminal tests with no locale set, all features
+        if: runner.os == 'Linux'
+        run: env -u LANG -u LC_ALL -u LC_CTYPE -u LANGUAGE cargo test --locked -p lumen-term --all-features
       # The earlier text rules stay available without the default features and keep their tests.
       - run: cargo test --locked -p lumen-track0 -p lumen-term --no-default-features
       # A holder without seal requests treats one as an unknown message; that stays tested.

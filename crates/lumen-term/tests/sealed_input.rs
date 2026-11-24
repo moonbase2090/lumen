@@ -128,6 +128,13 @@ fn start_with(name: &str, rc: &str, yama: u32) -> Option<App> {
     environment.insert("HOME".to_owned(), home.display().to_string());
     environment.insert("ZDOTDIR".to_owned(), home.display().to_string());
     environment.insert("PS1".to_owned(), "% ".to_owned());
+    // The shell reads its locale from here. In a locale that is not UTF-8 (a
+    // fresh machine sets none) zsh draws each byte of a wide character as an
+    // escaped code, so the line it shows no longer reads as the line that was
+    // typed, and the terminal leaves out the mark for it. The tests that type
+    // wide characters need the shell to draw them, so they name the locale
+    // themselves and do not depend on the runner's.
+    environment.insert("LC_ALL".to_owned(), "C.UTF-8".to_owned());
     let config = Config {
         holder: holder(),
         listed: LISTED.iter().map(|s| (*s).to_owned()).collect(),
