@@ -357,3 +357,111 @@ fn a_reload_that_changes_only_the_notice_says_the_window_must_draw_again() {
     assert_eq!(app.config_notices().len(), 1);
     let _ = std::fs::remove_dir_all(&d);
 }
+
+#[test]
+fn a_long_notice_is_drawn_to_its_last_line_while_a_programs_toast_is_cut_at_three() {
+    let (r, a, _) = area();
+    let (cw, ch) = r.cell();
+    let (c, rows) = cells_for(SIZE.0, SIZE.1, r.cell());
+    let win = window_for(c, rows);
+    // A real ignored policy file whose path is long, as a home directory and
+    // a nested configuration directory make it: the notice wraps to more than
+    // three lines of the area.
+    let d = dir("long");
+    let nested = d.join("a-configuration-directory-with-a-long-name/and-another-one");
+    assert!(std::fs::create_dir_all(&nested).is_ok());
+    let f = nested.join("policy.toml");
+    write(&f, "os_notifications = true\n", 0o666);
+    let Some(text) = load_from(&f).notice() else {
+        unreachable!("a world-writable policy file is ignored")
+    };
+    let _ = std::fs::remove_dir_all(&d);
+    let inner = usize::try_from(a.w - 2).unwrap_or(1);
+    let lines = lumen_term::wrap_text(&text, inner).len();
+    assert!(lines > 4, "the notice wraps to {lines} lines");
+
+    let toast = |whole| lumen_term::notify::Toast {
+        layer: 0,
+        text: text.clone(),
+        unsigned: false,
+        shown_ms: 0,
+        whole,
+    };
+    let x = a.x * cw + 2 * cw;
+    // The middle of text line `n` (0-based) of the first toast's box.
+    let line = |n: u32| a.y * ch + 1 + n * ch + ch / 2;
+    let last = u32::try_from(lines).unwrap_or(0) - 1;
+
+    let notice = [toast(true)];
+    for n in 0..=last {
+        assert_eq!(
+            r.toast_at(&win, &notice, x, line(n)),
+            Some(0),
+            "line {n} of {lines} is part of the notice's box"
+        );
+    }
+    assert_eq!(
+        r.toast_at(&win, &notice, x, line(last + 1)),
+        None,
+        "the box ends after its last line"
+    );
+
+    let program = [toast(false)];
+    assert_eq!(r.toast_at(&win, &program, x, line(2)), Some(0));
+    assert_eq!(
+        r.toast_at(&win, &program, x, line(3)),
+        None,
+        "a program's toast is still cut at three lines"
+    );
+
+    // What is drawn is what is hit: the notice paints its last line, where
+    // the program's toast of the same text leaves the window's background.
+    let doc = lumen_term::Document::new(
+        usize::try_from(win.cols).unwrap_or(1),
+        usize::try_from(win.rows).unwrap_or(1),
+    );
+    let empty = r.render_window_with(&doc, &win, &[]);
+    let whole = r.render_window_with(&doc, &win, &notice);
+    let cut = r.render_window_with(&doc, &win, &program);
+    let last_row = Rect {
+        x: a.x,
+        y: a.y + last,
+        w: a.w,
+        h: 1,
+    };
+    assert!(changed(&r, &empty, &whole, &last_row) > 0);
+    assert_eq!(changed(&r, &empty, &cut, &last_row), 0);
+}
+
+#[test]
+fn a_pane_that_does_not_draw_the_notices_keeps_them_for_when_it_does() {
+    let (r, a, _) = area();
+    let (cw, ch) = r.cell();
+    let mut app = start("sleep 30");
+    let notice = "policy file here ignored (it is not valid); the defaults apply".to_owned();
+    app.set_config_notices(vec![notice.clone()]);
+    let with = app.view();
+    assert!(
+        app.set_draws_config_notices(false),
+        "hiding a shown notice asks for a new frame"
+    );
+    assert_eq!(app.toasts(), [], "another pane draws it");
+    assert_eq!(app.click_would_hit(a.x * cw + 2 * cw, a.y * ch + ch), None);
+    let without = app.view();
+    assert!(
+        changed(&r, &with, &without, &a) > 0,
+        "and it is not painted"
+    );
+    assert_eq!(
+        app.config_notices(),
+        std::slice::from_ref(&notice),
+        "it is kept"
+    );
+    assert!(
+        !app.set_config_notices(vec!["another".to_owned()]),
+        "a change this pane does not draw needs no frame"
+    );
+    assert!(app.set_draws_config_notices(true));
+    assert_eq!(texts(&app), ["another".to_owned()]);
+    assert!(!app.set_draws_config_notices(true), "no change, no frame");
+}

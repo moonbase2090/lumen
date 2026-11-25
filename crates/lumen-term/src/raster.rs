@@ -85,7 +85,8 @@ pub const RICH_LABEL_GAP_PX: u32 = 2;
 /// part of it.
 pub const RICH_LABEL_STEP: i8 = -1;
 pub use crate::image_draw::IMAGE_MAX_ROWS;
-/// The most lines of text in a toast; the rest is cut.
+/// The most lines of text in a program's toast; the rest is cut. The
+/// terminal's notice about an ignored file is drawn in full.
 pub const TOAST_MAX_LINES: usize = 3;
 
 /// The terminal's mark, in the gutter, beside the first row of a line typed in
@@ -2809,7 +2810,14 @@ impl Renderer {
         let mut out = Vec::new();
         for toast in toasts {
             let mut lines = wrap_by(&toast.text, inner, &cells);
-            lines.truncate(TOAST_MAX_LINES);
+            if toast.whole {
+                // Every line that fits in what is left of the area: a notice
+                // taller than that keeps its start and is cut at the bottom.
+                let left = nh.saturating_sub(used + 2 * self.scale) / self.cell_h.max(1);
+                lines.truncate(usize::try_from(left).unwrap_or(usize::MAX).max(1));
+            } else {
+                lines.truncate(TOAST_MAX_LINES);
+            }
             let rows = u32::try_from(lines.len()).unwrap_or(0) + u32::from(toast.unsigned);
             let height = rows * self.cell_h + 2 * self.scale;
             if used + height > nh {

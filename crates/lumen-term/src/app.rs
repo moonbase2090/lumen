@@ -242,6 +242,10 @@ pub struct App {
     /// What the user's policy, settings and theme files said that could not be
     /// used. Drawn first and kept until the files change: nothing dismisses it.
     config_notices: Vec<String>,
+    /// Whether this pane draws `config_notices`. A window draws them once:
+    /// in a tab of several panes only the pane at the window's top right
+    /// corner does (see [`App::set_draws_config_notices`]).
+    draws_config_notices: bool,
     /// The terminal's own notice that the shell layer has no sealing keys.
     seal_notice: Option<SealNotice>,
     /// The terminal's own notice that something the user asked the window to
@@ -767,6 +771,7 @@ impl App {
             desk: Desk::default(),
             input_notice: None,
             config_notices: Vec::new(),
+            draws_config_notices: true,
             seal_notice: None,
             action_notice: None,
             base_scale: scale,
@@ -982,12 +987,13 @@ impl App {
     pub fn toasts(&self) -> Vec<Toast> {
         let mut toasts =
             Vec::with_capacity(self.notifier.shown().len() + self.config_notices.len() + 2);
-        for text in &self.config_notices {
+        for text in self.drawn_config_notices() {
             toasts.push(Toast {
                 layer: TERMINAL_LAYER,
                 text: text.clone(),
                 unsigned: false,
                 shown_ms: 0,
+                whole: true,
             });
         }
         if let Some(notice) = &self.seal_notice {
@@ -996,6 +1002,7 @@ impl App {
                 text: notice.text.clone(),
                 unsigned: false,
                 shown_ms: notice.shown_ms,
+                whole: false,
             });
         }
         if let Some(notice) = &self.input_notice {
@@ -1004,6 +1011,7 @@ impl App {
                 text: notice.text(),
                 unsigned: false,
                 shown_ms: notice.last_ms,
+                whole: false,
             });
         }
         if let Some(notice) = &self.action_notice {
@@ -1012,6 +1020,7 @@ impl App {
                 text: notice.text.clone(),
                 unsigned: false,
                 shown_ms: notice.shown_ms,
+                whole: false,
             });
         }
         toasts.extend_from_slice(self.notifier.shown());
@@ -1034,12 +1043,13 @@ impl App {
             }
             return self.click_box(x, y);
         };
-        if index < self.config_notices.len() {
+        let config = self.drawn_config_notices().len();
+        if index < config {
             // A file the terminal ignored stays on screen until the file is
             // fixed: a click does not hide it.
             return false;
         }
-        index -= self.config_notices.len();
+        index -= config;
         if self.seal_notice.is_some() {
             if index == 0 {
                 self.seal_notice = None;
@@ -3526,13 +3536,34 @@ impl App {
         notices.truncate(MAX_CONFIG_NOTICES);
         let changed = self.config_notices != notices;
         self.config_notices = notices;
-        changed
+        changed && self.draws_config_notices
     }
 
     /// The notices about files that were ignored, in the order drawn.
     #[must_use]
     pub fn config_notices(&self) -> &[String] {
         &self.config_notices
+    }
+
+    /// Whether this pane draws the notices about ignored files. A window
+    /// draws them once: a tab of several panes gives them to one pane and
+    /// keeps them out of the others, which still draw their own toasts. The
+    /// notices are kept either way, so the pane draws them again when it is
+    /// the one. Returns whether what is drawn changed.
+    pub fn set_draws_config_notices(&mut self, draws: bool) -> bool {
+        let changed = self.draws_config_notices != draws;
+        self.draws_config_notices = draws;
+        changed && !self.config_notices.is_empty()
+    }
+
+    /// The notices about ignored files that this pane draws: all of them, or
+    /// none when another pane of the tab draws them.
+    fn drawn_config_notices(&self) -> &[String] {
+        if self.draws_config_notices {
+            &self.config_notices
+        } else {
+            &[]
+        }
     }
 
     /// The terminal's notice that the shell layer has no sealing keys, if it

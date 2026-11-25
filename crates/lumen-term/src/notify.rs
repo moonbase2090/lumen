@@ -145,6 +145,9 @@ pub struct Toast {
     pub unsigned: bool,
     /// When it was shown.
     pub shown_ms: u64,
+    /// The terminal's notice about a file it ignored: drawn with every line
+    /// that fits in the area, not cut at the toast line limit.
+    pub whole: bool,
 }
 
 /// An OS notification.
@@ -433,6 +436,7 @@ impl Notifier {
             text: text.to_owned(),
             unsigned,
             shown_ms: now_ms,
+            whole: false,
         });
         Ok(())
     }
