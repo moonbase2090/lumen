@@ -1,0 +1,200 @@
+{
+  "version": "0.1",
+  "id": "e7f74aaa-d87f-466c-86f2-906725b4b955",
+  "repo": ".",
+  "pack": "rust",
+  "test_selection": "rust-tests",
+  "git": {
+    "head": "df23f52669339216e5ff7d6ab1eb60814fc26f52",
+    "dirty": true,
+    "dirty_paths": [
+      "crates/lumen-term/src/settings_command.rs"
+    ]
+  },
+  "scope": {
+    "mode": "diff",
+    "paths": [
+      "crates/lumen-term/src/settings_command.rs"
+    ],
+    "base": "origin/main",
+    "other_paths": 142
+  },
+  "verdict": "fail",
+  "engines_run": [
+    "compile",
+    "complexity",
+    "crap",
+    "sca",
+    "secrets",
+    "perf",
+    "test_value.weakening"
+  ],
+  "engines_skipped": [
+    "tests",
+    "coverage",
+    "spec",
+    "lint",
+    "mutation",
+    "llm"
+  ],
+  "scores": {
+    "correctness": 0.8999999999999999,
+    "efficiency": 1.0,
+    "maintainability": 0.95,
+    "security": 1.0,
+    "a11y": 1.0
+  },
+  "gates": [
+    {
+      "id": "types",
+      "pass": true,
+      "enforced": true
+    },
+    {
+      "id": "tests",
+      "pass": false,
+      "enforced": true,
+      "reason": "timed out"
+    },
+    {
+      "id": "crap",
+      "pass": false,
+      "enforced": false,
+      "reason": "some functions have no coverage record and were not scored"
+    },
+    {
+      "id": "sca",
+      "pass": true,
+      "enforced": false
+    },
+    {
+      "id": "secrets",
+      "pass": true,
+      "enforced": true
+    },
+    {
+      "id": "lint",
+      "pass": false,
+      "enforced": true,
+      "reason": "lint unavailable"
+    }
+  ],
+  "metrics": {
+    "loc_changed": 106,
+    "files_changed": 1,
+    "coverage_changed": 0.0,
+    "crap_max": 0.0,
+    "crap_over_threshold": 0,
+    "hallucinated_imports": 0,
+    "undeclared_dependencies": 0
+  },
+  "crap": {
+    "threshold": 30,
+    "worst": []
+  },
+  "mutation": {
+    "status": "skipped",
+    "score": null,
+    "killed": 0,
+    "survived": 0,
+    "timeout": 0,
+    "unviable": 0
+  },
+  "test_value": {
+    "status": "partial",
+    "mutation": {
+      "status": "skipped",
+      "score": null,
+      "killed": 0,
+      "survived": 0,
+      "timeout": 0,
+      "unviable": 0
+    },
+    "weakening": {
+      "status": "ran",
+      "findings": 0
+    },
+    "tautology": {
+      "status": "not_measured",
+      "reason": "not implemented"
+    },
+    "per_test": {
+      "status": "skipped"
+    },
+    "mix": {
+      "status": "skipped"
+    }
+  },
+  "findings": [
+    {
+      "id": "coverage:missing",
+      "rule": "coverage.missing",
+      "engine": "coverage",
+      "severity": "warning",
+      "file": ".",
+      "span": null,
+      "symbol": null,
+      "message": "coverage was not measured (coverage was not run for all analyzed functions)",
+      "evidence": {},
+      "suggested_action": "Install `cargo-llvm-cov` and run `sc analyze` again",
+      "disposition": "ask"
+    },
+    {
+      "id": "lint:unavailable",
+      "rule": "engine.unavailable",
+      "engine": "lint",
+      "severity": "warning",
+      "file": ".",
+      "span": null,
+      "symbol": null,
+      "message": "lint command timed out",
+      "evidence": {},
+      "suggested_action": "Raise --budget-seconds, or make this command finish within the deadline.",
+      "disposition": "ask"
+    },
+    {
+      "id": "tests:unavailable",
+      "rule": "engine.unavailable",
+      "engine": "tests",
+      "severity": "warning",
+      "file": ".",
+      "span": null,
+      "symbol": null,
+      "message": "cargo test timed out",
+      "evidence": {},
+      "suggested_action": "Raise --budget-seconds, or make this command finish within the deadline.",
+      "disposition": "ask"
+    }
+  ],
+  "spec": {
+    "path": null,
+    "gaps": []
+  },
+  "fail_on": [
+    "types",
+    "tests",
+    "crap",
+    "secrets",
+    "lint"
+  ],
+  "runs": [
+    {
+      "engine": "compile",
+      "command": "cargo check --workspace --message-format=json",
+      "exit_code": 0,
+      "duration_ms": 121
+    },
+    {
+      "engine": "tests",
+      "command": "cargo test --workspace",
+      "exit_code": null,
+      "duration_ms": 119634
+    },
+    {
+      "engine": "lint",
+      "command": "cargo clippy --workspace",
+      "exit_code": null,
+      "duration_ms": 3
+    }
+  ]
+}
