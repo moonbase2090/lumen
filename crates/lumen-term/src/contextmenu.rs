@@ -31,9 +31,16 @@ pub struct ContextState {
     pub can_copy: bool,
     /// The clipboard holds text, so Paste has something to paste.
     pub can_paste: bool,
+    /// The menu offers Settings, last: where there is no menu bar to ask for
+    /// it (Linux and the other Unix desktops).
+    pub settings: bool,
     /// Whether the pointer is over a link, and whether it can be acted on.
     pub link: LinkItems,
 }
+
+/// Whether the menu the terminal draws offers Settings. macOS has it in the
+/// menu bar instead, and Windows has no way to open the file yet.
+pub(crate) const OFFERS_SETTINGS: bool = cfg!(all(unix, not(target_os = "macos")));
 
 /// One entry of the menu: the action, its label and whether it is on.
 pub type Entry = (Action, &'static str, bool);
@@ -58,6 +65,9 @@ pub fn context_items(state: ContextState) -> Vec<Option<Entry>> {
         Some((Action::ZoomOut, "Zoom Out", true)),
         Some((Action::ZoomReset, "Actual Size", true)),
     ]);
+    if state.settings {
+        items.extend([None, Some((Action::Settings, "Settings…", true))]);
+    }
     items
 }
 
@@ -176,6 +186,7 @@ mod tests {
             ContextState {
                 can_copy,
                 can_paste,
+                settings: false,
                 link: LinkItems::Absent,
             },
         )
@@ -221,6 +232,29 @@ mod tests {
         );
         assert_eq!(m.hover(), None);
         assert!(!m.set_hover(Some(3)), "and nothing changes the next time");
+    }
+
+    #[test]
+    fn settings_comes_last_after_a_separator_and_the_keys_reach_it() {
+        let mut m = ContextMenu::new(
+            (10, 10),
+            ContextState {
+                can_copy: false,
+                can_paste: false,
+                settings: true,
+                link: LinkItems::Absent,
+            },
+        );
+        let items = m.items();
+        assert_eq!(items[items.len() - 2], None);
+        assert_eq!(
+            items[items.len() - 1],
+            Some((Action::Settings, "Settings…", true))
+        );
+        m.step(false);
+        assert_eq!(m.chosen(), Some(Action::Settings), "backwards starts there");
+        m.step(true);
+        assert_eq!(m.chosen(), Some(Action::SelectAll), "and forwards wraps");
     }
 
     #[test]

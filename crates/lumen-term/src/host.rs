@@ -641,6 +641,9 @@ struct Host {
     more_contrast: std::cell::Cell<bool>,
     /// The next time the small settings file is read for a change.
     next_settings_check: Instant,
+    /// The opener started for the settings file, while it runs: it sends a
+    /// message if it fails, for the notice.
+    settings_opening: Option<std::sync::mpsc::Receiver<String>>,
     #[cfg(target_os = "macos")]
     frame_wake_handled: std::sync::mpsc::Sender<()>,
     #[cfg(target_os = "macos")]
@@ -664,6 +667,47 @@ impl Host {
     fn active_id(&self) -> Option<WindowId> {
         self.active
             .or_else(|| self.windows.last().map(|run| run.window.id()))
+    }
+
+    /// Show the terminal's own notice in the focused pane of window `target`,
+    /// or of the active window, and on standard error.
+    fn notice(&mut self, target: Option<WindowId>, text: &str) {
+        eprintln!("{}: {text}", crate::APP_NAME);
+        let Some(index) = target
+            .or_else(|| self.active_id())
+            .and_then(|id| self.index(id))
+        else {
+            return;
+        };
+        let run = &mut self.windows[index];
+        if let Some(tab) = run.tabs.active_mut() {
+            tab.app_mut().show_notice(text);
+            run.window.request_redraw();
+        }
+    }
+
+    /// Open the settings file, and say so in the window when it cannot be.
+    fn open_settings(&mut self, target: Option<WindowId>) {
+        match crate::settings_command::open() {
+            Ok(opening) => self.settings_opening = opening,
+            Err(why) => self.notice(target, &format!("Settings not opened: {why}")),
+        }
+    }
+
+    /// Show a notice if the settings file's opener has failed since the last
+    /// look; forget it once it has ended either way.
+    fn check_settings_opening(&mut self) {
+        let Some(opening) = &self.settings_opening else {
+            return;
+        };
+        match opening.try_recv() {
+            Ok(why) => {
+                self.settings_opening = None;
+                self.notice(None, &format!("Settings not opened: {why}"));
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => self.settings_opening = None,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        }
     }
 
     /// Record the zoom each window shows now, its active tab's, and mark the
@@ -1243,10 +1287,7 @@ impl Host {
                 return;
             }
             Action::Settings => {
-                #[cfg(target_os = "macos")]
-                if let Err(e) = crate::settings_command::open() {
-                    eprintln!("{}: settings not opened ({e})", crate::APP_NAME);
-                }
+                self.open_settings(target);
                 return;
             }
             Action::Quit => {
@@ -1839,6 +1880,7 @@ impl ApplicationHandler<UserEvent> for Host {
         if now >= self.next_settings_check {
             self.next_settings_check = now + Duration::from_millis(250);
             self.reload_settings();
+            self.check_settings_opening();
         }
         #[cfg(any(target_os = "macos", windows))]
         for action in crate::menu::chosen() {
@@ -1961,6 +2003,7 @@ pub fn run(config: Config) -> Result<(), String> {
         reduce_motion: std::cell::Cell::new(false),
         more_contrast: std::cell::Cell::new(false),
         next_settings_check: Instant::now(),
+        settings_opening: None,
         #[cfg(target_os = "macos")]
         frame_wake_handled,
         #[cfg(target_os = "macos")]

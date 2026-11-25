@@ -78,7 +78,7 @@ pub mod search;
 pub mod select;
 pub mod session;
 pub mod settings;
-#[cfg(all(feature = "window", target_os = "macos"))]
+#[cfg(feature = "window")]
 mod settings_command;
 pub mod shell;
 pub mod shellint;
