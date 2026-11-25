@@ -93,6 +93,10 @@ jobs:
           persist-credentials: false
       - name: Release signing script tests
         run: scripts/test-macos-signing.sh
+      # On macOS the packaging tests also sign the bundle and check it with
+      # codesign --verify --deep --strict.
+      - name: Bright packaging tests
+        run: scripts/test-bright-packaging.sh
 
   link-check-external:
     name: link-check-external

@@ -25,6 +25,33 @@ grep -q '<string>bright</string>' "$plist"
 grep -q '<string>app.brightterm.Bright</string>' "$plist"
 test "$(grep -c '@VERSION@' "$plist")" -eq 0
 
+if [[ "$(uname -s)" == Darwin ]]; then
+  # Mach-O stand-ins: the linker signs them ad hoc, as it signs the release
+  # binaries, and a bundle left with only that signature does not verify.
+  macho="$WORK/macho"
+  mkdir -p "$macho"
+  printf 'int main(void) { return 0; }\n' >"$WORK/main.c"
+  for name in lumen-term lumen-decoder-worker lumen-holder; do
+    cc -o "$macho/$name" "$WORK/main.c"
+  done
+  "$ROOT/scripts/package-bright-macos.sh" "$macho" "$WORK/signed" >/dev/null 2>&1
+  signed="$WORK/signed/Bright.app"
+  codesign --verify --deep --strict "$signed" || {
+    echo "test-bright-packaging: the packaged bundle's signature does not verify" >&2
+    exit 1
+  }
+  identifier() { codesign -dv "$1" 2>&1 | sed -n 's/^Identifier=//p'; }
+  test "$(identifier "$signed")" = app.brightterm.Bright
+  test "$(identifier "$signed/Contents/MacOS/lumen-decoder-worker")" = app.brightterm.Bright.decoder
+  test "$(identifier "$signed/Contents/MacOS/lumen-holder")" = app.brightterm.Bright.holder
+  # The signature seals Info.plist: a change after signing must fail the check.
+  printf '\n' >>"$signed/Contents/Info.plist"
+  if codesign --verify --deep --strict "$signed" 2>/dev/null; then
+    echo "test-bright-packaging: a bundle changed after signing still verified" >&2
+    exit 1
+  fi
+fi
+
 linux_root="$WORK/linux"
 "$ROOT/scripts/package-bright-linux.sh" "$source_dir" "$linux_root" test-arch >/dev/null
 package="$linux_root/bright-linux-test-arch"
