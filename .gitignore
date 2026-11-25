@@ -5,3 +5,6 @@ out/
 
 __pycache__/
 *.pyc
+
+# Scorecard output
+.sc/
