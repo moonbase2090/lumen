@@ -460,25 +460,35 @@ fn frame(kind: u8, body: &[u8]) -> Vec<u8> {
     v
 }
 
-/// A shell command that writes a rich paragraph of `text`, then `AFTER` on
-/// the grid, and waits.
-fn rich_paragraph(text: &str) -> String {
-    use std::fmt::Write;
-    let mut body = u16::try_from(text.len())
+/// A Track 0 string: its length, then its bytes.
+fn string(text: &str) -> Vec<u8> {
+    let mut v = u16::try_from(text.len())
         .unwrap_or(0)
         .to_be_bytes()
         .to_vec();
-    body.extend_from_slice(text.as_bytes());
+    v.extend_from_slice(text.as_bytes());
+    v
+}
+
+/// A shell command that writes the Track 0 frame `frame`, then `AFTER` on the
+/// grid, and waits.
+fn write_frame(frame: &[u8]) -> String {
+    use std::fmt::Write;
     let mut octal = String::new();
-    for b in frame(0x80, &body) {
+    for b in frame {
         write!(octal, "\\{b:03o}").unwrap_or_default();
     }
     format!("printf '{octal}'; printf 'AFTER\\n'; sleep 30")
 }
 
-/// The program's output shown in a rich block, behind the layer that draws
-/// Track 0 frames in the terminal's container.
+/// The program's output shown in a rich paragraph of `text`, behind the
+/// layer that draws Track 0 frames in the terminal's container.
 fn start_rich(text: &str) -> (App, Opened, Copied) {
+    start_frame(&frame(0x80, &string(text)))
+}
+
+/// The program writes `frame`, which the layer shows in a rich block.
+fn start_frame(rich: &[u8]) -> (App, Opened, Copied) {
     let mut layer = lumen_arm_b::Layer::new(lumen_arm_b::Config {
         budget: lumen_arm_b::Budget::quarter_of(2000, 8 << 20),
         background_as_text: false,
@@ -487,7 +497,7 @@ fn start_rich(text: &str) -> (App, Opened, Copied) {
     let mut app = App::start(
         Box::new(layer),
         "/bin/sh",
-        &["-c", &rich_paragraph(text)],
+        &["-c", &write_frame(rich)],
         1,
         SIZE.0,
         SIZE.1,
@@ -601,4 +611,38 @@ fn an_address_the_rich_block_wrapped_over_lines_is_offered_whole_from_each_line(
         enter(&mut app);
     }
     assert_eq!(copied.all(), vec![target.clone(), target]);
+}
+
+#[test]
+fn an_address_a_code_block_cuts_at_its_edge_is_offered_whole() {
+    let target = format!(
+        "https://docs.example.com/reference/{}",
+        "section".repeat(30)
+    );
+    let mut code = string("sh");
+    code.extend(string(&format!("curl {target}")));
+    let (mut app, opened, copied) = start_frame(&frame(0x82, &code));
+    // Select All copies the lines as they are drawn.
+    assert_eq!(app.perform(Action::SelectAll, &Unused), Outcome::Redraw);
+    let shown = app.selected_text().unwrap_or_default();
+    assert!(
+        shown.contains("curl https://docs.example.com/") && !shown.contains(&target),
+        "the code line is cut at the container's edge: {shown:?}"
+    );
+    let found = pixels_with_link_items(&mut app);
+    let Some(&(x, y)) = found.last() else {
+        unreachable!("the shown part of the address offers the link items")
+    };
+    assert!(app.open_context_menu(x, y, true));
+    assert_eq!(
+        app.perform(Action::CopyLinkAddress, &Unused),
+        Outcome::Redraw
+    );
+    enter(&mut app);
+    assert_eq!(copied.all(), vec![target.clone()], "the whole address");
+    assert!(app.open_context_menu(x, y, true));
+    assert_eq!(app.perform(Action::OpenLink, &Unused), Outcome::Redraw);
+    assert!(lines(&app).contains("Open this link?"), "{}", lines(&app));
+    enter(&mut app);
+    assert_eq!(opened.all(), vec![target]);
 }

@@ -1184,7 +1184,8 @@ impl App {
     /// The web address written in a rich block's text under pixel `(x, y)`, if
     /// there is one. The block wraps its text to the window, so a line cut
     /// inside a word is read joined to the next, as a copy joins it, and an
-    /// address the wrap cut is found whole.
+    /// address the wrap cut is found whole. A code line the container cut
+    /// short is read whole from the block's source.
     #[cfg(feature = "links-clipboard")]
     fn rich_link_at(&self, x: u32, y: u32) -> Option<crate::linkhit::Hit> {
         let (cx, cy) = self.flow_pixel(x, y)?;
@@ -1194,10 +1195,20 @@ impl App {
             .iter()
             .position(|l| cy >= l.top && cy < l.top + l.height)?;
         let line = &lines[at];
-        if !matches!(blocks.get(line.block), Some(Block::Rich(_))) {
+        let Some(Block::Rich(rich)) = blocks.get(line.block) else {
             return None;
-        }
+        };
         let col = self.renderer.char_under(line, cx.checked_sub(line.left)?)?;
+        // A code line is cut at the container's edge, not wrapped, so the
+        // address is read from the whole source line: the pointer is on the
+        // part that shows, and the target is never the shown part alone.
+        if let lumen_track0::Block::Code { text, .. } = &rich.content {
+            let block_first = lines.iter().position(|l| l.block == line.block)?;
+            let source = text.lines().nth(at - block_first)?;
+            return crate::linkhit::text_links(source)
+                .into_iter()
+                .find(|hit| hit.columns.contains(&col));
+        }
         let cut = |l: &select::FlowLine, next: &select::FlowLine| {
             l.join == select::Join::Cut && l.block == next.block
         };
