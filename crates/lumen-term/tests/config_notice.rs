@@ -100,7 +100,7 @@ fn changed(r: &Renderer, a: &Frame, b: &Frame, rect: &Rect) -> usize {
 /// What the window does at start: the notices of the files, given to the app.
 fn show(app: &mut App, policy: &Policy, settings: &Settings) -> bool {
     let look = settings.look().resolve();
-    app.set_config_notices(notices(policy.notice().as_deref(), settings, &look))
+    app.set_config_notices(notices(policy.notice().as_deref(), settings, &look, false))
 }
 
 fn texts(app: &App) -> Vec<String> {
@@ -464,4 +464,26 @@ fn a_pane_that_does_not_draw_the_notices_keeps_them_for_when_it_does() {
     assert!(app.set_draws_config_notices(true));
     assert_eq!(texts(&app), ["another".to_owned()]);
     assert!(!app.set_draws_config_notices(true), "no change, no frame");
+}
+
+#[test]
+fn a_terminal_started_from_ssh_draws_a_notice_about_images() {
+    let mut app = start("sleep 30");
+    let look = Settings::Defaults.look().resolve();
+    assert!(app.set_config_notices(notices(None, &Settings::Defaults, &look, true)));
+    let shown = app.config_notices();
+    assert_eq!(shown.len(), 1, "{shown:?}");
+    assert!(
+        shown[0].contains("SSH session") && shown[0].contains("alt text"),
+        "{shown:?}"
+    );
+    assert!(
+        !app.set_config_notices(notices(None, &Settings::Defaults, &look, true)),
+        "the same notice needs no new frame"
+    );
+    assert!(
+        app.set_config_notices(notices(None, &Settings::Defaults, &look, false)),
+        "a terminal that is not on SSH has none"
+    );
+    assert_eq!(app.config_notices(), [] as [String; 0]);
 }
