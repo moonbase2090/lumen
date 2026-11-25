@@ -18,4 +18,4 @@ internal_level = "error"
 [extra]
 repo = "https://github.com/moonbase2090/lumen"
 security_email = "security@lumenprotocol.org"
-spec_status = "v0 · revision 25 (frozen snapshot)"
+spec_status = "v0 · revision 26 (frozen snapshot)"

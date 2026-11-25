@@ -3,7 +3,7 @@ title = "Multiplexers"
 weight = 140
 +++
 
-> Lumen Protocol v0, revision 25 (frozen snapshot). © Moonbase 2090 LLC. Licensed under CC-BY-4.0. Report security issues privately via GitHub private vulnerability reporting or security@lumenprotocol.org.
+> Lumen Protocol v0, revision 26 (frozen snapshot). © Moonbase 2090 LLC. Licensed under CC-BY-4.0. Report security issues privately via GitHub private vulnerability reporting or security@lumenprotocol.org.
 
 # Multiplexers {#mux}
 

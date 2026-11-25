@@ -6,17 +6,17 @@ template = "spec-section.html"
 page_template = "spec-page.html"
 +++
 
-> Lumen Protocol v0, revision 25 (frozen snapshot). © Moonbase 2090 LLC. Licensed under CC-BY-4.0. Report security issues privately via GitHub private vulnerability reporting or security@lumenprotocol.org.
+> Lumen Protocol v0, revision 26 (frozen snapshot). © Moonbase 2090 LLC. Licensed under CC-BY-4.0. Report security issues privately via GitHub private vulnerability reporting or security@lumenprotocol.org.
 
 # Lumen Protocol v0 {#lumen-v0}
 
-**Lumen Protocol v0, revision 25 (frozen snapshot)**
+**Lumen Protocol v0, revision 26 (frozen snapshot)**
 
 - Copyright © Moonbase 2090 LLC. Moonbase 2090 LLC is the publisher.
 - This specification is licensed under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). Reference code is licensed MIT OR Apache-2.0.
 - **Security issues:** report them privately through GitHub private vulnerability reporting on this repository, or by email to security@lumenprotocol.org. Do not open public issues for vulnerabilities.
 
-Revision 25 takes in-place edits until it is published. After publication, later changes will be made as new revisions or versions, and this text will not be edited.
+Revision 26 takes in-place edits until it is published. After publication, later changes will be made as new revisions or versions, and this text will not be edited.
 
 ## Summary {#summary}
 

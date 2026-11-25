@@ -19,7 +19,7 @@ Terminals still render a 1970s character grid. Lumen treats a session as a docum
 ## Status
 Lumen is in **Phase 1** on Arm B, the chosen v0 design. Nothing here is released.
 
-- **Spec:** Lumen Protocol v0, revision 25 (frozen snapshot), in [spec/v0](spec/v0/_index.md). It is a public draft, not a stable release, and breaking changes are expected. Revision 25 takes in-place edits until it is published; after that, changes go in new revisions.
+- **Spec:** Lumen Protocol v0, revision 26 (frozen snapshot), in [spec/v0](spec/v0/_index.md). It is a public draft, not a stable release, and breaking changes are expected. Revision 26 takes in-place edits until it is published; after that, changes go in new revisions.
 - **Phase 0.5 (done):** Arm A (sealed-only rich) and Arm B (Track 0 everywhere, with the sealed upgrade) were compared as separate crates, `lumen-arm-a` and `lumen-arm-b`. The criteria, the decision rule and the results are in [docs/phase-0.5](docs/phase-0.5/comparison-criteria.md).
 - **Decision:** the Lumen maintainers adopted Arm B for v0 (Track 0 rich everywhere, with the sealed upgrade); multiplexer panes keep the sealed relay, and Arm A is kept as the evidence record. See [the decision record](docs/phase-0.5/decision.md) for the evidence and what is not measured.
 - **Notifications:** v0 notifications are specified in [Notifications](spec/v0/trust.md#trust.notifications). OSC 9, 777 and 99 are intercepted before any emulator sees them. Unsigned output draws nothing by default, or a rate-limited toast with an opt-in, and never an OS notification. Only a sealed frame with the `notifications` capability can raise an OS notification, and only behind a setting that is off by default.
