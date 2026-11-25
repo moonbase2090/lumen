@@ -52,6 +52,22 @@ pub struct Layout {
     pub splits: Vec<(Split, Rect)>,
 }
 
+impl Layout {
+    /// The pane at the area's top right corner: of the panes on the top edge,
+    /// the one furthest right. The terminal's notices about ignored files go
+    /// there, where a window of one pane has its notification area.
+    #[must_use]
+    pub fn top_right(&self) -> usize {
+        let top = self.panes.iter().map(|r| r.y).min().unwrap_or(0);
+        self.panes
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.y == top)
+            .max_by_key(|(_, r)| r.x + r.w)
+            .map_or(0, |(i, _)| i)
+    }
+}
+
 /// A whole share of a split's space: a split's share is the part of it, in
 /// these units, that goes to its first side.
 const SHARE_WHOLE: u32 = 10_000;
@@ -592,6 +608,34 @@ mod tests {
         assert!(!p.can_split(Split::Right, (100, 4, 2), min), "too short");
         assert!(p.can_split(Split::Down, (100, 20, 2), min));
         assert!(!p.can_split(Split::Down, (19, 20, 2), min), "too narrow");
+    }
+
+    #[test]
+    fn the_top_right_pane_is_on_the_top_edge_and_furthest_right() {
+        let mut p = Panes::new("a");
+        assert_eq!(
+            p.layout(100, 50, 2).top_right(),
+            0,
+            "one pane is the corner"
+        );
+        p.split("b", Split::Right);
+        assert_eq!(
+            p.layout(100, 50, 2).top_right(),
+            1,
+            "side by side: the right one"
+        );
+        p.split("c", Split::Down);
+        // a | b over c: b still holds the corner, c is below it.
+        assert_eq!(names(&p), ["a", "b", "c"]);
+        assert_eq!(p.layout(100, 50, 2).top_right(), 1);
+        p.focus(0);
+        p.split("d", Split::Down);
+        // a over d | b over c: reading order puts d before b.
+        assert_eq!(names(&p), ["a", "d", "b", "c"]);
+        assert_eq!(p.layout(100, 50, 2).top_right(), 2);
+        let mut q = Panes::new("a");
+        q.split("b", Split::Down);
+        assert_eq!(q.layout(100, 50, 2).top_right(), 0, "stacked: the top one");
     }
 
     #[test]

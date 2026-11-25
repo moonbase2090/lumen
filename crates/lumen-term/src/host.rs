@@ -585,12 +585,24 @@ impl Tab {
         self.panes.all_mut()
     }
 
-    /// Size every pane to its place in a window of `size`. Whether any did.
+    /// Size every pane to its place in a window of `size`, and give the
+    /// notices about ignored files to the pane at its top right corner.
+    /// Whether any pane changed.
     fn resize(&mut self, size: PhysicalSize<u32>) -> bool {
         let layout = self.layout(size);
+        let corner = layout.top_right();
         let mut changed = false;
-        for (app, r) in self.panes.all_mut().into_iter().zip(layout.panes) {
+        for (i, (app, r)) in self
+            .panes
+            .all_mut()
+            .into_iter()
+            .zip(layout.panes)
+            .enumerate()
+        {
             changed |= app.resize(r.w, r.h).is_ok();
+            // The notices about ignored files are drawn once, in the
+            // notification area at the window's top right, as with one pane.
+            changed |= app.set_draws_config_notices(i == corner);
         }
         changed
     }
@@ -2077,6 +2089,44 @@ mod pane_tests {
             Some((left.w - 1, 10))
         );
         assert_eq!(tab.pane_clamped(size, 9, 5, 5), None);
+    }
+
+    #[test]
+    fn a_split_window_draws_the_notices_once_in_its_top_right_pane() {
+        let notice = "policy file here ignored (it is not valid); the defaults apply".to_owned();
+        let drawn = |tab: &Tab| -> Vec<usize> {
+            tab.panes
+                .all()
+                .iter()
+                .map(|a| a.toasts().iter().filter(|t| t.text == notice).count())
+                .collect()
+        };
+        let size = PhysicalSize::new(640, 360);
+        let mut first = app();
+        first.set_config_notices(vec![notice.clone()]);
+        let mut tab = Tab::new(first, String::new());
+        tab.resize(size);
+        assert_eq!(drawn(&tab), [1], "one pane draws it");
+        // Every pane is given the notices, as the window gives them on a
+        // reload; only one draws them.
+        let mut second = app();
+        second.set_config_notices(vec![notice.clone()]);
+        tab.panes.split(second, Split::Right);
+        assert!(tab.resize(size));
+        assert_eq!(drawn(&tab), [0, 1], "once, in the right pane");
+        let mut third = app();
+        third.set_config_notices(vec![notice.clone()]);
+        tab.panes.split(third, Split::Down);
+        tab.resize(size);
+        assert_eq!(drawn(&tab), [0, 1, 0], "the pane below the corner does not");
+        // Closing the corner pane gives its space, and the notices, to the
+        // pane that takes the corner.
+        tab.panes.remove(1);
+        tab.resize(size);
+        assert_eq!(drawn(&tab), [0, 1]);
+        tab.panes.remove(1);
+        tab.resize(size);
+        assert_eq!(drawn(&tab), [1], "back to one pane, which draws it");
     }
 
     #[test]

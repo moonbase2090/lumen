@@ -444,6 +444,9 @@ fn toasts_with_hostile_text_stay_out_of_the_margin_and_the_editor() {
                 text: text.clone(),
                 unsigned: i % 2 == 0,
                 shown_ms: 0,
+                // A notice about an ignored file is drawn in full, and still
+                // only inside the area.
+                whole: i % 3 == 0,
             })
             .collect();
         let f = r.render_window_with(&d, win, &toasts);
