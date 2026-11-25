@@ -1173,6 +1173,56 @@ impl App {
             .find(|hit| hit.columns.contains(&col))
     }
 
+    /// The link under pixel `(x, y)` that a right click acts on: one on the
+    /// live grid, or a web address written in a rich block's text.
+    #[cfg(feature = "links-clipboard")]
+    #[must_use]
+    pub fn menu_link_at(&self, x: u32, y: u32) -> Option<crate::linkhit::Hit> {
+        self.link_at(x, y).or_else(|| self.rich_link_at(x, y))
+    }
+
+    /// The web address written in a rich block's text under pixel `(x, y)`, if
+    /// there is one. The block wraps its text to the window, so a line cut
+    /// inside a word is read joined to the next, as a copy joins it, and an
+    /// address the wrap cut is found whole.
+    #[cfg(feature = "links-clipboard")]
+    fn rich_link_at(&self, x: u32, y: u32) -> Option<crate::linkhit::Hit> {
+        let (cx, cy) = self.flow_pixel(x, y)?;
+        let lines = self.flow();
+        let blocks = self.session.document().blocks();
+        let at = lines
+            .iter()
+            .position(|l| cy >= l.top && cy < l.top + l.height)?;
+        let line = &lines[at];
+        if !matches!(blocks.get(line.block), Some(Block::Rich(_))) {
+            return None;
+        }
+        let col = self.renderer.char_under(line, cx.checked_sub(line.left)?)?;
+        let cut = |l: &select::FlowLine, next: &select::FlowLine| {
+            l.join == select::Join::Cut && l.block == next.block
+        };
+        let mut first = at;
+        while first > 0 && cut(&lines[first - 1], &lines[first]) {
+            first -= 1;
+        }
+        let mut last = at;
+        while last + 1 < lines.len() && cut(&lines[last], &lines[last + 1]) {
+            last += 1;
+        }
+        let before: usize = lines[first..at]
+            .iter()
+            .map(|l| l.text.chars().count())
+            .sum();
+        let text: String = lines[first..=last]
+            .iter()
+            .map(|l| l.text.as_str())
+            .collect();
+        let place = before + col;
+        crate::linkhit::text_links(&text)
+            .into_iter()
+            .find(|hit| hit.columns.contains(&place))
+    }
+
     /// The links on line `row` of the live grid, left to right; a negative line
     /// is scrollback, counted up from the screen's top.
     #[cfg(feature = "links-clipboard")]
@@ -1533,9 +1583,9 @@ impl App {
     }
 
     /// What the context menu offers for a right click at pixel `(x, y)`: Copy
-    /// needs a selection, Paste needs `can_paste`, and over a link Open Link
-    /// and Copy Address are added, on only when the terminal would act on the
-    /// link's target. The link is remembered for the choice that follows, whether
+    /// needs a selection, Paste needs `can_paste`, and over a link, on the grid
+    /// or written in a rich block, Open Link and Copy Address are added, on only
+    /// when the terminal would act on the link's target. The link is remembered for the choice that follows, whether
     /// the menu is the terminal's own or the system's.
     pub fn context_state(
         &mut self,
@@ -1546,7 +1596,7 @@ impl App {
         use crate::contextmenu::LinkItems;
         #[cfg(feature = "links-clipboard")]
         let link = {
-            let hit = self.link_at(x, y);
+            let hit = self.menu_link_at(x, y);
             let items = match &hit {
                 None => LinkItems::Absent,
                 Some(hit) => match crate::link::check(&hit.target, &hit.visible) {
@@ -1921,21 +1971,11 @@ impl App {
     /// must be in the content area; without it, a pixel outside is moved to
     /// the nearest line, so a drag past an edge still selects.
     fn pos_at(&self, lines: &[select::FlowLine], x: u32, y: u32, inside: bool) -> Option<Pos> {
-        let (_, ch) = self.renderer.cell();
-        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
-        let win = window_for_box(columns, rows, self.box_rows);
-        let content_x = self.renderer.content_left();
-        let content_y = HEADER_ROWS.saturating_mul(ch);
-        let area_bottom = win.editor_row.saturating_mul(ch);
-        if inside && (x < content_x || y < content_y || y >= area_bottom) {
-            return None;
-        }
-        // The pixel row in the flow: the row in the area, plus how far the view is scrolled.
-        let (area, _, total) = self.content_metrics();
-        let cy = y
-            .saturating_sub(content_y)
-            .saturating_add(self.scroll.top(total, area));
-        let cx = x.saturating_sub(content_x);
+        let (cx, cy) = if inside {
+            self.flow_pixel(x, y)?
+        } else {
+            self.flow_pixel_clamped(x, y)
+        };
         let line = lines
             .iter()
             .position(|l| cy >= l.top && cy < l.top + l.height)
@@ -1963,6 +2003,34 @@ impl App {
         let l = &lines[line];
         let col = self.renderer.char_at(l, cx.saturating_sub(l.left));
         Some(Pos { line, col })
+    }
+
+    /// Pixel `(x, y)` of the window as a place in the flow: pixels from the
+    /// content area's left, and from the top of the flow with the view's
+    /// scroll added. `None` outside the content area.
+    fn flow_pixel(&self, x: u32, y: u32) -> Option<(u32, u32)> {
+        let (_, ch) = self.renderer.cell();
+        let (columns, rows) = window_cells(self.width, self.height, &self.renderer);
+        let win = window_for_box(columns, rows, self.box_rows);
+        let content_y = HEADER_ROWS.saturating_mul(ch);
+        let area_bottom = win.editor_row.saturating_mul(ch);
+        if x < self.renderer.content_left() || y < content_y || y >= area_bottom {
+            return None;
+        }
+        Some(self.flow_pixel_clamped(x, y))
+    }
+
+    /// As [`flow_pixel`](Self::flow_pixel), with a pixel outside the content
+    /// area moved to its edge.
+    fn flow_pixel_clamped(&self, x: u32, y: u32) -> (u32, u32) {
+        let (_, ch) = self.renderer.cell();
+        let content_y = HEADER_ROWS.saturating_mul(ch);
+        // The pixel row in the flow: the row in the area, plus how far the view is scrolled.
+        let (area, _, total) = self.content_metrics();
+        let cy = y
+            .saturating_sub(content_y)
+            .saturating_add(self.scroll.top(total, area));
+        (x.saturating_sub(self.renderer.content_left()), cy)
     }
 
     fn begin_selection(&mut self, x: u32, y: u32) {

@@ -209,10 +209,25 @@ fn detect(cells: &[Cell], taken: &[Range<usize>]) -> Vec<Hit> {
         .filter(|(_, c)| !c.wide_cont)
         .map(|(i, c)| (i, c.character))
         .collect();
+    detect_in(&chars, cells.len(), taken)
+}
+
+/// Every web address written in `text`, left to right, by the rules the grid
+/// uses. A hit's columns are the characters it covers, from the first to one
+/// past the last: text set in the proportional face has no cells.
+#[must_use]
+pub fn text_links(text: &str) -> Vec<Hit> {
+    let chars: Vec<(usize, char)> = text.chars().enumerate().collect();
+    detect_in(&chars, chars.len(), &[])
+}
+
+/// Web addresses in `chars`, each a character with the place it starts at,
+/// `len` places in all, outside the places in `taken`.
+fn detect_in(chars: &[(usize, char)], len: usize, taken: &[Range<usize>]) -> Vec<Hit> {
     let mut hits = Vec::new();
     let mut i = 0;
     while i < chars.len() {
-        let Some(scheme_len) = scheme_at(&chars, i) else {
+        let Some(scheme_len) = scheme_at(chars, i) else {
             i += 1;
             continue;
         };
@@ -230,10 +245,10 @@ fn detect(cells: &[Cell], taken: &[Range<usize>]) -> Vec<Hit> {
             i = end;
             continue;
         }
-        let end = trim_end(&chars, i + scheme_len, end);
+        let end = trim_end(chars, i + scheme_len, end);
         if end > i + scheme_len {
             let first = chars[i].0;
-            let last = chars.get(end).map_or(cells.len(), |c| c.0);
+            let last = chars.get(end).map_or(len, |c| c.0);
             if !taken.iter().any(|t| first < t.end && t.start < last) {
                 let text: String = chars[i..end].iter().map(|c| c.1).collect();
                 hits.push(Hit {
