@@ -8,3 +8,6 @@ __pycache__/
 
 # Scorecard output
 .sc/
+
+# Coverage output from instrumented test runs
+*.profraw
