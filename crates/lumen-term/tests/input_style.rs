@@ -80,6 +80,12 @@ fn enter(app: &mut App) {
 #[test]
 fn with_the_box_off_keys_reach_the_shell_as_typed_and_the_program_gets_the_rows() {
     let mut app = zsh();
+    // The box can take the keys from the tty state alone, before the prompt's
+    // output has made a grid: wait for the grid before reading its rows.
+    assert!(
+        until(&mut app, |a| grid_rows(a) > 0),
+        "the shell's output makes a grid"
+    );
     let with_box = grid_rows(&app);
     assert!(app.set_input_box(false), "the window draws again");
     assert_eq!(app.input_mode(), Mode::Raw, "the box takes no keys");
