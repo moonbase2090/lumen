@@ -98,7 +98,8 @@ pub const TYPED_MARK: &str = "kbd";
 pub const TYPED_TIP: &str = "typed here";
 
 /// The terminal's mark, in the gutter, beside the row of the cursor while the
-/// input box is off and the shell itself reads the keys at its prompt. Only
+/// input box is off and, on a layer with sealing keys, the shell's sealed
+/// frames and the tty say the shell itself reads the keys at its prompt. Only
 /// the terminal draws in the gutter, so a program that prints a prompt of its
 /// own, or moves the cursor, cannot draw one.
 pub const PROMPT_MARK: &str = ">";

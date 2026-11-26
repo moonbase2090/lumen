@@ -179,33 +179,63 @@ fn capture(frame: &lumen_term::Frame, name: &str) {
     assert!(std::fs::write(&path, png).is_ok(), "{}", path.display());
 }
 
-/// The gutter has ink, and only on the cursor's row.
-fn mark_on_cursor_row(app: &App) -> bool {
-    let rows = gutter_ink_rows(&app.view(), app.cell_width());
-    let (_, top, _, height) = app.ime_area();
-    !rows.is_empty() && rows.iter().all(|&y| y >= top && y < top + height)
-}
-
 fn no_gutter_ink(app: &App) -> bool {
     gutter_ink_rows(&app.view(), app.cell_width()).is_empty()
 }
 
+/// The kernel facts alone say the shell is at a prompt: it is in front and
+/// reading without ICANON. On a layer without sealing keys that is all there
+/// is to go on.
+fn kernel_says_prompt(app: &App) -> bool {
+    let tty = app.session().tty_state();
+    tty.shell_in_front == Some(true) && tty.icanon == Some(false)
+}
+
+// These shells run on a layer without sealing keys, as every shell does on
+// macOS. There the prompt mark is never drawn: no boundary there is one a
+// program cannot print, and the kernel facts read the same for a builtin that
+// reads keys behind a printed prompt. The sealed tests cover where it is drawn.
+
 #[test]
-fn with_the_box_off_the_terminal_marks_the_row_where_the_shell_reads_keys() {
+fn without_sealing_keys_the_box_off_draws_no_prompt_mark() {
     let mut app = zsh();
     assert!(no_gutter_ink(&app), "with the box on the gutter is empty");
     capture(&app.view(), "box-prompt.png");
     app.set_input_box(false);
-    assert!(
-        until(&mut app, |a| mark_on_cursor_row(a)),
-        "the prompt mark is beside the cursor at the shell's prompt"
-    );
+    assert!(until(&mut app, |a| kernel_says_prompt(a)));
+    assert!(no_gutter_ink(&app), "no mark without a sealed prompt");
     capture(&app.view(), "inline-prompt.png");
     type_str(&mut app, "echo typed");
+    assert!(until(&mut app, |a| grid_text(a).contains("echo typed")));
+    assert!(no_gutter_ink(&app));
+}
+
+#[test]
+fn a_builtin_reading_keys_behind_a_printed_prompt_gets_no_mark() {
+    let mut app = zsh();
+    app.set_input_box(false);
+    // stty puts the tty in the state `read -k` reads in before the prompt is
+    // printed, so while it waits the shell is in front with ICANON off: to the
+    // kernel facts this is the shell's prompt.
+    type_str(
+        &mut app,
+        "stty -icanon -echo; printf 'fa''ke-builtin %% '; read -k k; stty sane; echo got-$k-done",
+    );
+    enter(&mut app);
     assert!(
-        until(&mut app, |a| grid_text(a).contains("echo typed")
-            && mark_on_cursor_row(a)),
-        "the mark stays beside the cursor while the line is typed"
+        until(&mut app, |a| grid_text(a).contains("fake-builtin %")),
+        "the builtin printed its prompt"
+    );
+    assert!(
+        kernel_says_prompt(&app),
+        "the kernel facts read as a prompt"
+    );
+    assert!(no_gutter_ink(&app), "no mark for a builtin reading keys");
+    capture(&app.view(), "inline-fake-builtin.png");
+    type_str(&mut app, "q");
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("got-q-done")),
+        "the key reached read -k"
     );
 }
 
@@ -213,11 +243,12 @@ fn with_the_box_off_the_terminal_marks_the_row_where_the_shell_reads_keys() {
 fn a_program_that_prints_a_prompt_of_its_own_gets_no_mark() {
     let mut app = zsh();
     app.set_input_box(false);
-    assert!(until(&mut app, |a| mark_on_cursor_row(a)));
-
     // A program in front that reads a cooked line after printing a prompt
     // that looks like the shell's.
-    type_str(&mut app, "sh -c 'printf \"fa\"\"ke-cooked %% \"; read x'");
+    type_str(
+        &mut app,
+        "sh -c 'printf \"fa\"\"ke-cooked %% \"; read x; echo co\"\"oked-done'",
+    );
     enter(&mut app);
     assert!(
         until(&mut app, |a| grid_text(a).contains("fake-cooked %")),
@@ -227,16 +258,13 @@ fn a_program_that_prints_a_prompt_of_its_own_gets_no_mark() {
     capture(&app.view(), "inline-fake-cooked.png");
     type_str(&mut app, "x");
     enter(&mut app);
-    assert!(
-        until(&mut app, |a| mark_on_cursor_row(a)),
-        "the mark is back at the shell's next prompt"
-    );
+    assert!(until(&mut app, |a| grid_text(a).contains("cooked-done")));
 
     // One that reads keys raw, as a line editor does, behind the same kind of
     // prompt and with the cursor where the shell's would be.
     type_str(
         &mut app,
-        "sh -c 'stty -icanon -echo; printf \"fa\"\"ke-raw %% \"; dd bs=1 count=1 >/dev/null 2>&1; stty sane'",
+        "sh -c 'stty -icanon -echo; printf \"fa\"\"ke-raw %% \"; dd bs=1 count=1 >/dev/null 2>&1; stty sane; echo r\"\"aw-done'",
     );
     enter(&mut app);
     assert!(
@@ -249,42 +277,39 @@ fn a_program_that_prints_a_prompt_of_its_own_gets_no_mark() {
     );
     capture(&app.view(), "inline-fake-raw.png");
     type_str(&mut app, "q");
-    assert!(until(&mut app, |a| mark_on_cursor_row(a)));
-}
-
-#[test]
-fn while_a_command_runs_there_is_no_mark() {
-    let mut app = zsh();
-    app.set_input_box(false);
-    assert!(until(&mut app, |a| mark_on_cursor_row(a)));
-    type_str(&mut app, "sh -c 'echo run\"\"ning; sleep 3; echo do\"\"ne'");
-    enter(&mut app);
-    assert!(until(&mut app, |a| grid_text(a).contains("running\n")
-        || grid_text(a).ends_with("running")));
-    assert!(no_gutter_ink(&app), "a running command has no mark");
-    capture(&app.view(), "inline-running.png");
-    assert!(until(&mut app, |a| grid_text(a).contains("done")
-        && mark_on_cursor_row(a)));
+    assert!(until(&mut app, |a| grid_text(a).contains("raw-done")));
 }
 
 #[test]
 fn with_the_box_off_a_full_screen_program_gets_raw_keys_and_no_mark() {
     let mut app = zsh();
     app.set_input_box(false);
-    assert!(until(&mut app, |a| mark_on_cursor_row(a)));
     type_str(&mut app, "vim -u NONE -N");
     enter(&mut app);
     type_str(&mut app, "ihello-vim");
     assert!(until(&mut app, |a| grid_text(a).contains("hello-vim")));
     assert_eq!(app.input_mode(), Mode::Raw);
+    assert_eq!(app.input_text(), "", "nothing waits in a box");
     assert!(no_gutter_ink(&app), "a full-screen program has no mark");
     capture(&app.view(), "inline-vim.png");
-    app.key(Key::Escape, Mods::default())
-        .unwrap_or_else(|e| unreachable!("escape: {e}"));
-    type_str(&mut app, ":q!");
-    enter(&mut app);
-    assert!(
-        until(&mut app, |a| mark_on_cursor_row(a)),
-        "back at the shell's prompt the mark returns"
+}
+
+/// With the box off a paste at the prompt is not held in a box: it goes to the
+/// shell under the paste rules for a program reading keys.
+#[cfg(feature = "links-clipboard")]
+#[test]
+fn with_the_box_off_a_paste_at_the_prompt_goes_to_the_shell() {
+    let mut app = zsh();
+    app.set_input_box(false);
+    assert_eq!(
+        app.paste("echo pasted-$((5+5))").ok(),
+        Some(lumen_term::app::PasteOutcome::Sent)
     );
+    assert_eq!(app.input_text(), "", "nothing waits in a box");
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("echo pasted-$((5+5))")),
+        "the shell has the pasted text on its line"
+    );
+    enter(&mut app);
+    assert!(until(&mut app, |a| grid_text(a).contains("pasted-10")));
 }
