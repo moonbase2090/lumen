@@ -830,6 +830,7 @@ impl Host {
             self.config.policy_notice.as_deref(),
             self.config.settings.current(),
             &look,
+            crate::images::possibly_ssh(),
         ));
         app.use_settings(self.config.notifications);
         app.use_images(self.config.images);
@@ -859,7 +860,12 @@ impl Host {
         for notice in settings.notice().iter().chain(&look.notices) {
             eprintln!("{}: {notice}", crate::APP_NAME);
         }
-        let shown = crate::settings::notices(self.config.policy_notice.as_deref(), settings, &look);
+        let shown = crate::settings::notices(
+            self.config.policy_notice.as_deref(),
+            settings,
+            &look,
+            crate::images::possibly_ssh(),
+        );
         for run in &mut self.windows {
             let mut redraw = false;
             let mut resized = false;

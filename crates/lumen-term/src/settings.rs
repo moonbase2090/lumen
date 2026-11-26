@@ -252,13 +252,30 @@ impl Watcher {
 /// policy file, then the settings file, then each theme or font file the
 /// settings name that was left out. Empty when every file was used or absent.
 #[must_use]
-pub fn notices(policy: Option<&str>, settings: &Settings, look: &Look) -> Vec<String> {
-    policy
-        .map(str::to_owned)
+pub fn notices(policy: Option<&str>, settings: &Settings, look: &Look, ssh: bool) -> Vec<String> {
+    // The SSH notice is first: a window draws at most `MAX_CONFIG_NOTICES`, and
+    // it is the one that explains why an image shows as alt text, which no
+    // file the person can fix would change.
+    ssh_notice(ssh)
         .into_iter()
+        .chain(policy.map(str::to_owned))
         .chain(settings.notice())
         .chain(look.notices.iter().cloned())
         .collect()
+}
+
+/// The notice for a terminal started from an SSH session, where `ssh` says the
+/// variables ssh sets are present. The terminal cannot tell that the window it
+/// draws is a local one, so it treats the session as SSH and does not decode an
+/// image from a program in it. Without the notice an image would show as alt
+/// text with no sign of why.
+#[must_use]
+pub fn ssh_notice(ssh: bool) -> Option<String> {
+    ssh.then(|| {
+        "started from an SSH session: images are not decoded and show their alt text. \
+         Start it from a local terminal or the desktop to see images"
+            .to_owned()
+    })
 }
 
 impl Settings {

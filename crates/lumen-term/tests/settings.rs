@@ -478,3 +478,27 @@ fn smooth_scroll_is_on_by_default_and_takes_only_true_or_false() {
     }
     assert!(parsed("smooth_scroll = true\nsmooth_scroll = true").is_err());
 }
+
+#[test]
+fn a_terminal_started_from_ssh_says_why_images_are_not_decoded() {
+    let look = LookSettings::default().resolve();
+    let local = lumen_term::settings::notices(None, &Settings::Defaults, &look, false);
+    assert!(local.is_empty(), "{local:?}");
+
+    let ssh = lumen_term::settings::notices(None, &Settings::Defaults, &look, true);
+    assert_eq!(ssh.len(), 1, "{ssh:?}");
+    assert!(
+        ssh[0].contains("SSH session") && ssh[0].contains("images") && ssh[0].contains("alt text"),
+        "{ssh:?}"
+    );
+
+    // It comes first, so that a window which draws only the first few notices
+    // still says why images are not shown when several files were left out.
+    let ignored = Settings::Ignored {
+        path: PathBuf::from("settings.toml"),
+        why: "bad".to_owned(),
+    };
+    let both = lumen_term::settings::notices(Some("policy ignored"), &ignored, &look, true);
+    assert_eq!(both.len(), 3, "{both:?}");
+    assert!(both[0].contains("SSH session"), "{both:?}");
+}
