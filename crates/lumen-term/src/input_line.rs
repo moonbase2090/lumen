@@ -118,6 +118,10 @@ enum Typeahead {
 }
 
 /// The box's text and what it needs to route keys.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent states of the line: handed off, its write's kind, the box turned off"
+)]
 #[derive(Debug, Clone)]
 pub struct InputLine {
     text: Vec<char>,

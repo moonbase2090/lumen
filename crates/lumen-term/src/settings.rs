@@ -65,6 +65,10 @@ pub enum FontSetting {
 }
 
 /// What a settings file says.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent on-or-off settings, one per key"
+)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LookSettings {
     /// The theme.
