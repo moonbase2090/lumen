@@ -55,6 +55,7 @@ fn snapshot(o: &Options, policy: &Policy, look: &Look, path: &str) -> Result<(),
     // There is no system appearance without a window: the light one stands.
     app.set_theme_choice(look.theme);
     app.set_fonts(&look.fonts).map_err(|e| e.to_string())?;
+    app.set_input_box(look.input_box);
     let end = Instant::now() + o.wait;
     while Instant::now() < end && !app.has_exited() {
         app.pump();
@@ -109,13 +110,14 @@ fn describe_settings(settings: &Settings, look: &Look) -> String {
         lumen_term::settings::ThemeSetting::File(p) => p.display().to_string(),
     };
     let mut out = format!(
-        "settings: {source}\ntheme={theme} mono_font={} mono_size={} prose_font={} prose_size={} copy_on_select={} smooth_scroll={} shell={} shell_integration={}",
+        "settings: {source}\ntheme={theme} mono_font={} mono_size={} prose_font={} prose_size={} copy_on_select={} smooth_scroll={} input_box={} shell={} shell_integration={}",
         face(&s.mono_font),
         look.fonts.mono_px(),
         face(&s.prose_font),
         look.fonts.prose_px(),
         s.copy_on_select,
         s.smooth_scroll,
+        s.input_box,
         s.shell.as_deref().unwrap_or("default"),
         s.shell_integration
     );

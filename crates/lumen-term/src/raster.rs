@@ -2698,8 +2698,11 @@ impl Renderer {
         let note = notification_area(&lay);
         self.paint_toasts(&mut frame, px(&note), note.w, toasts);
 
-        let (ex, ey, ew, eh) = px(&lay.editor);
-        self.paint_input_box(&mut frame, (ex, ey, ew, eh), win.editor_rows, input);
+        // With the input box off there is no editor row to paint.
+        if win.editor_rows > 0 {
+            let (ex, ey, ew, eh) = px(&lay.editor);
+            self.paint_input_box(&mut frame, (ex, ey, ew, eh), win.editor_rows, input);
+        }
 
         // Strip: below the editor.
         if let (StripPlacement::Placed(r), Some(strip)) = (lay.strip, newest) {

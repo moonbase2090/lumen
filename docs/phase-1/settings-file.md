@@ -15,6 +15,7 @@ prose_font = "bundled"
 prose_size = 16
 copy_on_select = true   # true or false: copy a finished mouse selection
 smooth_scroll = true    # true or false: ease the wheel's scrolling
+input_box = true        # true or false: false types on the prompt line itself
 shell = "pwsh"          # the program to run when none is named; see below
 shell_integration = true # add prompt marks to zsh, bash, fish and PowerShell
 ```
@@ -28,6 +29,7 @@ shell_integration = true # add prompt marks to zsh, bash, fish and PowerShell
 | `prose_size` | a whole number of pixels, 8 to 72 | `14` |
 | `copy_on_select` | `true` copies a text selection made with the mouse to the clipboard when the button is released; `false` copies only on the copy command | `true` |
 | `smooth_scroll` | `true` eases a mouse wheel's scrolling over a few frames; `false` jumps three rows for each wheel step. A trackpad scrolls by the pixels it moves either way | `true` |
+| `input_box` | `true` edits what you type at the shell's prompt in the input box at the bottom of the window, and sends it when you press Enter; `false` has no input box: keys go to the shell as you type them and the cursor sits on the prompt line, as in a plain terminal. A change takes effect at the next prompt, without a restart; a line already in the box is kept until it is sent | `true` |
 | `shell` | a program name or path, in quotes: what the window runs when no program is named on the command line | not set |
 | `shell_integration` | `true` or `false`: whether a shell started directly gets the [prompt-mark hooks](shell-integration.md) | `true` |
 

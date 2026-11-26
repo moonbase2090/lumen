@@ -12,6 +12,7 @@
 //! prose_size = 16
 //! copy_on_select = true   # true or false: copy a finished mouse selection
 //! smooth_scroll = true    # true or false: ease the wheel's scrolling
+//! input_box = true        # true or false: false types on the prompt line itself
 //! shell = "pwsh"          # the program to run when none is named; see `shell`
 //! shell_integration = true # add prompt marks to zsh, bash, fish and PowerShell
 //! ```
@@ -80,6 +81,10 @@ pub struct LookSettings {
     pub copy_on_select: bool,
     /// Whether a wheel step eases the view instead of jumping it. On by default.
     pub smooth_scroll: bool,
+    /// Whether keys typed at the shell's prompt are edited in the input box.
+    /// On by default; off, they go to the shell as typed and the cursor sits
+    /// on the prompt line, as in a plain terminal.
+    pub input_box: bool,
     /// The program to run when none is named on the command line, if set.
     pub shell: Option<String>,
     /// Whether a shell started directly gets the prompt-mark hooks.
@@ -97,6 +102,7 @@ impl Default for LookSettings {
             prose_size: fonts.prose_px(),
             copy_on_select: true,
             smooth_scroll: true,
+            input_box: true,
             shell: None,
             shell_integration: true,
         }
@@ -117,6 +123,8 @@ pub struct Look {
     pub notices: Vec<String>,
     /// Whether a shell started directly gets the prompt-mark hooks.
     pub shell_integration: bool,
+    /// Whether keys at the prompt are edited in the input box.
+    pub input_box: bool,
 }
 
 impl LookSettings {
@@ -162,6 +170,7 @@ impl LookSettings {
             shell: self.shell.clone(),
             notices,
             shell_integration: self.shell_integration,
+            input_box: self.input_box,
         }
     }
 }
@@ -415,6 +424,13 @@ pub fn parse(text: &str, dir: &Path, home: Option<&Path>) -> Result<LookSettings
             }
             "smooth_scroll" => {
                 look.smooth_scroll = match value {
+                    "true" => true,
+                    "false" => false,
+                    _ => return Err((line, format!("`{key}` must be true or false"))),
+                };
+            }
+            "input_box" => {
+                look.input_box = match value {
                     "true" => true,
                     "false" => false,
                     _ => return Err((line, format!("`{key}` must be true or false"))),

@@ -139,6 +139,8 @@ pub struct InputLine {
     /// On a sealed layer, what Up recalls in place of the box's own history:
     /// the lines recorded for sealed commands, oldest first.
     recall: Option<Vec<String>>,
+    /// The input box is turned off (see [`InputLine::set_inline`]).
+    inline: bool,
 }
 
 /// How long keys right after the box's own Enter go to the shell as typeahead
@@ -168,6 +170,7 @@ impl Default for InputLine {
             for_shell: false,
             whole: false,
             recall: None,
+            inline: false,
         }
     }
 }
@@ -247,6 +250,23 @@ impl InputLine {
         self.recall.as_deref().unwrap_or(&self.history)
     }
 
+    /// Turn the input box off (`true`) or on. Off, keys go to whatever reads
+    /// the tty as they are typed, the shell's own line editor included, as in
+    /// a plain terminal: the box edits nothing and nothing waits in it. A line
+    /// already in the box, or a held paste, stays the box's until it is sent
+    /// or cleared, so turning the box off takes effect at the next prompt and
+    /// never drops or sends what the user is writing.
+    pub fn set_inline(&mut self, inline: bool) {
+        self.inline = inline;
+    }
+
+    /// The box is off and holds nothing, so there is no box: keys go to the
+    /// tty as typed and the cursor is the one on the prompt line.
+    #[must_use]
+    pub fn is_inline(&self) -> bool {
+        self.inline && self.text.is_empty() && self.held.is_none()
+    }
+
     /// The held multi-line text, while a choice is pending.
     #[must_use]
     pub fn held(&self) -> Option<&str> {
@@ -264,6 +284,9 @@ impl InputLine {
         }
         if facts.icanon == Some(true) && facts.echo == Some(false) {
             return Mode::Hidden;
+        }
+        if self.is_inline() {
+            return Mode::Raw;
         }
         // A line the user is writing in the box stays the box's while the
         // shell's frames say it is still at that prompt. The line cannot have
