@@ -265,3 +265,25 @@ fn while_a_command_runs_there_is_no_mark() {
     assert!(until(&mut app, |a| grid_text(a).contains("done")
         && mark_on_cursor_row(a)));
 }
+
+#[test]
+fn with_the_box_off_a_full_screen_program_gets_raw_keys_and_no_mark() {
+    let mut app = zsh();
+    app.set_input_box(false);
+    assert!(until(&mut app, |a| mark_on_cursor_row(a)));
+    type_str(&mut app, "vim -u NONE -N");
+    enter(&mut app);
+    type_str(&mut app, "ihello-vim");
+    assert!(until(&mut app, |a| grid_text(a).contains("hello-vim")));
+    assert_eq!(app.input_mode(), Mode::Raw);
+    assert!(no_gutter_ink(&app), "a full-screen program has no mark");
+    capture(&app.view(), "inline-vim.png");
+    app.key(Key::Escape, Mods::default())
+        .unwrap_or_else(|e| unreachable!("escape: {e}"));
+    type_str(&mut app, ":q!");
+    enter(&mut app);
+    assert!(
+        until(&mut app, |a| mark_on_cursor_row(a)),
+        "back at the shell's prompt the mark returns"
+    );
+}
