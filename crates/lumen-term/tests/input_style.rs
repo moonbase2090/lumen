@@ -194,6 +194,7 @@ fn no_gutter_ink(app: &App) -> bool {
 fn with_the_box_off_the_terminal_marks_the_row_where_the_shell_reads_keys() {
     let mut app = zsh();
     assert!(no_gutter_ink(&app), "with the box on the gutter is empty");
+    capture(&app.view(), "box-prompt.png");
     app.set_input_box(false);
     assert!(
         until(&mut app, |a| mark_on_cursor_row(a)),
