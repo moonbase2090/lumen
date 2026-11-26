@@ -1923,6 +1923,25 @@ impl Renderer {
         u32::try_from((pos + SUBPIXELS / 2) / SUBPIXELS).unwrap_or(u32::MAX)
     }
 
+    /// The character of `line` drawn across `x` pixels from its left edge, if
+    /// `x` is on one: past the end of the text there is none.
+    #[must_use]
+    pub fn char_under(&self, line: &FlowLine, x: u32) -> Option<usize> {
+        let target = x as usize * SUBPIXELS;
+        let mut pos = 0usize;
+        for (i, c) in line.text.chars().enumerate() {
+            pos += if line.grid {
+                cells(c) * self.cell_w as usize * SUBPIXELS
+            } else {
+                self.advance_at(c, line.step)
+            };
+            if target < pos {
+                return Some(i);
+            }
+        }
+        None
+    }
+
     /// The character boundary of `line` nearest `x` pixels from its left edge.
     #[must_use]
     pub fn char_at(&self, line: &FlowLine, x: u32) -> usize {

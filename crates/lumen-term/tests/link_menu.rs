@@ -449,3 +449,200 @@ fn over_a_link_the_drawn_menu_keeps_settings_last_and_the_keys_reach_it() {
     assert_eq!(opened.all(), no_text(), "the link was not opened");
     assert_eq!(copied.all(), no_text(), "nothing was copied");
 }
+
+/// A Track 0 frame of `kind` with `body`.
+fn frame(kind: u8, body: &[u8]) -> Vec<u8> {
+    let mut v = b"\x1b_".to_vec();
+    v.extend_from_slice(&lumen_detector::TAG);
+    v.push(kind);
+    v.extend_from_slice(&u32::try_from(body.len()).unwrap_or(0).to_be_bytes());
+    v.extend_from_slice(body);
+    v
+}
+
+/// A Track 0 string: its length, then its bytes.
+fn string(text: &str) -> Vec<u8> {
+    let mut v = u16::try_from(text.len())
+        .unwrap_or(0)
+        .to_be_bytes()
+        .to_vec();
+    v.extend_from_slice(text.as_bytes());
+    v
+}
+
+/// A shell command that writes the Track 0 frame `frame`, then `AFTER` on the
+/// grid, and waits.
+fn write_frame(frame: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut octal = String::new();
+    for b in frame {
+        write!(octal, "\\{b:03o}").unwrap_or_default();
+    }
+    format!("printf '{octal}'; printf 'AFTER\\n'; sleep 30")
+}
+
+/// The program's output shown in a rich paragraph of `text`, behind the
+/// layer that draws Track 0 frames in the terminal's container.
+fn start_rich(text: &str) -> (App, Opened, Copied) {
+    start_frame(&frame(0x80, &string(text)))
+}
+
+/// The program writes `frame`, which the layer shows in a rich block.
+fn start_frame(rich: &[u8]) -> (App, Opened, Copied) {
+    let mut layer = lumen_arm_b::Layer::new(lumen_arm_b::Config {
+        budget: lumen_arm_b::Budget::quarter_of(2000, 8 << 20),
+        background_as_text: false,
+    });
+    lumen_term::Layer::open_container(&mut layer);
+    let mut app = App::start(
+        Box::new(layer),
+        "/bin/sh",
+        &["-c", &write_frame(rich)],
+        1,
+        SIZE.0,
+        SIZE.1,
+    )
+    .unwrap_or_else(|e| unreachable!("sh starts: {e}"));
+    let opened = Opened::default();
+    let copied = Copied::default();
+    app.use_link_opener(Box::new(opened.clone()));
+    app.use_link_clipboard(Box::new(copied.clone()));
+    assert!(pump_until(&mut app, |a| shows(a, "AFTER")));
+    assert!(
+        app.session()
+            .document()
+            .blocks()
+            .iter()
+            .any(|b| matches!(b, lumen_term::Block::Rich(_))),
+        "the paragraph is a rich block"
+    );
+    (app, opened, copied)
+}
+
+/// Whether a right click at `(x, y)` offers the link items. The menu's own
+/// state is the probe, so this finds only what a click would.
+fn link_items_at(app: &mut App, x: u32, y: u32) -> bool {
+    app.context_state(x, y, true).link != LinkItems::Absent
+}
+
+/// Pixels a right click would offer the link items at, top down. An address is
+/// many pixels wide and a line many pixels tall, so a coarse grid finds every
+/// line of one.
+fn pixels_with_link_items(app: &mut App) -> Vec<(u32, u32)> {
+    let mut found = Vec::new();
+    for y in (0..SIZE.1).step_by(4) {
+        for x in (0..SIZE.0).step_by(24) {
+            if link_items_at(app, x, y) {
+                found.push((x, y));
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn a_web_address_in_a_rich_paragraph_gets_open_link_and_copy_address() {
+    let (mut app, opened, copied) =
+        start_rich("Read the guide at https://example.com/guide?a=1 before you start.");
+    let found = pixels_with_link_items(&mut app);
+    let Some(&(x, y)) = found.first() else {
+        unreachable!("a right click on the address offers the link items")
+    };
+
+    // Only the address offers them, not the words before and after it.
+    let mut left = x;
+    while left > 0 && link_items_at(&mut app, left - 1, y) {
+        left -= 1;
+    }
+    let mut right = x;
+    while right + 1 < SIZE.0 && link_items_at(&mut app, right + 1, y) {
+        right += 1;
+    }
+    assert!(left > 100, "the words before it are not the link: {left}");
+    assert!(
+        right + 100 < SIZE.0,
+        "the words after it are not the link: {right}"
+    );
+    assert!(
+        found.iter().all(|&(_, fy)| fy.abs_diff(y) < 24),
+        "one line offers them: {found:?}"
+    );
+
+    assert!(app.open_context_menu(x, y, true));
+    assert_eq!(
+        offered(&app).iter().take(2).copied().collect::<Vec<_>>(),
+        vec![(Action::OpenLink, true), (Action::CopyLinkAddress, true)]
+    );
+    // Open Link asks first, and the answer opens the address as written.
+    assert_eq!(app.perform(Action::OpenLink, &Unused), Outcome::Redraw);
+    assert!(lines(&app).contains("https://example.com/guide?a=1"));
+    assert_eq!(opened.all(), no_text(), "choosing the item opens nothing");
+    enter(&mut app);
+    assert_eq!(opened.all(), vec!["https://example.com/guide?a=1"]);
+
+    // Copy Address copies the address, without the sentence around it.
+    assert!(app.open_context_menu(right, y, true));
+    assert_eq!(
+        app.perform(Action::CopyLinkAddress, &Unused),
+        Outcome::Redraw
+    );
+    enter(&mut app);
+    assert_eq!(copied.all(), vec!["https://example.com/guide?a=1"]);
+}
+
+#[test]
+fn an_address_the_rich_block_wrapped_over_lines_is_offered_whole_from_each_line() {
+    let target = format!("https://example.com/{}", "segment".repeat(60));
+    let (mut app, _, copied) = start_rich(&format!("see {target}"));
+    let found = pixels_with_link_items(&mut app);
+    let (Some(&first), Some(&last)) = (found.first(), found.last()) else {
+        unreachable!("the address offers the link items")
+    };
+    assert!(
+        last.1 > first.1 + 30,
+        "the address was wrapped onto three lines or more: {first:?} {last:?}"
+    );
+    for (x, y) in [first, last] {
+        assert!(app.open_context_menu(x, y, true));
+        assert_eq!(
+            app.perform(Action::CopyLinkAddress, &Unused),
+            Outcome::Redraw
+        );
+        enter(&mut app);
+    }
+    assert_eq!(copied.all(), vec![target.clone(), target]);
+}
+
+#[test]
+fn an_address_a_code_block_cuts_at_its_edge_is_offered_whole() {
+    let target = format!(
+        "https://docs.example.com/reference/{}",
+        "section".repeat(30)
+    );
+    let mut code = string("sh");
+    code.extend(string(&format!("curl {target}")));
+    let (mut app, opened, copied) = start_frame(&frame(0x82, &code));
+    // Select All copies the lines as they are drawn.
+    assert_eq!(app.perform(Action::SelectAll, &Unused), Outcome::Redraw);
+    let shown = app.selected_text().unwrap_or_default();
+    assert!(
+        shown.contains("curl https://docs.example.com/") && !shown.contains(&target),
+        "the code line is cut at the container's edge: {shown:?}"
+    );
+    let found = pixels_with_link_items(&mut app);
+    let Some(&(x, y)) = found.last() else {
+        unreachable!("the shown part of the address offers the link items")
+    };
+    assert!(app.open_context_menu(x, y, true));
+    assert_eq!(
+        app.perform(Action::CopyLinkAddress, &Unused),
+        Outcome::Redraw
+    );
+    enter(&mut app);
+    assert_eq!(copied.all(), vec![target.clone()], "the whole address");
+    assert!(app.open_context_menu(x, y, true));
+    assert_eq!(app.perform(Action::OpenLink, &Unused), Outcome::Redraw);
+    assert!(lines(&app).contains("Open this link?"), "{}", lines(&app));
+    enter(&mut app);
+    assert_eq!(opened.all(), vec![target]);
+}
