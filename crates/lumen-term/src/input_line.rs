@@ -271,6 +271,22 @@ impl InputLine {
         self.inline && self.text.is_empty() && self.held.is_none()
     }
 
+    /// Whether the shell itself is reading keys at its prompt, by what the
+    /// kernel says of the tty (the shell is the foreground process group and
+    /// reads with ICANON off, not on the alternate screen) and, on a layer with
+    /// sealing keys, by the shell's own sealed frames (its last boundary is a
+    /// prompt, with no command start or forwarded Enter after it). Nothing a
+    /// program prints is consulted, so a program cannot make this true by
+    /// drawing a prompt or moving the cursor.
+    #[must_use]
+    pub fn shell_reads_keys(facts: Facts) -> bool {
+        !facts.ended
+            && !facts.alt_screen
+            && facts.shell_in_front == Some(true)
+            && facts.icanon == Some(false)
+            && facts.sealed_prompt != Some(false)
+    }
+
     /// The held multi-line text, while a choice is pending.
     #[must_use]
     pub fn held(&self) -> Option<&str> {

@@ -97,6 +97,12 @@ pub const TYPED_MARK: &str = "kbd";
 /// What the mark means, shown while the pointer is over it.
 pub const TYPED_TIP: &str = "typed here";
 
+/// The terminal's mark, in the gutter, beside the row of the cursor while the
+/// input box is off and the shell itself reads the keys at its prompt. Only
+/// the terminal draws in the gutter, so a program that prints a prompt of its
+/// own, or moves the cursor, cannot draw one.
+pub const PROMPT_MARK: &str = ">";
+
 pub use crate::frame::{Frame, Rgb};
 
 pub use crate::design::Theme;
@@ -2760,6 +2766,13 @@ impl Renderer {
     /// whose top is pixel `y`.
     pub fn paint_typed_mark(&self, frame: &mut Frame, y: u32) {
         self.text_line(frame, self.cell_w / 2, y, TYPED_MARK, self.theme.muted);
+    }
+
+    /// Paint the prompt mark in the gutter beside the row whose top is pixel
+    /// `y`, in the colour of the input box's own prompt, within the gutter's
+    /// narrow width.
+    pub fn paint_prompt_mark(&self, frame: &mut Frame, y: u32) {
+        self.text_line(frame, self.cell_w / 2, y, PROMPT_MARK, self.theme.prompt);
     }
 
     /// Whether pixel `(x, y)` is on the typed-line mark of the row whose top is

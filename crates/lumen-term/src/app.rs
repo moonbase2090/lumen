@@ -3895,6 +3895,15 @@ impl App {
             Some(&self.input_view()),
         );
         // The gutter is the terminal's: the marks go on after everything else.
+        // With the box off, the prompt mark says the shell itself reads the
+        // keys typed on the cursor's row.
+        if self.input.is_inline()
+            && !self.exited
+            && InputLine::shell_reads_keys(self.facts_with(self.exited))
+            && let Some((_, y, _)) = self.live_cursor_pixel()
+        {
+            self.renderer.paint_prompt_mark(&mut frame, y);
+        }
         let marks = self.typed_marks();
         for (top, _) in &marks {
             self.renderer.paint_typed_mark(&mut frame, *top);
