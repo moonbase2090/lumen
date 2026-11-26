@@ -492,16 +492,13 @@ fn a_terminal_started_from_ssh_says_why_images_are_not_decoded() {
         "{ssh:?}"
     );
 
-    // It comes after the notices for files that were left out, which are about
-    // what the person asked for.
+    // It comes first, so that a window which draws only the first few notices
+    // still says why images are not shown when several files were left out.
     let ignored = Settings::Ignored {
         path: PathBuf::from("settings.toml"),
         why: "bad".to_owned(),
     };
-    let both = lumen_term::settings::notices(None, &ignored, &look, true);
-    assert_eq!(both.len(), 2, "{both:?}");
-    assert!(
-        both[0].contains("ignored") && both[1].contains("SSH session"),
-        "{both:?}"
-    );
+    let both = lumen_term::settings::notices(Some("policy ignored"), &ignored, &look, true);
+    assert_eq!(both.len(), 3, "{both:?}");
+    assert!(both[0].contains("SSH session"), "{both:?}");
 }

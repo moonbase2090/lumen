@@ -487,3 +487,18 @@ fn a_terminal_started_from_ssh_draws_a_notice_about_images() {
     );
     assert_eq!(app.config_notices(), [] as [String; 0]);
 }
+
+#[test]
+fn the_ssh_notice_is_kept_when_other_notices_fill_the_cap() {
+    let mut app = start("sleep 30");
+    let mut look = Settings::Defaults.look().resolve();
+    look.notices = (0..MAX_CONFIG_NOTICES)
+        .map(|i| format!("appearance file {i} left out"))
+        .collect();
+    let policy = "policy file ignored";
+    app.set_config_notices(notices(Some(policy), &Settings::Defaults, &look, true));
+    let shown = app.config_notices();
+    assert_eq!(shown.len(), MAX_CONFIG_NOTICES, "{shown:?}");
+    assert!(shown[0].contains("SSH session"), "{shown:?}");
+    assert_eq!(shown[1], policy, "{shown:?}");
+}

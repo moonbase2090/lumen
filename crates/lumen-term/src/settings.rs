@@ -253,12 +253,14 @@ impl Watcher {
 /// settings name that was left out. Empty when every file was used or absent.
 #[must_use]
 pub fn notices(policy: Option<&str>, settings: &Settings, look: &Look, ssh: bool) -> Vec<String> {
-    policy
-        .map(str::to_owned)
+    // The SSH notice is first: a window draws at most `MAX_CONFIG_NOTICES`, and
+    // it is the one that explains why an image shows as alt text, which no
+    // file the person can fix would change.
+    ssh_notice(ssh)
         .into_iter()
+        .chain(policy.map(str::to_owned))
         .chain(settings.notice())
         .chain(look.notices.iter().cloned())
-        .chain(ssh_notice(ssh))
         .collect()
 }
 
