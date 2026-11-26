@@ -43,4 +43,22 @@ if text.count("@VERSION@") != 2:
     raise SystemExit("package-bright-macos: Info.plist template must contain two version fields")
 destination.write_text(text.replace("@VERSION@", version), encoding="utf-8")
 PY
+
+# Signing is the last step: the bundle's signature seals Info.plist and the
+# executables, so nothing may change after it. The linker's ad-hoc signature on
+# the main executable seals no resources, and macOS rejects that bundle. Sign
+# the helpers first, then the bundle, ad hoc and with the identifiers the
+# release signing uses. A release re-signs the same paths with its Developer ID.
+if [[ "$(uname -s)" == Darwin ]]; then
+  sign() { codesign --force --timestamp=none --identifier "$1" --sign - "$2"; }
+  sign app.brightterm.Bright.decoder "$macos/lumen-decoder-worker"
+  sign app.brightterm.Bright.holder "$macos/lumen-holder"
+  sign app.brightterm.Bright "$app"
+  codesign --verify --deep --strict "$app" || {
+    echo "package-bright-macos: the signed bundle does not verify" >&2
+    exit 1
+  }
+else
+  echo "package-bright-macos: not signed (codesign needs macOS)" >&2
+fi
 echo "$app"

@@ -58,6 +58,15 @@ jobs:
       - run: cargo test --locked -p lumen-holder --no-default-features
       # A library that panics with overflow checks wraps in release; the shipped worker must still answer status 4.
       - run: cargo test --locked --release -p lumen-decoder --test webp_code_length_wrap
+      # The bundle the packaging script makes from the real binaries must pass
+      # the strict signature check: signing is its last step.
+      - name: Package Bright and verify its signature
+        if: runner.os == 'macOS'
+        run: |
+          cargo build --locked -p lumen-term --features window
+          cargo build --locked -p lumen-decoder -p lumen-holder --bin lumen-decoder-worker --bin lumen-holder
+          scripts/package-bright-macos.sh target/debug "$RUNNER_TEMP/bright"
+          codesign --verify --deep --strict --verbose=2 "$RUNNER_TEMP/bright/Bright.app"
 
   # The Windows decoder sandbox (an app container and a one-process job object)
   # is only exercised on Windows.

@@ -57,6 +57,8 @@ jobs:
         run: cargo build --locked --release -p lumen-decoder -p lumen-holder --bin lumen-decoder-worker --bin lumen-holder
       - name: Package Bright
         run: scripts/package-bright-macos.sh target/release release-set
+      - name: Verify the packaged bundle's signature
+        run: codesign --verify --deep --strict --verbose=2 release-set/Bright.app
       - name: Check that the release set holds the window and the worker
         run: scripts/verify-release-set.sh release-set
       - name: Sign with the hardened runtime
