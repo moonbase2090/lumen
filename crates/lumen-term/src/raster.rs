@@ -2483,21 +2483,14 @@ impl Renderer {
         input: Option<&InputView>,
     ) {
         let t = &self.theme;
-        // A status is one row of muted text: no field, border, mark or caret,
-        // so nothing looks typeable while the keys go elsewhere.
-        if let Some(InputView {
-            status: Some(s), ..
-        }) = input
-        {
-            let room = (ew / self.cell_w.max(1)).saturating_sub(2) as usize;
-            let shown: String = s.chars().take(room.max(1)).collect();
-            self.text_line(frame, ex + self.cell_w, ey, &shown, t.muted);
-            return;
-        }
         // The box stops a gutter padding short of the right edge, as the text
         // column starts one right of the gutter.
         let ew = ew.saturating_sub(self.gutter_pad());
-        let focused = input.is_some_and(|i| i.focused);
+        // While keys go elsewhere the box stays on screen as the same field, its
+        // edge muted and its row holding the status in place of text and caret, so
+        // nothing looks typeable and the box never leaves the window.
+        let status = input.and_then(|i| i.status.as_deref());
+        let focused = input.is_some_and(|i| i.focused) && status.is_none();
         let edge = if focused { t.prompt } else { t.border };
         frame.fill(ex, ey, ew, eh, edge);
         frame.fill(
@@ -2510,6 +2503,15 @@ impl Renderer {
         let text_x = ex + 3 * self.cell_w;
         let room = (ew / self.cell_w.max(1)).saturating_sub(4) as usize;
         match input {
+            Some(_) if status.is_some() => {
+                let shown: String = status
+                    .unwrap_or_default()
+                    .chars()
+                    .take(room.max(1))
+                    .collect();
+                self.text_line(frame, ex + self.cell_w, ey, ">", t.muted);
+                self.text_line(frame, text_x, ey, &shown, t.muted);
+            }
             Some(view) => {
                 self.text_line(frame, ex + self.cell_w, ey, ">", t.prompt);
                 let rows = (editor_rows.saturating_sub(1) as usize).max(1);

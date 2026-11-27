@@ -60,6 +60,11 @@ Every decision listed here is **Adopted**: the specification follows it.
 - **Effect:** When the policy file fails its checks, or the settings file or a theme or font file it names cannot be used, the terminal draws a notice in its notification area, ahead of any toast, and the defaults apply. The notice stays while the defaults apply: program output cannot dismiss it or push it out, and it is never drawn in the trust margin. The notice is drawn in full, not cut at three lines as a program's toast is, and a window draws it once: when a tab is split into panes, it is in the pane at the window's top right corner. Until now the text only went to standard error.
 - **Where:** [Policy file](@/spec/v0/capabilities.md#caps.policy).
 
+### The input box stays on screen
+
+- **Status:** Adopted. On by default.
+- **Effect:** The input box at the bottom of the window is drawn in every state: at a prompt, while a command runs, while a program reads a password, on the alternate screen and after the program ended. When keys go to the program, the box keeps its field with a muted edge and shows where keys go inside it, with no caret, so nothing looks typeable. It no longer shrinks to a bare row of text and comes back at the next prompt.
+
 ### tmux and screen are post-v0; one multiplexer path exists
 
 - **Status:** Adopted.
