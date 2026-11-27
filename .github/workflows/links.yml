@@ -23,7 +23,7 @@ jobs:
       # fetched from main before it merges.
       - name: In-repo github.com links resolve in the tree
         run: scripts/check-repo-links.sh
-      - uses: moonbase2090/.github/actions/package-links@0f192a5bb8fa198ab154fb4f721bdd8ca0813946
+      - uses: moonbase2090/.github/actions/package-links@93645e58a5c6e815a7aa167444dcf1a3c2bb5267
         with:
           # domterm.org answers some GitHub-hosted runners at once and others
           # not at all: failed runs time out on it through every retry (2m20s)
