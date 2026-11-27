@@ -66,6 +66,7 @@ fn every_setting_is_read() {
             prose_size: 18,
             copy_on_select: true,
             smooth_scroll: true,
+            input_box: true,
             shell: Some("pwsh".to_owned()),
             shell_integration: false,
         })
@@ -480,6 +481,26 @@ fn smooth_scroll_is_on_by_default_and_takes_only_true_or_false() {
 }
 
 #[test]
+fn the_input_box_is_on_by_default_and_takes_only_true_or_false() {
+    assert!(LookSettings::default().input_box);
+    assert_eq!(parsed("input_box = false").map(|l| l.input_box), Ok(false));
+    assert_eq!(parsed("input_box = true").map(|l| l.input_box), Ok(true));
+    for bad in [
+        "input_box = \"false\"",
+        "input_box = 0",
+        "input_box = off",
+        "input_box =",
+    ] {
+        assert_eq!(
+            parsed(bad),
+            Err((1, "`input_box` must be true or false".to_owned())),
+            "{bad}"
+        );
+    }
+    assert!(parsed("input_box = false\ninput_box = false").is_err());
+}
+
+#[test]
 fn a_terminal_started_from_ssh_says_why_images_are_not_decoded() {
     let look = LookSettings::default().resolve();
     let local = lumen_term::settings::notices(None, &Settings::Defaults, &look, false);
@@ -501,4 +522,32 @@ fn a_terminal_started_from_ssh_says_why_images_are_not_decoded() {
     let both = lumen_term::settings::notices(Some("policy ignored"), &ignored, &look, true);
     assert_eq!(both.len(), 3, "{both:?}");
     assert!(both[0].contains("SSH session"), "{both:?}");
+}
+
+/// `--show-settings` says whether the input box is on: on with no file, off
+/// when the file turns it off.
+#[cfg(unix)]
+#[test]
+fn show_settings_says_whether_the_input_box_is_on() -> Result<(), Box<dyn std::error::Error>> {
+    let shown = |home: &Path| -> std::io::Result<String> {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_lumen-term"))
+            .env("HOME", home)
+            .arg("--show-settings")
+            .output()?;
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    let empty = dir("input-box-default");
+    std::fs::create_dir_all(&empty)?;
+    let text = shown(&empty)?;
+    assert!(text.contains(" input_box=true "), "{text}");
+
+    let off = dir("input-box-off");
+    std::fs::create_dir_all(off.join(".config/lumen"))?;
+    std::fs::write(
+        off.join(".config/lumen/settings.toml"),
+        "input_box = false\n",
+    )?;
+    let text = shown(&off)?;
+    assert!(text.contains(" input_box=false "), "{text}");
+    Ok(())
 }

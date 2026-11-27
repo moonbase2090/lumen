@@ -2234,6 +2234,18 @@ impl App {
         self.glide.is_moving()
     }
 
+    /// Turn the input box on or off (the `input_box` setting). Off, keys at
+    /// the prompt go to the shell as typed and the cursor sits on the prompt
+    /// line. A line already in the box is kept, and the box stays until it is
+    /// sent: the change takes effect at the next prompt. Returns whether the
+    /// window must draw again.
+    pub fn set_input_box(&mut self, on: bool) -> bool {
+        let rows = self.box_rows;
+        self.input.set_inline(!on);
+        self.sync_box();
+        rows != self.box_rows
+    }
+
     /// Whether wheel steps ease the view (the default) or jump it.
     pub fn set_smooth_scroll(&mut self, on: bool) {
         self.smooth_scroll = on;
@@ -3360,13 +3372,18 @@ impl App {
 
     /// Give the editor as many rows as its text has lines, up to the most the
     /// box shows, and tell the program its window changed if that moved.
+    /// With the input box off and empty there is no box: it takes no rows.
     fn sync_box(&mut self) {
         let lines = if self.input.text().is_empty() {
             1
         } else {
             self.input.text().split('\n').count()
         };
-        let rows = 1 + u32::try_from(lines.clamp(1, INPUT_MAX_LINES)).unwrap_or(1);
+        let rows = if self.input.is_inline() {
+            0
+        } else {
+            1 + u32::try_from(lines.clamp(1, INPUT_MAX_LINES)).unwrap_or(1)
+        };
         if rows != self.box_rows {
             self.box_rows = rows;
             let _ = self.resize(self.width, self.height);
@@ -3878,6 +3895,15 @@ impl App {
             Some(&self.input_view()),
         );
         // The gutter is the terminal's: the marks go on after everything else.
+        // With the box off, the prompt mark says the shell itself reads the
+        // keys typed on the cursor's row.
+        if self.input.is_inline()
+            && !self.exited
+            && InputLine::shell_reads_keys(self.facts_with(self.exited))
+            && let Some((_, y, _)) = self.live_cursor_pixel()
+        {
+            self.renderer.paint_prompt_mark(&mut frame, y);
+        }
         let marks = self.typed_marks();
         for (top, _) in &marks {
             self.renderer.paint_typed_mark(&mut frame, *top);

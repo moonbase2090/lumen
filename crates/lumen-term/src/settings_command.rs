@@ -18,6 +18,7 @@ prose_font = \"bundled\"\n\
 prose_size = 14\n\
 copy_on_select = true\n\
 smooth_scroll = true\n\
+input_box = true\n\
 shell_integration = true\n";
 
 /// The program that opens a file with its default app on Linux and the other

@@ -837,6 +837,7 @@ impl Host {
         app.set_theme_choice(look.theme);
         app.set_copy_on_select(raw.copy_on_select);
         app.set_smooth_scroll(raw.smooth_scroll);
+        app.set_input_box(raw.input_box);
         // The window reads the system's answer when it opens and when it gains
         // focus; a new tab only takes what the window knows.
         app.set_reduce_motion(self.reduce_motion.get());
@@ -878,6 +879,7 @@ impl Host {
                     }
                     app.set_copy_on_select(raw.copy_on_select);
                     app.set_smooth_scroll(raw.smooth_scroll);
+                    redraw |= app.set_input_box(raw.input_box);
                     redraw |= app.set_config_notices(shown.clone());
                 }
             }

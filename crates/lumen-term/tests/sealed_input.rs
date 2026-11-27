@@ -1318,3 +1318,61 @@ fn a_layer_that_loses_its_keys_narrows_the_gutter_and_tells_the_program() {
     );
     assert_eq!(told(&app), [93, 95], "the program is told the wider grid");
 }
+
+/// Whether the gutter, drawn four cells wide on a layer with keys, has ink on
+/// the cursor's row: the prompt mark beside it. The gutter's own colour on each
+/// pixel row is read at its left edge, which no mark reaches.
+fn mark_beside_cursor(app: &App) -> bool {
+    let frame = app.view();
+    let inside = 4 * app.cell_width() - 2;
+    let (_, top, _, height) = app.ime_area();
+    (top..top + height).any(|y| {
+        let plain = frame.pixel(1, y);
+        (2..inside).any(|x| frame.pixel(x, y) != plain)
+    })
+}
+
+#[test]
+fn with_the_box_off_the_mark_is_beside_the_sealed_prompt_and_not_a_builtin_reading_keys() {
+    let Some(mut app) = start("sealed-inline-mark") else {
+        return;
+    };
+    assert!(
+        until(&mut app, |a| a.input_mode() == Mode::Editing),
+        "the shell reaches its sealed prompt"
+    );
+    app.set_input_box(false);
+    assert!(
+        until(&mut app, |a| mark_beside_cursor(a)),
+        "the mark is beside the cursor at the sealed prompt"
+    );
+    capture(&app.view(), "sealed-inline-prompt.png");
+    // As in the builtin test above: while `read -k` waits behind a prompt the
+    // line printed, the kernel facts read as a prompt, and the sealed command
+    // start says the shell is running a command.
+    line(
+        &mut app,
+        "stty -icanon -echo; printf 'fa''ke-builtin %% '; read -k k; stty sane; echo got-$k-done",
+    );
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("fake-builtin %")),
+        "the builtin printed its prompt: {}",
+        grid_text(&app)
+    );
+    assert!(
+        kernel_says_prompt(&app),
+        "the kernel facts read as a prompt"
+    );
+    assert!(!mark_beside_cursor(&app), "no mark while read -k waits");
+    capture(&app.view(), "sealed-inline-fake-builtin.png");
+    key(&mut app, Key::Char('q'));
+    assert!(
+        until(&mut app, |a| grid_text(a).contains("got-q-done")),
+        "the key reached read -k: {}",
+        grid_text(&app)
+    );
+    assert!(
+        until(&mut app, |a| mark_beside_cursor(a)),
+        "the mark is back at the next sealed prompt"
+    );
+}

@@ -118,6 +118,10 @@ enum Typeahead {
 }
 
 /// The box's text and what it needs to route keys.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent states of the line: handed off, its write's kind, the box turned off"
+)]
 #[derive(Debug, Clone)]
 pub struct InputLine {
     text: Vec<char>,
@@ -139,6 +143,8 @@ pub struct InputLine {
     /// On a sealed layer, what Up recalls in place of the box's own history:
     /// the lines recorded for sealed commands, oldest first.
     recall: Option<Vec<String>>,
+    /// The input box is turned off (see [`InputLine::set_inline`]).
+    inline: bool,
 }
 
 /// How long keys right after the box's own Enter go to the shell as typeahead
@@ -168,6 +174,7 @@ impl Default for InputLine {
             for_shell: false,
             whole: false,
             recall: None,
+            inline: false,
         }
     }
 }
@@ -247,6 +254,41 @@ impl InputLine {
         self.recall.as_deref().unwrap_or(&self.history)
     }
 
+    /// Turn the input box off (`true`) or on. Off, keys go to whatever reads
+    /// the tty as they are typed, the shell's own line editor included, as in
+    /// a plain terminal: the box edits nothing and nothing waits in it. A line
+    /// already in the box, or a held paste, stays the box's until it is sent
+    /// or cleared, so turning the box off takes effect at the next prompt and
+    /// never drops or sends what the user is writing.
+    pub fn set_inline(&mut self, inline: bool) {
+        self.inline = inline;
+    }
+
+    /// The box is off and holds nothing, so there is no box: keys go to the
+    /// tty as typed and the cursor is the one on the prompt line.
+    #[must_use]
+    pub fn is_inline(&self) -> bool {
+        self.inline && self.text.is_empty() && self.held.is_none()
+    }
+
+    /// Whether the shell itself is reading keys at its prompt: on a layer with
+    /// sealing keys, the shell's last sealed boundary is a prompt with no
+    /// command start or forwarded Enter after it, and the kernel says the
+    /// shell is the tty's foreground process group, reading with ICANON off
+    /// and not on the alternate screen. A layer without sealing keys has no
+    /// boundary a program cannot print, and the kernel facts alone read the
+    /// same for a shell builtin that reads keys (`read -k`) behind a prompt a
+    /// script printed, so there it is never true. Nothing a program prints is
+    /// consulted.
+    #[must_use]
+    pub fn shell_reads_keys(facts: Facts) -> bool {
+        facts.sealed_prompt == Some(true)
+            && !facts.ended
+            && !facts.alt_screen
+            && facts.shell_in_front == Some(true)
+            && facts.icanon == Some(false)
+    }
+
     /// The held multi-line text, while a choice is pending.
     #[must_use]
     pub fn held(&self) -> Option<&str> {
@@ -264,6 +306,9 @@ impl InputLine {
         }
         if facts.icanon == Some(true) && facts.echo == Some(false) {
             return Mode::Hidden;
+        }
+        if self.is_inline() {
+            return Mode::Raw;
         }
         // A line the user is writing in the box stays the box's while the
         // shell's frames say it is still at that prompt. The line cannot have
