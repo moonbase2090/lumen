@@ -63,7 +63,7 @@ Every decision listed here is **Adopted**: the specification follows it.
 ### The input box stays on screen
 
 - **Status:** Adopted. On by default.
-- **Effect:** The input box at the bottom of the window is drawn in every state: at a prompt, while a command runs, while a program reads a password, on the alternate screen and after the program ended. When keys go to the program, the box keeps its field with a muted edge and shows where keys go inside it, with no caret, so nothing looks typeable. It no longer shrinks to a bare row of text and comes back at the next prompt.
+- **Effect:** The input box at the bottom of the window is drawn in every state: at a prompt, while a command runs, while a program reads a password, on the alternate screen and after the program ended. When keys go to the program, the box keeps its field with a muted edge and shows where keys go inside it, with no caret, so nothing looks typeable. It no longer shrinks to a bare row of text and comes back at the next prompt. The row names the program in front: "Keys go to sleep" while `sleep` runs, "Keys go to vim" in an editor. A program the terminal started directly, such as `lumen-term --snapshot FILE -- sleep 60`, is named in the same way, not called the shell; the row says "Keys go to the shell" only when the program the terminal started is a shell. A program a shell wrapper starts by `exec` (`sh -c vim`) still reads "the shell".
 
 ### tmux and screen are post-v0; one multiplexer path exists
 
