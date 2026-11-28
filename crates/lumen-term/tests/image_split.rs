@@ -362,7 +362,42 @@ fn the_document_is_the_same_however_the_bytes_are_split() {
 /// identity, so the gate has to be redone for the fix: it is the gate owner's
 /// call. Remove the ignore with the fix.
 #[test]
-#[ignore = "known: a rejected header split across reads is shown in pieces"]
 fn a_rejected_header_is_shown_the_same_however_the_bytes_are_split() {
     check(&[streams().1]);
+}
+
+/// A start frame whose id is still in use is refused and shows its alt text; the
+/// decoded pixels belong to the image that was accepted, not to the repeat. The
+/// second image has the first's id and another colour, the third a new id.
+#[test]
+fn a_repeated_id_does_not_take_the_pixels_of_the_image_that_was_accepted() {
+    let cat = |id: u32, tone: u8| {
+        let bytes = image_bytes(tone);
+        let mut v = start(id, 40, "a cat");
+        v.extend(data(id, 0, &bytes[..25]));
+        v.extend(data(id, 25, &bytes[25..]));
+        v
+    };
+    let mut bytes = cat(1, 0);
+    bytes.extend(b"mid\r\n");
+    bytes.extend(cat(1, 5));
+    bytes.extend(cat(2, 7));
+    let start = |id: u32| {
+        format!(
+            "ImageStart {{ id: {id}, format: 1, width: 2, height: 2, length: 40, alt: \"a cat\" }}"
+        )
+    };
+    let want = Snap {
+        rich: vec![
+            (start(1), Some(pixels(0))),
+            (start(1), None),
+            (start(2), Some(pixels(7))),
+        ],
+        rows: vec!["1 0: \"mid\"".to_string(), "2 0: \"a cat\"".to_string()],
+    };
+    check(&[Stream {
+        name: "a repeated id",
+        bytes,
+        want,
+    }]);
 }
