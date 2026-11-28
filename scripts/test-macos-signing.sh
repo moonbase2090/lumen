@@ -100,4 +100,20 @@ expect "an unknown signer argument is a usage error" 2 "$SIGN" --bogus
 expect "a signer identifier without a value is a usage error" 2 "$SIGN" --identifier-prefix
 expect "no binary is a signer usage error" 2 "$SIGN"
 
+# A disk image is signed with the identity and a timestamp but without the runtime flag.
+mkdir "$WORK/imgsrc" && printf 'x' >"$WORK/imgsrc/f"
+hdiutil create -quiet -volname T -srcfolder "$WORK/imgsrc" -format UDZO "$WORK/t.dmg"
+# Under the system shell (bash 3.2) with nounset, an empty option list must not abort.
+expect "a disk image is signed under the system shell" 0 /bin/bash "$SIGN" --adhoc "$WORK/t.dmg"
+expect "a disk image is signed" 0 "$SIGN" --adhoc "$WORK/t.dmg"
+expect "a disk image is signed with an identifier prefix under the system shell" 0 /bin/bash "$SIGN" --adhoc --identifier-prefix app.brightterm.Bright "$WORK/t.dmg"
+expect "the signed disk image verifies" 0 codesign --verify --strict "$WORK/t.dmg"
+if codesign -dvv "$WORK/t.dmg" 2>&1 | grep -q 'flags=.*runtime'; then
+  echo "FAIL a disk image was given the runtime flag"
+  FAILED=1
+else
+  echo "ok   a disk image carries no runtime flag"
+fi
+expect "the executable verifier still refuses a disk image without the runtime flag" 1 "$VERIFY" --allow-adhoc "$WORK/t.dmg"
+
 exit "$FAILED"

@@ -1,9 +1,9 @@
 name: Release check
 
-# The gate a release has to pass. It checks and publishes nothing: there is no
-# release step in this workflow. With no committed decoder fuzz evidence
+# The gate a release has to pass. With no committed decoder fuzz evidence
 # (release/decoder-ledger.json and release/decoder-fuzz-flags.txt) it refuses,
-# on purpose.
+# on purpose. The only publishing step is publish-preview, which runs on a
+# v*-preview* tag after the gate and the signed, notarized build have passed.
 on:
   push:
     tags: ["v*"]
@@ -32,11 +32,11 @@ jobs:
   # that has to sit beside it (images stay on their alt text without it) and
   # lumen-holder. It signs the nested executables and app with the hardened
   # runtime and a Developer ID certificate, then verifies the package and
-  # signatures. It refuses when the certificate secrets are absent: there is
-  # no unsigned fallback. It does not notarize, publish or release. The signed
-  # binaries are
-  # the input for the macOS release gates (task-port denial and
-  # non-dumpability).
+  # signatures. It then notarizes and staples the app, builds the disk image,
+  # signs, notarizes and staples that too. It refuses when the certificate or
+  # notary secrets are absent: there is no unsigned fallback. It publishes
+  # nothing. The signed binaries are the input for the macOS release gates
+  # (task-port denial and non-dumpability).
   macos-signed:
     runs-on: macos-latest
     timeout-minutes: 45
@@ -78,12 +78,52 @@ jobs:
             release-set/Bright.app/Contents/MacOS/lumen-decoder-worker \
             release-set/Bright.app/Contents/MacOS/lumen-holder \
             release-set/Bright.app
+      - name: Notarize and staple the app
+        env:
+          APPLE_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+        run: scripts/notarize-macos.sh release-set/Bright.app
+      - name: Verify the signatures after stapling
+        run: |
+          scripts/verify-macos-signed.sh --identifier-prefix app.brightterm.Bright \
+            release-set/Bright.app/Contents/MacOS/bright \
+            release-set/Bright.app/Contents/MacOS/lumen-decoder-worker \
+            release-set/Bright.app/Contents/MacOS/lumen-holder \
+            release-set/Bright.app
       - name: Check the signed release set again
         run: scripts/verify-release-set.sh release-set
+      - name: Build the disk image
+        id: dmg
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --locked --format-version 1 --no-deps \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(p["version"] for p in d["packages"] if p["name"] == "lumen-term"))')"
+          mkdir dist
+          scripts/build-bright-dmg.sh release-set/Bright.app "dist/Bright-${version}.dmg"
+          echo "path=dist/Bright-${version}.dmg" >> "$GITHUB_OUTPUT"
+      - name: Sign the disk image
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          DMG: ${{ steps.dmg.outputs.path }}
+        run: scripts/sign-macos-binaries.sh --identifier-prefix app.brightterm.Bright "$DMG"
+      - name: Notarize and staple the disk image
+        env:
+          APPLE_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          DMG: ${{ steps.dmg.outputs.path }}
+        run: scripts/notarize-macos.sh "$DMG"
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: bright-macos-signed
           path: release-set/Bright.app
+          if-no-files-found: error
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: bright-macos-dmg
+          path: dist/Bright-*.dmg
           if-no-files-found: error
 
   linux-package:
@@ -107,3 +147,63 @@ jobs:
           name: bright-linux-x86_64
           path: release-set/bright-linux-x86_64
           if-no-files-found: error
+
+  # Publishes the notarized disk image as a GitHub prerelease. It runs only for
+  # a v*-preview* tag pushed to this repository, and only after the release gate
+  # and the signed, notarized build have both passed: the release gate refuses
+  # without committed decoder fuzz evidence, so a failed gate publishes nothing.
+  # It is the only job with write access. It pushes no tag (--verify-tag
+  # requires the tag to exist) and publishes no crate.
+  publish-preview:
+    needs: [release-check, macos-signed]
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-preview.') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: The tag names this version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --locked --format-version 1 --no-deps \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(p["version"] for p in d["packages"] if p["name"] == "lumen-term"))')"
+          if [[ "$RELEASE_TAG" != "v${version}" ]]; then
+            echo "the tag does not match the package version" >&2
+            exit 1
+          fi
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: bright-macos-dmg
+          path: dist
+      - name: Checksums and notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum Bright-*.dmg > SHA256SUMS
+          cd ..
+          mkdir -p build/release-text
+          scripts/release-notes-preview.sh "$RELEASE_TAG" dist build/release-text/notes.md
+          printf '%s\n' "$RELEASE_TAG" > build/release-text/title.txt
+      - name: Check the release text
+        env:
+          PUBLIC_TEXT_DENYLIST: ${{ secrets.PUBLIC_TEXT_DENYLIST }}
+        run: scripts/check-public-text.sh build/release-text dist
+      - name: Publish the prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --prerelease \
+            --title "$RELEASE_TAG" \
+            --notes-file build/release-text/notes.md \
+            dist/*

@@ -2,7 +2,9 @@
 # Sign macOS executables or app bundles with the hardened runtime and no
 # entitlements, so Bright can be handed to the macOS release gates
 # (task-port denial, non-dumpability). It signs and nothing else: no
-# notarization, no upload, no release.
+# notarization, no upload, no release. A path ending in .dmg is a disk image:
+# it is signed with the Developer ID and a timestamp but no runtime flag, which
+# applies to executables only.
 #
 # usage: sign-macos-binaries.sh [--adhoc] [--identifier-prefix PREFIX] PATH...
 #
@@ -60,11 +62,13 @@ identifier_for() {
 sign_one() {
   local identity="$1" path="$2"
   shift 2
+  local runtime=(--options runtime)
+  [[ "$path" == *.dmg ]] && runtime=()
   if [[ -n "$identifier_prefix" ]]; then
-    codesign --force "$@" --options runtime --identifier "$(identifier_for "$path")" \
+    codesign --force "$@" ${runtime[@]+"${runtime[@]}"} --identifier "$(identifier_for "$path")" \
       --sign "$identity" "$path"
   else
-    codesign --force "$@" --options runtime --sign "$identity" "$path"
+    codesign --force "$@" ${runtime[@]+"${runtime[@]}"} --sign "$identity" "$path"
   fi
 }
 

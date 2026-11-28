@@ -57,6 +57,10 @@ jobs:
         run: scripts/test-verify-release-set.sh
       - name: Bright packaging tests
         run: scripts/test-bright-packaging.sh
+      - name: Notarize and release notes tests
+        run: scripts/test-notarize-macos.sh
+      - name: Release workflow structure tests
+        run: scripts/test-release-publish.sh
       - name: Test capture check tests
         run: scripts/test-capture-tests.sh
       - name: Comparison launcher tests
@@ -93,6 +97,8 @@ jobs:
           persist-credentials: false
       - name: Release signing script tests
         run: scripts/test-macos-signing.sh
+      - name: Notarize, disk image and release notes tests
+        run: scripts/test-notarize-macos.sh
       # On macOS the packaging tests also sign the bundle and check it with
       # codesign --verify --deep --strict.
       - name: Bright packaging tests
