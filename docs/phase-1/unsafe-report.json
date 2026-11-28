@@ -100,7 +100,7 @@
      "methods": 142
     }
    },
-   "lumen-decoder 0.0.0": {
+   "lumen-decoder 0.1.0-preview.1": {
     "forbids_unsafe": false,
     "source": "Path",
     "unsafe_items": {
@@ -190,7 +190,7 @@
    }
   },
   "lumen-detector": {
-   "lumen-detector 0.0.0": {
+   "lumen-detector 0.1.0-preview.1": {
     "forbids_unsafe": true,
     "source": "Path",
     "unsafe_items": {
@@ -214,7 +214,7 @@
      "methods": 142
     }
    },
-   "lumen-seal 0.0.0": {
+   "lumen-seal 0.1.0-preview.1": {
     "forbids_unsafe": false,
     "source": "Path",
     "unsafe_items": {
@@ -392,7 +392,7 @@
      "methods": 142
     }
    },
-   "lumen-sealed 0.0.0": {
+   "lumen-sealed 0.1.0-preview.1": {
     "forbids_unsafe": true,
     "source": "Path",
     "unsafe_items": {
@@ -1043,7 +1043,7 @@
      "methods": 0
     }
    },
-   "lumen-arm-b 0.0.0": {
+   "lumen-arm-b 0.1.0-preview.1": {
     "forbids_unsafe": true,
     "source": "Path",
     "unsafe_items": {
@@ -1054,7 +1054,7 @@
      "methods": 0
     }
    },
-   "lumen-decoder 0.0.0": {
+   "lumen-decoder 0.1.0-preview.1": {
     "forbids_unsafe": false,
     "source": "Path",
     "unsafe_items": {
@@ -1065,7 +1065,7 @@
      "methods": 4
     }
    },
-   "lumen-detector 0.0.0": {
+   "lumen-detector 0.1.0-preview.1": {
     "forbids_unsafe": true,
     "source": "Path",
     "unsafe_items": {
@@ -1076,7 +1076,7 @@
      "methods": 0
     }
    },
-   "lumen-holder 0.0.0": {
+   "lumen-holder 0.1.0-preview.1": {
     "forbids_unsafe": false,
     "source": "Path",
     "unsafe_items": {
@@ -1087,7 +1087,7 @@
      "methods": 0
     }
    },
-   "lumen-seal 0.0.0": {
+   "lumen-seal 0.1.0-preview.1": {
     "forbids_unsafe": false,
     "source": "Path",
     "unsafe_items": {
@@ -1098,7 +1098,7 @@
      "methods": 0
     }
    },
-   "lumen-sealed 0.0.0": {
+   "lumen-sealed 0.1.0-preview.1": {
     "forbids_unsafe": true,
     "source": "Path",
     "unsafe_items": {
@@ -1109,7 +1109,7 @@
      "methods": 0
     }
    },
-   "lumen-term 0.0.0": {
+   "lumen-term 0.1.0-preview.1": {
     "forbids_unsafe": false,
     "source": "Path",
     "unsafe_items": {
@@ -1120,7 +1120,7 @@
      "methods": 0
     }
    },
-   "lumen-track0 0.0.0": {
+   "lumen-track0 0.1.0-preview.1": {
     "forbids_unsafe": true,
     "source": "Path",
     "unsafe_items": {
