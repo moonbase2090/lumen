@@ -15,7 +15,7 @@ default = ["zero-width-text"]
 zero-width-text = ["lumen-track0/zero-width-text"]
 
 [dependencies]
-lumen-detector = { path = "../lumen-detector" }
+lumen-detector = { path = "../lumen-detector", version = "0.1.0-preview.1" }
 lumen-sealed = { path = "../lumen-sealed" }
 lumen-track0 = { path = "../lumen-track0", default-features = false }
 

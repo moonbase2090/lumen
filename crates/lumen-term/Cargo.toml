@@ -37,13 +37,13 @@ path = "src/main.rs"
 [dependencies]
 prismattyc-core.workspace = true
 prismattyc-emulator.workspace = true
-lumen-track0 = { path = "../lumen-track0", default-features = false }
+lumen-track0 = { path = "../lumen-track0", version = "0.1.0-preview.1", default-features = false }
 swash = "0.2"
 png = "0.17"
-lumen-arm-b = { path = "../lumen-arm-b", default-features = false }
+lumen-arm-b = { path = "../lumen-arm-b", version = "0.1.0-preview.1", default-features = false }
 unicode-general-category = "1.1.0"
-lumen-sealed = { path = "../lumen-sealed" }
-lumen-decoder = { path = "../lumen-decoder" }
+lumen-sealed = { path = "../lumen-sealed", version = "0.1.0-preview.1" }
+lumen-decoder = { path = "../lumen-decoder", version = "0.1.0-preview.1" }
 
 [target.'cfg(not(windows))'.dependencies]
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland"], optional = true }
@@ -77,8 +77,8 @@ softbuffer = { version = "0.4", default-features = false, optional = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 # The holder that seals shell integration, and the conditions that decide
 # whether a layer may have one. Linux only: elsewhere there is no holder.
-lumen-holder = { path = "../lumen-holder", features = ["seal-requests"] }
-lumen-seal = { path = "../lumen-seal" }
+lumen-holder = { path = "../lumen-holder", version = "0.1.0-preview.1", features = ["seal-requests"] }
+lumen-seal = { path = "../lumen-seal", version = "0.1.0-preview.1" }
 
 [target.'cfg(unix)'.dependencies]
 # The user's id, through a safe call, to check who owns the policy file.

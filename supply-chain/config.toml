@@ -399,7 +399,7 @@ version = "0.4.34"
 criteria = "safe-to-deploy"
 
 [[exemptions.lumen-term]]
-version = "0.0.0"
+version = "0.1.0-preview.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.memchr]]

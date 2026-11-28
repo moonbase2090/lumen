@@ -39,9 +39,9 @@ source = Path(sys.argv[1])
 destination = Path(sys.argv[2])
 version = sys.argv[3]
 text = source.read_text(encoding="utf-8")
-if text.count("@VERSION@") != 2:
-    raise SystemExit("package-bright-macos: Info.plist template must contain two version fields")
-destination.write_text(text.replace("@VERSION@", version), encoding="utf-8")
+if text.count("@VERSION@") != 1:
+    raise SystemExit("package-bright-macos: Info.plist template must contain one release version field")
+destination.write_text(text.replace("@VERSION@", version.partition("+")[0].partition("-")[0]), encoding="utf-8")
 PY
 
 # Signing is the last step: the bundle's signature seals Info.plist and the

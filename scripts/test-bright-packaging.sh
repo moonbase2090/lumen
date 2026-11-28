@@ -23,7 +23,16 @@ plist="$app/Contents/Info.plist"
 grep -q '<string>Bright</string>' "$plist"
 grep -q '<string>bright</string>' "$plist"
 grep -q '<string>app.brightterm.Bright</string>' "$plist"
-test "$(grep -c '@VERSION@' "$plist")" -eq 0
+python3 - "$plist" <<'PYTHON'
+import plistlib
+import re
+import sys
+
+with open(sys.argv[1], "rb") as bundle:
+    info = plistlib.load(bundle)
+assert re.fullmatch(r"[0-9]+(?:\.[0-9]+){2}", info["CFBundleShortVersionString"])
+assert re.fullmatch(r"[0-9]+(?:\.[0-9]+){0,2}", info["CFBundleVersion"])
+PYTHON
 
 if [[ "$(uname -s)" == Darwin ]]; then
   # Mach-O stand-ins: the linker signs them ad hoc, as it signs the release
