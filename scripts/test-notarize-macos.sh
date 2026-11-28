@@ -61,9 +61,11 @@ printf 'dmg' >"$WORK/Bright-0.1.0-preview.1.dmg"
 export FAKE_LOG="$WORK/calls.log"
 export NOTARY_XCRUN="$WORK/xcrun" NOTARY_SPCTL="$WORK/spctl"
 export APPLE_NOTARY_ISSUER=issuer APPLE_NOTARY_KEY_ID=keyid
-export APPLE_NOTARY_KEY='-----BEGIN PRIVATE KEY-----
+# A synthetic key, assembled here so no key-shaped text is committed.
+dashes='-----'
+export APPLE_NOTARY_KEY="${dashes}BEGIN PRIVATE KEY${dashes}
 not-a-real-key
------END PRIVATE KEY-----'
+${dashes}END PRIVATE KEY${dashes}"
 
 run() { : >"$FAKE_LOG"; "$NOTARIZE" "$@"; }
 

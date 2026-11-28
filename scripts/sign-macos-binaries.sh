@@ -65,10 +65,10 @@ sign_one() {
   local runtime=(--options runtime)
   [[ "$path" == *.dmg ]] && runtime=()
   if [[ -n "$identifier_prefix" ]]; then
-    codesign --force "$@" "${runtime[@]}" --identifier "$(identifier_for "$path")" \
+    codesign --force "$@" ${runtime[@]+"${runtime[@]}"} --identifier "$(identifier_for "$path")" \
       --sign "$identity" "$path"
   else
-    codesign --force "$@" "${runtime[@]}" --sign "$identity" "$path"
+    codesign --force "$@" ${runtime[@]+"${runtime[@]}"} --sign "$identity" "$path"
   fi
 }
 
