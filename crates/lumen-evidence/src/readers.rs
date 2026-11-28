@@ -2,18 +2,24 @@
 //! prompt set, for a panel of simulated readers, and the score of their labels.
 //!
 //! Each prompt is a byte stream, labelled genuine or spoofed. It is played
-//! through Arm B into the terminal's document and through the plain
+//! through Arm A and Arm B into the terminal's document and through the plain
 //! [`Passthrough`] layer (the plain-VT control), and the window is drawn by the
 //! same code the terminal uses, under the render conditions of 2.3: the light
 //! theme, the one bundled face, no cursor, no animation, the 80 by 24 window and
 //! the scale the caller gives. The frames are written as PNGs and are never
 //! edited. The harness has no readers: it writes `manifest.json`, and a later
-//! call scores the labels the readers gave. Arm A has no layer in the terminal,
-//! so it is not rendered here and the summary says so.
+//! call scores the labels the readers gave.
+//!
+//! Arm A has no layer in the terminal, so this mode wraps Arm A's pipeline in
+//! [`ArmA`], which hands its items to the document unchanged. The layer is
+//! unsealed, like the Arm B layer here: neither holds keys, so Arm A shows
+//! Track 0 as escaped text, its rule for an unsealed layer.
 
 use crate::HARNESS_VERSION;
 use crate::pixels::WINDOWS;
-use lumen_term::{Context, Document, Layer, Passthrough, Renderer, Window};
+use lumen_arm_a::LayerState;
+use lumen_arm_a::pipeline as arm_a;
+use lumen_term::{Context, Document, Layer, Notice, Passthrough, Piece, Renderer, Window};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -67,7 +73,74 @@ pub struct Prompts {
 }
 
 /// The renderings a prompt gets.
-pub const RENDERINGS: [&str; 2] = ["arm-b", "plain-vt"];
+pub const RENDERINGS: [&str; 3] = ["arm-a", "arm-b", "plain-vt"];
+
+/// The arms the panel's labels can veto, each against the plain-VT control.
+pub const ARMS: [&str; 2] = ["arm-a", "arm-b"];
+
+/// Arm A's pipeline as a terminal layer. Each item becomes the piece of the
+/// same meaning; nothing is added, dropped or reordered.
+#[derive(Debug)]
+pub struct ArmA(pub arm_a::Layer);
+
+impl ArmA {
+    /// An unsealed Arm A layer with the unauthenticated producer's budget.
+    #[must_use]
+    pub fn unsealed() -> Self {
+        Self(arm_a::Layer::new(
+            arm_a::Config {
+                budget: arm_a::Budget::quarter_of(2000, 8 << 20),
+            },
+            LayerState::Unsealed,
+        ))
+    }
+
+    fn pieces(items: Vec<arm_a::Item>) -> Vec<Piece> {
+        items
+            .into_iter()
+            .map(|item| match item {
+                arm_a::Item::Output(bytes) => Piece::Bytes(bytes),
+                arm_a::Item::Block(block) => Piece::Rich(block),
+                arm_a::Item::Text(text) => Piece::Text(text),
+                arm_a::Item::Degraded => Piece::Notice(Notice::Degraded),
+                arm_a::Item::Pinned => Piece::Notice(Notice::Pinned),
+                arm_a::Item::Sealed { header, body } => Piece::Sealed {
+                    kind: header.kind,
+                    body,
+                },
+            })
+            .collect()
+    }
+}
+
+impl Layer for ArmA {
+    fn feed(&mut self, bytes: &[u8], ctx: Context) -> Vec<Piece> {
+        Self::pieces(self.0.feed(
+            bytes,
+            arm_a::Context {
+                alt_screen: ctx.alt_screen,
+                tmux_or_screen: ctx.tmux_or_screen,
+                now_ms: ctx.now_ms,
+            },
+        ))
+    }
+
+    fn finish(&mut self) -> Vec<Piece> {
+        Self::pieces(self.0.finish())
+    }
+
+    fn open_container(&mut self) {
+        self.0.open_container();
+    }
+
+    fn close_container(&mut self) {
+        self.0.close_container();
+    }
+
+    fn sealed_abort(&mut self, now_ms: u64) -> Vec<Piece> {
+        Self::pieces(self.0.sealed_abort(now_ms))
+    }
+}
 
 /// Load `readers-*.json` from `dir`.
 ///
@@ -140,6 +213,8 @@ pub struct Shots {
     /// Prompts whose Arm B frame equals the plain-VT frame. A reader cannot tell
     /// those apart by the screenshot, so a spoof there is not one Arm B shows.
     pub same_frame: Vec<String>,
+    /// Prompts whose Arm A frame equals the plain-VT frame, likewise for Arm A.
+    pub same_frame_arm_a: Vec<String>,
 }
 
 /// Render every prompt in every rendering and write the PNGs and `manifest.json`
@@ -155,17 +230,20 @@ pub fn render_prompts(prompts: &Prompts, scale: u32, out: &Path) -> Result<Shots
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut entries = Vec::new();
     let mut same_frame = Vec::new();
+    let mut same_frame_arm_a = Vec::new();
     for p in &prompts.prompts {
         let mut frames = Vec::new();
         for rendering in RENDERINGS {
-            let doc = if rendering == "arm-b" {
-                let mut layer = lumen_arm_b::Layer::new(lumen_arm_b::Config {
-                    budget: lumen_arm_b::Budget::quarter_of(2000, 8 << 20),
-                    background_as_text: false,
-                });
-                play(&mut layer, &p.bytes, &window)
-            } else {
-                play(&mut Passthrough, &p.bytes, &window)
+            let doc = match rendering {
+                "arm-a" => play(&mut ArmA::unsealed(), &p.bytes, &window),
+                "arm-b" => {
+                    let mut layer = lumen_arm_b::Layer::new(lumen_arm_b::Config {
+                        budget: lumen_arm_b::Budget::quarter_of(2000, 8 << 20),
+                        background_as_text: false,
+                    });
+                    play(&mut layer, &p.bytes, &window)
+                }
+                _ => play(&mut Passthrough, &p.bytes, &window),
             };
             let frame = renderer.render_window(&doc, &window);
             let png = frame.to_png().map_err(|e| e.to_string())?;
@@ -180,8 +258,12 @@ pub fn render_prompts(prompts: &Prompts, scale: u32, out: &Path) -> Result<Shots
             }));
             frames.push(frame);
         }
-        if frames[0] == frames[1] {
+        // In the order of RENDERINGS: arm-a, arm-b, plain-vt.
+        if frames[1] == frames[2] {
             same_frame.push(p.id.clone());
+        }
+        if frames[0] == frames[2] {
+            same_frame_arm_a.push(p.id.clone());
         }
     }
     let manifest = json!({
@@ -191,6 +273,7 @@ pub fn render_prompts(prompts: &Prompts, scale: u32, out: &Path) -> Result<Shots
         "window": [window.cols, window.rows],
         "platform": format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
         "render_conditions": "light theme, bundled face, no cursor, no animation",
+        "layers": "arm-a and arm-b unsealed (no keys); plain-vt is the pass-through layer",
         "shots": entries,
     });
     std::fs::write(
@@ -201,6 +284,7 @@ pub fn render_prompts(prompts: &Prompts, scale: u32, out: &Path) -> Result<Shots
     Ok(Shots {
         manifest,
         same_frame,
+        same_frame_arm_a,
     })
 }
 
@@ -235,9 +319,22 @@ impl Score {
     /// Arm B is vetoed when its accepted-spoof fraction is above the control's.
     #[must_use]
     pub fn vetoed(&self) -> Option<bool> {
-        let b = self.tallies.get("arm-b")?.percent()?;
+        self.arm_vetoed("arm-b")
+    }
+
+    /// `arm` (`arm-a` or `arm-b`) is vetoed when its accepted-spoof fraction is
+    /// above the control's on the same prompts.
+    #[must_use]
+    pub fn arm_vetoed(&self, arm: &str) -> Option<bool> {
+        let a = self.tallies.get(arm)?.percent()?;
         let c = self.tallies.get("plain-vt")?.percent()?;
-        Some(b > c)
+        Some(a > c)
+    }
+
+    /// Whether any arm is vetoed.
+    #[must_use]
+    pub fn any_vetoed(&self) -> bool {
+        ARMS.iter().any(|arm| self.arm_vetoed(arm) == Some(true))
     }
 
     /// The summary text.
@@ -262,18 +359,20 @@ impl Score {
                 }
             }
         }
-        match self.vetoed() {
-            Some(true) => {
-                let _ = writeln!(out, "2.2b veto: arm-b is above the plain-VT control");
-            }
-            Some(false) => {
-                let _ = writeln!(
-                    out,
-                    "2.2b veto: not triggered (a pass decides nothing about the spoofing rule)"
-                );
-            }
-            None => {
-                let _ = writeln!(out, "2.2b veto: not measured");
+        for arm in ARMS {
+            match self.arm_vetoed(arm) {
+                Some(true) => {
+                    let _ = writeln!(out, "2.2b veto: {arm} is above the plain-VT control");
+                }
+                Some(false) => {
+                    let _ = writeln!(
+                        out,
+                        "2.2b veto: {arm} not triggered (a pass decides nothing about the spoofing rule)"
+                    );
+                }
+                None => {
+                    let _ = writeln!(out, "2.2b veto: {arm} not measured");
+                }
             }
         }
         out

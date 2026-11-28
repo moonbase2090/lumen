@@ -310,13 +310,16 @@ fn readers(
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
     let shots = lumen_evidence::readers::render_prompts(&prompts, scale, out)?;
     let mut text = format!(
-        "commit={commit} harness={} corpus={} scale={scale}\n{} shots written under readers/ (arm-b and plain-vt; arm A has no layer in the terminal, so it is not rendered)\n",
+        "commit={commit} harness={} corpus={} scale={scale}\n{} shots written under readers/ (arm-a, arm-b and plain-vt; both arms unsealed)\n",
         lumen_evidence::HARNESS_VERSION,
         prompts.revision,
         shots.manifest["shots"].as_array().map_or(0, Vec::len),
     );
     for id in &shots.same_frame {
-        let _ = writeln!(text, "same frame in both renderings: {id}");
+        let _ = writeln!(text, "same frame in arm-b and plain-vt: {id}");
+    }
+    for id in &shots.same_frame_arm_a {
+        let _ = writeln!(text, "same frame in arm-a and plain-vt: {id}");
     }
     let code = if let Some(file) = labels {
         let raw = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
@@ -324,7 +327,7 @@ fn readers(
             serde_json::from_str(&raw).map_err(|e| format!("{file}: {e}"))?;
         let score = lumen_evidence::readers::score(&shots.manifest, &given)?;
         text.push_str(&score.summary());
-        ExitCode::from(u8::from(score.vetoed() == Some(true)))
+        ExitCode::from(u8::from(score.any_vetoed()))
     } else {
         text.push_str(
             "2.2b=not measured (the screenshots are written; no reader labels were given)\n",
