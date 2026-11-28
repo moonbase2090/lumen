@@ -305,6 +305,8 @@ pub struct App {
     box_rows: u32,
     /// The name of the program in front, by process group, for the status row.
     front_name: Option<(i32, String)>,
+    /// The program the terminal started, cut to a plain word.
+    started_as: String,
     /// The sealed layer's boundary frames: whether the shell said, sealed,
     /// that it is at a prompt.
     boundaries: Boundaries,
@@ -654,6 +656,28 @@ pub fn block_cells_for(columns: usize, rows: usize, editor_rows: u32) -> (usize,
     (usable_columns as usize, usable_rows as usize)
 }
 
+/// A program's file name cut to a plain word: a program cannot put text of
+/// its choosing in the terminal's own chrome.
+fn plain_name(program: &str) -> String {
+    program
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        .take(24)
+        .collect()
+}
+
+/// Whether `name` (a process name cut to a plain word) is a login shell.
+fn is_shell_name(name: &str) -> bool {
+    let name = name.trim_start_matches('-');
+    matches!(
+        name,
+        "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh" | "tcsh" | "csh" | "nu" | "pwsh"
+    )
+}
+
 /// The columns and rows of a window of `width` by `height` pixels drawn by
 /// `renderer`, whose text column starts a gutter padding right of the gutter
 /// and ends a right inset short of the window's edge, with a bottom inset
@@ -719,7 +743,9 @@ impl App {
         let (block_columns, block_rows) = block_cells(columns, rows);
         let session =
             Session::start_with_shell(layer, block_columns, block_rows, program, arguments, shell)?;
-        Ok(Self::with_session(session, renderer, scale, width, height))
+        let mut app = Self::with_session(session, renderer, scale, width, height);
+        app.started_as = plain_name(program);
+        Ok(app)
     }
 
     /// [`start`](Self::start) with the sealed layer's settings given: a listed
@@ -745,7 +771,9 @@ impl App {
         let (block_columns, block_rows) = block_cells(columns, rows);
         let session =
             Session::start_with_seal(layer, block_columns, block_rows, program, arguments, config)?;
-        Ok(Self::with_session(session, renderer, scale, width, height))
+        let mut app = Self::with_session(session, renderer, scale, width, height);
+        app.started_as = plain_name(program);
+        Ok(app)
     }
 
     fn with_session(
@@ -806,6 +834,7 @@ impl App {
             input: InputLine::new(),
             box_rows: EDITOR_ROWS,
             front_name: None,
+            started_as: String::new(),
             boundaries: Boundaries::new(),
             sealed_keys: false,
             forwarded_enters: 0,
@@ -3187,13 +3216,14 @@ impl App {
                 (g.parse::<i32>().ok()? == group).then_some(c.trim())
             })
             .unwrap_or("");
-        let base = comm.rsplit('/').next().unwrap_or("");
-        let name: String = base
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
-            .take(24)
-            .collect();
-        self.front_name = Some((group, name));
+        self.front_name = Some((group, plain_name(comm)));
+    }
+
+    /// The one-row status the input box shows in place of its text, if any:
+    /// where the keys go.
+    #[must_use]
+    pub fn input_status(&self) -> Option<String> {
+        self.input_view().status
     }
 
     /// What the input box shows now.
@@ -3206,14 +3236,23 @@ impl App {
             .map(|(_, n)| n.as_str())
             .filter(|n| !n.is_empty())
             .unwrap_or("the program");
+        // The process the terminal started is in front of the terminal when
+        // it is the shell, but also when a program was started directly (as
+        // `--snapshot -- sleep 60` does): then it is that program the keys go
+        // to, and it is named.
+        let started = self.started_as.as_str();
+        let shell_reads = facts.shell_in_front == Some(true) && is_shell_name(started);
+        let name = if facts.shell_in_front == Some(true) && !started.is_empty() {
+            started
+        } else {
+            name
+        };
         let status = match mode {
             Mode::Editing => None,
             Mode::Ended => Some("The program has ended".to_owned()),
             Mode::Hidden => Some(format!("Keys go to {name} · input not shown")),
             Mode::HandedOff => Some("Editing in the shell: Enter runs the line".to_owned()),
-            Mode::Raw if facts.shell_in_front == Some(true) => {
-                Some("Keys go to the shell".to_owned())
-            }
+            Mode::Raw if shell_reads => Some("Keys go to the shell".to_owned()),
             Mode::Raw => Some(format!("Keys go to {name}")),
         };
         let text = self.input.text();
@@ -3972,6 +4011,18 @@ fn record_shown(session: &Session, record: &crate::typed::Record) -> bool {
 
 #[cfg(all(test, unix))]
 mod tests {
+    #[test]
+    fn only_a_shell_is_called_the_shell() {
+        for shell in ["sh", "bash", "zsh", "fish", "-zsh", "-bash"] {
+            assert!(super::is_shell_name(shell), "{shell}");
+        }
+        for other in ["sleep", "vim", "less", "shellcheck", ""] {
+            assert!(!super::is_shell_name(other), "{other}");
+        }
+        assert_eq!(super::plain_name("/usr/bin/vim"), "vim");
+        assert_eq!(super::plain_name("/bin/a b\x1b[31m!c"), "ab31mc");
+    }
+
     use super::App;
     use crate::layer::Passthrough;
 
